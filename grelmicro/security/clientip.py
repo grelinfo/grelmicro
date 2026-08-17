@@ -251,10 +251,11 @@ class TrustedProxies:
         """Compile the trusted set, rejecting anything unparsable.
 
         Raises:
-            ValueError: If a bound is outside its usable range. `max_entries`
-                and `max_header_bytes` cap work, so zero or less caps nothing.
-                `max_hops` counts proxies to walk past, so it may be zero but
-                never negative.
+            SettingsValidationError: If an entry is not an IP address or a
+                CIDR range, or a bound is outside its usable range.
+                `max_entries` and `max_header_bytes` cap work, so zero or
+                less caps nothing. `max_hops` counts proxies to walk past, so
+                it may be zero but never negative.
         """
         _validate_positive("max_entries", max_entries)
         _validate_positive("max_header_bytes", max_header_bytes)
@@ -283,7 +284,7 @@ def _validate_positive(name: str, value: int) -> None:
     meant to enforce.
 
     Raises:
-        ValueError: If `value` is not greater than zero.
+        SettingsValidationError: If `value` is not greater than zero.
     """
     if value <= 0:
         msg = f"{name} must be > 0"

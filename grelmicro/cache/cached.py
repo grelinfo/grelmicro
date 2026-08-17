@@ -518,9 +518,9 @@ def cached(  # noqa: PLR0913, C901
         TypeError: If both ``cache`` and ``ttl`` are given, if neither is
             given, if both ``key`` and ``key_maker`` are given, or if the
             decorated function is a sync generator.
-        ValueError: If ``lock`` is not ``True``, ``False``, or ``"local"``,
-            if ``early`` is outside ``[0, 1)``, or if ``stale_ttl`` is not
-            positive.
+        SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
+            ``"local"``, if ``early`` is outside ``[0, 1)``, or if
+            ``stale_ttl`` is not positive.
 
     Returns:
         A decorator that caches function results.
