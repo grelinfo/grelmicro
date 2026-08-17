@@ -54,10 +54,7 @@ class RandomBackoff(BaseModel, frozen=True, extra="forbid"):
     @model_validator(mode="after")
     def _check_range(self) -> Self:
         if self.min_delay > self.max_delay:
-            msg = (
-                f"min_delay ({self.min_delay}) must be <= "
-                f"max_delay ({self.max_delay})"
-            )
+            msg = "min_delay must be <= max_delay"
             raise ValueError(msg)
         return self
 

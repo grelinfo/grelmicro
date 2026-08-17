@@ -12,6 +12,7 @@ name that validates here always resolves in `resolve_timezone`.
 from __future__ import annotations
 
 from datetime import UTC, tzinfo
+from difflib import get_close_matches
 from functools import cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
@@ -61,7 +62,7 @@ def normalize_timezone_name(value: str) -> str:
     if known:
         correct = known.get(name.upper())
         if correct is None:
-            msg = f"unknown timezone name {value!r}"
+            msg = f"unknown timezone name{_did_you_mean(name, known)}"
             raise ValueError(msg)
         return correct
     # No timezone database, so the name cannot be checked against a list.
@@ -70,9 +71,23 @@ def normalize_timezone_name(value: str) -> str:
     try:
         ZoneInfo(name)
     except (ValueError, ZoneInfoNotFoundError):
-        msg = f"unknown timezone name {value!r}, {_TZDATA_HINT}"
+        msg = f"unknown timezone name, {_TZDATA_HINT}"
         raise ValueError(msg) from None
     return name
+
+
+def _did_you_mean(name: str, known: dict[str, str]) -> str:
+    """Return a `, did you mean 'X'` hint, or an empty string.
+
+    The rejected value is never repeated: it is arbitrary operator input,
+    and a variable that should hold a zone can hold anything, including a
+    credential put there by a swapped variable. A *member* of the timezone
+    database carries the same diagnostic and can never be a secret.
+    """
+    close = get_close_matches(name.upper(), known, n=1)
+    if not close:
+        return ""
+    return f", did you mean {known[close[0]]!r}"
 
 
 def resolve_timezone(name: str) -> tzinfo:

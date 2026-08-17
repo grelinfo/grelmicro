@@ -72,14 +72,14 @@ def test_timezone_name_is_normalized() -> None:
 def test_unknown_timezone_is_rejected_at_declaration() -> None:
     """An unusable name fails where it is written, not at the first fire."""
     # Act / Assert
-    with pytest.raises(TimezoneError, match="Nope/Zone"):
+    with pytest.raises(TimezoneError, match="unknown timezone name"):
         _cron_task("0 2 * * *", "Nope/Zone")
 
 
 def test_abbreviation_that_names_no_zone_is_rejected() -> None:
     """`PST` is a DST abbreviation, not a zone, so it never reaches a fire."""
     # Act / Assert
-    with pytest.raises(TimezoneError, match="PST"):
+    with pytest.raises(TimezoneError, match="unknown timezone name"):
         _cron_task("0 2 * * *", "PST")
 
 
@@ -322,7 +322,7 @@ def test_interval_tasks_are_left_alone_by_resolution() -> None:
 def test_resolving_an_unusable_name_reports_a_task_error() -> None:
     """Resolution failures surface as the task-module error type."""
     # Act / Assert
-    with pytest.raises(TimezoneError, match="Nope/Zone"):
+    with pytest.raises(TimezoneError, match="unknown timezone name"):
         resolve_timezone("Nope/Zone")
 
 

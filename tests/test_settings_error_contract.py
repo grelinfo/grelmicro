@@ -15,18 +15,26 @@ import importlib
 import pkgutil
 import warnings
 from collections.abc import Callable
+from unittest import mock
 
+import anyio
 import pytest
 
 import grelmicro
-from grelmicro.cache import TTLCache
+import grelmicro._config
+from grelmicro import Grelmicro
+from grelmicro._config import reconfigure_all
+from grelmicro.cache import TTLCache, cached
+from grelmicro.config import ExternalConfig, FileConfigAdapter
 from grelmicro.coordination import (
     LeaderElection,
     Lock,
     ReadWriteLock,
     TaskLock,
 )
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import SettingsValidationError, _scrub
+from grelmicro.log import Log
+from grelmicro.metrics import Metrics
 from grelmicro.resilience import (
     Bulkhead,
     CircuitBreaker,
@@ -36,6 +44,8 @@ from grelmicro.resilience import (
     Shield,
     Timeout,
 )
+from grelmicro.security import TrustedProxies
+from grelmicro.trace import Trace
 
 SECRET = "s3cret-value-never-echoed"
 """Stand-in for a credential an operator put behind a variable by mistake."""
@@ -218,3 +228,230 @@ def test_no_module_declares_a_settings_error_subclass() -> None:
     assert not offenders, (
         f"configuration errors are not split by module: {offenders}"
     )
+
+
+COMPONENT_CASES: list[tuple[str, str, str]] = [
+    ("Metrics.export_interval", "GREL_METRICS_EXPORT_INTERVAL", "metrics"),
+    ("Metrics.headers", "GREL_METRICS_HEADERS", "metrics"),
+    (
+        "Metrics.resource_attributes",
+        "GREL_METRICS_RESOURCE_ATTRIBUTES",
+        "metrics",
+    ),
+    ("Trace.sample_ratio", "GREL_TRACE_SAMPLE_RATIO", "trace"),
+    ("Trace.headers", "GREL_TRACE_HEADERS", "trace"),
+    ("Log.level", "GREL_LOG_LEVEL", "log"),
+]
+"""Components resolve lazily, so a bad value surfaces when the app opens.
+
+The dict-valued fields are the reason this list exists. pydantic-settings
+JSON-decodes a complex field in the source stage, before validation, so a
+malformed one raised `pydantic_settings.SettingsError` and never reached
+`resolve_config`'s `except ValidationError`.
+"""
+
+
+@pytest.mark.parametrize(
+    ("label", "variable", "kind"),
+    COMPONENT_CASES,
+    ids=[case[0] for case in COMPONENT_CASES],
+)
+async def test_component_rejects_bad_env_when_the_app_opens(
+    label: str,
+    variable: str,
+    kind: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A component reports a bad value the same way a pattern does."""
+    build = {"metrics": Metrics, "trace": Trace, "log": Log}[kind]
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv(variable, SECRET)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(SettingsValidationError) as exc_info:
+            async with Grelmicro(uses=[build()]):
+                pass  # pragma: no cover
+    assert SECRET not in str(exc_info.value), (
+        f"{label} echoed the rejected value into its error"
+    )
+
+
+_KEPT_ATTEMPTS = 2
+"""The value the skipped key must leave untouched."""
+
+_APPLIED_SECONDS = 9
+"""The value the key after the bad one must still apply."""
+
+_KEPT_SECONDS = 5
+"""The value an instance keeps when its own key is refused."""
+
+
+def test_reconfigure_all_survives_a_value_pydantic_never_converts() -> None:
+    """One bad key must not stop every other instance from updating.
+
+    `Match.exception` raised `TypeError`, which pydantic does not convert,
+    so it escaped `reconfigure_all` and aborted the whole resync cycle.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        retry = Retry("resync", when=ValueError, attempts=_KEPT_ATTEMPTS)
+        other = Timeout("resync-other", seconds=5)
+        anyio.run(
+            reconfigure_all,
+            {
+                "GREL_RETRY_RESYNC_WHEN": "[123]",
+                "GREL_TIMEOUT_RESYNC_OTHER_SECONDS": str(_APPLIED_SECONDS),
+            },
+        )
+    assert retry.config.attempts == _KEPT_ATTEMPTS, (
+        "the bad key should be skipped"
+    )
+    assert other.config.seconds == _APPLIED_SECONDS, (
+        "a later instance must still update after a bad key"
+    )
+
+
+NON_PATTERN_CASES: list[tuple[str, Callable[[], object]]] = [
+    ("cached.lock", lambda: _cached(lock=SECRET)),
+    ("cached.early", lambda: _cached(early=943.25)),
+    ("cached.stale_ttl", lambda: _cached(stale_ttl=-943.25)),
+    ("TrustedProxies.entry", lambda: _trusted([SECRET])),
+    ("TrustedProxies.type", lambda: _trusted([12.5])),
+    ("TrustedProxies.max_hops", lambda: _trusted(["10.0.0.0/8"], max_hops=-1)),
+    ("ExternalConfig.reload_interval", lambda: _external(-943.25)),
+    ("Grelmicro.environment", lambda: _app_environment(SECRET)),
+]
+"""Surfaces outside the pattern and component families that take config."""
+
+
+def _cached(**kwargs: object) -> object:
+    return cached(ttl=60, **kwargs)  # ty: ignore[invalid-argument-type]
+
+
+def _trusted(networks: list[object], **kwargs: object) -> object:
+    return TrustedProxies(networks, **kwargs)  # ty: ignore[invalid-argument-type]
+
+
+def _external(reload_interval: float) -> object:
+    return ExternalConfig(
+        config=FileConfigAdapter("/nonexistent"),
+        reload_interval=reload_interval,
+    )
+
+
+def _app_environment(value: str) -> object:
+    return Grelmicro(environment=value)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    NON_PATTERN_CASES,
+    ids=[case[0] for case in NON_PATTERN_CASES],
+)
+def test_non_pattern_surface_reports_the_same_way(
+    label: str,
+    build: Callable[[], object],
+) -> None:
+    """`cached()` used to raise two different errors from one call."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(SettingsValidationError) as exc_info:
+            build()
+    assert SECRET not in str(exc_info.value), (
+        f"{label} echoed the rejected value into its error"
+    )
+
+
+EMPTY_WHEN_CASES: list[tuple[str, str, Callable[[], object]]] = [
+    ("Retry", "GREL_RETRY_EMPTY_WHEN", lambda: Retry("empty")),
+    ("Fallback", "GREL_FALLBACK_EMPTY_WHEN", lambda: Fallback("empty")),
+]
+"""An operator who leaves the variable blank, which parses to no entries."""
+
+
+@pytest.mark.parametrize(
+    ("variable", "build"),
+    [(case[1], case[2]) for case in EMPTY_WHEN_CASES],
+    ids=[case[0] for case in EMPTY_WHEN_CASES],
+)
+def test_empty_when_is_reported_not_escaped(
+    variable: str,
+    build: Callable[[], object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A blank `when=` reached `Match.exception()` with no arguments.
+
+    That raised `TypeError`, which pydantic never converts, so setting the
+    variable to an empty string escaped every documented `except`.
+    """
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv(variable, "")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(SettingsValidationError, match="empty"):
+            build()
+
+
+def test_reload_skips_a_validator_that_raises_outside_pydantic() -> None:
+    """The reload guard covers whatever a validator raises, not just pydantic.
+
+    grelmicro's own validators raise `ValueError` so pydantic converts them,
+    which leaves this branch reachable only from a third-party config class.
+    Patching one in is the only way to prove the loop survives it.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        timeout = Timeout("reload-guard", seconds=_KEPT_SECONDS)
+
+        def _explode(*_args: object, **_kwargs: object) -> object:
+            msg = "a validator pydantic does not convert"
+            raise TypeError(msg)
+
+        with mock.patch.object(
+            grelmicro._config, "resolve_config_from_mapping", _explode
+        ):
+            anyio.run(
+                reconfigure_all,
+                {"GREL_TIMEOUT_RELOAD_GUARD_SECONDS": "9"},
+            )
+    assert timeout.config.seconds == _KEPT_SECONDS, (
+        "the failing instance keeps its config"
+    )
+
+
+def test_scrub_removes_the_value_only_where_a_message_can_carry_it() -> None:
+    """Scrubbing is scoped to the error types that repeat the input.
+
+    A blanket replace destroyed the help text: with `INF` rejected, the
+    message listing `'INFO'` as an option lost the very word the operator
+    needed. Only a whole-token match is removed, and only for the types
+    pydantic builds from the input.
+    """
+    assert _scrub(
+        f"tag {SECRET!r} is unknown", SECRET, "union_tag_invalid"
+    ) == ("tag '[redacted]' is unknown")
+    assert _scrub(f"got {SECRET}", SECRET, "value_error") == "got [redacted]"
+    # A constraint message never repeats the input, so it is left alone.
+    assert (
+        _scrub("Input should be 'DEBUG', 'INFO'", "INF", "literal_error")
+        == "Input should be 'DEBUG', 'INFO'"
+    )
+    # A near miss must keep the correct spelling it is offering.
+    assert "Europe/Zurich" in _scrub(
+        "unknown timezone name, did you mean 'Europe/Zurich'",
+        "Europe/Zurichh",
+        "value_error",
+    )
+    # `import_error` quotes the module, so the message is replaced outright.
+    assert SECRET not in _scrub(
+        f"No module named '{SECRET}'", f"{SECRET}.Boom", "import_error"
+    )
+    # Pydantic reports the input at the level that failed, so the offending
+    # string can sit one key down. `union_tag_invalid` hands back the whole
+    # mapping, and scrubbing only top-level strings missed it.
+    assert SECRET not in _scrub(
+        f"Input tag '{SECRET}' found using 'kind'",
+        {"kind": SECRET},
+        "union_tag_invalid",
+    )
+    assert SECRET not in _scrub(f"got {SECRET}", [SECRET], "value_error")

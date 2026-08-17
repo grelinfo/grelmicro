@@ -37,6 +37,7 @@ from weakref import WeakSet
 
 from pydantic import AliasChoices, BaseModel, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.exceptions import SettingsError
 
 from grelmicro._diagnostics import ENV_LOAD_OFF, diagnostic
 from grelmicro._json import json_loads
@@ -353,6 +354,12 @@ def resolve_config[C: BaseModel](
         # and the reason without the input. The reload path already
         # redacts, so this makes both directions of the same layer agree.
         raise SettingsValidationError(error) from None
+    except SettingsError as error:
+        # A complex field (a dict or a list) is JSON-decoded by
+        # pydantic-settings in the source stage, before validation runs, so a
+        # malformed `GREL_METRICS_HEADERS` never reaches `ValidationError`.
+        # The field name is in the message, the value is not.
+        raise SettingsValidationError(str(error)) from None
 
 
 _warned_ignored_env: set[str] = set()
@@ -857,6 +864,19 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
                 "Ignoring invalid external config for %s: %s",
                 env_prefix,
                 _redact_validation_error(exc),
+            )
+            continue
+        except (ValueError, TypeError) as exc:
+            # A validator can raise something pydantic does not convert into
+            # a `ValidationError`, and a `TypeError` in particular is never
+            # converted. Uncaught it aborts the loop, so one bad key in a
+            # mounted ConfigMap stops every other instance from updating.
+            # Only the class name is logged: the message is not ours and may
+            # carry the value.
+            logger.warning(
+                "Ignoring invalid external config for %s: %s",
+                env_prefix,
+                type(exc).__name__,
             )
             continue
         try:

@@ -49,6 +49,7 @@ from grelmicro.cache.ttl import (
     TTLCache,
 )
 from grelmicro.coordination.lock import Lock
+from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
@@ -517,9 +518,9 @@ def cached(  # noqa: PLR0913, C901
         TypeError: If both ``cache`` and ``ttl`` are given, if neither is
             given, if both ``key`` and ``key_maker`` are given, or if the
             decorated function is a sync generator.
-        ValueError: If ``lock`` is not ``True``, ``False``, or ``"local"``,
-            if ``early`` is outside ``[0, 1)``, or if ``stale_ttl`` is not
-            positive.
+        SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
+            ``"local"``, if ``early`` is outside ``[0, 1)``, or if
+            ``stale_ttl`` is not positive.
 
     Returns:
         A decorator that caches function results.
@@ -534,14 +535,14 @@ def cached(  # noqa: PLR0913, C901
     is_private_cache = cache is None
     cache = _resolve_cache(cache, ttl, maxsize)
     if lock not in (True, False, "local"):
-        msg = f"Invalid lock {lock!r}: use True, False, or 'local'."
-        raise ValueError(msg)
+        msg = "lock= must be True, False, or 'local'"
+        raise SettingsValidationError(msg)
     if early is not None and not 0 <= early < 1:
-        msg = f"Invalid early {early!r}: must be a float in [0, 1)."
-        raise ValueError(msg)
+        msg = "early= must be a float in [0, 1)"
+        raise SettingsValidationError(msg)
     if stale_ttl is not None and stale_ttl <= 0:
-        msg = f"Invalid stale_ttl {stale_ttl!r}: must be positive."
-        raise ValueError(msg)
+        msg = "stale_ttl= must be positive"
+        raise SettingsValidationError(msg)
 
     def decorator(
         func: Callable[P, R],

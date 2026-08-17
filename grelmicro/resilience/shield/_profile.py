@@ -149,10 +149,13 @@ class _BaseShieldConfig(
         if isinstance(value, type):
             if not issubclass(value, Exception):
                 msg = (
-                    f"timeout_errors entry {value!r} is not an Exception "
-                    f"subclass; BaseException-only types are never retried."
+                    f"timeout_errors entry {value.__name__} is not an "
+                    f"Exception subclass. BaseException-only types are "
+                    f"never retried."
                 )
-                raise TypeError(msg)
+                # `ValueError`, not `TypeError`: pydantic converts only
+                # `ValueError` and `AssertionError`.
+                raise ValueError(msg)  # noqa: TRY004
             return (value,)
         if isinstance(value, str):
             parsed = parse_csv_or_json(value)

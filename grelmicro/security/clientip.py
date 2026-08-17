@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro.errors import SettingsValidationError
+
 if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
@@ -249,17 +251,20 @@ class TrustedProxies:
         """Compile the trusted set, rejecting anything unparsable.
 
         Raises:
-            ValueError: If a bound is outside its usable range. `max_entries`
-                and `max_header_bytes` cap work, so zero or less caps nothing.
-                `max_hops` counts proxies to walk past, so it may be zero but
-                never negative.
+            SettingsValidationError: If an entry is not an IP address or a
+                CIDR range, or a bound is outside its usable range.
+                `max_entries` and `max_header_bytes` cap work, so zero or
+                less caps nothing. `max_hops` counts proxies to walk past, so
+                it may be zero but never negative.
         """
         _validate_positive("max_entries", max_entries)
         _validate_positive("max_header_bytes", max_header_bytes)
         if max_hops is not None and max_hops < 0:
-            msg = f"max_hops must be >= 0, got {max_hops}."
-            raise ValueError(msg)
-        self._networks = tuple(_compile_entry(entry) for entry in networks)
+            msg = "max_hops must be >= 0"
+            raise SettingsValidationError(msg)
+        self._networks = tuple(
+            _compile_entry(entry, index) for index, entry in enumerate(networks)
+        )
         self._max_hops = max_hops
         self._max_entries = max_entries
         self._max_header_bytes = max_header_bytes
@@ -281,34 +286,39 @@ def _validate_positive(name: str, value: int) -> None:
     meant to enforce.
 
     Raises:
-        ValueError: If `value` is not greater than zero.
+        SettingsValidationError: If `value` is not greater than zero.
     """
     if value <= 0:
-        msg = f"{name} must be > 0, got {value}."
-        raise ValueError(msg)
+        msg = f"{name} must be > 0"
+        raise SettingsValidationError(msg)
 
 
-def _compile_entry(entry: str | IPAddress | IPNetwork) -> IPNetwork:
-    """Parse one trusted-set entry, or raise naming it."""
+def _compile_entry(entry: str | IPAddress | IPNetwork, index: int) -> IPNetwork:
+    """Parse one trusted-set entry, or raise naming its position.
+
+    The position replaces the value the message used to carry. A trusted
+    set is often a long list, so an operator needs to know which entry
+    failed, and the index says that without repeating what they wrote.
+    """
     if isinstance(entry, (IPv4Network, IPv6Network)):
         return _canonical_network(entry)
     if isinstance(entry, (IPv4Address, IPv6Address)):
         return _canonical_network(ip_network(_canonical(entry)))
     if not isinstance(entry, str):
         msg = (
-            f"TrustedProxies got {entry!r} of type {type(entry).__name__}. "
+            f"TrustedProxies entry #{index} is a {type(entry).__name__}. "
             f"Pass a string, an ip_address, or an ip_network."
         )
-        raise TypeError(msg)
+        raise SettingsValidationError(msg)
     try:
         return _canonical_network(ip_network(entry))
-    except ValueError as error:
+    except ValueError:
         msg = (
-            f"TrustedProxies got {entry!r}, which is not an IP address or "
-            f"CIDR range: {error}. There is no wildcard, pass "
+            f"TrustedProxies entry #{index} is not an IP address or a "
+            f"CIDR range. There is no wildcard, pass "
             f'["0.0.0.0/0", "::/0"] to trust every peer.'
         )
-        raise ValueError(msg) from None
+        raise SettingsValidationError(msg) from None
 
 
 def _split_host_port(  # noqa: PLR0911

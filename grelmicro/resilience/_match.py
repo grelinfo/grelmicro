@@ -114,7 +114,9 @@ class Match:
         """
         if not exception_types_or_predicate:
             msg = "Match.exception() requires at least one argument"
-            raise TypeError(msg)
+            # Reachable from configuration: an empty `GREL_*_WHEN` parses to
+            # an empty list. `ValueError` so pydantic wraps it.
+            raise ValueError(msg)
 
         # Single callable that is not a class: predicate path.
         if (
@@ -139,10 +141,14 @@ class Match:
         for type_ in exception_types_or_predicate:
             if not (isinstance(type_, type) and issubclass(type_, Exception)):
                 msg = (
-                    "Match.exception() arguments must all be exception "
-                    f"classes, got {type_!r}"
+                    f"Match.exception() arguments must all be exception "
+                    f"classes, got {getattr(type_, '__name__', type(type_).__name__)}"
                 )
-                raise TypeError(msg)
+                # `ValueError`, not `TypeError`: pydantic converts only
+                # `ValueError` and `AssertionError`, so a `TypeError` raised
+                # inside a validator escapes every documented `except`, and
+                # escapes `reconfigure_all` too.
+                raise ValueError(msg)  # noqa: TRY004
         types = cast(
             "tuple[type[Exception], ...]", tuple(exception_types_or_predicate)
         )
@@ -243,7 +249,9 @@ class Match:
         """
         if not exception_types_or_predicate:
             msg = "Match.exception_cause() requires at least one argument"
-            raise TypeError(msg)
+            # Reachable from configuration: an empty `GREL_*_WHEN` parses to
+            # an empty list. `ValueError` so pydantic wraps it.
+            raise ValueError(msg)
 
         if (
             len(exception_types_or_predicate) == 1
@@ -268,10 +276,14 @@ class Match:
                 isinstance(type_, type) and issubclass(type_, BaseException)
             ):
                 msg = (
-                    "Match.exception_cause() arguments must all be exception "
-                    f"classes, got {type_!r}"
+                    f"Match.exception_cause() arguments must all be exception "
+                    f"classes, got {getattr(type_, '__name__', type(type_).__name__)}"
                 )
-                raise TypeError(msg)
+                # `ValueError`, not `TypeError`: pydantic converts only
+                # `ValueError` and `AssertionError`, so a `TypeError` raised
+                # inside a validator escapes every documented `except`, and
+                # escapes `reconfigure_all` too.
+                raise ValueError(msg)  # noqa: TRY004
         types = cast(
             "tuple[type[BaseException], ...]",
             tuple(exception_types_or_predicate),

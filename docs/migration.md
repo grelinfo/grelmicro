@@ -34,6 +34,8 @@ that a client library used to accept.
 | A logging filter or level set on `grelmicro.clientip` stopped matching | 0.39 | [Rename the logger](#0-39-clientip-moved) |
 | `ImportError: cannot import name 'LogSettingsValidationError'`, or any other `*SettingsValidationError` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError` where you caught `pydantic.ValidationError` from `Fallback`, `Shield`, or `TTLCache` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
+| `SettingsValidationError` where you caught `ValueError` or `TypeError` from `cached()`, `TrustedProxies`, or `ExternalConfig` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
+| `SettingsValidationError: environment= must be one of ...` on a `Grelmicro(...)` that used to build | 0.40 | [Name a real tier](#0-40-environment-validated) |
 
 ## 0.40
 
@@ -69,6 +71,11 @@ except SettingsValidationError:
 
 `except ValueError` and `except GrelmicroError` keep working unchanged.
 
+The same applies to `cached()`, `TrustedProxies`, and `ExternalConfig`, which
+raised a bare `ValueError` or `TypeError`. `cached(ttl=-1)` already raised
+`SettingsValidationError` while `lock=`, `early=`, and `stale_ttl=` did not, so
+one call had two contracts.
+
 `Fallback`, `Shield`, and `TTLCache` used to let pydantic's `ValidationError`
 through instead, so they now raise `SettingsValidationError` too. If you catch
 `ValidationError` around one of those, catch `SettingsValidationError`. It
@@ -78,6 +85,25 @@ subclasses `ValueError`, which `ValidationError` also is, so an
 That change closes a leak: pydantic attaches the rejected input to its error,
 so an invalid value read from the environment used to reach the traceback.
 Errors now carry the variable name and the reason, never the value.
+
+### An unknown environment is refused {#0-40-environment-validated}
+
+`Grelmicro(environment=...)` stored whatever it was given. A value outside the
+four tiers was accepted in silence, and the backend check then ran as if no tier
+had been declared, which is the check that refuses a memory backend in
+production. It now raises:
+
+```python
+# Before: accepted, and the backend check quietly went soft
+Grelmicro(environment="prod")
+
+# After
+Grelmicro(environment="production")
+```
+
+The four tiers are `development`, `test`, `staging`, and `production`.
+`GREL_ENVIRONMENT` already warned on an unknown value, so this makes the two
+doors agree.
 
 ## 0.39
 

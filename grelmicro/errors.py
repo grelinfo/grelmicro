@@ -1,5 +1,6 @@
 """Errors."""
 
+import re
 from typing import ClassVar
 
 from pydantic import ValidationError
@@ -220,10 +221,97 @@ class SettingsValidationError(GrelmicroError, ValueError):
             # raised `IndexError` and hid the real error.
             details = "\n".join(
                 f"- {'.'.join(str(part) for part in data['loc']) or '(config)'}"
-                f": {data['msg']}"
+                f": {_scrub(data['msg'], data.get('input'), data['type'])}"
                 for data in error.errors(include_url=False)
             )
         else:
             details = error
 
         super().__init__(f"Could not validate settings:\n{details}")
+
+
+_REDACTED = "[redacted]"
+"""Stands in for a rejected value that a message would otherwise carry."""
+
+_IMPORT_ERROR_MESSAGE = "Invalid python path"
+"""Replaces pydantic's `import_error` text, which quotes the module.
+
+The module is one half of the rejected value, so the message is replaced
+outright rather than edited. What remains still says which field failed and
+why, and `docs/architecture/config.md` states the form an entry must take.
+"""
+
+_ECHOING_ERROR_TYPES = frozenset(
+    {"union_tag_invalid", "value_error", "assertion_error"}
+)
+"""Pydantic error types whose `msg` can repeat the rejected input verbatim.
+
+Checked against pydantic rather than assumed. `union_tag_invalid` quotes the
+tag, while the constraint messages (`int_parsing`, `literal_error`,
+`greater_than`, ...) describe what was expected and never repeat what
+arrived. `value_error` and `assertion_error` carry a message someone else
+wrote, so they are included in case a third-party config class names the
+value.
+
+Scrubbing every type would garble the messages that are already safe:
+with `INF` as the input, "Input should be 'DEBUG', 'INFO', ..." would lose
+the option the operator was reaching for.
+"""
+
+
+def _candidates(value: object) -> set[str]:
+    """Return every string inside `value`, whole and unsplit.
+
+    Containers are walked because pydantic reports the input at the level
+    that failed, not the level that offends: `union_tag_invalid` hands back
+    the whole mapping, with the tag one key down.
+
+    The strings are never split on separators. Splitting once seemed
+    thorough and was the bug: a piece of the rejected value matches the
+    correct value that shares it, so `Europe/Zurichh` redacted the `Europe`
+    of the `did you mean 'Europe/Zurich'` written to replace it.
+    """
+    if isinstance(value, str):
+        return {value} if len(value) >= _MIN_REDACTED_LENGTH else set()
+    if isinstance(value, dict):
+        found: set[str] = set()
+        for item in value.values():
+            found |= _candidates(item)
+        return found
+    if isinstance(value, (list, tuple, set)):
+        found = set()
+        for item in value:
+            found |= _candidates(item)
+        return found
+    return set()
+
+
+def _scrub(msg: str, value: object, error_type: str) -> str:
+    """Remove the rejected input from a message built elsewhere.
+
+    grelmicro's own validators are written not to name the value. This is
+    the backstop that holds rule R7 when the message came from pydantic or
+    from a third-party config class.
+
+    Only whole-token occurrences are removed. A typo is usually a prefix of
+    the value that was meant, so a substring replace would take the correct
+    spelling out of the very message offering it.
+    """
+    if error_type == "import_error":
+        return _IMPORT_ERROR_MESSAGE
+    if error_type not in _ECHOING_ERROR_TYPES:
+        return msg
+    for candidate in sorted(_candidates(value), key=len, reverse=True):
+        msg = re.sub(
+            rf"(?<![\w]){re.escape(candidate)}(?![\w])", _REDACTED, msg
+        )
+    return msg
+
+
+_MIN_REDACTED_LENGTH = 3
+"""Shortest input worth removing.
+
+Below this the value is as likely to be a word in the surrounding sentence
+as it is to be the rejected input, and removing it would garble the message
+without protecting anything.
+"""
