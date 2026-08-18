@@ -160,13 +160,32 @@ def _module_functions(module: Any) -> dict[str, str]:  # noqa: ANN401
     }
 
 
+def _imported_helper(module: Any, name: str) -> str | None:  # noqa: ANN401
+    """Return the source of a grelmicro function imported into `module`.
+
+    Following only same-module helpers left the obvious bypass open: put
+    the read in a neighbouring grelmicro module and import it. Only
+    first-party functions are followed, so the walk stops at the package
+    boundary instead of descending into pydantic or the stdlib.
+    """
+    target = getattr(module, name, None)
+    if not inspect.isfunction(target):
+        return None
+    if not getattr(target, "__module__", "").startswith("grelmicro"):
+        return None
+    try:
+        return textwrap.dedent(inspect.getsource(target))
+    except (OSError, TypeError):  # pragma: no cover  # no readable source
+        return None
+
+
 def _env_names_reached(source: str, module: Any) -> set[str]:  # noqa: ANN401
     """Return the env-reading names `source` reaches, following its callees.
 
     Checking only `from_config`'s own body was not enough: moving the read
-    one function away passed the sweep while breaking R8. Helpers defined
-    in the same module are followed transitively, which is where such a
-    helper realistically lives.
+    one function away passed the sweep while breaking R8. Helpers are
+    followed transitively, whether the module defines them or imports them
+    from elsewhere in grelmicro.
     """
     functions = _module_functions(module)
     seen: set[str] = set()
@@ -177,8 +196,9 @@ def _env_names_reached(source: str, module: Any) -> set[str]:  # noqa: ANN401
         found |= called_names(tree) & ENV_READERS
         for name in sorted(call_targets(tree) - seen):
             seen.add(name)
-            if name in functions:
-                pending.append(functions[name])
+            body = functions.get(name) or _imported_helper(module, name)
+            if body is not None:
+                pending.append(body)
     return found
 
 

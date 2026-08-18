@@ -22,14 +22,17 @@ memory address is normalised. This catches a parameter rename, removal,
 reorder, required-to-optional flip, and a changed default, which is a
 behavioural break for every caller who never passed the argument.
 
-Two defaults it still cannot see through. A ``default_factory`` reprs as
-``<factory>``, so changing what the factory returns (``RetryConfig.backoff``,
-the ``worker`` fields, the ``headers`` maps) passes silently. And a default
-taken from an interpreter constant records the resolved value, so a future
-CPython raising ``pickle.HIGHEST_PROTOCOL`` fails this snapshot: that is a
-real change in what ``PickleSerializer()`` does, and
+A ``default_factory`` is resolved and recorded too, so changing what the
+factory returns fails the guard: ``RetryConfig``'s backoff strategy is chosen
+entirely by one. The factory is called twice and recorded only when both calls
+agree, so a ``worker`` field minting a fresh identifier stays ``<factory>``
+rather than writing a random value here.
+
+A default taken from an interpreter constant records the resolved value, so a
+future CPython raising ``pickle.HIGHEST_PROTOCOL`` fails this snapshot. That
+is a real change in what ``PickleSerializer()`` does, and
 ``test_interpreter_derived_defaults_are_still_current`` says which constant
-moved so the update is an informed one rather than a mystery.
+moved so the update is informed rather than a mystery.
 
 A new public module is itself a deliberate API change, so add it to
 ``PUBLIC_MODULES`` in the same change that introduces it.
@@ -124,6 +127,32 @@ def _default(value: object) -> _Rendered:
     return _Rendered(_ADDRESS.sub(" at 0x...", repr(value)))
 
 
+def _factory_default(owner: object, name: str) -> str | None:
+    """Return a pydantic ``default_factory`` result, when it is stable.
+
+    The signature only carries pydantic's opaque ``<factory>`` sentinel, so
+    the factory is looked up on the model and called. Changing what a
+    factory returns is a behavioural break exactly like changing a literal
+    default: `RetryConfig`'s backoff strategy is chosen entirely by one.
+
+    Called twice and recorded only when both calls agree. A `worker` field
+    mints a fresh identifier every time, so it stays `<factory>` rather
+    than writing a random value into the snapshot.
+    """
+    fields = getattr(owner, "model_fields", None)
+    if not isinstance(fields, dict):
+        return None
+    field = fields.get(name)
+    factory = getattr(field, "default_factory", None)
+    if factory is None:
+        return None
+    try:
+        first, second = factory(), factory()
+    except Exception:  # noqa: BLE001  # pragma: no cover  # needs arguments
+        return None
+    return repr(first) if repr(first) == repr(second) else None
+
+
 def _signature(obj: object) -> str | None:
     """Return a version-stable signature string, or None when not callable.
 
@@ -140,7 +169,9 @@ def _signature(obj: object) -> str | None:
         param.replace(
             annotation=inspect.Parameter.empty,
             default=(
-                _default(param.default)
+                _Rendered(_factory_default(obj, param.name) or "")
+                if _factory_default(obj, param.name)
+                else _default(param.default)
                 if param.default is not inspect.Parameter.empty
                 else inspect.Parameter.empty
             ),
