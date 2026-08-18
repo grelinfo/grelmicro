@@ -439,19 +439,51 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     the subtraction cannot be done there.
     """
 
-    _SQL_DROP_WIDENED_FNS = (
-        "DROP FUNCTION IF EXISTS {table_name}_cb_record_error"
-        "(TEXT, INT, DOUBLE PRECISION);"
-        "DROP FUNCTION IF EXISTS {table_name}_cb_record_success"
-        "(TEXT, INT, DOUBLE PRECISION);"
-        "DROP FUNCTION IF EXISTS {table_name}_cb_get_state(TEXT);"
-    )
-    """Drops the three functions whose result columns grew.
+    _SQL_DROP_WIDENED_FNS = """
+        DO $do$
+        DECLARE
+            v_name TEXT;
+        BEGIN
+            FOREACH v_name IN ARRAY ARRAY[
+                '{table_name}_cb_record_error',
+                '{table_name}_cb_record_success',
+                '{table_name}_cb_get_state'
+            ] LOOP
+                IF EXISTS (
+                    SELECT 1 FROM pg_proc p
+                        JOIN pg_namespace n ON n.oid = p.pronamespace
+                        WHERE p.proname = v_name
+                          AND n.nspname = current_schema()
+                          AND pg_get_function_result(p.oid)
+                              NOT LIKE '%r_retry_after%'
+                ) THEN
+                    EXECUTE format(
+                        'DROP FUNCTION %I(%s)',
+                        v_name,
+                        CASE WHEN v_name = '{table_name}_cb_get_state'
+                            THEN 'TEXT'
+                            ELSE 'TEXT, INT, DOUBLE PRECISION'
+                        END
+                    );
+                END IF;
+            END LOOP;
+        END
+        $do$;
+    """
+    """Drops the three functions whose result columns grew, once.
 
-    Postgres refuses `CREATE OR REPLACE FUNCTION` when the returned
-    columns change, so an install that predates `r_retry_after` has to be
-    dropped first. Runs under the same advisory lock as the creates that
-    follow, in one transaction, so no replica sees a missing function.
+    Postgres refuses `CREATE OR REPLACE FUNCTION` when the returned columns
+    change, so an install that predates `r_retry_after` has to be dropped
+    first. The drop is guarded on the stored result signature rather than
+    run unconditionally: a new function OID invalidates every cached plan
+    that references it across the cluster, and paying that on every restart
+    forever, for a migration that happens once, is not a trade worth making.
+
+    Runs under the same advisory lock as the creates that follow, in one
+    transaction, so two replicas cannot migrate at once. The runtime call
+    path takes no advisory lock, so a replica already serving on the old
+    functions blocks the drop until its call returns, which is what the
+    lock Postgres takes on the function is for.
     """
 
     _KEY_PREFIX = "cb:"

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from litestar import Litestar, get
+from litestar.response import Response as LitestarResponse
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
@@ -33,6 +36,7 @@ from grelmicro.http import (
     problem_detail,
     send_problem,
 )
+from grelmicro.http._problem import body_of, retry_after_of
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyMakerError,
@@ -509,3 +513,115 @@ def test_faststream_takes_no_problem_details() -> None:
     """A framework that serves no HTTP is skipped, not special-cased by name."""
     # Assert
     assert not hasattr(faststream, "install_problem_details")
+
+
+# --- What the review found ----------------------------------------------
+
+
+def test_a_handler_registered_before_install_wins() -> None:
+    """Build the app, register handlers, wire grelmicro is the natural order.
+
+    Overwriting there would take a handler away from an app that upgrades,
+    without saying so.
+    """
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, str]:
+        raise _rate_limited()
+
+    app.add_exception_handler(AdmissionError, _teapot)
+    Grelmicro(uses=[]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/limited")
+
+    # Assert
+    assert response.status_code == HTTP_418_IM_A_TEAPOT
+
+
+def test_litestar_keeps_a_handler_passed_to_the_constructor() -> None:
+    """`Litestar(exception_handlers=...)` wins the same way."""
+
+    # Arrange
+    @get("/limited")
+    async def limited() -> dict[str, str]:
+        raise _rate_limited()
+
+    def mine(request: object, exc: Exception) -> LitestarResponse[bytes]:  # noqa: ARG001
+        return LitestarResponse(content=b"", status_code=HTTP_418_IM_A_TEAPOT)
+
+    app = Litestar(
+        route_handlers=[limited],
+        exception_handlers={AdmissionError: mine},
+    )
+    Grelmicro(uses=[]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
+        response = client.get("/limited")
+
+    # Assert
+    assert response.status_code == HTTP_418_IM_A_TEAPOT
+
+
+def test_an_extension_member_that_is_not_json_native_still_serializes() -> None:
+    """Extensions are open, so the body cannot depend on the JSON library.
+
+    Whether the encoder coped with a `Decimal` otherwise depended on which
+    one was installed, which is a page that works in development and fails
+    in production.
+    """
+    # Arrange
+    problem = ProblemDetail(
+        title="Insufficient funds",
+        status=HTTP_409_CONFLICT,
+        balance=Decimal("30.00"),
+        ref=UUID("f9144aa2-d19d-4ef6-94f2-5606eb268960"),
+    )
+
+    # Act
+    body = json.loads(body_of(problem))
+
+    # Assert
+    assert body["balance"] == "30.00"
+    assert body["ref"] == "f9144aa2-d19d-4ef6-94f2-5606eb268960"
+
+
+def test_a_sub_millisecond_wait_carries_nothing() -> None:
+    """Rounding a tiny wait to zero would publish the "retry now" refused.
+
+    A limiter reports one at a window boundary under load.
+    """
+    # Act
+    problem = problem_detail(
+        RateLimitExceededError(key="k", retry_after=0.0004)
+    )
+
+    # Assert
+    assert problem is not None
+    assert "retry_after" not in problem.model_dump()
+    assert retry_after_of(problem) is None
+
+
+def test_a_retry_after_that_is_not_a_number_carries_no_header() -> None:
+    """A refusal must not fail while refusing."""
+    # Act & Assert
+    assert (
+        retry_after_of(
+            ProblemDetail(
+                title="t", status=HTTP_429_TOO_MANY_REQUESTS, retry_after="30"
+            )
+        )
+        is None
+    )
+    assert (
+        retry_after_of(
+            ProblemDetail(
+                title="t", status=HTTP_429_TOO_MANY_REQUESTS, retry_after=True
+            )
+        )
+        is None
+    )

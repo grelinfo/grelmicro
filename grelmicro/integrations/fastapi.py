@@ -278,7 +278,12 @@ def install_problem_details(
     Read more in the [Problem Details](../http/problems.md) docs.
     """
     for klass in HANDLED:
-        app.add_exception_handler(klass, _problem_response)
+        # A handler the app registered first wins. Registering before
+        # `install` is the natural order (build the app, register handlers,
+        # wire grelmicro), and overwriting there would take a handler away
+        # from an app that upgrades, without saying so.
+        if klass not in app.exception_handlers:
+            app.add_exception_handler(klass, _problem_response)
 
 
 async def _problem_response(request: "Request", exc: Exception) -> "Response":
@@ -798,36 +803,47 @@ def _annotate_schema(schema: dict[str, Any], options: dict[str, Any]) -> None:
             f"payload."
         )
 
-    annotated = False
-    for path_item in schema.get("paths", {}).values():
-        for method, operation in path_item.items():
-            # Every non-operation key of a path item (`parameters`,
-            # `servers`, `summary`, `$ref`) holds a list or a string, so a
-            # mapping under a covered method is an operation.
-            if method.lower() not in methods or not isinstance(operation, dict):
-                continue
-            _add_parameter(operation, path_item, parameter)
-            for status, description in responses.items():
-                _merge_response(operation, status, description)
-            annotated = True
-    if annotated:
-        _add_problem_schema(schema)
+    covered = [
+        (path_item, operation)
+        for path_item in schema.get("paths", {}).values()
+        for method, operation in path_item.items()
+        # Every non-operation key of a path item (`parameters`, `servers`,
+        # `summary`, `$ref`) holds a list or a string, so a mapping under a
+        # covered method is an operation.
+        if method.lower() in methods and isinstance(operation, dict)
+    ]
+    if not covered:
+        return
+    ref = _add_problem_schema(schema)
+    for path_item, operation in covered:
+        _add_parameter(operation, path_item, parameter)
+        for status, description in responses.items():
+            _merge_response(operation, status, description, ref)
 
 
-def _add_problem_schema(schema: dict[str, Any]) -> None:
-    """Publish the `ProblemDetail` component the responses point at.
+def _add_problem_schema(schema: dict[str, Any]) -> str:
+    """Publish the problem body component and return the ref that points at it.
 
-    Left alone when it is already there, so an app that declares
-    `responses={429: {"model": ProblemDetail}}` on a route keeps the
-    definition FastAPI generated for it.
+    An app may already publish a model of its own under the same name, in
+    which case pointing the middleware's responses at it would hand a
+    generated client the wrong shape to decode. The component is compared
+    before it is reused, and a different one is published beside it under a
+    qualified name rather than replacing what the app declared.
     """
     schemas = schema.setdefault("components", {}).setdefault("schemas", {})
-    schemas.setdefault(
-        _PROBLEM_SCHEMA_NAME,
-        ProblemDetail.model_json_schema(
-            ref_template="#/components/schemas/{model}"
-        ),
+    ours = ProblemDetail.model_json_schema(
+        ref_template="#/components/schemas/{model}"
     )
+    for name in (_PROBLEM_SCHEMA_NAME, _QUALIFIED_PROBLEM_SCHEMA_NAME):
+        existing = schemas.get(name)
+        if existing is None:
+            schemas[name] = ours
+            return f"#/components/schemas/{name}"
+        if existing == ours:
+            return f"#/components/schemas/{name}"
+    # Both names are taken by something else, which takes a deliberate act.
+    # Say nothing about the body rather than name the wrong shape.
+    return ""
 
 
 def _add_parameter(
@@ -856,7 +872,7 @@ def _add_parameter(
 
 
 def _merge_response(
-    operation: dict[str, Any], status: str, description: str
+    operation: dict[str, Any], status: str, description: str, ref: str
 ) -> None:
     """Describe a status the middleware returns, keeping what is there.
 
@@ -868,29 +884,23 @@ def _merge_response(
     responses = operation.setdefault("responses", {})
     existing = responses.get(status)
     if existing is None:
-        responses[status] = {
-            "description": description,
-            "content": _problem_content(),
-        }
-        return
-    current = existing.get("description", "")
-    if description not in current:
-        existing["description"] = f"{current}\n\n{description}".strip()
-    existing.setdefault("content", {}).setdefault(
-        PROBLEM_MEDIA_TYPE, {"schema": {"$ref": _PROBLEM_REF}}
-    )
-
-
-def _problem_content() -> dict[str, Any]:
-    """Return the content map every middleware response answers with."""
-    return {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": _PROBLEM_REF}}}
+        responses[status] = {"description": description}
+        existing = responses[status]
+    else:
+        current = existing.get("description", "")
+        if description not in current:
+            existing["description"] = f"{current}\n\n{description}".strip()
+    if ref:
+        existing.setdefault("content", {}).setdefault(
+            PROBLEM_MEDIA_TYPE, {"schema": {"$ref": ref}}
+        )
 
 
 _PROBLEM_SCHEMA_NAME = "ProblemDetail"
 """Name the problem body is published under in the OpenAPI components."""
 
-_PROBLEM_REF = f"#/components/schemas/{_PROBLEM_SCHEMA_NAME}"
-"""Where a middleware response points for the problem body."""
+_QUALIFIED_PROBLEM_SCHEMA_NAME = "GrelmicroProblemDetail"
+"""Fallback name, for an app that publishes a `ProblemDetail` of its own."""
 
 
 _UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")

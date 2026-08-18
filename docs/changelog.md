@@ -11,6 +11,7 @@
 ### Security
 
 * 🔒 A problem detail never carries the exception message. Those messages name the thing that was refused, and `RateLimitExceededError` alone would have published the key it rejected, which is often a client address or a user id. grelmicro writes every `detail` itself. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 🔒 A problem detail serializes through pydantic's JSON mode, so an extension member that is not a JSON native cannot fail the response. Whether the encoder coped with a `UUID` or a `Decimal` otherwise depended on which JSON library was installed, which is a page that works in development and fails in production. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 * 🔒 Every problem response carries `Cache-Control: no-store`, so a shared cache cannot serve one client's `429` to another, and `X-Content-Type-Options: nosniff`, because the body reflects the request path back in `instance`. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 
 ### Added

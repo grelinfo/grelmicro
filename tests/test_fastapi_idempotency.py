@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import FastAPI, Header, Request, Response
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.background import BackgroundTasks
 from starlette.middleware.base import (
@@ -991,6 +992,82 @@ def test_document_idempotency_publishes_the_problem_body() -> None:
         }
     }
     assert "ProblemDetail" in schema["components"]["schemas"]
+
+
+def test_document_idempotency_never_points_at_someone_elses_model() -> None:
+    """An app may publish a `ProblemDetail` of its own under that name.
+
+    Pointing the middleware's responses at it would hand a generated client
+    the wrong shape to decode, so grelmicro's goes beside it.
+    """
+
+    # Arrange
+    class ProblemDetail(BaseModel):
+        """A model of the app's own that happens to share the name."""
+
+        mine: str
+
+    app = build_app()
+
+    @app.post("/declined", responses={402: {"model": ProblemDetail}})
+    async def declined() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    document_idempotency(app)
+
+    # Act
+    schema = app.openapi()
+    schemas = schema["components"]["schemas"]
+    content = schema["paths"]["/charge"]["post"]["responses"]["409"]["content"]
+
+    # Assert
+    assert schemas["ProblemDetail"]["properties"] == {
+        "mine": {"type": "string", "title": "Mine"}
+    }
+    assert content["application/problem+json"]["schema"] == {
+        "$ref": "#/components/schemas/GrelmicroProblemDetail"
+    }
+    assert "type" in schemas["GrelmicroProblemDetail"]["properties"]
+
+
+def test_document_idempotency_says_nothing_when_both_names_are_taken() -> None:
+    """Naming the wrong shape is worse than naming none.
+
+    Taking both names is a deliberate act, so the responses are still
+    described and simply carry no body schema.
+    """
+
+    # Arrange
+    class ProblemDetail(BaseModel):
+        """The app's own, under the plain name."""
+
+        mine: str
+
+    class GrelmicroProblemDetail(BaseModel):
+        """The app's own, under the qualified name too."""
+
+        also_mine: str
+
+    app = build_app()
+
+    @app.post(
+        "/declined",
+        responses={
+            402: {"model": ProblemDetail},
+            403: {"model": GrelmicroProblemDetail},
+        },
+    )
+    async def declined() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    document_idempotency(app)
+
+    # Act
+    response = app.openapi()["paths"]["/charge"]["post"]["responses"]["409"]
+
+    # Assert
+    assert "still in flight" in response["description"]
+    assert "content" not in response
 
 
 def test_document_idempotency_publishes_nothing_when_nothing_matched() -> None:

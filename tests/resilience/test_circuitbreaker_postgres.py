@@ -594,3 +594,38 @@ async def test_migrate_upgrades_a_pre_retry_after_install(
         # Assert
         assert snapshot.state is CircuitBreakerState.CLOSED
         assert snapshot.retry_after == 0.0
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_migrate_leaves_current_functions_alone(
+    container: PostgresContainer,
+) -> None:
+    """A restart on a current install does not churn the function OIDs.
+
+    A new OID invalidates every cached plan that references it, across
+    every replica. The drop is guarded on the stored result signature so
+    that cost is paid once, not on every start forever.
+    """
+    # Arrange
+    port = container.get_exposed_port(5432)
+    provider = PostgresProvider(f"postgresql://test:test@localhost:{port}/test")
+    table = "grelmicro_cb_stable"
+    oids = "SELECT proname, oid FROM pg_proc WHERE proname LIKE $1 ORDER BY 1;"
+    async with provider:
+        async with PostgresCircuitBreakerAdapter(
+            provider=provider, table_name=table
+        ):
+            pass
+        before = await provider.client.fetch(oids, f"{table}_cb_%")
+
+        # Act
+        async with PostgresCircuitBreakerAdapter(
+            provider=provider, table_name=table
+        ):
+            pass
+        after = await provider.client.fetch(oids, f"{table}_cb_%")
+
+        # Assert
+        assert before
+        assert [dict(row) for row in after] == [dict(row) for row in before]

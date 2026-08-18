@@ -138,7 +138,10 @@ def install_problem_details(
     Read more in the [Problem Details](../http/problems.md) docs.
     """
     for klass in HANDLED:
-        app.exception_handlers[klass] = _problem_response
+        # A handler passed to `Litestar(exception_handlers=...)` wins, the
+        # same way one registered before `install` does on Starlette.
+        if klass not in app.exception_handlers:
+            app.exception_handlers[klass] = _problem_response
 
 
 def _problem_response(request: Request, exc: Exception) -> Response:

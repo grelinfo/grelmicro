@@ -74,10 +74,22 @@ that turns a caller away and has no entry of its own answers `503`.
 
 ## What is never rendered
 
-An error grelmicro did not raise to turn a caller away stays unhandled, and
-the framework answers it with a `500` as before. A backend that is down, a
-bug in a handler, and a misconfiguration are server faults, not client
-problems, and a problem detail would only dress them up.
+Anything not in the table above stays unhandled, and the framework answers it
+with a `500` as before. A backend that is down, a bug in a handler, and a
+misconfiguration are server faults, not client problems, and a problem detail
+would only dress them up.
+
+A bare builtin `TimeoutError` is also left alone, on purpose. grelmicro cannot
+tell one it raised from one a database driver or a socket raised underneath
+your handler, and claiming a deadline it does not know would be worse than
+saying nothing. That is why `Timeout` raises `DeadlineExceededError`, which
+names the policy and carries the deadline.
+
+Two waits still end in a bare `TimeoutError` and so still answer `500`:
+`Lock.acquire(timeout=...)` and `ReadWriteLock.acquire(timeout=...)`. Bringing
+them into the taxonomy is tracked in
+[#772](https://github.com/grelinfo/grelmicro/issues/772). Until then, catch
+`TimeoutError` around a bounded acquire and answer it yourself.
 
 ## The problem types
 

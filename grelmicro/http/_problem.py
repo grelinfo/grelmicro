@@ -261,8 +261,13 @@ def _wait(seconds: float) -> dict[str, float]:
 
     A zero delay reads as "retry now", which is the opposite of what a
     refusal means, so an unknown wait carries no member and no header.
+
+    Rounded before the test, not after. A wait under half a millisecond,
+    which a limiter reports at a window boundary under load, rounded to
+    `0.0` and published the very delay this refuses to publish.
     """
-    return {"retry_after": round(seconds, 3)} if seconds > 0 else {}
+    wait = round(seconds, 3)
+    return {"retry_after": wait} if wait > 0 else {}
 
 
 def _from_rate_limit(
@@ -400,9 +405,17 @@ def retry_after_of(problem: ProblemDetail) -> str | None:
 
     HTTP takes whole seconds there, so the delay is rounded up: rounding
     down invites a retry that is refused again.
+
+    A `retry_after` that is not a number carries no header. Extension
+    members are open, so a problem someone built by hand can hold anything,
+    and a refusal must not fail while refusing.
     """
     retry_after = getattr(problem, "retry_after", None)
-    return None if retry_after is None else str(ceil(retry_after))
+    if isinstance(retry_after, bool) or not isinstance(
+        retry_after, (int, float)
+    ):
+        return None
+    return str(ceil(retry_after))
 
 
 def headers_of(problem: ProblemDetail) -> list[tuple[bytes, bytes]]:
@@ -424,8 +437,15 @@ def framework_headers_of(problem: ProblemDetail) -> dict[str, str]:
 
 
 def body_of(problem: ProblemDetail) -> bytes:
-    """Serialize a problem detail, dropping the members that are unset."""
-    return json_dumps_bytes(problem.model_dump(exclude_none=True))
+    """Serialize a problem detail, dropping the members that are unset.
+
+    Dumped in JSON mode, so an extension member that is not a JSON native
+    is converted by pydantic rather than left for the encoder. An extension
+    can be anything, and whether the encoder coped with a `UUID` or a
+    `Decimal` otherwise depended on which JSON library was installed, which
+    is a page that works in development and fails in production.
+    """
+    return json_dumps_bytes(problem.model_dump(mode="json", exclude_none=True))
 
 
 async def send_problem(
