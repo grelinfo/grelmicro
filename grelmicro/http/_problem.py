@@ -10,7 +10,11 @@ from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_bytes
-from grelmicro.errors import AdmissionError, WouldBlockError
+from grelmicro.errors import (
+    AdmissionError,
+    LockTimeoutError,
+    WouldBlockError,
+)
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyWaitTimeoutError,
@@ -304,6 +308,22 @@ def _from_would_block(
     return build(LOCK_UNAVAILABLE, instance=instance)
 
 
+def _from_lock_timeout(
+    exc: LockTimeoutError, instance: str | None
+) -> ProblemDetail:
+    # The same `type` as a non-blocking refusal, because a client branching
+    # on it wants the one fact both carry: the lock was not granted. Only
+    # the sentence differs, which is what `detail` is for.
+    return build(
+        LOCK_UNAVAILABLE,
+        detail=(
+            f"Another holder still had the lock this request needs after "
+            f"{exc.timeout}s of waiting."
+        ),
+        instance=instance,
+    )
+
+
 def _from_admission(
     exc: AdmissionError,  # noqa: ARG001
     instance: str | None,
@@ -345,6 +365,7 @@ _RULES: dict[
     RateLimitExceededError: _from_rate_limit,
     CircuitBreakerError: _from_circuit_breaker,
     BulkheadFullError: _from_bulkhead,
+    LockTimeoutError: _from_lock_timeout,
     WouldBlockError: _from_would_block,
     AdmissionError: _from_admission,
     DeadlineExceededError: _from_deadline,

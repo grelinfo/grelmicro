@@ -23,6 +23,7 @@ from grelmicro.coordination.errors import (
     LockOwnedCheckError,
     LockReentrantError,
     LockReleaseError,
+    LockTimeoutError,
     LockUpgradeError,
     WouldBlockError,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "LockPrimitive",
     "LockReentrantError",
     "LockReleaseError",
+    "LockTimeoutError",
     "LockUpgradeError",
     "ReadGuard",
     "ReadWriteLock",

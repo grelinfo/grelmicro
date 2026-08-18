@@ -2,6 +2,7 @@
 
 from grelmicro.errors import (
     GrelmicroError,
+    LockTimeoutError,
     WouldBlockError,
 )
 
@@ -15,6 +16,7 @@ __all__ = [
     "LockOwnedCheckError",
     "LockReentrantError",
     "LockReleaseError",
+    "LockTimeoutError",
     "LockUpgradeError",
     "WouldBlockError",
 ]

@@ -63,6 +63,7 @@ client that honours the header without reading the body.
 | `CircuitBreakerError` | 503 | [`circuit-breaker-open`](#circuit-breaker-open) | `retry_after` |
 | `BulkheadFullError` | 503 | [`bulkhead-full`](#bulkhead-full) | nothing to wait on |
 | `WouldBlockError` | 503 | [`lock-unavailable`](#lock-unavailable) | nothing to wait on |
+| `LockTimeoutError` | 503 | [`lock-unavailable`](#lock-unavailable) | nothing to wait on |
 | `AdmissionError` | 503 | [`request-refused`](#request-refused) | nothing to wait on |
 | `DeadlineExceededError` | 504 | [`deadline-exceeded`](#deadline-exceeded) | `timeout` |
 | `IdempotencyConflictError` | 422 | [`idempotency-key-reused`](#idempotency-key-reused) | nothing |
@@ -79,17 +80,18 @@ with a `500` as before. A backend that is down, a bug in a handler, and a
 misconfiguration are server faults, not client problems, and a problem detail
 would only dress them up.
 
-A bare builtin `TimeoutError` is also left alone, on purpose. grelmicro cannot
-tell one it raised from one a database driver or a socket raised underneath
-your handler, and claiming a deadline it does not know would be worse than
-saying nothing. That is why `Timeout` raises `DeadlineExceededError`, which
-names the policy and carries the deadline.
+A bare builtin `TimeoutError` is left alone, on purpose. grelmicro cannot tell
+one it raised from one a database driver or a socket raised underneath your
+handler, and claiming a deadline it does not know would be worse than saying
+nothing. That is why every wait grelmicro bounds raises an error of its own:
+`DeadlineExceededError` for a `Timeout` policy and `LockTimeoutError` for a
+bounded acquire. Both subclass the builtin, so an `except TimeoutError` around
+either keeps working.
 
-Two waits still end in a bare `TimeoutError` and so still answer `500`:
-`Lock.acquire(timeout=...)` and `ReadWriteLock.acquire(timeout=...)`. Bringing
-them into the taxonomy is tracked in
-[#772](https://github.com/grelinfo/grelmicro/issues/772). Until then, catch
-`TimeoutError` around a bounded acquire and answer it yourself.
+`Shield` is the one exception, and deliberately. Its per-attempt timeout is an
+internal retry signal, and when it gives up it re-raises the error that
+actually failed, which is often one from the library you called. grelmicro
+renders its own rejections, not someone else's error.
 
 ## The problem types
 
@@ -116,8 +118,13 @@ work.
 
 ### Lock held elsewhere { #lock-unavailable }
 
-`503`. A non-blocking `Lock` acquire would have blocked. Another holder has
-it, and the caller asked not to wait.
+`503`. A `Lock` acquire did not get in. Another holder has it, and either the
+caller asked not to wait (`WouldBlockError`) or waited and ran out
+(`LockTimeoutError`). One `type` for both, because a client branching on it
+wants the fact they share. The `detail` says which happened.
+
+There is no `retry_after`. A lock frees when its holder is done, which is not
+a time grelmicro knows.
 
 ### Request refused { #request-refused }
 

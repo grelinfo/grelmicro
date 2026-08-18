@@ -92,14 +92,46 @@ class AdmissionError(GrelmicroError):
 
     The shared base for every "turned away" rejection: a rate limiter over
     budget (`RateLimitExceededError`), a full bulkhead (`BulkheadFullError`),
-    an open circuit breaker (`CircuitBreakerError`), or a non-blocking lock
-    acquire that would block (`WouldBlockError`). Catch `AdmissionError` to
-    handle any admission rejection with one `except`.
+    an open circuit breaker (`CircuitBreakerError`), or a lock acquire that
+    did not get in (`WouldBlockError`, and `LockTimeoutError` for the
+    bounded form). Catch `AdmissionError` to handle any admission
+    rejection with one `except`.
     """
 
 
 class WouldBlockError(AdmissionError, RuntimeError):
-    """Raised by a non-blocking acquire that would have blocked."""
+    """Raised by a non-blocking acquire that would have blocked.
+
+    Catch this to handle a lock you did not get, whether the acquire
+    refused to wait at all or waited and ran out. `LockTimeoutError`
+    subclasses it, because the outcome is the same and only the wait
+    differs.
+    """
+
+
+class LockTimeoutError(WouldBlockError, TimeoutError):
+    """Raised by a bounded acquire whose `timeout` elapsed.
+
+    A `WouldBlockError`, because the outcome is the one a non-blocking
+    acquire reports: another holder has the lock. A builtin
+    `TimeoutError` as well, so an `except TimeoutError` around a bounded
+    acquire keeps working.
+
+    Carries the lock and the wait that elapsed, which a bare
+    `TimeoutError` could not, and which is why a bounded acquire used to
+    be indistinguishable from a socket timeout raised underneath it.
+    """
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        timeout: float,
+    ) -> None:
+        """Initialize the error."""
+        self.name = name
+        self.timeout = timeout
+        super().__init__(f"Lock '{name}' not acquired within {timeout}s")
 
 
 class OutOfContextError(GrelmicroError, RuntimeError):

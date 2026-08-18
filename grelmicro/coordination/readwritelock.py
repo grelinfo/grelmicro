@@ -36,7 +36,7 @@ from grelmicro.coordination.errors import (
     LockUpgradeError,
 )
 from grelmicro.coordination.lock import LockConfig, validate_lock_name
-from grelmicro.errors import WouldBlockError
+from grelmicro.errors import LockTimeoutError, WouldBlockError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -356,19 +356,17 @@ class _Mode:
             TimeoutError: `timeout` elapsed before the lock was granted.
         """
         config = self._lock._config  # noqa: SLF001
-        deadline = (
-            asyncio.get_running_loop().time() + timeout
-            if timeout is not None
-            else None
-        )
+        # Stamped whether or not a timeout is set, so the deadline is
+        # `started + timeout` and the guard narrows `timeout` where it
+        # reports the wait that elapsed.
+        started = asyncio.get_running_loop().time()
         granted = await attempt()
         while granted is None:
             if (
-                deadline is not None
-                and asyncio.get_running_loop().time() >= deadline
+                timeout is not None
+                and asyncio.get_running_loop().time() >= started + timeout
             ):
-                msg = f"Lock not acquired within timeout: name={self.name}"
-                raise TimeoutError(msg)
+                raise LockTimeoutError(name=self.name, timeout=timeout)
             await asyncio.sleep(
                 jittered_interval(config.retry_interval, config.retry_jitter)
             )
@@ -434,7 +432,7 @@ class ReadMode(_Mode):
                 Maximum number of seconds to wait for the lock.
 
                 When None (the default), waits indefinitely. When set,
-                retries until the deadline then raises TimeoutError.
+                retries until the deadline then raises LockTimeoutError.
                 """,
             ),
         ] = None,
@@ -732,7 +730,7 @@ class WriteMode(_Mode):
                 Maximum number of seconds to wait for the lock.
 
                 When None (the default), waits indefinitely. When set,
-                retries until the deadline then raises TimeoutError and
+                retries until the deadline then raises LockTimeoutError and
                 withdraws the intent.
                 """,
             ),

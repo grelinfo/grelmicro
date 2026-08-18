@@ -28,7 +28,7 @@ from starlette.status import (
 from starlette.testclient import TestClient as StarletteTestClient
 
 from grelmicro import AdmissionError, Grelmicro
-from grelmicro.errors import WouldBlockError
+from grelmicro.errors import LockTimeoutError, WouldBlockError
 from grelmicro.http import (
     PROBLEM_MEDIA_TYPE,
     PROBLEM_TYPE_BASE,
@@ -97,6 +97,11 @@ EXPECTED = [
         "bulkhead-full",
     ),
     (WouldBlockError("cart"), HTTP_503_SERVICE_UNAVAILABLE, "lock-unavailable"),
+    (
+        LockTimeoutError(name="cart", timeout=5.0),
+        HTTP_503_SERVICE_UNAVAILABLE,
+        "lock-unavailable",
+    ),
     (
         AdmissionError("internal-backend-7"),
         HTTP_503_SERVICE_UNAVAILABLE,
@@ -625,3 +630,24 @@ def test_a_retry_after_that_is_not_a_number_carries_no_header() -> None:
         )
         is None
     )
+
+
+def test_both_lock_refusals_share_a_type_and_differ_in_detail() -> None:
+    """A client branches on the fact they share, and reads which happened.
+
+    Not getting the lock is one outcome, so it is one `type`. Whether the
+    call refused to wait or waited and ran out is per-occurrence, which is
+    what `detail` is for.
+    """
+    # Act
+    refused = problem_detail(WouldBlockError("cart"))
+    waited = problem_detail(LockTimeoutError(name="cart", timeout=5.0))
+
+    # Assert
+    assert refused is not None
+    assert waited is not None
+    assert refused.type == waited.type
+    assert refused.detail != waited.detail
+    assert "5.0s" in (waited.detail or "")
+    # Neither carries a delay: a lock frees when its holder is done.
+    assert "retry_after" not in waited.model_dump()
