@@ -15,8 +15,6 @@ import importlib
 import inspect
 import sys
 import textwrap
-import warnings
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -24,10 +22,7 @@ import pytest
 
 import grelmicro
 from grelmicro._config import reconfigurable_instances
-from grelmicro.coordination import Lock, LockConfig
 from grelmicro.resilience import (
-    Bulkhead,
-    BulkheadConfig,
     Retry,
     RetryConfig,
     Timeout,
@@ -348,35 +343,6 @@ def test_from_config_does_not_register_for_live_reload(
     )
 
 
-BOTH_DOORS: list[tuple[str, Callable[[], object], Callable[[], object]]] = [
-    (
-        "Timeout",
-        lambda: Timeout("doors", seconds=1, env_load=False),
-        lambda: Timeout.from_config("doors", TimeoutConfig(seconds=1)),
-    ),
-    (
-        "Retry",
-        lambda: Retry("doors", when=ValueError, env_load=False),
-        lambda: Retry.from_config("doors", RetryConfig(when=ValueError)),
-    ),
-    (
-        "Bulkhead",
-        lambda: Bulkhead("doors", max_concurrent=2, env_load=False),
-        lambda: Bulkhead.from_config("doors", BulkheadConfig(max_concurrent=2)),
-    ),
-    (
-        "Lock",
-        lambda: Lock("doors", lease_duration=30, env_load=False),
-        lambda: Lock.from_config("doors", LockConfig(lease_duration=30)),
-    ),
-]
-"""One pair per pattern: the keyword door and the declarative door.
-
-Both build the same object, so both must leave it in the same shape. The
-declarative door skips `__init__` entirely (`__new__` plus `_setup`), which
-is only safe while that holds, and #755 records it as audited by hand.
-"""
-
 _RELOAD_ADDRESS = "_env_prefix"
 """The one attribute the declarative door is expected to leave unset.
 
@@ -384,53 +350,55 @@ It is the address live reload uses to find an instance, so omitting it is
 the mechanism behind R8 rather than an oversight.
 """
 
-_MIN_DOOR_PAIRS = 4
-"""Exact count today, so a pair dropping out fails rather than passing."""
+
+def _assigned_attributes(cls: Any, method: str) -> set[str]:  # noqa: ANN401
+    """Return the `self.<name>` attributes a method assigns."""
+    function = getattr(cls, method, None)
+    if function is None:
+        return set()
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    except (OSError, TypeError):  # pragma: no cover  # no readable source
+        return set()
+    return {
+        target.attr
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for target in (
+            node.targets if isinstance(node, ast.Assign) else [node.target]
+        )
+        if isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "self"
+    }
 
 
-def test_the_sweep_covers_both_doors() -> None:
-    """An empty or shrunken pair list is a failure, never a silent pass."""
-    assert len(BOTH_DOORS) >= _MIN_DOOR_PAIRS
-
-
-@pytest.mark.parametrize(
-    ("label", "keyword_door", "config_door"),
-    BOTH_DOORS,
-    ids=[case[0] for case in BOTH_DOORS],
-)
+@pytest.mark.parametrize(("module_name", "class_name"), DOORS, ids=IDS)
 def test_both_doors_leave_the_same_attributes(
-    label: str,
-    keyword_door: Callable[[], object],
-    config_door: Callable[[], object],
-    monkeypatch: pytest.MonkeyPatch,
+    module_name: str, class_name: str
 ) -> None:
-    """The two doors produce instances with the same attribute names.
+    """Everything `__init__` sets, the declarative door sets too.
 
-    `from_config` bypasses `__init__` through `__new__` plus `_setup`, so an
-    attribute set only in `__init__` would be missing on every instance
-    built declaratively, and would fail later at the first use rather than
-    at construction.
+    `from_config` skips `__init__` entirely through `__new__` plus
+    `_setup`, so an attribute assigned only in `__init__` is missing on
+    every instance built declaratively, and fails at the first use rather
+    than at construction. #755 records this as audited by hand.
 
-    Names, not values: identity fields legitimately differ, since a `worker`
-    is minted per instance.
-
-    Exactly one attribute is expected to differ, and asserting *which* one
-    states R8 structurally: the declarative door omits the reload address,
-    which is how the instance stays out of live reconfiguration. Asserting
-    "no difference" would have been false, and asserting "some difference"
-    would let a genuinely missing attribute through.
+    Read from the source rather than by constructing, so all of the family
+    is covered instead of the few whose arguments are easy to supply. The
+    reload address is exempt: the declarative door omits it on purpose,
+    which is R8 in structural form.
     """
-    monkeypatch.setenv("GREL_ENV_LOAD", "0")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        from_keyword = keyword_door()
-        from_config = config_door()
-    missing = set(vars(from_keyword)) - set(vars(from_config))
-    extra = sorted(set(vars(from_config)) - set(vars(from_keyword)))
-    assert missing == {_RELOAD_ADDRESS}, (
-        f"{label}.from_config differs from the keyword door by "
-        f"{sorted(missing)}, expected only {_RELOAD_ADDRESS!r}"
+    cls = _resolve(module_name, class_name)
+    source = inspect.getsource(cls.from_config)
+    if "_setup" not in source:
+        pytest.skip(f"{class_name}.from_config does not use the _setup door")
+    only_in_init = (
+        _assigned_attributes(cls, "__init__")
+        - _assigned_attributes(cls, "_setup")
+        - {_RELOAD_ADDRESS}
     )
-    assert not extra, (
-        f"{label}.from_config sets {extra}, which the keyword door does not"
+    assert not only_in_init, (
+        f"{class_name}.__init__ sets {sorted(only_in_init)} which _setup "
+        f"does not, so from_config leaves the instance incomplete"
     )
