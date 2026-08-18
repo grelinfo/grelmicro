@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from math import ceil
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -51,6 +52,9 @@ identifier has to mean the same thing whichever service emits it.
 """
 
 _MEDIA_TYPE_HEADER = PROBLEM_MEDIA_TYPE.encode("latin-1")
+
+STANDARD_MEMBERS = frozenset({"type", "title", "status", "detail", "instance"})
+"""The five members RFC 9457 defines, which an extension may not displace."""
 
 SAFETY_HEADERS = (
     ("cache-control", "no-store"),
@@ -150,7 +154,7 @@ class _Kind:
     slug: str
     status: int
     title: str
-    detail: str
+    detail: str | None
 
 
 RATE_LIMIT_EXCEEDED = _Kind(
@@ -258,9 +262,11 @@ def build(
 ) -> ProblemDetail:
     """Render a kind as a problem detail, with any extension members.
 
-    Extensions arrive as a mapping rather than as keyword arguments, so a
-    member named `detail` or `instance` cannot quietly take the place of
-    the standard one.
+    An extension named like one of the five standard members is dropped
+    rather than allowed to displace it. The names are RFC 9457's, and a
+    body where `status` means something else is worse than one missing a
+    member the caller should not have used. Dropping is also the only
+    answer that does not fail while rendering a failure.
     """
     return ProblemDetail(
         type=(
@@ -270,7 +276,11 @@ def build(
         status=kind.status,
         detail=kind.detail if detail is None else detail,
         instance=instance,
-        **(extensions or {}),
+        **{
+            name: value
+            for name, value in (extensions or {}).items()
+            if name not in STANDARD_MEMBERS
+        },
     )
 
 
@@ -430,21 +440,8 @@ def classify(exc: BaseException) -> Occurrence | None:
 
 
 def retry_after_of(problem: ProblemDetail) -> str | None:
-    """Return the `Retry-After` value, or `None` when there is nothing to wait.
-
-    HTTP takes whole seconds there, so the delay is rounded up: rounding
-    down invites a retry that is refused again.
-
-    A `retry_after` that is not a number carries no header. Extension
-    members are open, so a problem someone built by hand can hold anything,
-    and a refusal must not fail while refusing.
-    """
-    retry_after = getattr(problem, "retry_after", None)
-    if isinstance(retry_after, bool) or not isinstance(
-        retry_after, (int, float)
-    ):
-        return None
-    return str(ceil(retry_after))
+    """Return the `Retry-After` value a problem detail asks for."""
+    return retry_after_seconds(getattr(problem, "retry_after", None))
 
 
 def headers_of(problem: ProblemDetail) -> list[tuple[bytes, bytes]]:
@@ -513,4 +510,32 @@ def unclassified(status: int, title: str) -> _Kind:
     URI. There is nothing to point at: the error is the application's, and
     grelmicro only reshapes it into the format the app answers in.
     """
-    return _Kind(slug="", status=status, title=title, detail="")
+    return _Kind(slug="", status=status, title=title, detail=None)
+
+
+def phrase_of(status: int) -> str:
+    """Return the reason phrase for a status, or a plain word for an unknown.
+
+    A service may answer with a code outside the IANA registry, and a proxy
+    in front of it certainly may. Looking one up must not fail while
+    rendering a failure.
+    """
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return "Error"
+
+
+def retry_after_seconds(value: object) -> str | None:
+    """Return the `Retry-After` value for a wait, or `None` when there is none.
+
+    Shared by every format, so a body someone built by hand cannot fail one
+    renderer and not another. HTTP takes whole seconds, so the delay is
+    rounded up: rounding down invites a retry that is refused again.
+
+    A wait that is not a number carries no header. `bool` is a number in
+    Python and never a delay, so it is excluded by name.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return str(ceil(value))

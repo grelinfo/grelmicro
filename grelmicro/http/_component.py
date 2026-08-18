@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from http import HTTPStatus
-from math import ceil
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
@@ -21,6 +19,8 @@ from grelmicro.http._problem import (
     build,
     classify,
     framework_headers_of,
+    phrase_of,
+    retry_after_seconds,
     unclassified,
 )
 
@@ -83,9 +83,9 @@ def _render_tmf(
         headers = dict(SAFETY_HEADERS)
         # TMF630 defines no extension member either, so the delay reaches
         # the client through the header or not at all.
-        wait = occurrence.extensions.get("retry_after")
+        wait = retry_after_seconds(occurrence.extensions.get("retry_after"))
         if wait is not None:
-            headers["retry-after"] = str(ceil(wait))
+            headers["retry-after"] = wait
         return RenderedError(
             status=status,
             media_type=_tmf.TMF_MEDIA_TYPE,
@@ -249,6 +249,27 @@ class ErrorResponses:
         """
         return self._model
 
+    def render_occurrence(
+        self,
+        occurrence: Annotated[
+            Occurrence,
+            Doc("The classified error, which knows its own identifier."),
+        ],
+        *,
+        instance: Annotated[
+            str | None,
+            Doc("Request path recorded as the occurrence."),
+        ] = None,
+    ) -> RenderedError:
+        """Return the response for an error grelmicro already classified.
+
+        For a middleware that refuses a request itself, before the app runs
+        and before any exception exists to classify. The kind is carried
+        through, so the response names the rejection rather than falling
+        back to the status.
+        """
+        return self._from_occurrence(occurrence, instance)
+
     def render_status(
         self,
         status: Annotated[int, Doc("HTTP status code of the response.")],
@@ -278,7 +299,7 @@ class ErrorResponses:
         The status and the message stay as the framework set them. Only the
         shape changes.
         """
-        kind = unclassified(status, HTTPStatus(status).phrase)
+        kind = unclassified(status, phrase_of(status))
         return self._from_occurrence(
             Occurrence(kind, detail=detail, extensions=extensions or {}),
             instance,

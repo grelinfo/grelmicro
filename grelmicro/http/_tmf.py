@@ -118,7 +118,7 @@ def render(
     )
 
 
-def _message(occurrence: Occurrence, default: str) -> str | None:
+def _message(occurrence: Occurrence, default: str | None) -> str | None:
     """Return the `message` member, with any field errors folded in.
 
     TMF630 defines no extension member, so an `errors` list has nowhere of

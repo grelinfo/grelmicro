@@ -166,6 +166,15 @@ def install_error_responses(
         )
 
         http_exc = cast("HTTPException", exc)
+        headers = http_exc.headers or {}
+        if http_exc.status_code in _BODYLESS_STATUSES:
+            # A `204` or a `304` carries no body by the protocol, whatever
+            # format the app answers in.
+            return LitestarResponse(
+                content=b"",
+                status_code=http_exc.status_code,
+                headers=headers,
+            )
         if isinstance(exc, ValidationException):
             rendered = errors.render_validation(
                 _field_errors(exc),
@@ -184,7 +193,7 @@ def install_error_responses(
             media_type=rendered.media_type,
             # A header the app set on the exception is part of the answer,
             # so it outranks ours.
-            headers={**rendered.headers, **(http_exc.headers or {})},
+            headers={**rendered.headers, **headers},
         )
 
     app.state.grelmicro_error_responses = errors
@@ -199,6 +208,10 @@ def install_error_responses(
         # same way one registered before `install` does on Starlette.
         if klass not in app.exception_handlers:
             app.exception_handlers[klass] = handler
+
+
+_BODYLESS_STATUSES = frozenset({204, 304})
+"""Statuses the protocol says carry no body, whatever the format."""
 
 
 def error_response(

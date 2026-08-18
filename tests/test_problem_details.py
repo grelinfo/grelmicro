@@ -683,3 +683,22 @@ def test_two_formats_cannot_both_be_registered() -> None:
         ComponentAlreadyRegisteredError, match="One rendering answers"
     ):
         Grelmicro(uses=[ErrorResponses(), ErrorResponses(name="second")])
+
+
+async def test_send_problem_omits_the_header_when_there_is_no_wait() -> None:
+    """A bulkhead frees at no known time, so the raw path sends no delay."""
+    # Arrange
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    problem = problem_detail(BulkheadFullError(name="db", max_concurrent=4))
+    assert problem is not None
+
+    # Act
+    await send_problem(send, problem)
+
+    # Assert
+    headers = dict(sent[0]["headers"])
+    assert b"retry-after" not in headers

@@ -24,10 +24,9 @@ from grelmicro.http._problem import (
     IDEMPOTENCY_KEY_REUSED,
     PROBLEM_MEDIA_TYPE,
     REQUEST_BODY_TOO_LARGE,
+    Occurrence,
     ProblemDetail,
     _Kind,
-    build,
-    send_problem,
 )
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -310,10 +309,17 @@ def install_error_responses(
         from starlette.responses import Response  # noqa: PLC0415
 
         http_exc = cast("HTTPException", exc)
+        headers = http_exc.headers or {}
+        if http_exc.status_code in _BODYLESS_STATUSES:
+            # A `204` or a `304` carries no body by the protocol, whatever
+            # format the app answers in. Starlette guards this in its own
+            # handler and so must this one.
+            return Response(status_code=http_exc.status_code, headers=headers)
         detail = http_exc.detail
         rendered = errors.render_status(
             http_exc.status_code,
             detail=detail if isinstance(detail, str) else None,
+            extensions=_structured_detail(detail),
             instance=request.url.path,
         )
         return Response(
@@ -322,7 +328,7 @@ def install_error_responses(
             media_type=rendered.media_type,
             # A header the app set on the exception is part of the answer,
             # `WWW-Authenticate` on a `401` above all, so it outranks ours.
-            headers={**rendered.headers, **(http_exc.headers or {})},
+            headers={**rendered.headers, **headers},
         )
 
     async def validation_error(
@@ -760,8 +766,9 @@ def document_idempotency(
     document_idempotency(app)
     ```
 
-    Call it any time after `add_middleware`. The schema is annotated the
-    next time it is built, so routes added afterwards are covered too.
+    Call it after `micro.install(app)`, which is where the error format
+    is registered. The schema is annotated the next time it is built, so
+    routes added afterwards are covered too.
 
     An operation that already declares the header keeps its own
     declaration. A `422` that FastAPI generated for request validation
@@ -1388,21 +1395,66 @@ async def _send_problem(
     """Answer a request the middleware refuses itself, before the app runs.
 
     A middleware sits outside the routing layer, so no exception handler
-    sees what it decides. It writes the same problem detail a raised
-    rejection would produce, in the same shape and media type.
+    sees what it decides. It renders through whichever `ErrorResponses` the
+    app registered, read from the app the ASGI scope carries, so what the
+    schema publishes for these responses is what the wire returns. An app
+    that registered none gets RFC 9457, which an error body always needs.
     """
-    extensions: dict[str, Any] | None = (
-        None if retry_after is None else {"retry_after": retry_after}
-    )
-    await send_problem(
-        send,
-        build(
+    errors = _registered_errors(scope)
+    rendered = errors.render_occurrence(
+        Occurrence(
             kind,
             detail=detail,
-            instance=scope["path"],
-            extensions=extensions,
+            extensions=(
+                {} if retry_after is None else {"retry_after": retry_after}
+            ),
         ),
+        instance=scope["path"],
     )
+    headers: list[tuple[bytes, bytes]] = [
+        (b"content-type", rendered.media_type.encode("latin-1")),
+        *(
+            (name.encode("latin-1"), value.encode("latin-1"))
+            for name, value in rendered.headers.items()
+        ),
+        (b"content-length", str(len(rendered.body)).encode("latin-1")),
+    ]
+    await send(
+        {
+            "type": "http.response.start",
+            "status": rendered.status,
+            "headers": headers,
+        }
+    )
+    await send({"type": "http.response.body", "body": rendered.body})
+
+
+def _structured_detail(detail: Any) -> "dict[str, Any] | None":  # noqa: ANN401
+    """Return the extension members a non-string `detail` becomes.
+
+    FastAPI documents a dict or a list there, and dropping it would lose a
+    payload the app meant the client to read.
+
+    A mapping is what an extension member already is, so its entries are
+    carried as members in their own right. Anything else goes under
+    `errors`, the name RFC 9457 readers expect a list of sub-problems
+    under. A name that would displace one of the five standard members is
+    dropped by `build`, so merging is safe.
+    """
+    if detail is None or isinstance(detail, str):
+        return None
+    if isinstance(detail, dict):
+        return dict(detail)
+    return {"errors": detail}
+
+
+def _registered_errors(scope: "Scope") -> ErrorResponses:
+    """Return the app's `ErrorResponses`, or the default when none is set."""
+    app = scope.get("app")
+    registered = getattr(
+        getattr(app, "state", None), "grelmicro_error_responses", None
+    )
+    return registered if registered is not None else ErrorResponses()
 
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}

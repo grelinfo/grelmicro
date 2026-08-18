@@ -58,6 +58,12 @@ pytestmark = [pytest.mark.timeout(5)]
 NOT_FOUND_DETAIL = "Charge not found"
 """Message the app puts on its own error, which must survive untouched."""
 
+BALANCE = 30
+"""Value a structured detail carries, which must reach the client."""
+
+UNREGISTERED_STATUS = 599
+"""A status outside the IANA registry, which a proxy may well answer with."""
+
 
 class Charge(BaseModel):
     """A body with one required integer, so a string fails validation."""
@@ -531,3 +537,151 @@ def test_the_tmf_message_folds_in_the_field_errors() -> None:
     message = response.json()["message"]
     assert "body.amount" in message
     assert "valid integer" in message
+
+
+# --- What the review found ----------------------------------------------
+
+
+def test_a_status_outside_the_registry_still_renders() -> None:
+    """A service may answer with a code IANA never registered, and a proxy will.
+
+    Looking one up must not fail while rendering a failure.
+    """
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/odd")
+    async def odd() -> dict[str, str]:
+        raise FastAPIHTTPException(UNREGISTERED_STATUS, "nope")
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/odd")
+
+    # Assert
+    assert response.status_code == UNREGISTERED_STATUS
+    assert response.json()["title"] == "Error"
+    assert response.json()["detail"] == "nope"
+
+
+@pytest.mark.parametrize("status", [204, 304])
+def test_a_bodiless_status_stays_bodiless(status: int) -> None:
+    """The protocol says no body, whatever format the app answers in."""
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/empty")
+    async def empty() -> dict[str, str]:
+        raise FastAPIHTTPException(status)
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/empty")
+
+    # Assert
+    assert response.status_code == status
+    assert response.content == b""
+
+
+def test_a_mapping_detail_becomes_extension_members() -> None:
+    """FastAPI documents a dict there, and it is what a member already is."""
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/funds")
+    async def funds() -> dict[str, str]:
+        raise FastAPIHTTPException(
+            HTTP_409_CONFLICT,
+            detail={"code": "insufficient_funds", "balance": BALANCE},
+        )
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        body = client.get("/funds").json()
+
+    # Assert
+    assert body["code"] == "insufficient_funds"
+    assert body["balance"] == BALANCE
+    assert "detail" not in body
+
+
+def test_a_list_detail_becomes_the_errors_member() -> None:
+    """`errors` is the name an RFC 9457 reader expects a list under."""
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/many")
+    async def many() -> dict[str, str]:
+        raise FastAPIHTTPException(
+            HTTP_400_BAD_REQUEST, detail=[{"field": "amount"}]
+        )
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        body = client.get("/many").json()
+
+    # Assert
+    assert body["errors"] == [{"field": "amount"}]
+
+
+def test_an_extension_cannot_displace_a_standard_member() -> None:
+    """The five names are RFC 9457's, and a body that lies is worse."""
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/sneaky")
+    async def sneaky() -> dict[str, str]:
+        raise FastAPIHTTPException(
+            HTTP_409_CONFLICT, detail={"status": 200, "balance": BALANCE}
+        )
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        body = client.get("/sneaky").json()
+
+    # Assert
+    assert body["status"] == HTTP_409_CONFLICT
+    assert body["balance"] == BALANCE
+
+
+def test_a_wait_that_is_not_a_number_carries_no_header_in_any_format() -> None:
+    """A refusal must not fail while refusing, whichever format renders it."""
+    # Act
+    for component in (ErrorResponses(), ErrorResponses.tmf()):
+        rendered = component.render_status(
+            HTTP_409_CONFLICT, extensions={"retry_after": "soon"}
+        )
+
+        # Assert
+        assert "retry-after" not in rendered.headers
+
+
+@pytest.mark.parametrize("status", [204, 304])
+def test_litestar_bodiless_status_stays_bodiless(status: int) -> None:
+    """The protocol rule holds on Litestar too."""
+
+    # Arrange
+    @get("/empty")
+    async def empty() -> dict[str, str]:
+        raise LitestarHTTPException(status_code=status)
+
+    app = Litestar(route_handlers=[empty])
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
+        response = client.get("/empty")
+
+    # Assert
+    assert response.status_code == status
+    assert response.content == b""
