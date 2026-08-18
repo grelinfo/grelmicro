@@ -507,7 +507,7 @@ own pull request:
 
 ```bash
 git checkout -b chore/release-0.40.0
-git commit -am "🔖 Prepare the 0.40.0 release"
+git commit -m "🔖 Prepare the 0.40.0 release" -- docs/changelog.md
 gh pr create --fill && gh pr merge --squash --admin
 git checkout main && git pull
 ```

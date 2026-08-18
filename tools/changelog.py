@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -82,6 +83,84 @@ def check(version: str, today: str) -> int:
     return 0
 
 
+VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[abrc]\w*|\.dev\d+|\.post\d+)?$")
+"""A bare release version, matching how this project's tags are written.
+
+`v0.40.0` is a natural thing to type and every tag here is bare, so the
+prefix is refused rather than written into a heading that `check` would
+then accept.
+"""
+
+
+def is_tagged(version: str) -> bool:
+    """Return whether a git tag exists for `version`.
+
+    A tagged section describes what shipped and is never rewritten. An
+    untagged one is still being prepared.
+    """
+    result = subprocess.run(  # noqa: S603
+        ["git", "tag", "--list", version],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return bool(result.stdout.strip())
+
+
+def _has_entries(body: str) -> bool:
+    """Return whether a section holds an entry, not just sub-headings."""
+    return any(line.lstrip().startswith("* ") for line in body.splitlines())
+
+
+def _warn_if_entries_accumulated(
+    found: dict[str, tuple[str | None, str]],
+) -> None:
+    """Report entries added under `Unreleased` after the cut.
+
+    They would ship inside the tag while the release notes, which are the
+    cut section, say nothing about them.
+    """
+    leftover = found.get("Unreleased")
+    if leftover and _has_entries(leftover[1]):
+        print(
+            "warning: entries were added under 'Unreleased' after the cut. "
+            "They will ship in this tag but not appear in its notes.",
+            file=sys.stderr,
+        )
+
+
+def _recut(
+    text: str,
+    found: dict[str, tuple[str | None, str]],
+    version: str,
+    today: str,
+) -> int:
+    """Handle a version whose section already exists. Returns an exit code."""
+    date = found[version][0]
+    if date == today:
+        print(f"changelog already cut: {version} dated {today}")
+        _warn_if_entries_accumulated(found)
+        return 0
+    if is_tagged(version):
+        print(
+            f"{version} is already tagged, and a tagged section describes "
+            f"what shipped. Pick the next version.",
+            file=sys.stderr,
+        )
+        return 1
+    # Cut but not tagged, so this is the same release catching up with the
+    # clock. The changelog pull request routinely merges the day after the
+    # cut, and `check` demands today's date, so refusing here would deadlock
+    # the two-run procedure with no way forward.
+    updated = text.replace(
+        f"## {version} - {date}\n", f"## {version} - {today}\n", 1
+    )
+    CHANGELOG.write_text(updated, encoding="utf-8")
+    print(f"changelog re-dated: {version} now {today}")
+    _warn_if_entries_accumulated(found)
+    return 0
+
+
 def release(version: str, today: str) -> int:
     """Rename the `Unreleased` heading to `version`. Returns an exit code.
 
@@ -90,19 +169,17 @@ def release(version: str, today: str) -> int:
     section is dated for a different day, since that is a section already
     cut rather than one waiting to be.
     """
-    text = CHANGELOG.read_text(encoding="utf-8")
-    found = sections(text)
-    if version in found:
-        date = found[version][0]
-        if date == today:
-            print(f"changelog already cut: {version} dated {today}")
-            return 0
+    if not VERSION.match(version):
         print(
-            f"changelog already has a section for {version}, dated {date}. "
-            f"Pick the next version, a released one is never rewritten.",
+            f"{version!r} is not a release version. Tags here are bare, so "
+            f"write 0.40.0 rather than v0.40.0.",
             file=sys.stderr,
         )
         return 1
+    text = CHANGELOG.read_text(encoding="utf-8")
+    found = sections(text)
+    if version in found:
+        return _recut(text, found, version, today)
     if "Unreleased" not in found:
         print(
             "changelog has no 'Unreleased' section to cut. Add entries "
@@ -110,10 +187,25 @@ def release(version: str, today: str) -> int:
             file=sys.stderr,
         )
         return 1
-    if not found["Unreleased"][1]:
-        print("the 'Unreleased' section is empty", file=sys.stderr)
+    if not _has_entries(found["Unreleased"][1]):
+        print(
+            "the 'Unreleased' section holds no entries, only headings",
+            file=sys.stderr,
+        )
         return 1
-    updated = text.replace("## Unreleased\n", f"## {version} - {today}\n", 1)
+    # Rewritten through the pattern `sections` matches, not a literal
+    # string. A literal replace missed `## Unreleased ` while the parser
+    # found it, so the cut reported success and changed nothing.
+    updated, count = re.subn(
+        r"^## Unreleased[ \t]*$",
+        f"## {version} - {today}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if not count:  # pragma: no cover  # `sections` already found it
+        print("could not rewrite the 'Unreleased' heading", file=sys.stderr)
+        return 1
     CHANGELOG.write_text(updated, encoding="utf-8")
     print(f"changelog cut: {version} dated {today}")
     return 0

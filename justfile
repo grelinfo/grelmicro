@@ -132,7 +132,7 @@ release version:
         echo "origin/main, and main is protected, so this needs its own PR:"
         echo
         echo "  git checkout -b chore/release-{{version}}"
-        echo "  git commit -am '🔖 Prepare the {{version}} release'"
+        echo "  git commit -m '🔖 Prepare the {{version}} release' -- docs/changelog.md"
         echo "  gh pr create --fill && gh pr merge --squash --admin"
         echo
         echo "Then run 'just release {{version}}' again from main."
