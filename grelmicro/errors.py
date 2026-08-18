@@ -266,13 +266,22 @@ def _candidates(value: object) -> set[str]:
     that failed, not the level that offends: `union_tag_invalid` hands back
     the whole mapping, with the tag one key down.
 
+    Numbers count too. A validator that names a rejected number leaks a
+    value read from the environment the same way a string does, and the
+    reason to withhold it does not depend on its type.
+
     The strings are never split on separators. Splitting once seemed
     thorough and was the bug: a piece of the rejected value matches the
     correct value that shares it, so `Europe/Zurichh` redacted the `Europe`
     of the `did you mean 'Europe/Zurich'` written to replace it.
     """
-    if isinstance(value, str):
-        return {value} if len(value) >= _MIN_REDACTED_LENGTH else set()
+    if isinstance(value, bool):
+        # `True` and `False` carry nothing, and removing those words would
+        # garble a message that legitimately uses them.
+        return set()
+    if isinstance(value, (str, int, float)):
+        text = str(value)
+        return {text} if len(text) >= _MIN_REDACTED_LENGTH else set()
     if isinstance(value, dict):
         found: set[str] = set()
         for item in value.values():

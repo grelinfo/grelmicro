@@ -366,7 +366,7 @@
       ".from_config": "(config, *, name='default')"
     },
     "MetricsConfig": {
-      "()": "(*, service_name=None, exporter=<MetricsExporterType.AUTO: 'auto'>, endpoint=None, headers=<factory>, basic_auth_username=None, basic_auth_password=None, export_interval=60.0, export_timeout=30.0, resource_attributes=<factory>, shutdown_timeout=5.0)"
+      "()": "(*, service_name=None, exporter=<MetricsExporterType.AUTO: 'auto'>, endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, export_interval=60.0, export_timeout=30.0, resource_attributes={}, shutdown_timeout=5.0)"
     },
     "MetricsError": null,
     "MetricsExporterType": {
@@ -572,7 +572,7 @@
       "()": "(*args, **kwargs)"
     },
     "RetryConfig": {
-      "()": "(*, attempts=3, max_seconds=None, when, backoff=<factory>)"
+      "()": "(*, attempts=3, max_seconds=None, when, backoff=ExponentialBackoff(kind='exponential', base_delay=0.1, max_delay=30.0, jitter='full'))"
     },
     "RetryStrategy": {
       "()": "(*args, **kwargs)"
@@ -782,7 +782,7 @@
       ".from_config": "(config, *, name='default')"
     },
     "TraceConfig": {
-      "()": "(*, service_name=None, exporter=<TraceExporterType.AUTO: 'auto'>, endpoint=None, headers=<factory>, basic_auth_username=None, basic_auth_password=None, processor=<TraceProcessorType.BATCH: 'batch'>, sampler=<TraceSamplerType.PARENTBASED_ALWAYS_ON: 'parentbased_always_on'>, sample_ratio=1.0, resource_attributes=<factory>, shutdown_timeout=5.0)"
+      "()": "(*, service_name=None, exporter=<TraceExporterType.AUTO: 'auto'>, endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, processor=<TraceProcessorType.BATCH: 'batch'>, sampler=<TraceSamplerType.PARENTBASED_ALWAYS_ON: 'parentbased_always_on'>, sample_ratio=1.0, resource_attributes={}, shutdown_timeout=5.0)"
     },
     "TraceError": null,
     "TraceExporterType": {

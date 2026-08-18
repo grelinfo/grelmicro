@@ -160,25 +160,59 @@ def _module_functions(module: Any) -> dict[str, str]:  # noqa: ANN401
     }
 
 
+def _imported_helper(module: Any, name: str) -> tuple[str, Any] | None:  # noqa: ANN401
+    """Return a grelmicro function imported into `module`, with its module.
+
+    Following only same-module helpers left the obvious bypass open: put
+    the read in a neighbouring grelmicro module and import it. Only
+    first-party functions are followed, so the walk stops at the package
+    boundary instead of descending into pydantic or the stdlib.
+
+    The function is unwrapped first. `lru_cache` and friends return a
+    non-function, and `_build_settings_cls` is exactly that shape: a cached
+    first-party helper that builds an environment-reading settings class.
+    """
+    target = getattr(module, name, None)
+    target = getattr(target, "__wrapped__", target)
+    if not inspect.isfunction(target):
+        return None
+    origin = getattr(target, "__module__", "")
+    if not origin.startswith("grelmicro"):
+        return None
+    try:
+        source = textwrap.dedent(inspect.getsource(target))
+    except (OSError, TypeError):  # pragma: no cover  # no readable source
+        return None
+    return source, sys.modules.get(origin, module)
+
+
 def _env_names_reached(source: str, module: Any) -> set[str]:  # noqa: ANN401
     """Return the env-reading names `source` reaches, following its callees.
 
     Checking only `from_config`'s own body was not enough: moving the read
-    one function away passed the sweep while breaking R8. Helpers defined
-    in the same module are followed transitively, which is where such a
-    helper realistically lives.
+    one function away passed the sweep while breaking R8. Helpers are
+    followed transitively, whether the module defines them or imports them
+    from elsewhere in grelmicro.
     """
-    functions = _module_functions(module)
     seen: set[str] = set()
-    pending = [source]
+    pending: list[tuple[str, Any]] = [(source, module)]
     found: set[str] = set()
     while pending:
-        tree = ast.parse(pending.pop())
+        body, owner = pending.pop()
+        tree = ast.parse(body)
         found |= called_names(tree) & ENV_READERS
+        # Each body resolves names in *its own* module. Keeping the original
+        # module pinned made the walk one hop deep, so a neighbour that
+        # delegated once more stayed invisible.
+        functions = _module_functions(owner)
         for name in sorted(call_targets(tree) - seen):
             seen.add(name)
             if name in functions:
-                pending.append(functions[name])
+                pending.append((functions[name], owner))
+                continue
+            found_helper = _imported_helper(owner, name)
+            if found_helper is not None:
+                pending.append(found_helper)
     return found
 
 
