@@ -259,6 +259,18 @@ class CircuitBreakerSnapshot(NamedTuple):
     consecutive_success_count: int = 0
     """Consecutive successes recorded by the strategy. Consecutive-count algorithm only."""
 
+    retry_after: float = 0.0
+    """Seconds until an `OPEN` circuit next admits a probe, 0.0 otherwise.
+
+    Computed by the strategy, which is the only party that can: `opened_at`
+    is on the strategy's own clock, so the remaining cool-down cannot be
+    worked out from the snapshot alone. A `FORCED_OPEN` circuit reports 0.0
+    because nothing but an explicit reset releases it.
+
+    `CircuitBreakerError.retry_after` carries this to the caller, and the
+    HTTP `Retry-After` header carries it to a client.
+    """
+
 
 class CircuitBreakerStrategy(Protocol):
     """A circuit-breaker strategy for a specific algorithm and backend.

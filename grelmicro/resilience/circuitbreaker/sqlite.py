@@ -614,4 +614,16 @@ def _snapshot_of(row: _Row) -> CircuitBreakerSnapshot:
         opened_at=row.opened_at,
         consecutive_error_count=row.cerr,
         consecutive_success_count=row.csucc,
+        retry_after=_retry_after(row),
     )
+
+
+def _retry_after(row: _Row) -> float:
+    """Return the seconds an `OPEN` circuit still has to wait out.
+
+    `opened_at` is stamped with `time()` by whichever process wrote the
+    row, and every reader of a SQLite file shares that clock.
+    """
+    if row.state != CircuitBreakerState.OPEN:
+        return 0.0
+    return max(0.0, row.opened_at + row.cool_down - time())

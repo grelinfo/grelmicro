@@ -75,6 +75,7 @@ from grelmicro.resilience._protocol import (
 from grelmicro.resilience.errors import (
     BulkheadFullError,
     CircuitBreakerError,
+    DeadlineExceededError,
     RateLimitExceededError,
     ResilienceError,
 )
@@ -184,6 +185,7 @@ __all__ = [
     "CircuitBreakerStrategy",
     "ConsecutiveCountConfig",
     "ConstantBackoff",
+    "DeadlineExceededError",
     "ErrorDetails",
     "ExponentialBackoff",
     "Fallback",

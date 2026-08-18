@@ -17,6 +17,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro.metrics import _emit
+from grelmicro.resilience.errors import DeadlineExceededError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -50,7 +51,7 @@ class TimeoutConfig(BaseModel, frozen=True, extra="forbid"):
         PositiveFloat,
         Doc(
             "Deadline in seconds. The inner block is cancelled and "
-            "``TimeoutError`` is raised when the deadline elapses."
+            "``DeadlineExceededError`` is raised when the deadline elapses."
         ),
     ]
 
@@ -119,7 +120,9 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         self._config = config
         self._state = _State(config=config)
         self._reconfigure_lock = asyncio.Lock()
-        self._scopes: dict[asyncio.Task[Any], list[asyncio.Timeout]] = {}
+        self._scopes: dict[
+            asyncio.Task[Any], list[tuple[asyncio.Timeout, float]]
+        ] = {}
 
     @property
     def name(self) -> str:
@@ -147,13 +150,17 @@ class Timeout(Reconfigurable[TimeoutConfig]):
     async def __aenter__(self) -> Self:
         """Open a fresh deadline scope for the current task."""
         task = _current_task()
-        scope = asyncio.timeout(self._state.config.seconds)
+        seconds = self._state.config.seconds
+        scope = asyncio.timeout(seconds)
         await scope.__aenter__()
+        # The deadline travels with its scope, so a reconfigure mid-call
+        # cannot make the error report a deadline this block never ran under.
+        entry = (scope, seconds)
         stack = self._scopes.get(task)
         if stack is None:
-            self._scopes[task] = [scope]
+            self._scopes[task] = [entry]
         else:
-            stack.append(scope)
+            stack.append(entry)
         return self
 
     async def __aexit__(
@@ -165,11 +172,19 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         """Close the most recently opened scope for the current task."""
         task = _current_task()
         stack = self._scopes[task]
-        scope = stack.pop()
+        scope, seconds = stack.pop()
         if not stack:
             del self._scopes[task]
         try:
             await scope.__aexit__(exc_type, exc, tb)
+        except TimeoutError:
+            # `asyncio.timeout` reports the elapsed deadline as a bare
+            # builtin, which carries nothing a caller or an HTTP response
+            # can read. Restate it as the error that names the policy and
+            # the deadline, still a builtin `TimeoutError` underneath.
+            raise DeadlineExceededError(
+                name=self._name, timeout=seconds
+            ) from None
         finally:
             if scope.expired():
                 _emit.incr(

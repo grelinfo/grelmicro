@@ -449,7 +449,11 @@ def test_middleware_missing_key_rejected_when_required(
     response = client.post("/charge")
     # Assert
     assert response.status_code == HTTP_400_BAD_REQUEST
-    assert "Idempotency-Key" in response.json()["detail"]
+    assert response.headers["content-type"] == "application/problem+json"
+    body = response.json()
+    assert body["type"].endswith("#idempotency-key-invalid")
+    assert "Idempotency-Key" in body["detail"]
+    assert body["instance"] == "/charge"
     assert calls == {"count": 0}
 
 
@@ -478,6 +482,8 @@ def test_middleware_reused_key_with_new_body_conflicts(
     # Assert
     assert first.status_code == HTTP_200_OK
     assert second.status_code == HTTP_422_UNPROCESSABLE_CONTENT
+    assert second.headers["content-type"] == "application/problem+json"
+    assert second.json()["type"].endswith("#idempotency-key-reused")
     assert calls == {"count": 1}
 
 
@@ -505,6 +511,8 @@ def test_middleware_oversized_body_rejected_when_fingerprinting(
     response = client.post("/charge", headers=KEY, content=b"x" * 64)
     # Assert
     assert response.status_code == HTTP_413_CONTENT_TOO_LARGE
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["type"].endswith("#request-body-too-large")
     assert calls == {"count": 0}
 
 
@@ -938,6 +946,8 @@ async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
     # Assert
     assert second.status_code == HTTP_409_CONFLICT
     assert second.headers["retry-after"] == "1"
+    assert second.headers["content-type"] == "application/problem+json"
+    assert second.json()["type"].endswith("#idempotency-in-flight")
 
 
 def _documented_app(**options: Any) -> FastAPI:  # noqa: ANN401
@@ -965,6 +975,35 @@ def test_document_idempotency_adds_the_header_and_responses() -> None:
         (p["name"], p["in"]) for p in operation["parameters"]
     ]
     assert {"400", "409", "413", "422"} <= set(operation["responses"])
+
+
+def test_document_idempotency_publishes_the_problem_body() -> None:
+    """A client generated from the schema knows the body it will get."""
+    # Arrange
+    app = _documented_app(fingerprint_body=True)
+    # Act
+    schema = app.openapi()
+    response = schema["paths"]["/charge"]["post"]["responses"]["409"]
+    # Assert
+    assert response["content"] == {
+        "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+        }
+    }
+    assert "ProblemDetail" in schema["components"]["schemas"]
+
+
+def test_document_idempotency_publishes_nothing_when_nothing_matched() -> None:
+    """An app the middleware never covers gains no unreferenced component."""
+    # Arrange
+    app = build_app(methods=("PATCH",))
+    document_idempotency(app)
+    # Act
+    schema = app.openapi()
+    # Assert
+    assert "ProblemDetail" not in schema.get("components", {}).get(
+        "schemas", {}
+    )
 
 
 def test_document_idempotency_leaves_other_methods_alone() -> None:

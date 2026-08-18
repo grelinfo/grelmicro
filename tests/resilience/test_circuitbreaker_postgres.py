@@ -24,6 +24,9 @@ pytestmark = [pytest.mark.timeout(1)]
 
 URL = "postgresql://test:test@test_host:5432/test"
 
+RESET_TIMEOUT = 5
+"""Cool-down the end-to-end breakers are built with."""
+
 
 def test_explicit_provider_is_borrowed() -> None:
     """An explicit `provider=` is borrowed, not owned."""
@@ -257,7 +260,7 @@ async def test_circuit_breaker_integration_end_to_end(
         "payments",
         error_threshold=2,
         success_threshold=1,
-        reset_timeout=5,
+        reset_timeout=RESET_TIMEOUT,
         backend=backend,
     )
 
@@ -266,11 +269,14 @@ async def test_circuit_breaker_integration_end_to_end(
             async with cb:
                 raise BoomError
 
-    with pytest.raises(CircuitBreakerError):
+    with pytest.raises(CircuitBreakerError) as refused:
         async with cb:
             pass
 
     assert cb.state is CircuitBreakerState.OPEN
+    # Counted on the backend clock that stamped the open, so every replica
+    # reports the same wait.
+    assert 0 < refused.value.retry_after <= RESET_TIMEOUT
 
 
 @pytest.mark.integration
@@ -287,14 +293,14 @@ async def test_two_breakers_share_state(
         "shared",
         error_threshold=2,
         success_threshold=1,
-        reset_timeout=5,
+        reset_timeout=RESET_TIMEOUT,
         backend=backend,
     )
     cb_b = CircuitBreaker.consecutive_count(
         "shared",
         error_threshold=2,
         success_threshold=1,
-        reset_timeout=5,
+        reset_timeout=RESET_TIMEOUT,
         backend=backend,
     )
 
@@ -543,3 +549,48 @@ async def test_get_snapshot_keeps_a_forced_circuit(
     snapshot = await strategy.get_snapshot()
 
     assert snapshot.state is CircuitBreakerState.FORCED_OPEN
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_migrate_upgrades_a_pre_retry_after_install(
+    container: PostgresContainer,
+) -> None:
+    """An install from before `r_retry_after` upgrades in place.
+
+    Postgres refuses `CREATE OR REPLACE FUNCTION` when the returned columns
+    change, so the migration drops the three widened functions first. This
+    recreates the old signature and checks the next start still comes up.
+    """
+    # Arrange
+    port = container.get_exposed_port(5432)
+    provider = PostgresProvider(f"postgresql://test:test@localhost:{port}/test")
+    table = "grelmicro_cb_upgrade"
+    old_signature = f"""
+        DROP FUNCTION IF EXISTS {table}_cb_get_state(TEXT);
+        CREATE FUNCTION {table}_cb_get_state(
+            p_name TEXT
+        ) RETURNS TABLE(
+            r_state TEXT, r_cerr INT, r_csucc INT, r_opened_at DOUBLE PRECISION
+        ) AS $$
+        BEGIN
+            RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0, 0::double precision;
+        END;
+        $$ LANGUAGE plpgsql;
+    """
+    async with provider:
+        async with PostgresCircuitBreakerAdapter(
+            provider=provider, table_name=table
+        ):
+            pass
+        await provider.client.execute(old_signature)
+
+        # Act
+        async with PostgresCircuitBreakerAdapter(
+            provider=provider, table_name=table
+        ) as adapter:
+            snapshot = await _bind(adapter).get_snapshot()
+
+        # Assert
+        assert snapshot.state is CircuitBreakerState.CLOSED
+        assert snapshot.retry_after == 0.0

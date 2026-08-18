@@ -940,6 +940,20 @@ class Grelmicro:
                 """,
             ),
         ] = True,
+        problem_details: Annotated[
+            bool,
+            Doc(
+                """
+                Render every rejection grelmicro raises as an RFC 9457
+                `application/problem+json` response, so a rate limiter, a
+                bulkhead, an open circuit breaker, or an elapsed deadline
+                answers the client instead of becoming a `500`. Default
+                `True`. Pass `False` to answer those in your own handlers.
+                Ignored by a framework that serves no HTTP, such as
+                FastStream.
+                """,
+            ),
+        ] = True,
     ) -> None:
         """Wire the app lifecycle and ambient binding in one call.
 
@@ -972,6 +986,14 @@ class Grelmicro:
                 _unsupported_framework_message("micro.install", app)
             )
         integration.install(app, self, ambient=ambient)
+        if problem_details:
+            # Feature-detected rather than passed to `install`, whose
+            # signature is frozen so an integration written for an older
+            # release keeps working. A framework that serves no HTTP simply
+            # does not carry the attribute.
+            wire = getattr(integration, "install_problem_details", None)
+            if wire is not None:
+                wire(app)
 
     def _ambient_component_labels(self) -> list[str]:
         """Return sorted `kind:name` labels of registered ambient components."""

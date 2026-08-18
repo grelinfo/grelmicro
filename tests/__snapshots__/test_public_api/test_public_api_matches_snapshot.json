@@ -242,6 +242,19 @@
       "()": "(*values)"
     }
   },
+  "grelmicro.http": {
+    "PROBLEM_MEDIA_TYPE": null,
+    "PROBLEM_TYPE_BASE": null,
+    "ProblemDetail": {
+      "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
+    },
+    "problem_detail": {
+      "()": "(exc, *, instance=None) -> 'ProblemDetail | None'"
+    },
+    "send_problem": {
+      "()": "(send, problem) -> 'None'"
+    }
+  },
   "grelmicro.idempotency": {
     "Idempotency": {
       "()": "(name, *, ttl=None, fingerprint=None, cache=None, serializer=None, env_prefix=None, env_load=None) -> 'None'",
@@ -290,6 +303,9 @@
     "install": {
       "()": "(app, micro, *, ambient=True) -> None"
     },
+    "install_problem_details": {
+      "()": "(app) -> None"
+    },
     "is_bound": {
       "()": "(app) -> bool"
     }
@@ -308,6 +324,9 @@
     },
     "install": {
       "()": "(app, micro, *, ambient=True) -> 'None'"
+    },
+    "install_problem_details": {
+      "()": "(app) -> 'None'"
     },
     "is_bound": {
       "()": "(app) -> 'bool'"
@@ -443,13 +462,13 @@
       "()": "(*args, **kwargs)"
     },
     "CircuitBreakerError": {
-      "()": "(*, name, last_error_time=None, last_error=None) -> None"
+      "()": "(*, name, last_error_time=None, last_error=None, retry_after=0.0) -> None"
     },
     "CircuitBreakerMetrics": {
       "()": "(name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error) -> None"
     },
     "CircuitBreakerSnapshot": {
-      "()": "(state, opened_at, consecutive_error_count=0, consecutive_success_count=0)"
+      "()": "(state, opened_at, consecutive_error_count=0, consecutive_success_count=0, retry_after=0.0)"
     },
     "CircuitBreakerState": {
       "()": "(*values)"
@@ -462,6 +481,9 @@
     },
     "ConstantBackoff": {
       "()": "(*, kind='constant', delay=1.0) -> None"
+    },
+    "DeadlineExceededError": {
+      "()": "(*, name, timeout) -> None"
     },
     "ErrorDetails": {
       "()": "(time, type, msg) -> None"
@@ -655,7 +677,7 @@
       "()": "(*args, **kwargs)"
     },
     "CircuitBreakerError": {
-      "()": "(*, name, last_error_time=None, last_error=None) -> None"
+      "()": "(*, name, last_error_time=None, last_error=None, retry_after=0.0) -> None"
     },
     "CircuitBreakerMetrics": {
       "()": "(name, state, active_calls, total_error_count, total_success_count, consecutive_error_count, consecutive_success_count, last_error) -> None"

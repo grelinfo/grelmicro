@@ -337,7 +337,15 @@ def _snapshot_of(state: _BreakerState) -> CircuitBreakerSnapshot:
         opened_at=state.opened_at,
         consecutive_error_count=state.consecutive_error_count,
         consecutive_success_count=state.consecutive_success_count,
+        retry_after=_retry_after(state),
     )
+
+
+def _retry_after(state: _BreakerState) -> float:
+    """Return the seconds an `OPEN` circuit still has to wait out."""
+    if state.state != CircuitBreakerState.OPEN:
+        return 0.0
+    return max(0.0, state.opened_at + state.cool_down - monotonic())
 
 
 _DEFAULT_SNAPSHOT = CircuitBreakerSnapshot(

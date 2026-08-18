@@ -694,11 +694,13 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
                     "result": "rejected",
                 },
             )
-            self._apply_snapshot(await strategy.get_snapshot())
+            snapshot = await strategy.get_snapshot()
+            self._apply_snapshot(snapshot)
             raise CircuitBreakerError(
                 name=self.name,
                 last_error_time=self._last_error_time,
                 last_error=self._last_error,
+                retry_after=snapshot.retry_after,
             )
         self._active_call_count += 1
         self._touched = monotonic()
@@ -1017,13 +1019,15 @@ class _ThreadAdapter:
         if loop is None:
             raise_backend_not_open(f"CircuitBreaker {cb.name!r}")
         config = cb._state.config  # noqa: SLF001
-        if not asyncio.run_coroutine_threadsafe(
+        snapshot = asyncio.run_coroutine_threadsafe(
             _async_admit(cb), loop
-        ).result():
+        ).result()
+        if snapshot is not None:
             raise CircuitBreakerError(
                 name=cb.name,
                 last_error_time=cb.last_error_time,
                 last_error=cb.last_error,
+                retry_after=snapshot.retry_after,
             )
         stack = getattr(self._tls, "stack", None)
         if stack is None:
@@ -1052,8 +1056,12 @@ class _ThreadAdapter:
         return None
 
 
-async def _async_admit(cb: CircuitBreaker) -> bool:
+async def _async_admit(cb: CircuitBreaker) -> CircuitBreakerSnapshot | None:
     """Try to acquire a call. Runs on the backend loop.
+
+    Returns `None` when the call is admitted, and the refusing snapshot
+    otherwise, so the worker thread can report how long the circuit still
+    has to wait out.
 
     Mutates per-replica counters from the loop thread so worker threads
     never touch breaker state directly.
@@ -1063,9 +1071,10 @@ async def _async_admit(cb: CircuitBreaker) -> bool:
     if await strategy.try_acquire():
         cb._active_call_count += 1  # noqa: SLF001
         cb._touched = monotonic()  # noqa: SLF001
-        return True
-    cb._apply_snapshot(await strategy.get_snapshot())  # noqa: SLF001
-    return False
+        return None
+    snapshot = await strategy.get_snapshot()
+    cb._apply_snapshot(snapshot)  # noqa: SLF001
+    return snapshot
 
 
 async def _async_handle_exit(
