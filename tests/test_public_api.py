@@ -12,15 +12,26 @@ When the surface changes on purpose, regenerate the snapshot with::
 
 and review the ``__snapshots__`` diff as part of the change.
 
-Signatures are captured with annotations stripped and defaults normalized to
-``...``, keeping the stable shape: parameter names, kinds (the ``*`` and ``/``
-markers), and the default values themselves. Annotation reprs vary across
-Python and Pydantic versions and would make the guard flaky across the
-supported matrix, so they are excluded. Defaults are not: every default on the
-public surface was measured to repr identically on 3.12, 3.13 and 3.14. This
-catches a parameter rename, removal, reorder, required-to-optional flip, and a
-changed default, which is a behavioural break for every caller relying on it. A new
-public module is itself a deliberate API change, so add it to
+Signatures are captured with annotations stripped and defaults kept, so the
+string carries parameter names, kinds (the ``*`` and ``/`` markers), and the
+default values themselves. Annotation reprs vary across Python and Pydantic
+versions and would make the guard flaky across the supported matrix, so they
+are excluded. Defaults are not: every default on the public surface was
+measured to repr identically on 3.12, 3.13 and 3.14, and only a sentinel's
+memory address is normalised. This catches a parameter rename, removal,
+reorder, required-to-optional flip, and a changed default, which is a
+behavioural break for every caller who never passed the argument.
+
+Two defaults it still cannot see through. A ``default_factory`` reprs as
+``<factory>``, so changing what the factory returns (``RetryConfig.backoff``,
+the ``worker`` fields, the ``headers`` maps) passes silently. And a default
+taken from an interpreter constant records the resolved value, so a future
+CPython raising ``pickle.HIGHEST_PROTOCOL`` fails this snapshot: that is a
+real change in what ``PickleSerializer()`` does, and
+``test_interpreter_derived_defaults_are_still_current`` says which constant
+moved so the update is an informed one rather than a mystery.
+
+A new public module is itself a deliberate API change, so add it to
 ``PUBLIC_MODULES`` in the same change that introduces it.
 """
 
@@ -184,6 +195,25 @@ def build_public_api() -> dict[str, dict[str, Any]]:
 def test_public_api_matches_snapshot(snapshot_json) -> None:  # noqa: ANN001
     """The live public surface equals the committed snapshot."""
     assert build_public_api() == snapshot_json
+
+
+def test_interpreter_derived_defaults_are_still_current() -> None:
+    """Name the defaults the snapshot records from an interpreter constant.
+
+    The snapshot stores the resolved value, so raising the constant fails
+    it. That failure is correct, since the effective default really did
+    change, but without this test the reviewer sees `protocol=5` become
+    `protocol=6` with nothing saying why.
+    """
+    import pickle  # noqa: PLC0415
+
+    from grelmicro.cache.serializers import PickleSerializer  # noqa: PLC0415
+
+    default = inspect.signature(PickleSerializer).parameters["protocol"]
+    assert default.default == pickle.HIGHEST_PROTOCOL, (
+        "PickleSerializer no longer defaults to pickle.HIGHEST_PROTOCOL, so "
+        "the snapshot entry for it is recording something else"
+    )
 
 
 def test_every_documented_module_is_snapshotted() -> None:

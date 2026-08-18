@@ -23,7 +23,7 @@ from pydantic import BaseModel
 import grelmicro
 from grelmicro._config import Reconfigurable, env_prefixes
 from grelmicro.cache import TTLCache
-from tests._contract_support import module_name
+from tests._contract_support import base_names, module_name
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
@@ -44,16 +44,8 @@ def _discover_reconfigurables() -> list[tuple[str, str]]:
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
                 continue
-            for base in node.bases:
-                target = base
-                if isinstance(target, ast.Subscript):
-                    target = target.value
-                name = getattr(target, "id", None) or getattr(
-                    target, "attr", None
-                )
-                if name == "Reconfigurable":
-                    found.append((module, node.name))
-                    break
+            if "Reconfigurable" in base_names(node):
+                found.append((module, node.name))
     return found
 
 

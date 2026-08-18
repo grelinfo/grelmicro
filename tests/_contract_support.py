@@ -25,8 +25,13 @@ def module_name(path: Path) -> str:
     relative = path.relative_to(PACKAGE_ROOT).with_suffix("")
     if relative.name == "__init__":
         relative = relative.parent
-    dotted = relative.as_posix().replace("/", ".")
-    return f"grelmicro.{dotted}" if dotted else "grelmicro"
+    # `Path(".")` is what the package's own `__init__.py` reduces to, and its
+    # `as_posix()` is "." rather than "", so a truthiness check would build
+    # `grelmicro..` and every sweep would fail to import a class declared at
+    # the top level.
+    if relative == Path():
+        return "grelmicro"
+    return "grelmicro." + relative.as_posix().replace("/", ".")
 
 
 def base_names(node: ast.ClassDef) -> set[str]:
@@ -47,11 +52,6 @@ def base_names(node: ast.ClassDef) -> set[str]:
     return names
 
 
-def source_files() -> list[Path]:
-    """Return every Python source file in the package, in a stable order."""
-    return sorted(PACKAGE_ROOT.rglob("*.py"))
-
-
 def called_names(tree: ast.AST) -> set[str]:
     """Return every identifier used as a name or attribute in `tree`."""
     found: set[str] = set()
@@ -61,3 +61,22 @@ def called_names(tree: ast.AST) -> set[str]:
             if isinstance(name, str):
                 found.add(name)
     return found
+
+
+def call_targets(tree: ast.AST) -> set[str]:
+    """Return the names `tree` actually calls, not every name it mentions.
+
+    Following every mention would pull in a module-level function whenever
+    its name appears as an attribute or a variable, and then judge the
+    caller on a body it never runs.
+    """
+    return {
+        name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        for name in (
+            getattr(node.func, "id", None),
+            getattr(node.func, "attr", None),
+        )
+        if isinstance(name, str)
+    }

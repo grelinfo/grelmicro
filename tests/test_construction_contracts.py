@@ -28,7 +28,11 @@ from grelmicro.resilience import (
     Timeout,
     TimeoutConfig,
 )
-from tests._contract_support import called_names, module_name
+from tests._contract_support import (
+    call_targets,
+    called_names,
+    module_name,
+)
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
@@ -169,9 +173,9 @@ def _env_names_reached(source: str, module: Any) -> set[str]:  # noqa: ANN401
     pending = [source]
     found: set[str] = set()
     while pending:
-        names = called_names(ast.parse(pending.pop()))
-        found |= names & ENV_READERS
-        for name in sorted(names - seen):
+        tree = ast.parse(pending.pop())
+        found |= called_names(tree) & ENV_READERS
+        for name in sorted(call_targets(tree) - seen):
             seen.add(name)
             if name in functions:
                 pending.append(functions[name])
