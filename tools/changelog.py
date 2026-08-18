@@ -1,12 +1,17 @@
-"""Read a version's section out of `docs/changelog.md`.
+"""Read and write a version's section in `docs/changelog.md`.
 
-Two release steps need the same parsing. `check` gates a release on the
-section existing and carrying today's date, so a tag is never cut against a
-changelog that still says `Unreleased` or carries yesterday's date. `notes`
-prints the section body, which is what the GitHub Release description
-should hold.
+Three release steps need the same parsing. `release` renames the
+`Unreleased` heading to the version being cut, which was the one manual
+step in the procedure and the easiest to get wrong. `check` then gates the
+release on that section existing and carrying today's date, so a tag is
+never cut against a changelog that still says `Unreleased` or carries
+yesterday's date. `notes` prints the section body, which is what the GitHub
+Release description should hold.
 
-Run via `just release-check` and `just release-notes`.
+The writer and the checker live together on purpose: one parser, so they
+cannot disagree about the format.
+
+Run via `just release`, `just release-check` and `just release-notes`.
 """
 
 from __future__ import annotations
@@ -77,6 +82,43 @@ def check(version: str, today: str) -> int:
     return 0
 
 
+def release(version: str, today: str) -> int:
+    """Rename the `Unreleased` heading to `version`. Returns an exit code.
+
+    Idempotent when the section already carries today's date, so re-running
+    after a failed step later in the procedure is safe. Refuses when the
+    section is dated for a different day, since that is a section already
+    cut rather than one waiting to be.
+    """
+    text = CHANGELOG.read_text(encoding="utf-8")
+    found = sections(text)
+    if version in found:
+        date = found[version][0]
+        if date == today:
+            print(f"changelog already cut: {version} dated {today}")
+            return 0
+        print(
+            f"changelog already has a section for {version}, dated {date}. "
+            f"Pick the next version, a released one is never rewritten.",
+            file=sys.stderr,
+        )
+        return 1
+    if "Unreleased" not in found:
+        print(
+            "changelog has no 'Unreleased' section to cut. Add entries "
+            "under '## Unreleased' first.",
+            file=sys.stderr,
+        )
+        return 1
+    if not found["Unreleased"][1]:
+        print("the 'Unreleased' section is empty", file=sys.stderr)
+        return 1
+    updated = text.replace("## Unreleased\n", f"## {version} - {today}\n", 1)
+    CHANGELOG.write_text(updated, encoding="utf-8")
+    print(f"changelog cut: {version} dated {today}")
+    return 0
+
+
 def notes(version: str) -> int:
     """Print the body of `version`'s section. Returns an exit code."""
     found = sections(CHANGELOG.read_text(encoding="utf-8"))
@@ -91,12 +133,14 @@ def main() -> int:
     """Parse arguments and dispatch."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("check", "notes"):
+    for name in ("release", "check", "notes"):
         item = sub.add_parser(name)
         item.add_argument("version")
     args = parser.parse_args()
+    today = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+    if args.command == "release":
+        return release(args.version, today)
     if args.command == "check":
-        today = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
         return check(args.version, today)
     return notes(args.version)
 
