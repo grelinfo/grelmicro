@@ -72,10 +72,68 @@ client that honours the header without reading the body.
 | `DeadlineExceededError` | 504 | [`deadline-exceeded`](#deadline-exceeded) | `timeout` |
 | `IdempotencyConflictError` | 422 | [`idempotency-key-reused`](#idempotency-key-reused) | nothing |
 | `IdempotencyWaitTimeoutError` | 409 | [`idempotency-in-flight`](#idempotency-in-flight) | `retry_after` |
+| `RequestValidationError` | 422 | [`validation-failed`](#validation-failed) | `errors` |
 
 The handler is registered on the base classes, so a rejection a later release
 adds is covered the day it lands. `AdmissionError` is the catch-all: anything
 that turns a caller away and has no entry of its own answers `503`.
+
+## Your framework's own errors
+
+Registering the component adopts one format for the whole API, so the errors
+your framework raises are reshaped too:
+
+- an `HTTPException` you raise keeps its status, its message, and any header
+  it carried, `WWW-Authenticate` on a `401` above all. Only the shape
+  changes. It renders with `about:blank` as the type, which is what RFC 9457
+  says for a problem with no specific kind.
+- a request that failed validation becomes a
+  [`validation-failed`](#validation-failed) response. **The status stays the
+  framework's**: FastAPI answers `422` and Litestar `400`. Which is right is
+  contested, and those projects have already answered it for their users.
+  grelmicro reshapes an answer rather than overruling it, so a client
+  branches on the identifier and reads the same one either way.
+
+Answering half the API in one shape and half in another would be the
+surprising outcome, so this is not a separate switch. To keep your own
+handling for one of them, register a handler for it and grelmicro leaves it
+alone:
+
+```python
+app.add_exception_handler(HTTPException, my_handler)
+micro.install(app)
+```
+
+On FastAPI this covers the generated OpenAPI too: the `422` every validating
+operation declares is republished with the media type and model the app now
+answers with, so a generated client decodes the right shape.
+
+## Answering from your own handler
+
+The other case is wanting your own handler *and* the shared shape.
+`error_response` builds one in whichever format the app registered:
+
+```python
+from fastapi import Request, Response
+
+from grelmicro.integrations.fastapi import error_response
+
+
+@app.exception_handler(InsufficientFunds)
+async def handle(request: Request, exc: InsufficientFunds) -> Response:
+    return error_response(
+        request,
+        status=409,
+        detail="The account does not hold enough to cover this charge.",
+        extensions={"balance": exc.balance},
+    )
+```
+
+The format is read from the app, so a service on `ErrorResponses.tmf()`
+answers in TM Forum from here too, with no second place to keep in step. An
+app that registered nothing gets RFC 9457.
+
+Litestar has the same helper in `grelmicro.integrations.litestar`.
 
 ## What is never rendered
 
@@ -141,6 +199,20 @@ type yet.
 `504`. A `Timeout` deadline elapsed. `timeout` is the deadline in seconds, so
 the client learns the wall it hit was the service's own and not the network.
 Retrying the same work unchanged hits it again.
+
+### Validation failed { #validation-failed }
+
+`422`. The request did not match the shape the endpoint accepts. Raised by
+the framework, not by grelmicro, and reshaped so it answers in the same
+format as everything else.
+
+`errors` carries one entry per part that did not match, with `loc`, `msg`
+and `type`. The `input` FastAPI includes by default is dropped: it only
+repeats what the client just sent.
+
+In the TM Forum format there is nowhere for a list, so the entries are read
+into `message`, which is the member for "more details and corrective actions
+related to the error which can be shown to a client user".
 
 ### Idempotency key reused { #idempotency-key-reused }
 

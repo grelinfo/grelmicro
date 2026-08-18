@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_bytes
-from grelmicro.http._problem import (
-    Occurrence,
-    classify,
-)
+
+if TYPE_CHECKING:
+    from grelmicro.http._problem import Occurrence
 
 __all__ = ["DEFAULT_CODE_PREFIX", "TMF_MEDIA_TYPE", "TMFError", "code_of"]
 
@@ -84,19 +83,20 @@ def code_of(occurrence: Occurrence, prefix: str) -> str:
     second catalogue of identifiers to mint, freeze, and keep in step with
     the first. The slug is already public in every `referenceError` URI.
     """
-    return f"{prefix}-{occurrence.kind.slug.upper()}"
+    kind = occurrence.kind
+    if not kind.slug:
+        # An error grelmicro did not classify is the application's, so it
+        # gets no grelmicro namespace. TMF641 uses the status here.
+        return str(kind.status)
+    return f"{prefix}-{kind.slug.upper()}"
 
 
 def render(
-    exc: BaseException,
-    instance: str | None,  # noqa: ARG001
+    occurrence: Occurrence,
     prefix: str,
     reference_error: str | None,
-) -> tuple[int, TMFError] | None:
-    """Return the status and body for `exc`, or `None` when there is none.
-
-    `instance` is accepted and dropped: TMF630 has no member for the
-    occurrence, and it forbids adding an envelope to carry one.
+) -> tuple[int, TMFError]:
+    """Return the status and the TM Forum body for one occurrence.
 
     A `retry_after` reaches the client only through the `Retry-After`
     header. TMF630 defines no extension mechanism for the body, so there is
@@ -105,20 +105,39 @@ def render(
     `reference_error` is the base the documentation URI is built on, or
     `None` to leave the member out entirely.
     """
-    occurrence = classify(exc)
-    if occurrence is None:
-        return None
     kind = occurrence.kind
     return kind.status, TMFError(
         code=code_of(occurrence, prefix),
         reason=kind.title,
-        message=occurrence.detail or kind.detail,
+        message=_message(occurrence, kind.detail),
         reference_error=(
-            None
-            if reference_error is None
-            else f"{reference_error}#{kind.slug}"
+            f"{reference_error}#{kind.slug}"
+            if reference_error is not None and kind.slug
+            else None
         ),
     )
+
+
+def _message(occurrence: Occurrence, default: str) -> str | None:
+    """Return the `message` member, with any field errors folded in.
+
+    TMF630 defines no extension member, so an `errors` list has nowhere of
+    its own to go. `message` is the member for "more details and corrective
+    actions related to the error which can be shown to a client user",
+    which is what those entries are, so they are read into it rather than
+    dropped.
+    """
+    text = occurrence.detail or default or None
+    entries = occurrence.extensions.get("errors")
+    if not entries:
+        return text
+    parts = [
+        f"{'.'.join(str(part) for part in entry.get('loc', ())) or 'request'}"
+        f": {entry.get('msg', '')}"
+        for entry in entries
+    ]
+    listed = "; ".join(parts)
+    return f"{text} {listed}" if text else listed
 
 
 def body_of(error: TMFError) -> bytes:

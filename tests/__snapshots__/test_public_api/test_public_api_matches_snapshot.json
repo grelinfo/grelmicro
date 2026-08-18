@@ -311,6 +311,9 @@
     "document_idempotency": {
       "()": "(app) -> None"
     },
+    "error_response": {
+      "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
+    },
     "health_router": {
       "()": "(component=None, *, prefix='', show_details=False, healthz_dependencies=None) -> 'APIRouter'"
     },
@@ -335,6 +338,9 @@
   "grelmicro.integrations.litestar": {
     "GrelmicroMiddleware": {
       "()": "(app, *, micro) -> None"
+    },
+    "error_response": {
+      "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
     "install": {
       "()": "(app, micro, *, ambient=True) -> 'None'"

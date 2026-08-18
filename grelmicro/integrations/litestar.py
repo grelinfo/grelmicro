@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from typing_extensions import Doc
 
+from grelmicro.http import ErrorResponses
 from grelmicro.http._problem import HANDLED
 from grelmicro.integrations.fastapi import GrelmicroMiddleware
 
@@ -16,7 +17,6 @@ if TYPE_CHECKING:
     from litestar.response import Response
 
     from grelmicro import Grelmicro
-    from grelmicro.http import ErrorResponses
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GrelmicroMiddleware",
+    "error_response",
     "install",
     "install_error_responses",
     "is_bound",
@@ -154,11 +155,129 @@ def install_error_responses(
             headers=rendered.headers,
         )
 
+    def http_error(request: Request, exc: Exception) -> Response:
+        """Reshape Litestar's own error into the registered format."""
+        from litestar.exceptions import (  # noqa: PLC0415
+            HTTPException,
+            ValidationException,
+        )
+        from litestar.response import (  # noqa: PLC0415
+            Response as LitestarResponse,
+        )
+
+        http_exc = cast("HTTPException", exc)
+        if isinstance(exc, ValidationException):
+            rendered = errors.render_validation(
+                _field_errors(exc),
+                status=http_exc.status_code,
+                instance=request.url.path,
+            )
+        else:
+            rendered = errors.render_status(
+                http_exc.status_code,
+                detail=http_exc.detail or None,
+                instance=request.url.path,
+            )
+        return LitestarResponse(
+            content=rendered.body,
+            status_code=rendered.status,
+            media_type=rendered.media_type,
+            # A header the app set on the exception is part of the answer,
+            # so it outranks ours.
+            headers={**rendered.headers, **(http_exc.headers or {})},
+        )
+
+    app.state.grelmicro_error_responses = errors
+
+    from litestar.exceptions import HTTPException  # noqa: PLC0415
+
+    if HTTPException not in app.exception_handlers:
+        app.exception_handlers[HTTPException] = http_error
+
     for klass in HANDLED:
         # A handler passed to `Litestar(exception_handlers=...)` wins, the
         # same way one registered before `install` does on Starlette.
         if klass not in app.exception_handlers:
             app.exception_handlers[klass] = handler
+
+
+def error_response(
+    request: Annotated[
+        Request,
+        Doc("The request being answered, which knows its app."),
+    ],
+    *,
+    status: Annotated[int, Doc("HTTP status code of the response.")],
+    detail: Annotated[
+        str | None,
+        Doc("Explanation of this occurrence, safe to show a client."),
+    ] = None,
+    extensions: Annotated[
+        dict[str, Any] | None,
+        Doc("Extra members to carry, where the format has room for them."),
+    ] = None,
+) -> Response:
+    """Answer from your own exception handler in the app's error format.
+
+    The Litestar counterpart of the Starlette helper. The format is read
+    from the app, so a service that registered `ErrorResponses.tmf()`
+    answers in TMF from here too.
+
+    ```python
+    from grelmicro.integrations.litestar import error_response
+
+
+    def handle(request: Request, exc: InsufficientFunds) -> Response:
+        return error_response(
+            request, status=409, detail="Not enough to cover this charge."
+        )
+    ```
+    """
+    from litestar.response import (  # noqa: PLC0415
+        Response as LitestarResponse,
+    )
+
+    errors = (
+        getattr(request.app.state, "grelmicro_error_responses", None)
+        or ErrorResponses()
+    )
+    rendered = errors.render_status(
+        status,
+        detail=detail,
+        instance=request.url.path,
+        extensions=extensions,
+    )
+    return LitestarResponse(
+        content=rendered.body,
+        status_code=rendered.status,
+        media_type=rendered.media_type,
+        headers=rendered.headers,
+    )
+
+
+def _field_errors(exc: Exception) -> list[dict[str, Any]]:
+    """Return the field errors of a Litestar validation failure.
+
+    Litestar puts them in `extra`, either as a list of entries or as a
+    mapping. Both are normalised to the `loc`/`msg` shape every format
+    renders, so a client reads the same thing whichever framework validated.
+    """
+    extra = getattr(exc, "extra", None)
+    if isinstance(extra, list):
+        return [
+            {
+                "loc": [entry.get("key")] if entry.get("key") else [],
+                "msg": entry.get("message", ""),
+            }
+            if isinstance(entry, dict)
+            else {"loc": [], "msg": str(entry)}
+            for entry in extra
+        ]
+    if isinstance(extra, dict):
+        return [
+            {"loc": [key], "msg": str(value)} for key, value in extra.items()
+        ]
+    return []
 
 
 def is_bound(

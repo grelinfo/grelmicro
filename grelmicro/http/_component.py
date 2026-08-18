@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from http import HTTPStatus
 from math import ceil
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
-from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro.http import _tmf
@@ -14,11 +14,14 @@ from grelmicro.http._problem import (
     PROBLEM_MEDIA_TYPE,
     PROBLEM_TYPE_BASE,
     SAFETY_HEADERS,
+    VALIDATION_FAILED,
+    Occurrence,
     ProblemDetail,
     body_of,
+    build,
     classify,
     framework_headers_of,
-    problem_detail,
+    unclassified,
 )
 
 if TYPE_CHECKING:
@@ -48,12 +51,15 @@ class RenderedError:
 
 
 def _render_problem_details(
-    exc: BaseException, instance: str | None
-) -> RenderedError | None:
-    """Render a rejection as an RFC 9457 problem detail."""
-    problem = problem_detail(exc, instance=instance)
-    if problem is None:
-        return None
+    occurrence: Occurrence, instance: str | None
+) -> RenderedError:
+    """Render an occurrence as an RFC 9457 problem detail."""
+    problem = build(
+        occurrence.kind,
+        detail=occurrence.detail,
+        instance=instance,
+        extensions=occurrence.extensions,
+    )
     return RenderedError(
         status=problem.status,
         media_type=PROBLEM_MEDIA_TYPE,
@@ -64,24 +70,22 @@ def _render_problem_details(
 
 def _render_tmf(
     prefix: str, reference_error: str | None
-) -> Callable[[BaseException, str | None], RenderedError | None]:
+) -> Callable[[Occurrence, str | None], RenderedError]:
     """Bind a TM Forum renderer to the prefix and documentation base it uses."""
 
     def render(
-        exc: BaseException, instance: str | None
-    ) -> RenderedError | None:
-        rendered = _tmf.render(exc, instance, prefix, reference_error)
-        if rendered is None:
-            return None
-        status, error = rendered
+        occurrence: Occurrence,
+        instance: str | None,  # noqa: ARG001
+    ) -> RenderedError:
+        # TMF630 has no member for the occurrence and forbids an envelope,
+        # so `instance` is accepted and dropped.
+        status, error = _tmf.render(occurrence, prefix, reference_error)
         headers = dict(SAFETY_HEADERS)
-        # TMF630 defines no extension member, so the delay reaches the
-        # client through the header or not at all.
-        occurrence = classify(exc)
-        if occurrence is not None:  # pragma: no branch
-            wait = occurrence.extensions.get("retry_after")
-            if wait is not None:
-                headers["retry-after"] = str(ceil(wait))
+        # TMF630 defines no extension member either, so the delay reaches
+        # the client through the header or not at all.
+        wait = occurrence.extensions.get("retry_after")
+        if wait is not None:
+            headers["retry-after"] = str(ceil(wait))
         return RenderedError(
             status=status,
             media_type=_tmf.TMF_MEDIA_TYPE,
@@ -145,8 +149,8 @@ class ErrorResponses:
     ) -> None:
         """Render rejections as RFC 9457 problem details."""
         self._name = name
-        self._render: Callable[
-            [BaseException, str | None], RenderedError | None
+        self._from_occurrence: Callable[
+            [Occurrence, str | None], RenderedError
         ] = _render_problem_details
         self._media_type = PROBLEM_MEDIA_TYPE
         self._model: type[BaseModel] = ProblemDetail
@@ -205,7 +209,7 @@ class ErrorResponses:
         service whose responses must name no address outside it.
         """
         instance = cls(name=name)
-        instance._render = _render_tmf(code_prefix, reference_error)
+        instance._from_occurrence = _render_tmf(code_prefix, reference_error)
         instance._media_type = _tmf.TMF_MEDIA_TYPE
         instance._model = _tmf.TMFError
         return instance
@@ -245,6 +249,78 @@ class ErrorResponses:
         """
         return self._model
 
+    def render_status(
+        self,
+        status: Annotated[int, Doc("HTTP status code of the response.")],
+        *,
+        detail: Annotated[
+            str | None,
+            Doc("Explanation of this occurrence, safe to show a client."),
+        ] = None,
+        instance: Annotated[
+            str | None,
+            Doc("Request path recorded as the occurrence."),
+        ] = None,
+        extensions: Annotated[
+            dict[str, Any] | None,
+            Doc(
+                "Extra members, such as the field errors of a validation failure."
+            ),
+        ] = None,
+    ) -> RenderedError:
+        """Return the response for an error the framework raised.
+
+        The rejections grelmicro raises go through `render`, which knows
+        what each one is. This renders one it does not know, so an app's own
+        `HTTPException` and its request validation failures answer in the
+        same format as everything else.
+
+        The status and the message stay as the framework set them. Only the
+        shape changes.
+        """
+        kind = unclassified(status, HTTPStatus(status).phrase)
+        return self._from_occurrence(
+            Occurrence(kind, detail=detail, extensions=extensions or {}),
+            instance,
+        )
+
+    def render_validation(
+        self,
+        field_errors: Annotated[
+            list[dict[str, Any]],
+            Doc("One entry per part of the request that did not match."),
+        ],
+        *,
+        status: Annotated[
+            int,
+            Doc("Status the framework chose. Kept, not second-guessed."),
+        ],
+        instance: Annotated[
+            str | None,
+            Doc("Request path recorded as the occurrence."),
+        ] = None,
+    ) -> RenderedError:
+        """Return the response for a request that failed validation.
+
+        A known kind, so a client branches on the identifier rather than on
+        the status, and reads the same identifier whichever framework
+        validated the request.
+
+        The status stays the framework's. FastAPI answers `422` and Litestar
+        `400`, and which is right is a question those projects have already
+        answered for their users. `422` is the more precise code for a
+        request that is well formed but semantically wrong, and RFC 9110
+        section 15.5.21 now defines it, but grelmicro reshapes an answer
+        rather than overruling it.
+        """
+        return self._from_occurrence(
+            Occurrence(
+                replace(VALIDATION_FAILED, status=status),
+                extensions={"errors": field_errors},
+            ),
+            instance,
+        )
+
     def render(
         self,
         exc: Annotated[BaseException, Doc("The rejection to render.")],
@@ -259,7 +335,10 @@ class ErrorResponses:
         An error grelmicro did not raise to turn a caller away returns
         `None`, so the framework answers it as it always did.
         """
-        return self._render(exc, instance)
+        occurrence = classify(exc)
+        if occurrence is None:
+            return None
+        return self._from_occurrence(occurrence, instance)
 
     async def __aenter__(self) -> Self:
         """Open the component.

@@ -1165,19 +1165,26 @@ def test_document_idempotency_rejects_a_plain_starlette_app() -> None:
 
 
 def test_document_idempotency_raises_without_fastapi() -> None:
-    """`document_idempotency` reports the missing dependency."""
-    # Arrange
-    with patch.dict(sys.modules, {"fastapi": None}):
-        if "grelmicro.integrations.fastapi" in sys.modules:
-            del sys.modules["grelmicro.integrations.fastapi"]
-        module = importlib.import_module("grelmicro.integrations.fastapi")
-        # Act / Assert
-        with pytest.raises(DependencyNotFoundError):
-            module.document_idempotency(None)  # ty: ignore[invalid-argument-type]
+    """`document_idempotency` reports the missing dependency.
 
-    if "grelmicro.integrations.fastapi" in sys.modules:
-        del sys.modules["grelmicro.integrations.fastapi"]
-    importlib.import_module("grelmicro.integrations.fastapi")  # restore
+    The module is put back exactly as it was, not reimported. A fresh
+    import would mint a second `GrelmicroMiddleware` class, and every test
+    that had already imported the first would then compare two classes of
+    the same name that are not the same object.
+    """
+    # Arrange
+    name = "grelmicro.integrations.fastapi"
+    original = sys.modules.get(name)
+    try:
+        with patch.dict(sys.modules, {"fastapi": None}):
+            sys.modules.pop(name, None)
+            module = importlib.import_module(name)
+            # Act / Assert
+            with pytest.raises(DependencyNotFoundError):
+                module.document_idempotency(None)  # ty: ignore[invalid-argument-type]
+    finally:
+        if original is not None:  # pragma: no branch
+            sys.modules[name] = original
 
 
 def test_document_idempotency_covers_a_custom_method() -> None:

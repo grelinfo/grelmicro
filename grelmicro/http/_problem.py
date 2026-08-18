@@ -140,7 +140,12 @@ class ProblemDetail(BaseModel, extra="allow"):
 
 @dataclass(frozen=True, slots=True)
 class _Kind:
-    """One rejection grelmicro knows how to put on the wire."""
+    """One error grelmicro knows how to put on the wire.
+
+    An empty `slug` marks an error grelmicro did not classify, which is the
+    framework's own. RFC 9457 says `about:blank` for a problem with no
+    specific type, and its title is then the status phrase.
+    """
 
     slug: str
     status: int
@@ -229,6 +234,13 @@ IDEMPOTENCY_IN_FLIGHT = _Kind(
     ),
 )
 
+VALIDATION_FAILED = _Kind(
+    slug="validation-failed",
+    status=422,
+    title="Validation failed",
+    detail="The request did not match the shape this endpoint accepts.",
+)
+
 REQUEST_BODY_TOO_LARGE = _Kind(
     slug="request-body-too-large",
     status=413,
@@ -251,7 +263,9 @@ def build(
     the standard one.
     """
     return ProblemDetail(
-        type=f"{PROBLEM_TYPE_BASE}#{kind.slug}",
+        type=(
+            f"{PROBLEM_TYPE_BASE}#{kind.slug}" if kind.slug else "about:blank"
+        ),
         title=kind.title,
         status=kind.status,
         detail=kind.detail if detail is None else detail,
@@ -490,3 +504,13 @@ async def send_problem(
         }
     )
     await send({"type": "http.response.body", "body": body})
+
+
+def unclassified(status: int, title: str) -> _Kind:
+    """Return a kind for an error the framework raised, not grelmicro.
+
+    Carries no slug, so it renders with `about:blank` and no documentation
+    URI. There is nothing to point at: the error is the application's, and
+    grelmicro only reshapes it into the format the app answers in.
+    """
+    return _Kind(slug="", status=status, title=title, detail="")

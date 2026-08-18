@@ -15,6 +15,7 @@ from grelmicro._json import json_dumps_bytes
 from grelmicro.errors import OutOfContextError
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import CheckResult, HealthStatus
+from grelmicro.http import ErrorResponses
 from grelmicro.http._problem import (
     _IN_FLIGHT_RETRY_AFTER,
     HANDLED,
@@ -47,11 +48,11 @@ if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
     from fastapi.params import Depends
     from starlette.applications import Starlette
+    from starlette.exceptions import HTTPException
     from starlette.requests import Request
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
-    from grelmicro.http import ErrorResponses
     from grelmicro.idempotency import Idempotency
     from grelmicro.trace._component import Trace
 
@@ -68,6 +69,7 @@ __all__ = [
     "IdempotencyMiddleware",
     "StoredResponse",
     "document_idempotency",
+    "error_response",
     "health_router",
     "install",
     "install_error_responses",
@@ -75,6 +77,9 @@ __all__ = [
 ]
 
 _logger = logging.getLogger(__name__)
+
+HTTP_422_UNPROCESSABLE_CONTENT = 422
+"""Status FastAPI answers a request that failed validation with."""
 
 
 def _instrument_app(app: "Starlette", micro: "Grelmicro") -> None:
@@ -295,9 +300,55 @@ def install_error_responses(
             headers=rendered.headers,
         )
 
-    # Recorded so `document_idempotency` publishes the format the app
-    # actually answers in, rather than assuming RFC 9457.
+    # Recorded so `document_idempotency` and `error_response` read the
+    # format the app actually answers in, rather than assuming RFC 9457.
     app.state.grelmicro_error_responses = errors
+    _document_error_responses(app, errors)
+
+    async def http_error(request: "Request", exc: Exception) -> "Response":
+        """Reshape the framework's own error into the registered format."""
+        from starlette.responses import Response  # noqa: PLC0415
+
+        http_exc = cast("HTTPException", exc)
+        detail = http_exc.detail
+        rendered = errors.render_status(
+            http_exc.status_code,
+            detail=detail if isinstance(detail, str) else None,
+            instance=request.url.path,
+        )
+        return Response(
+            content=rendered.body,
+            status_code=rendered.status,
+            media_type=rendered.media_type,
+            # A header the app set on the exception is part of the answer,
+            # `WWW-Authenticate` on a `401` above all, so it outranks ours.
+            headers={**rendered.headers, **(http_exc.headers or {})},
+        )
+
+    async def validation_error(
+        request: "Request",
+        exc: Exception,
+    ) -> "Response":
+        """Reshape a request that did not match the endpoint's shape."""
+        from starlette.responses import Response  # noqa: PLC0415
+
+        rendered = errors.render_validation(
+            _field_errors(exc),
+            status=HTTP_422_UNPROCESSABLE_CONTENT,
+            instance=request.url.path,
+        )
+        return Response(
+            content=rendered.body,
+            status_code=rendered.status,
+            media_type=rendered.media_type,
+            headers=rendered.headers,
+        )
+
+    for klass, validates in _framework_errors():
+        if _is_framework_default(app, klass):
+            app.add_exception_handler(
+                klass, validation_error if validates else http_error
+            )
 
     for klass in HANDLED:
         # A handler the app registered first wins. Registering before
@@ -820,12 +871,7 @@ def _annotate_schema(
 
     covered = [
         (path_item, operation)
-        for path_item in schema.get("paths", {}).values()
-        for method, operation in path_item.items()
-        # Every non-operation key of a path item (`parameters`, `servers`,
-        # `summary`, `$ref`) holds a list or a string, so a mapping under a
-        # covered method is an operation.
-        if method.lower() in methods and isinstance(operation, dict)
+        for path_item, operation in _operations(schema, methods)
     ]
     if not covered:
         return
@@ -834,6 +880,206 @@ def _annotate_schema(
         _add_parameter(operation, path_item, parameter)
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
+
+
+def _document_error_responses(app: "Starlette", errors: ErrorResponses) -> None:
+    """Republish the schema's error responses in the format now installed.
+
+    FastAPI generates a `422` for every operation that validates, pointing
+    at its own `HTTPValidationError`. That is no longer the body those
+    operations answer with, so a generated client would decode the wrong
+    shape. The entry is rewritten to the registered media type and model.
+
+    A no-op on a plain Starlette app, which builds no schema.
+    """
+    try:
+        from fastapi import FastAPI as _FastAPI  # noqa: PLC0415
+    except ImportError:  # pragma: no cover
+        return
+    if not isinstance(app, _FastAPI):
+        return
+
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        schema = original()
+        ref = _add_error_schema(schema, errors.model)
+        for _, operation in _operations(schema):
+            _rewrite_validation_response(operation, ref, errors.media_type)
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    # Drop a schema built before this call, which would otherwise be served
+    # from the cache describing the shape the app no longer answers with.
+    app.openapi_schema = None
+
+
+def _rewrite_validation_response(
+    operation: dict[str, Any], ref: str, media_type: str
+) -> None:
+    """Point one operation's generated validation response at the new body."""
+    response = operation.get("responses", {}).get(
+        str(HTTP_422_UNPROCESSABLE_CONTENT)
+    )
+    if response is None:
+        return
+    content = response.get("content", {})
+    generated = content.get("application/json", {}).get("schema", {})
+    if generated.get("$ref") != _FASTAPI_VALIDATION_REF:
+        # Something the app declared itself, which it owns.
+        return
+    response["content"] = {media_type: {"schema": {"$ref": ref}}}
+
+
+_FASTAPI_VALIDATION_REF = "#/components/schemas/HTTPValidationError"
+"""What FastAPI points a generated validation response at."""
+
+
+def error_response(
+    request: Annotated[
+        "Request",
+        Doc("The request being answered, which knows its app."),
+    ],
+    *,
+    status: Annotated[int, Doc("HTTP status code of the response.")],
+    detail: Annotated[
+        str | None,
+        Doc("Explanation of this occurrence, safe to show a client."),
+    ] = None,
+    extensions: Annotated[
+        dict[str, Any] | None,
+        Doc("Extra members to carry, where the format has room for them."),
+    ] = None,
+) -> "Response":
+    """Answer from your own exception handler in the app's error format.
+
+    Writing a handler of your own is how one error opts out of the shape
+    grelmicro installs. This is for the other case: you want your own
+    handler and the same shape as everything else.
+
+    ```python
+    from grelmicro.integrations.fastapi import error_response
+
+
+    @app.exception_handler(InsufficientFunds)
+    async def handle(request: Request, exc: InsufficientFunds) -> Response:
+        return error_response(
+            request,
+            status=409,
+            detail="The account does not hold enough to cover this charge.",
+            extensions={"balance": exc.balance},
+        )
+    ```
+
+    The format is read from the app, so a service that registered
+    `ErrorResponses.tmf()` answers in TMF from here too, with no second
+    place to keep in step. An app that registered nothing gets RFC 9457.
+    """
+    from starlette.responses import Response  # noqa: PLC0415
+
+    errors = (
+        getattr(request.app.state, "grelmicro_error_responses", None)
+        or ErrorResponses()
+    )
+    rendered = errors.render_status(
+        status,
+        detail=detail,
+        instance=request.url.path,
+        extensions=extensions,
+    )
+    return Response(
+        content=rendered.body,
+        status_code=rendered.status,
+        media_type=rendered.media_type,
+        headers=rendered.headers,
+    )
+
+
+def _framework_errors() -> "list[tuple[type[Exception], bool]]":
+    """Return the framework's own errors, paired with whether they validate.
+
+    Registering these is what makes the whole API answer in one shape. An
+    `HTTPException` a handler raises and a request that failed validation
+    are errors the client caused, so they belong in the same format as a
+    rejection.
+    """
+    from starlette.exceptions import HTTPException  # noqa: PLC0415
+
+    errors: list[tuple[type[Exception], bool]] = [(HTTPException, False)]
+    try:
+        from fastapi.exceptions import (  # noqa: PLC0415
+            RequestValidationError,
+        )
+    except ImportError:  # pragma: no cover
+        # A plain Starlette app validates nothing, so there is no such
+        # error to reshape.
+        return errors
+    errors.append((RequestValidationError, True))
+    return errors
+
+
+def _is_framework_default(app: "Starlette", klass: type[Exception]) -> bool:
+    """Return whether the handler for `klass` is the one FastAPI installed.
+
+    FastAPI registers its own handlers in the constructor, so "already
+    registered" cannot mean "the app chose this". Only a handler the app
+    put there is left alone, which is how it opts one error back out of the
+    shared format.
+
+    A plain Starlette app registers nothing, so a missing entry is the same
+    answer as a default one.
+    """
+    registered = app.exception_handlers.get(klass)
+    if registered is None:
+        return True
+    try:
+        from fastapi.exception_handlers import (  # noqa: PLC0415
+            http_exception_handler,
+            request_validation_exception_handler,
+        )
+    except ImportError:  # pragma: no cover
+        return False
+    return registered in (
+        http_exception_handler,
+        request_validation_exception_handler,
+    )
+
+
+def _field_errors(exc: Exception) -> "list[dict[str, Any]]":
+    """Return the field errors of a validation failure, without the input.
+
+    `loc`, `msg` and `type` tell a client which part of the request to fix.
+    `input` only repeats what the client just sent, and `ctx` carries an
+    exception object that serializes to nothing useful. Both are dropped.
+    """
+    raw = getattr(exc, "errors", None)
+    entries = raw() if callable(raw) else []
+    return [
+        {key: value for key, value in entry.items() if key in _FIELD_KEYS}
+        for entry in entries
+    ]
+
+
+_FIELD_KEYS = frozenset({"loc", "msg", "type"})
+"""Members of a field error that help a client fix its request."""
+
+
+def _operations(
+    schema: dict[str, Any], methods: "Collection[str] | None" = None
+) -> "list[tuple[dict[str, Any], dict[str, Any]]]":
+    """Return each operation in the schema, paired with its path item.
+
+    Every non-operation key of a path item (`parameters`, `servers`,
+    `summary`, `$ref`) holds a list or a string, so a mapping under a method
+    key is an operation. `methods` narrows to the ones a middleware covers.
+    """
+    return [
+        (path_item, operation)
+        for path_item in schema.get("paths", {}).values()
+        for method, operation in path_item.items()
+        if isinstance(operation, dict)
+        and (methods is None or method.lower() in methods)
+    ]
 
 
 def _add_error_schema(schema: dict[str, Any], model: type[BaseModel]) -> str:
