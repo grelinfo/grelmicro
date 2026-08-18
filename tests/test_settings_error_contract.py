@@ -455,3 +455,32 @@ def test_scrub_removes_the_value_only_where_a_message_can_carry_it() -> None:
         "union_tag_invalid",
     )
     assert SECRET not in _scrub(f"got {SECRET}", [SECRET], "value_error")
+
+
+NUMERIC_CANARY = 943257
+"""A rejected number standing in for a value read from the environment."""
+
+
+def test_scrub_removes_a_rejected_number_too() -> None:
+    """A number is a value from the environment like any other.
+
+    Only strings were scrubbed, so a validator naming a rejected number
+    leaked it. Constraint messages stay untouched: `Input should be greater
+    than 0` describes the limit, not what arrived.
+    """
+    assert str(NUMERIC_CANARY) not in _scrub(
+        f"rejected {NUMERIC_CANARY}", NUMERIC_CANARY, "value_error"
+    )
+    assert str(NUMERIC_CANARY) not in _scrub(
+        f"rejected {NUMERIC_CANARY}", [NUMERIC_CANARY], "value_error"
+    )
+    assert (
+        _scrub("Input should be greater than 0", 0, "greater_than")
+        == "Input should be greater than 0"
+    )
+    # A bool would remove the words `True` and `False` from a message that
+    # legitimately uses them.
+    boolean_input: object = True
+    assert _scrub("Input should be True", boolean_input, "value_error") == (
+        "Input should be True"
+    )
