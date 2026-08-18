@@ -14,6 +14,7 @@ import asyncpg
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_str, json_loads
+from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox.errors import OutboxHandleError, OutboxTransactionError
@@ -535,10 +536,16 @@ _TXN_MESSAGE = (
 
 
 def _validate_table(table: str) -> str:
-    """Return the table name, rejecting anything not a SQL identifier."""
+    """Return the table name, rejecting anything not a SQL identifier.
+
+    Raises:
+        SettingsValidationError: If the name is not a SQL identifier. The
+            name is repeated in the message: it is a literal the caller
+            wrote in code, not a value read from the environment.
+    """
     if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table):
         msg = f"Table name '{table}' is not a valid SQL identifier"
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
     return table
 
 

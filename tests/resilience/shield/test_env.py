@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from grelmicro.errors import EnvLoadOffWarning
+from grelmicro.errors import EnvLoadOffWarning, SettingsValidationError
 from grelmicro.resilience import Shield, SlowShieldConfig
 from grelmicro.resilience.shield._profile import _resolve_fqn
 
@@ -61,6 +61,29 @@ def test_env_load_max_rate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GREL_SHIELD_API_MAX_RATE", "12.5")
     s = Shield("api", env_load=True)
     assert s.config.max_rate == 12.5  # noqa: PLR2004
+
+
+@pytest.mark.parametrize(
+    ("variable", "named"),
+    [
+        ("GREL_SHIELD_MAX_RATE", "GREL_SHIELD_MAX_RATE"),
+        ("GREL_SHIELD_CHECKOUT_MAX_RATE", "GREL_SHIELD_CHECKOUT_MAX_RATE"),
+    ],
+)
+def test_a_bad_number_names_the_variable_that_is_set(
+    monkeypatch: pytest.MonkeyPatch, variable: str, named: str
+) -> None:
+    """The kind-wide variable was reported under the instance address.
+
+    `GREL_SHIELD_MAX_RATE` failed naming `GREL_SHIELD_CHECKOUT_MAX_RATE`,
+    which is not set, so the operator was sent to the wrong variable.
+    """
+    # Arrange
+    monkeypatch.setenv(variable, "not-a-number")
+    # Act / Assert
+    with pytest.raises(SettingsValidationError) as error:
+        Shield("checkout", env_load=True)
+    assert named in str(error.value)
 
 
 def test_env_load_with_explicit_kwargs(

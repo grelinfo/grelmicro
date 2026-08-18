@@ -10,10 +10,8 @@ import pytest
 
 from grelmicro.cache import postgres as cache_postgres
 from grelmicro.cache.postgres import PostgresCacheAdapter, _escape_like
-from grelmicro.providers.postgres import (
-    PostgresProvider,
-    PostgresProviderConfigError,
-)
+from grelmicro.errors import SettingsValidationError
+from grelmicro.providers.postgres import PostgresProvider
 
 pytestmark = [pytest.mark.timeout(1)]
 
@@ -147,11 +145,11 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
 def test_env_validation_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Implicit provider surfaces `PostgresProviderConfigError`."""
+    """Implicit provider surfaces `SettingsValidationError`."""
     monkeypatch.delenv("POSTGRES_URL", raising=False)
     monkeypatch.delenv("POSTGRES_HOST", raising=False)
 
-    with pytest.raises(PostgresProviderConfigError):
+    with pytest.raises(SettingsValidationError):
         PostgresCacheAdapter()
 
 
@@ -185,7 +183,9 @@ def test_auto_migrate_flag() -> None:
 @pytest.mark.parametrize("interval", [0, 0.0, -1, -0.5])
 def test_cleanup_interval_non_positive_raises(interval: float) -> None:
     """`cleanup_interval` must be positive when set."""
-    with pytest.raises(ValueError, match="cleanup_interval must be positive"):
+    with pytest.raises(
+        SettingsValidationError, match="cleanup_interval must be positive"
+    ):
         PostgresCacheAdapter(
             provider=PostgresProvider(URL), cleanup_interval=interval
         )

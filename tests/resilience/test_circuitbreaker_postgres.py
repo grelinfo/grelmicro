@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator, Generator
 import pytest
 from testcontainers.postgres import PostgresContainer
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience import (
     CircuitBreaker,
@@ -436,7 +437,9 @@ def test_cleanup_interval_must_be_positive(
 ) -> None:
     """A non-positive sweep interval is rejected at construction."""
     monkeypatch.setenv("POSTGRES_URL", URL)
-    with pytest.raises(ValueError, match="cleanup_interval must be positive"):
+    with pytest.raises(
+        SettingsValidationError, match="cleanup_interval must be positive"
+    ):
         PostgresCircuitBreakerAdapter(cleanup_interval=0)
 
 

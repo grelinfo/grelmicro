@@ -12,10 +12,10 @@ from grelmicro.coordination.redis import (
     RedisLockAdapter,
     RedisScheduleAdapter,
 )
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.redis import (
     RedisConfig,
     RedisProvider,
-    RedisProviderConfigError,
 )
 from grelmicro.providers.valkey import ValkeyConfig, ValkeyProvider
 from grelmicro.resilience.circuitbreaker.redis import (
@@ -56,7 +56,7 @@ class TestConstruction:
 
     def test_url_and_host_mutually_exclusive(self) -> None:
         """Passing both `url` and `host` raises."""
-        with pytest.raises(RedisProviderConfigError, match="not both"):
+        with pytest.raises(SettingsValidationError, match="not both"):
             ValkeyProvider(url=URL, host="test_host")
 
     def test_env_load_disabled_requires_kwargs(
@@ -66,7 +66,7 @@ class TestConstruction:
         monkeypatch.delenv("VALKEY_URL", raising=False)
         monkeypatch.delenv("VALKEY_HOST", raising=False)
 
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             ValkeyProvider(env_load=False)
 
     @pytest.mark.parametrize(
@@ -112,13 +112,13 @@ class TestConstruction:
         environs: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Invalid env combinations raise `RedisProviderConfigError`."""
+        """Invalid env combinations raise `SettingsValidationError`."""
         monkeypatch.delenv("VALKEY_URL", raising=False)
         monkeypatch.delenv("VALKEY_HOST", raising=False)
         for key, value in environs.items():
             monkeypatch.setenv(key, value)
 
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             ValkeyProvider()
 
     def test_default_env_prefix_is_valkey(self) -> None:
@@ -453,9 +453,9 @@ class TestValkeySchemes:
         """`RedisProvider` does not learn Valkey's schemes, on either path."""
         monkeypatch.setenv("REDIS_URL", "valkey://localhost:6379/0")
 
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             RedisProvider()
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             RedisProvider("valkey://localhost:6379/0", env_load=False)
 
     @pytest.mark.parametrize(
@@ -471,5 +471,5 @@ class TestValkeySchemes:
         """Only the two vendors' spellings reach the Sentinel and Cluster clients."""
         monkeypatch.setenv("VALKEY_URL", url)
 
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             ValkeyProvider()

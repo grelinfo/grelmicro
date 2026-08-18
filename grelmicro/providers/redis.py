@@ -592,13 +592,13 @@ def _resolve_url(
     """
     if url is not None and host is not None:
         msg = "pass either `url` or `host`, not both"
-        raise RedisProviderConfigError(msg)
+        raise SettingsValidationError(msg)
 
     if url is not None:
         try:
             validated = validate_url(str(url), settings_cls=settings_cls)
         except ValidationError as error:
-            raise RedisProviderConfigError(error) from None
+            raise SettingsValidationError(error) from None
         return (
             _apply_password(validated, password, source="`password`"),
             sentinel_password,
@@ -614,7 +614,7 @@ def _resolve_url(
 
     if not env_load:
         msg = "no `url` or `host` provided and env_load is False"
-        raise RedisProviderConfigError(msg)
+        raise SettingsValidationError(msg)
 
     try:
         # `_env_prefix` is a pydantic-settings runtime kwarg that overrides
@@ -622,11 +622,11 @@ def _resolve_url(
         # so static checkers reject it even though the runtime accepts it.
         settings = settings_cls(_env_prefix=env_prefix)
     except ValidationError as error:
-        raise RedisProviderConfigError(error) from None
+        raise SettingsValidationError(error) from None
 
     if settings.url is not None and settings.host is not None:
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
-        raise RedisProviderConfigError(msg)
+        raise SettingsValidationError(msg)
     # `is not None`, not `or`: an explicitly passed empty string is a value
     # the caller chose, and falling through to the environment would invert
     # the precedence every other field follows.
@@ -665,7 +665,7 @@ def _resolve_url(
             resolved_sentinel,
         )
     msg = f"either {env_prefix}URL or {env_prefix}HOST must be set"
-    raise RedisProviderConfigError(msg)
+    raise SettingsValidationError(msg)
 
 
 def _sentinel_kwargs(
@@ -711,7 +711,7 @@ def _apply_password(url: str, password: str | None, *, source: str) -> str:
     a Secret. Both halves are kept.
 
     Raises:
-        RedisProviderConfigError: If the URL already carries credentials and a
+        SettingsValidationError: If the URL already carries credentials and a
             password is configured too, since the two may disagree and picking
             one silently is how a wrong credential reaches the server.
     """
@@ -729,7 +729,7 @@ def _apply_password(url: str, password: str | None, *, source: str) -> str:
             f"ambiguous. Keep the password in the URL userinfo or drop it "
             f"from the URL, not both."
         )
-        raise RedisProviderConfigError(msg)
+        raise SettingsValidationError(msg)
     netloc = f":{quote(password, safe='')}@{parts.netloc}"
     return urlunsplit(parts._replace(netloc=netloc))
 
@@ -827,11 +827,11 @@ def _parse_multihost_url(url: str) -> _MultiHostUrl:
         host = parsed.hostname
         if not host:
             msg = f"missing host in {scheme} URL authority: {item!r}"
-            raise RedisProviderConfigError(msg)
+            raise SettingsValidationError(msg)
         hosts.append((host, parsed.port or default_port))
     if not hosts:
         msg = f"{scheme} URL must list at least one host"
-        raise RedisProviderConfigError(msg)
+        raise SettingsValidationError(msg)
 
     service_name = ""
     db = 0
@@ -839,14 +839,14 @@ def _parse_multihost_url(url: str) -> _MultiHostUrl:
         segments = [seg for seg in path.split("/") if seg]
         if not segments:
             msg = "redis+sentinel URL must name the master service"
-            raise RedisProviderConfigError(msg)
+            raise SettingsValidationError(msg)
         service_name = segments[0]
         if len(segments) > 1:
             try:
                 db = int(segments[1])
             except ValueError:
                 msg = f"invalid database index in URL: {segments[1]!r}"
-                raise RedisProviderConfigError(msg) from None
+                raise SettingsValidationError(msg) from None
 
     return _MultiHostUrl(
         hosts=hosts,
@@ -909,7 +909,3 @@ def require_cluster_hash_tag(
             f'in one slot, e.g. prefix="{{myapp}}{prefix or "cache"}".'
         )
         raise SettingsValidationError(msg)
-
-
-class RedisProviderConfigError(SettingsValidationError):
-    """Raised when the Redis provider cannot resolve a connection URL."""

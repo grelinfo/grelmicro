@@ -110,7 +110,7 @@ class Match:
         Pass one or more exception classes, or a single callable
         predicate ``(Exception) -> bool``. When mixed forms are
         passed (some classes, some callables), the result raises
-        ``TypeError`` at construction.
+        ``ValueError`` at construction.
         """
         if not exception_types_or_predicate:
             msg = "Match.exception() requires at least one argument"

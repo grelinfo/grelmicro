@@ -14,10 +14,10 @@ from grelmicro.coordination.redis import (
     RedisLockAdapter,
     RedisReadWriteLockAdapter,
 )
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.redis import (
     RedisConfig,
     RedisProvider,
-    RedisProviderConfigError,
 )
 from grelmicro.resilience.circuitbreaker.redis import (
     RedisCircuitBreakerAdapter,
@@ -56,7 +56,7 @@ class TestConstruction:
 
     def test_url_and_host_mutually_exclusive(self) -> None:
         """Passing both `url` and `host` raises."""
-        with pytest.raises(RedisProviderConfigError, match="not both"):
+        with pytest.raises(SettingsValidationError, match="not both"):
             RedisProvider(url=URL, host="test_host")
 
     def test_env_load_disabled_requires_kwargs(
@@ -66,7 +66,7 @@ class TestConstruction:
         monkeypatch.delenv("REDIS_URL", raising=False)
         monkeypatch.delenv("REDIS_HOST", raising=False)
 
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             RedisProvider(env_load=False)
 
     @pytest.mark.parametrize(
@@ -174,13 +174,13 @@ class TestConstruction:
         environs: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Invalid env combinations raise `RedisProviderConfigError`."""
+        """Invalid env combinations raise `SettingsValidationError`."""
         monkeypatch.delenv("REDIS_URL", raising=False)
         monkeypatch.delenv("REDIS_HOST", raising=False)
         for key, value in environs.items():
             monkeypatch.setenv(key, value)
 
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             RedisProvider()
 
     def test_custom_env_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -572,17 +572,17 @@ class TestSentinelUrl:
 
     def test_sentinel_url_requires_service_name(self) -> None:
         """A sentinel URL with no path segment raises."""
-        with pytest.raises(RedisProviderConfigError, match="master service"):
+        with pytest.raises(SettingsValidationError, match="master service"):
             RedisProvider("redis+sentinel://h1:26379,h2:26379")
 
     def test_sentinel_url_invalid_db(self) -> None:
         """A non-integer db segment raises."""
-        with pytest.raises(RedisProviderConfigError, match="database index"):
+        with pytest.raises(SettingsValidationError, match="database index"):
             RedisProvider("redis+sentinel://h1:26379/mymaster/abc")
 
     def test_sentinel_url_no_host(self) -> None:
         """An authority with an empty host entry raises."""
-        with pytest.raises(RedisProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             RedisProvider("redis+sentinel://:26379/mymaster")
 
     def test_sentinel_url_safe_redacts_password(self) -> None:
@@ -598,22 +598,22 @@ class TestSentinelUrl:
 
     def test_sentinel_url_with_empty_authority_item_raises(self) -> None:
         """A trailing comma in the authority leaves a host empty and raises."""
-        with pytest.raises(RedisProviderConfigError, match="empty host"):
+        with pytest.raises(SettingsValidationError, match="empty host"):
             RedisProvider("redis+sentinel://h1:26379,/mymaster")
 
     def test_cluster_url_with_no_hosts_raises(self) -> None:
         """An authority with only separators raises."""
-        with pytest.raises(RedisProviderConfigError, match="empty host"):
+        with pytest.raises(SettingsValidationError, match="empty host"):
             RedisProvider("redis+cluster://,")
 
     def test_sentinel_factory_without_hosts_raises(self) -> None:
         """The factory composes a host-less URL, which the parser refuses."""
-        with pytest.raises(RedisProviderConfigError, match="at least one host"):
+        with pytest.raises(SettingsValidationError, match="at least one host"):
             RedisProvider.sentinel(sentinels=[], service_name="mymaster")
 
     def test_cluster_factory_with_an_empty_host_raises(self) -> None:
         """A node with no host name is refused rather than silently dropped."""
-        with pytest.raises(RedisProviderConfigError, match="missing host"):
+        with pytest.raises(SettingsValidationError, match="missing host"):
             RedisProvider.cluster(nodes=[("", 6379)])
 
     async def test_sentinel_provider_closes_sentinels_on_exit(self) -> None:
@@ -869,9 +869,9 @@ class TestUrlValidationParity:
         """Both paths reject the same URL, and with the same error."""
         monkeypatch.setenv("REDIS_URL", url)
 
-        with pytest.raises(RedisProviderConfigError) as from_env:
+        with pytest.raises(SettingsValidationError) as from_env:
             RedisProvider()
-        with pytest.raises(RedisProviderConfigError) as from_kwarg:
+        with pytest.raises(SettingsValidationError) as from_kwarg:
             RedisProvider(url, env_load=False)
 
         assert str(from_kwarg.value) == str(from_env.value)
@@ -891,7 +891,7 @@ class TestUrlValidationParity:
         self,
     ) -> None:
         """A wrong scheme reports the failure without the credential."""
-        with pytest.raises(RedisProviderConfigError) as excinfo:
+        with pytest.raises(SettingsValidationError) as excinfo:
             RedisProvider("https://usr:test_password@h/0", env_load=False)
 
         assert "test_password" not in str(excinfo.value)

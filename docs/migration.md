@@ -26,10 +26,10 @@ that a client library used to accept.
 | `TypeError: @cached on ... needs an explicit key=` | 0.34 | [Name the key](#0-34-cached-method-key) |
 | Task run totals jumped after upgrading, with no new failures | 0.34 | [Filter on `outcome`](#0-34-task-run-outcomes) |
 | `ImportError: cannot import name 'LogTimeZoneType'` | 0.36 | [Use `TimeZoneName`](#0-36-timezone-type) |
-| `SettingsValidationError: unknown timezone name 'CEST'` | 0.36 | [Name the zone](#0-36-timezone-abbreviation) |
+| `SettingsValidationError: unknown timezone name` on a value like `CEST` | 0.36 | [Name the zone](#0-36-timezone-abbreviation) |
 | `ImportError: cannot import name 'RateLimiterRegistry'` or `ImportError: cannot import name 'CircuitBreakerRegistry'` | 0.37 | [Rename to `Component`](#0-37-registry-renamed) |
 | `TypeError: health_router() got an unexpected keyword argument 'registry'` | 0.37 | [Pass `component=`](#0-37-registry-renamed) |
-| `RedisProviderConfigError` or `PostgresProviderConfigError` on a URL that used to connect | 0.37.1 | [Fix the URL](#0-37-1-url-validation) |
+| A provider error on a URL that used to connect | 0.37.1 | [Fix the URL](#0-37-1-url-validation) |
 | `ModuleNotFoundError: No module named 'grelmicro.clientip'` | 0.39 | [Import from `grelmicro.security`](#0-39-clientip-moved) |
 | A logging filter or level set on `grelmicro.clientip` stopped matching | 0.39 | [Rename the logger](#0-39-clientip-moved) |
 | `ImportError: cannot import name 'LogSettingsValidationError'`, or any other `*SettingsValidationError` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
@@ -37,6 +37,8 @@ that a client library used to accept.
 | `SettingsValidationError` where you caught `ValueError` or `TypeError` from `cached()`, `TrustedProxies`, or `ExternalConfig` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError` on a bad `Lock` name, adapter `table_name`, or Redis `prefix` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError: environment= must be one of ...` on a `Grelmicro(...)` that used to build | 0.40 | [Name a real tier](#0-40-environment-validated) |
+| `ValueError` where you caught `TypeError` from `Match.exception(...)` or a bad `when=` | 0.40 | [Catch `ValueError`](#0-40-match-value-error) |
+| `ImportError: cannot import name 'RedisProviderConfigError'` or `'PostgresProviderConfigError'` | 0.40 | [Catch the base error](#0-40-provider-errors) |
 
 ## 0.40
 
@@ -111,6 +113,59 @@ The four tiers are `development`, `test`, `staging`, and `production`.
 `GREL_ENVIRONMENT` already warned on an unknown value, so this makes the two
 doors agree.
 
+### A bad `Match` argument raises `ValueError` {#0-40-match-value-error}
+
+`Match.exception()` and `Match.exception_cause()` raised `TypeError` when an
+argument was not an exception class, and when they got no argument at all.
+`when=` raised `TypeError` for a value that was not a `Match`, an exception
+class, a tuple of them, or a callable. They raise `ValueError` now:
+
+```python
+# Before
+try:
+    Match.exception(ValueError, "nope")
+except TypeError:
+    ...
+
+# After
+try:
+    Match.exception(ValueError, "nope")
+except ValueError:
+    ...
+```
+
+pydantic converts only `ValueError` and `AssertionError` into a validation
+error, so the old `TypeError` escaped `except SettingsValidationError` and
+`except ValueError` alike when the same value arrived through
+`GREL_RETRY_{NAME}_WHEN`. One empty entry in a mounted ConfigMap was enough to
+abort a whole reload cycle.
+
+### The provider error subclasses are gone {#0-40-provider-errors}
+
+`RedisProviderConfigError` and `PostgresProviderConfigError` are removed. A
+provider raises `SettingsValidationError`, like every other class:
+
+```python
+# Before
+from grelmicro.providers.redis import RedisProviderConfigError
+
+try:
+    RedisProvider("anything://localhost:6379")
+except RedisProviderConfigError:
+    ...
+
+# After
+from grelmicro import SettingsValidationError
+
+try:
+    RedisProvider("anything://localhost:6379")
+except SettingsValidationError:
+    ...
+```
+
+They were the last two per-module subclasses, left behind when the other ten
+went. `except ValueError` and `except GrelmicroError` keep working unchanged.
+
 ## 0.39
 
 ### `grelmicro.clientip` moved to `grelmicro.security` {#0-39-clientip-moved}
@@ -146,7 +201,7 @@ where it used to connect:
 RedisProvider("redis+sentinel://h1:26379,/mymaster")
 
 # After
-# RedisProviderConfigError: Could not validate settings:
+# SettingsValidationError: Could not validate settings:
 # - url: Input should be a valid URL, empty host
 ```
 
@@ -217,7 +272,8 @@ from grelmicro.types import TimeZoneName
 
 `GREL_LOG_TIMEZONE=CEST` used to validate and then fail later, because
 `zoneinfo` has no such zone. It now raises `SettingsValidationError:
-unknown timezone name 'CEST'` where the value is read. Abbreviations such as
+unknown timezone name` where the value is read. The message does not repeat
+the value, so the variable name is what locates it. Abbreviations such as
 `CEST`, `PST`, `PDT`, `EDT`, `BST`, and `JST` are daylight saving variants,
 not zones, and pinning one would freeze the offset year-round. Name the zone
 instead:

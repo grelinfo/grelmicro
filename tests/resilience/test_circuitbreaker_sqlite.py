@@ -8,6 +8,7 @@ from time import time
 
 import pytest
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.resilience import (
     CircuitBreaker,
@@ -580,7 +581,9 @@ async def test_cleanup_is_bounded(
 
 def test_cleanup_interval_must_be_positive() -> None:
     """A non-positive sweep interval is rejected at construction."""
-    with pytest.raises(ValueError, match="cleanup_interval must be positive"):
+    with pytest.raises(
+        SettingsValidationError, match="cleanup_interval must be positive"
+    ):
         SQLiteCircuitBreakerAdapter(
             provider=SQLiteProvider("x.db"), cleanup_interval=0
         )

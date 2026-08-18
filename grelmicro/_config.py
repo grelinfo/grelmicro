@@ -885,6 +885,11 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
         try:
             await instance.reconfigure(new_config)
         except (ValueError, TypeError) as exc:
+            # Only the class name, for the reason the handler above gives:
+            # the message belongs to a `reconfigure` implementation and may
+            # name the value it rejected.
             logger.warning(
-                "External config rejected for %s: %s", env_prefix, exc
+                "External config rejected for %s: %s",
+                env_prefix,
+                type(exc).__name__,
             )

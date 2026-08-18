@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
@@ -37,7 +38,9 @@ def test_invalid_table_name_raises() -> None:
 @pytest.mark.parametrize("interval", [0, -1.0])
 def test_non_positive_cleanup_interval_raises(interval: float) -> None:
     """A non-positive `cleanup_interval` is rejected."""
-    with pytest.raises(ValueError, match="cleanup_interval must be positive"):
+    with pytest.raises(
+        SettingsValidationError, match="cleanup_interval must be positive"
+    ):
         SQLiteCacheAdapter(cleanup_interval=interval)
 
 
