@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.40.0 - 2026-08-18
 
 ### Breaking
 
@@ -27,8 +27,8 @@
 * 👷 `just release <version>` runs everything ahead of the tag: it cuts the changelog, runs the full preflight, and prints the `gh release create` command rather than running it. Creating the tag stays a conscious act, because it cannot be undone. CONTRIBUTING documents the sequence, which was previously discoverable only by triggering the failures. ([#757](https://github.com/grelinfo/grelmicro/issues/757))
 * ✅ The public API snapshot records default values, including what a `default_factory` returns and the return annotation, so a changed default or return type fails CI. ([#764](https://github.com/grelinfo/grelmicro/pull/764))
 * ✅ Three contract sweeps enforce what the architecture docs publish, discovered by walking the package rather than by a hand-written list. `tests/test_backend_contracts.py` covers the `bind` contract over every backend adapter, `tests/test_config_contracts.py` covers R3, R4 and the reload rules over every `Reconfigurable`, and `tests/test_construction_contracts.py` covers the declarative door over every class with `from_config`. Each refuses to pass on an empty scan, so an adapter or pattern added later is covered without anyone remembering. ([#755](https://github.com/grelinfo/grelmicro/issues/755))
-* 📝 An [Errors](reference/errors.md) reference page. `SettingsValidationError` is now the one configuration error, and it had no documented home.
-* ✅ The public API snapshot covers `grelmicro.outbox` and `grelmicro.types`. Both were documented in the API reference while their exports went unguarded, so a rename could have shipped unnoticed. A test now reads the reference pages, so documenting a module guards it.
+* 📝 An [Errors](reference/errors.md) reference page. `SettingsValidationError` is now the one configuration error, and it had no documented home. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* ✅ The public API snapshot covers `grelmicro.outbox` and `grelmicro.types`. Both were documented in the API reference while their exports went unguarded, so a rename could have shipped unnoticed. A test now reads the reference pages, so documenting a module guards it. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
 
 ## 0.39.0 - 2026-08-16
 
