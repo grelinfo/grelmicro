@@ -395,7 +395,10 @@ def test_both_doors_leave_the_same_attributes(
         # Asserted rather than skipped. A door that builds through the
         # ordinary constructor satisfies the invariant by construction, and
         # saying so is worth more than a skip line that records nothing.
-        assert "cls(" in source or "return cls" in source, (
+        # `cls(` only. `return cls` would also admit `return cls.SHARED`
+        # or a cache lookup, which never runs `__init__` and is exactly the
+        # case this rejects.
+        assert "cls(" in source, (
             f"{class_name}.from_config neither uses _setup nor builds "
             f"through the constructor, so which attributes it leaves is "
             f"unknown"
