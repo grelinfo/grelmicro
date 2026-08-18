@@ -10,6 +10,7 @@ tag is immutable, so getting it wrong costs a version.
 """
 
 import datetime
+import sys
 from pathlib import Path
 
 import pytest
@@ -247,3 +248,67 @@ def test_a_clone_without_tags_cannot_answer_and_fails_closed(
 
     monkeypatch.setattr(changelog, "_git_tags", _tags)
     assert changelog.is_tagged("0.40.0") is False
+
+
+def test_check_reports_each_way_a_section_is_not_ready(
+    changelog_file: Path,
+) -> None:
+    """Every refusal `check` can make, since each one gates a tag.
+
+    `release` is the writer, but `check` is what runs in the preflight, so
+    a branch here that behaves wrongly lets a bad changelog reach a tag.
+    """
+    assert changelog.check("9.9.9", TODAY) == 1
+
+    changelog_file.write_text(
+        "# Changelog\n\n## 0.40.0\n\n* ✨ Undated.\n", encoding="utf-8"
+    )
+    assert changelog.check("0.40.0", TODAY) == 1
+
+    changelog_file.write_text(
+        "# Changelog\n\n## 0.40.0 - 2020-01-01\n\n* ✨ Stale.\n",
+        encoding="utf-8",
+    )
+    assert changelog.check("0.40.0", TODAY) == 1
+
+    changelog_file.write_text(
+        f"# Changelog\n\n## 0.40.0 - {TODAY}\n", encoding="utf-8"
+    )
+    assert changelog.check("0.40.0", TODAY) == 1
+
+
+@pytest.mark.usefixtures("changelog_file")
+def test_notes_refuses_a_version_it_cannot_find() -> None:
+    """The release body comes from here, so a miss must not print nothing."""
+    assert changelog.notes("9.9.9") == 1
+
+
+@pytest.mark.parametrize("command", ["release", "check", "notes"])
+@pytest.mark.usefixtures("changelog_file")
+def test_main_dispatches_every_subcommand(
+    command: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The command line is how the justfile drives this."""
+    monkeypatch.setattr(changelog, "is_tagged", lambda _version: False)
+    monkeypatch.setattr(sys, "argv", ["changelog.py", command, "0.40.0"])
+    expected = 1 if command in {"check", "notes"} else 0
+    assert changelog.main() == expected
+
+
+def test_git_tags_returns_none_when_git_cannot_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing git or a non-repository is unknown, not an empty answer.
+
+    `is_tagged` treats "no tags at all" as unanswerable and fails closed, so
+    this distinction is what keeps a released section from being rewritten
+    outside a full clone.
+    """
+
+    def _explode(*_args: object, **_kwargs: object) -> object:
+        raise OSError
+
+    monkeypatch.setattr(changelog.subprocess, "run", _explode)
+    assert changelog._git_tags() is None
+    assert changelog.is_tagged("0.39.0") is True
