@@ -12,7 +12,7 @@ This is the explicit list of what that call supports.
 | [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks and the per-request binding. |
 | [FastStream](https://faststream.airt.ai/) | `grelmicro[faststream]` | The startup and shutdown hooks, the per-message binding, and the broker telemetry middleware. |
 
-`install` also wires what you registered. `ProblemDetails()` has grelmicro's
+`install` also wires what you registered. `ErrorResponses()` has grelmicro's
 rejections answered as RFC 9457 responses, and `Trace()` has requests
 auto-instrumented. Both happen only because the component is in `uses=[...]`.
 

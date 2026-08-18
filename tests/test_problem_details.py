@@ -27,13 +27,17 @@ from starlette.status import (
 )
 from starlette.testclient import TestClient as StarletteTestClient
 
-from grelmicro import AdmissionError, Grelmicro
+from grelmicro import (
+    AdmissionError,
+    ComponentAlreadyRegisteredError,
+    Grelmicro,
+)
 from grelmicro.errors import LockTimeoutError, WouldBlockError
 from grelmicro.http import (
     PROBLEM_MEDIA_TYPE,
     PROBLEM_TYPE_BASE,
+    ErrorResponses,
     ProblemDetail,
-    ProblemDetails,
     problem_detail,
     send_problem,
 )
@@ -287,7 +291,7 @@ def fastapi_client() -> Iterator[TestClient]:
     async def broken() -> dict[str, str]:
         raise BoomError
 
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
@@ -341,7 +345,7 @@ def test_a_handler_you_registered_wins() -> None:
     async def limited() -> dict[str, str]:
         raise _rate_limited()
 
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     app.add_exception_handler(
         RateLimitExceededError,
         _teapot,
@@ -363,7 +367,7 @@ def test_starlette_renders_a_rejection() -> None:
         raise _rate_limited()
 
     app = Starlette(routes=[Route("/limited", limited)])
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with StarletteTestClient(app, raise_server_exceptions=False) as client:
@@ -384,7 +388,7 @@ def test_litestar_renders_a_rejection() -> None:
         raise _rate_limited()
 
     app = Litestar(route_handlers=[limited])
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -409,7 +413,7 @@ def test_litestar_leaves_a_server_fault_alone() -> None:
         raise BoomError
 
     app = Litestar(route_handlers=[broken])
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -430,7 +434,7 @@ def _fastapi_rejection() -> tuple[int, dict[str, str], bytes]:
     async def limited() -> dict[str, str]:
         raise _rate_limited()
 
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -443,7 +447,7 @@ def _starlette_rejection() -> tuple[int, dict[str, str], bytes]:
         raise _rate_limited()
 
     app = Starlette(routes=[Route("/limited", limited)])
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with StarletteTestClient(app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -457,7 +461,7 @@ def _litestar_rejection() -> tuple[int, dict[str, str], bytes]:
         raise _rate_limited()
 
     app = Litestar(route_handlers=[limited])
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -519,7 +523,7 @@ def test_a_handler_registered_before_install_wins() -> None:
         raise _rate_limited()
 
     app.add_exception_handler(AdmissionError, _teapot)
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -544,7 +548,7 @@ def test_litestar_keeps_a_handler_passed_to_the_constructor() -> None:
         route_handlers=[limited],
         exception_handlers={AdmissionError: mine},
     )
-    Grelmicro(uses=[ProblemDetails()]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -633,3 +637,49 @@ def test_both_lock_refusals_share_a_type_and_differ_in_detail() -> None:
     assert "5.0s" in (waited.detail or "")
     # Neither carries a delay: a lock frees when its holder is done.
     assert "retry_after" not in waited.model_dump()
+
+
+# --- The component ------------------------------------------------------
+
+
+def test_the_component_renders_a_rejection() -> None:
+    """`render` is what an integration calls, whatever the format."""
+    # Act
+    rendered = ErrorResponses().render(_rate_limited(), instance="/charge")
+
+    # Assert
+    assert rendered is not None
+    assert rendered.status == HTTP_429_TOO_MANY_REQUESTS
+    assert rendered.media_type == PROBLEM_MEDIA_TYPE
+    assert rendered.headers["retry-after"] == "2"
+    assert json.loads(rendered.body)["instance"] == "/charge"
+
+
+def test_the_component_renders_nothing_for_a_server_fault() -> None:
+    """An error grelmicro did not raise stays the framework's to answer."""
+    # Act & Assert
+    assert ErrorResponses().render(BoomError()) is None
+
+
+def test_the_factory_and_the_bare_constructor_agree() -> None:
+    """`ErrorResponses()` is RFC 9457, said or unsaid."""
+    # Act
+    bare = ErrorResponses().render(_rate_limited())
+    named = ErrorResponses.problem_details().render(_rate_limited())
+
+    # Assert
+    assert bare == named
+
+
+def test_two_formats_cannot_both_be_registered() -> None:
+    """One rendering answers for the whole app.
+
+    The exclusion rides on the shared `kind` and the `singleton` flag, and
+    the message says the reason that applies rather than the process-global
+    one the guard was first written for.
+    """
+    # Act & Assert
+    with pytest.raises(
+        ComponentAlreadyRegisteredError, match="One rendering answers"
+    ):
+        Grelmicro(uses=[ErrorResponses(), ErrorResponses(name="second")])

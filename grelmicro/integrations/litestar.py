@@ -6,13 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from typing_extensions import Doc
 
-from grelmicro.http._problem import (
-    HANDLED,
-    PROBLEM_MEDIA_TYPE,
-    body_of,
-    framework_headers_of,
-    problem_detail,
-)
+from grelmicro.http._problem import HANDLED
 from grelmicro.integrations.fastapi import GrelmicroMiddleware
 
 if TYPE_CHECKING:
@@ -22,6 +16,7 @@ if TYPE_CHECKING:
     from litestar.response import Response
 
     from grelmicro import Grelmicro
+    from grelmicro.http import ErrorResponses
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -32,7 +27,7 @@ if TYPE_CHECKING:
 __all__ = [
     "GrelmicroMiddleware",
     "install",
-    "install_problem_details",
+    "install_error_responses",
     "is_bound",
 ]
 
@@ -107,13 +102,17 @@ def install(
         )
 
 
-def install_problem_details(
+def install_error_responses(
     app: Annotated[
         Litestar,
         Doc("The Litestar application to wire."),
     ],
+    errors: Annotated[
+        ErrorResponses,
+        Doc("The registered component that renders each rejection."),
+    ],
 ) -> None:
-    """Render grelmicro rejections as problem details on a Litestar app.
+    """Render grelmicro rejections in a standard format on a Litestar app.
 
     Registers one exception handler per rejection grelmicro raises to turn a
     caller away, so a rate limiter, a bulkhead, an open circuit breaker, an
@@ -126,37 +125,40 @@ def install_problem_details(
 
     Call it after the app is built and before it serves, since Litestar
     resolves each route's handlers on its first request. `micro.install(app)`
-    calls this, so a direct call is only for an app that never goes through
-    `install`, or after `install(app, problem_details=False)`.
+    calls this when `ErrorResponses()` is registered, so a direct call is only
+    for an app that never goes through `install`.
 
     ```python
-    from grelmicro.integrations.litestar import install_problem_details
+    from grelmicro.http import ErrorResponses
+    from grelmicro.integrations.litestar import install_error_responses
 
-    install_problem_details(app)
+    install_error_responses(app, ErrorResponses())
     ```
 
     Read more in the [Problem Details](../http/problems.md) docs.
     """
+
+    def handler(request: Request, exc: Exception) -> Response:
+        """Render one rejection, taking the occurrence from the request path."""
+        from litestar.response import (  # noqa: PLC0415
+            Response as LitestarResponse,
+        )
+
+        rendered = errors.render(exc, instance=request.url.path)
+        if rendered is None:  # pragma: no cover
+            raise exc
+        return LitestarResponse(
+            content=rendered.body,
+            status_code=rendered.status,
+            media_type=rendered.media_type,
+            headers=rendered.headers,
+        )
+
     for klass in HANDLED:
         # A handler passed to `Litestar(exception_handlers=...)` wins, the
         # same way one registered before `install` does on Starlette.
         if klass not in app.exception_handlers:
-            app.exception_handlers[klass] = _problem_response
-
-
-def _problem_response(request: Request, exc: Exception) -> Response:
-    """Render one rejection, taking the occurrence from the request path."""
-    from litestar.response import Response as LitestarResponse  # noqa: PLC0415
-
-    problem = problem_detail(exc, instance=request.url.path)
-    if problem is None:  # pragma: no cover
-        raise exc
-    return LitestarResponse(
-        content=body_of(problem),
-        status_code=problem.status,
-        media_type=PROBLEM_MEDIA_TYPE,
-        headers=framework_headers_of(problem),
-    )
+            app.exception_handlers[klass] = handler
 
 
 def is_bound(

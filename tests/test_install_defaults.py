@@ -149,7 +149,7 @@ def test_litestar_install_registers_no_exception_handler() -> None:
 @pytest.mark.parametrize(
     "capability",
     [
-        "install_problem_details",
+        "install_error_responses",
     ],
 )
 def test_every_capability_is_component_gated(capability: str) -> None:

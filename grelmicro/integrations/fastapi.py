@@ -25,10 +25,7 @@ from grelmicro.http._problem import (
     REQUEST_BODY_TOO_LARGE,
     ProblemDetail,
     _Kind,
-    body_of,
     build,
-    framework_headers_of,
-    problem_detail,
     send_problem,
 )
 from grelmicro.idempotency.errors import (
@@ -54,6 +51,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
+    from grelmicro.http import ErrorResponses
     from grelmicro.idempotency import Idempotency
     from grelmicro.trace._component import Trace
 
@@ -72,7 +70,7 @@ __all__ = [
     "document_idempotency",
     "health_router",
     "install",
-    "install_problem_details",
+    "install_error_responses",
     "is_bound",
 ]
 
@@ -249,13 +247,17 @@ def install(
     _instrument_app(app, micro)
 
 
-def install_problem_details(
+def install_error_responses(
     app: Annotated[
         "Starlette",
         Doc("The Starlette or FastAPI application to wire."),
     ],
+    errors: Annotated[
+        "ErrorResponses",
+        Doc("The registered component that renders each rejection."),
+    ],
 ) -> None:
-    """Render grelmicro rejections as problem details on a Starlette app.
+    """Render grelmicro rejections in a standard format on a Starlette app.
 
     Registers one exception handler per rejection grelmicro raises to turn a
     caller away, so a rate limiter, a bulkhead, an open circuit breaker, an
@@ -266,39 +268,40 @@ def install_problem_details(
     hierarchy, so registering `AdmissionError` covers every rejection under
     it, including one a later release adds.
 
-    `micro.install(app)` calls this. Call it directly only on an app that
-    never goes through `install`, or after `install(app, problem_details=False)`.
+    `micro.install(app)` calls this when `ErrorResponses()` is registered.
+    Call it directly only on an app that never goes through `install`.
 
     ```python
-    from grelmicro.integrations.fastapi import install_problem_details
+    from grelmicro.http import ErrorResponses
+    from grelmicro.integrations.fastapi import install_error_responses
 
-    install_problem_details(app)
+    install_error_responses(app, ErrorResponses())
     ```
 
     Read more in the [Problem Details](../http/problems.md) docs.
     """
+
+    async def handler(request: "Request", exc: Exception) -> "Response":
+        """Render one rejection, taking the occurrence from the request path."""
+        from starlette.responses import Response  # noqa: PLC0415
+
+        rendered = errors.render(exc, instance=request.url.path)
+        if rendered is None:  # pragma: no cover
+            raise exc
+        return Response(
+            content=rendered.body,
+            status_code=rendered.status,
+            media_type=rendered.media_type,
+            headers=rendered.headers,
+        )
+
     for klass in HANDLED:
         # A handler the app registered first wins. Registering before
         # `install` is the natural order (build the app, register handlers,
         # wire grelmicro), and overwriting there would take a handler away
         # from an app that upgrades, without saying so.
         if klass not in app.exception_handlers:
-            app.add_exception_handler(klass, _problem_response)
-
-
-async def _problem_response(request: "Request", exc: Exception) -> "Response":
-    """Render one rejection, taking the occurrence from the request path."""
-    from starlette.responses import Response  # noqa: PLC0415
-
-    problem = problem_detail(exc, instance=request.url.path)
-    if problem is None:  # pragma: no cover
-        raise exc
-    return Response(
-        content=body_of(problem),
-        status_code=problem.status,
-        media_type=PROBLEM_MEDIA_TYPE,
-        headers=framework_headers_of(problem),
-    )
+            app.add_exception_handler(klass, handler)
 
 
 def _is_binding(middleware: object) -> bool:

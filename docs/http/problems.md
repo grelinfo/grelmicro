@@ -11,7 +11,7 @@ errors.
 
 ## Wiring
 
-Register `ProblemDetails()`, and `micro.install(app)` wires the handler:
+Register `ErrorResponses()`, and `micro.install(app)` wires the handler:
 
 ```python title="problems.py"
 --8<-- "http/problems.py"
@@ -22,7 +22,7 @@ serves no HTTP, such as FastStream, ignores it.
 
 **Nothing happens without the component.** grelmicro installs into a
 framework you chose, so it does not change how that framework answers an
-error unless you ask. Leave `ProblemDetails()` out and a rejection reaches
+error unless you ask. Leave `ErrorResponses()` out and a rejection reaches
 your framework's own error handling exactly as any other exception does,
 which is a `500` unless you handle it yourself.
 
