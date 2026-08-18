@@ -940,20 +940,6 @@ class Grelmicro:
                 """,
             ),
         ] = True,
-        problem_details: Annotated[
-            bool,
-            Doc(
-                """
-                Render every rejection grelmicro raises as an RFC 9457
-                `application/problem+json` response, so a rate limiter, a
-                bulkhead, an open circuit breaker, or an elapsed deadline
-                answers the client instead of becoming a `500`. Default
-                `True`. Pass `False` to answer those in your own handlers.
-                Ignored by a framework that serves no HTTP, such as
-                FastStream.
-                """,
-            ),
-        ] = True,
     ) -> None:
         """Wire the app lifecycle and ambient binding in one call.
 
@@ -964,7 +950,15 @@ class Grelmicro:
 
         When `ambient` is `True` (the default), each request handler or message
         subscriber runs with this app bound as `Grelmicro.current()`, so
-        patterns that omit `backend=` resolve ambiently.
+        patterns that omit `backend=` resolve ambiently. It adds one
+        middleware that sets a context variable and changes nothing a client
+        can see.
+
+        Nothing else about how the framework answers a request changes.
+        Register `ProblemDetails()` to have grelmicro's rejections rendered
+        as RFC 9457 responses, and `Trace()` to have requests
+        auto-instrumented. Both are wired here, and only because they were
+        registered.
 
         ```python
         from fastapi import FastAPI
@@ -986,7 +980,13 @@ class Grelmicro:
                 _unsupported_framework_message("micro.install", app)
             )
         integration.install(app, self, ambient=ambient)
-        if problem_details:
+        if any(
+            getattr(component, "kind", None) == "problem_details"
+            for component in self.components
+        ):
+            # Registering `ProblemDetails()` is the opt-in. grelmicro changes
+            # how your framework answers an error only because you asked.
+            #
             # Feature-detected rather than passed to `install`, whose
             # signature is frozen so an integration written for an older
             # release keeps working. A framework that serves no HTTP simply

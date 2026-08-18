@@ -33,6 +33,7 @@ from grelmicro.http import (
     PROBLEM_MEDIA_TYPE,
     PROBLEM_TYPE_BASE,
     ProblemDetail,
+    ProblemDetails,
     problem_detail,
     send_problem,
 )
@@ -286,7 +287,7 @@ def fastapi_client() -> Iterator[TestClient]:
     async def broken() -> dict[str, str]:
         raise BoomError
 
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
@@ -331,25 +332,6 @@ def test_fastapi_leaves_a_server_fault_alone(
     assert response.headers["content-type"] != PROBLEM_MEDIA_TYPE
 
 
-def test_opting_out_leaves_rejections_to_you() -> None:
-    """`problem_details=False` registers nothing."""
-    # Arrange
-    app = FastAPI()
-
-    @app.get("/limited")
-    async def limited() -> dict[str, str]:
-        raise _rate_limited()
-
-    Grelmicro(uses=[]).install(app, problem_details=False)
-
-    # Act
-    with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/limited")
-
-    # Assert
-    assert response.status_code == HTTP_500_INTERNAL_SERVER_ERROR
-
-
 def test_a_handler_you_registered_wins() -> None:
     """An explicit handler for one rejection is not overwritten."""
     # Arrange
@@ -359,7 +341,7 @@ def test_a_handler_you_registered_wins() -> None:
     async def limited() -> dict[str, str]:
         raise _rate_limited()
 
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
     app.add_exception_handler(
         RateLimitExceededError,
         _teapot,
@@ -381,7 +363,7 @@ def test_starlette_renders_a_rejection() -> None:
         raise _rate_limited()
 
     app = Starlette(routes=[Route("/limited", limited)])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
 
     # Act
     with StarletteTestClient(app, raise_server_exceptions=False) as client:
@@ -402,7 +384,7 @@ def test_litestar_renders_a_rejection() -> None:
         raise _rate_limited()
 
     app = Litestar(route_handlers=[limited])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -427,7 +409,7 @@ def test_litestar_leaves_a_server_fault_alone() -> None:
         raise BoomError
 
     app = Litestar(route_handlers=[broken])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -448,7 +430,7 @@ def _fastapi_rejection() -> tuple[int, dict[str, str], bytes]:
     async def limited() -> dict[str, str]:
         raise _rate_limited()
 
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -461,7 +443,7 @@ def _starlette_rejection() -> tuple[int, dict[str, str], bytes]:
         raise _rate_limited()
 
     app = Starlette(routes=[Route("/limited", limited)])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
     with StarletteTestClient(app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -475,7 +457,7 @@ def _litestar_rejection() -> tuple[int, dict[str, str], bytes]:
         raise _rate_limited()
 
     app = Litestar(route_handlers=[limited])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -537,7 +519,7 @@ def test_a_handler_registered_before_install_wins() -> None:
         raise _rate_limited()
 
     app.add_exception_handler(AdmissionError, _teapot)
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
 
     # Act
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -562,7 +544,7 @@ def test_litestar_keeps_a_handler_passed_to_the_constructor() -> None:
         route_handlers=[limited],
         exception_handlers={AdmissionError: mine},
     )
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ProblemDetails()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:

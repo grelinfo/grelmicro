@@ -251,6 +251,9 @@
     "ProblemDetail": {
       "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
     },
+    "ProblemDetails": {
+      "()": "(*, name='default') -> 'None'"
+    },
     "problem_detail": {
       "()": "(exc, *, instance=None) -> 'ProblemDetail | None'"
     },

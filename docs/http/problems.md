@@ -11,20 +11,24 @@ errors.
 
 ## Wiring
 
-`micro.install(app)` does it:
+Register `ProblemDetails()`, and `micro.install(app)` wires the handler:
 
 ```python title="problems.py"
 --8<-- "http/problems.py"
 ```
 
-The handler is registered for FastAPI, Starlette, and Litestar. A framework
-that serves no HTTP, such as FastStream, is left alone.
+It is registered for FastAPI, Starlette, and Litestar. A framework that
+serves no HTTP, such as FastStream, ignores it.
 
-Pass `problem_details=False` to answer rejections in your own handlers:
+**Nothing happens without the component.** grelmicro installs into a
+framework you chose, so it does not change how that framework answers an
+error unless you ask. Leave `ProblemDetails()` out and a rejection reaches
+your framework's own error handling exactly as any other exception does,
+which is a `500` unless you handle it yourself.
 
-```python
-micro.install(app, problem_details=False)
-```
+A handler you registered wins. Whether you register it before or after
+`micro.install(app)`, grelmicro adds its own only for the classes you left
+alone.
 
 ## What a client sees
 
