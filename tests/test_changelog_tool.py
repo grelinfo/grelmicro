@@ -64,13 +64,19 @@ def test_release_is_idempotent(changelog_file: Path) -> None:
 
 
 def test_release_refuses_to_rewrite_a_released_section(
-    changelog_file: Path,
+    changelog_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A version already cut is never rewritten.
 
     A tag is immutable, so its changelog section is too. Rewriting one
     would describe a release that shipped something else.
+
+    `is_tagged` is pinned rather than left to the clone: CI checks out
+    shallow, so the real call answers "not tagged" for a version that
+    shipped, and this test passed locally while the guard it covers was
+    absent in CI.
     """
+    monkeypatch.setattr(changelog, "is_tagged", lambda _version: True)
     assert changelog.release("0.39.0", TODAY) == 1
     assert "## 0.39.0 - 2026-08-16" in changelog_file.read_text(
         encoding="utf-8"
@@ -222,3 +228,22 @@ def test_an_undated_section_is_dated_rather_than_skipped(
     assert changelog.release("0.40.0", TODAY) == 0
     assert f"## 0.40.0 - {TODAY}" in changelog_file.read_text(encoding="utf-8")
     assert changelog.check("0.40.0", TODAY) == 0
+
+
+def test_a_clone_without_tags_cannot_answer_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No tags at all means the question is unanswerable, not answered no.
+
+    CI checks out shallow. Answering "not tagged" there would drop the
+    guard that stops a released section being rewritten, in the one place
+    nobody is watching.
+    """
+    monkeypatch.setattr(changelog, "_git_tags", lambda _pattern="": "")
+    assert changelog.is_tagged("0.39.0") is True
+
+    def _tags(pattern: str = "") -> str:
+        return "" if pattern else "0.39.0\n0.38.1"
+
+    monkeypatch.setattr(changelog, "_git_tags", _tags)
+    assert changelog.is_tagged("0.40.0") is False

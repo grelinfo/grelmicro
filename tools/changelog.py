@@ -92,19 +92,40 @@ then accept.
 """
 
 
+def _git_tags(pattern: str = "") -> str | None:
+    """Return matching git tags, or None when git cannot answer."""
+    command = ["git", "tag", "--list"] + ([pattern] if pattern else [])
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:  # pragma: no cover  # git missing entirely
+        return None
+    if result.returncode != 0:  # pragma: no cover  # not a repository
+        return None
+    return result.stdout.strip()
+
+
 def is_tagged(version: str) -> bool:
     """Return whether a git tag exists for `version`.
 
     A tagged section describes what shipped and is never rewritten. An
     untagged one is still being prepared.
+
+    Fails closed. A shallow clone carries no tags, so asking whether one
+    exists answers "no" for a version that shipped months ago, and the
+    guard protecting a released section would quietly disappear exactly
+    where nobody is watching. When the repository has no tags at all, the
+    question is unanswerable rather than answered "no", so a released
+    section is treated as released.
     """
-    result = subprocess.run(  # noqa: S603
-        ["git", "tag", "--list", version],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return bool(result.stdout.strip())
+    matching = _git_tags(version)
+    if matching:
+        return True
+    return not _git_tags()
 
 
 def _has_entries(body: str) -> bool:
