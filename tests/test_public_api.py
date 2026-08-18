@@ -13,12 +13,13 @@ When the surface changes on purpose, regenerate the snapshot with::
 and review the ``__snapshots__`` diff as part of the change.
 
 Signatures are captured with annotations stripped and defaults normalized to
-``...``, keeping only the stable shape: parameter names, kinds (the ``*`` and
-``/`` markers), and whether each has a default. Annotation reprs and default
-values vary across Python and Pydantic versions and would make the guard flaky
-across the supported matrix, so they are deliberately excluded. This catches a
-parameter rename, removal, reorder, or required-to-optional flip, but not a
-default-value change (that one is left to review and the changelog). A new
+``...``, keeping the stable shape: parameter names, kinds (the ``*`` and ``/``
+markers), and the default values themselves. Annotation reprs vary across
+Python and Pydantic versions and would make the guard flaky across the
+supported matrix, so they are excluded. Defaults are not: every default on the
+public surface was measured to repr identically on 3.12, 3.13 and 3.14. This
+catches a parameter rename, removal, reorder, required-to-optional flip, and a
+changed default, which is a behavioural break for every caller relying on it. A new
 public module is itself a deliberate API change, so add it to
 ``PUBLIC_MODULES`` in the same change that introduces it.
 """
@@ -77,22 +78,48 @@ def snapshot_json(snapshot):  # noqa: ANN001, ANN201
     return snapshot.use_extension(JSONSnapshotExtension)
 
 
-class _Default:
-    """Renders a parameter's default as ``...`` regardless of its real value."""
+_ADDRESS = re.compile(r" at 0x[0-9a-f]+")
+"""Matches the identity part of a default `object.__repr__`.
+
+The only default in the surface whose repr carries one is the `_UNSET`
+sentinel shared by the `Fallback` doors. Everything else reprs stably.
+"""
+
+
+class _Rendered:
+    """Renders a default as a fixed string, whatever its real repr is."""
+
+    def __init__(self, text: str) -> None:
+        """Hold the already-normalized text."""
+        self._text = text
 
     def __repr__(self) -> str:
-        """Return the placeholder marker."""
-        return "..."
+        """Return the normalized default."""
+        return self._text
 
 
-_DEFAULT = _Default()
+def _default(value: object) -> _Rendered:
+    """Return a matrix-stable rendering of a parameter default.
+
+    Defaults are recorded, not blanked. A shipped default is part of the
+    contract: `timeout=30` becoming `timeout=5` changes behaviour for every
+    caller who never passed the argument, and blanking it made that
+    invisible here.
+
+    Measured before trusting it: all 392 defaults on the public surface
+    repr identically on 3.12, 3.13 and 3.14. Only a memory address varies,
+    so only that is normalized.
+    """
+    return _Rendered(_ADDRESS.sub(" at 0x...", repr(value)))
 
 
 def _signature(obj: object) -> str | None:
     """Return a version-stable signature string, or None when not callable.
 
-    Annotations are stripped and every default is normalized to ``...`` so the
-    string carries only parameter names, kinds, and whether each has a default.
+    Annotations are stripped, since those do vary across the supported
+    Python and Pydantic versions. Defaults are kept, because they do not:
+    the string carries parameter names, kinds, and the default values
+    themselves.
     """
     try:
         sig = inspect.signature(obj)  # ty: ignore[invalid-argument-type]
@@ -102,7 +129,7 @@ def _signature(obj: object) -> str | None:
         param.replace(
             annotation=inspect.Parameter.empty,
             default=(
-                _DEFAULT
+                _default(param.default)
                 if param.default is not inspect.Parameter.empty
                 else inspect.Parameter.empty
             ),

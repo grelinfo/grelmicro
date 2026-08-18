@@ -28,6 +28,7 @@ from grelmicro.resilience import (
     Timeout,
     TimeoutConfig,
 )
+from tests._contract_support import called_names, module_name
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
@@ -40,27 +41,12 @@ sweep, and a floor with room to spare would stay green while it happened.
 """
 
 
-def _module_name(path: Path) -> str:
-    """Return the importable module name for a source path.
-
-    A package is named by its directory, never by its `__init__`. Importing
-    `pkg.__init__` re-executes the module under a second name, so the sweep
-    would check a duplicate class object that nobody imports, and re-run any
-    registration the module does at import time.
-    """
-    relative = path.relative_to(PACKAGE_ROOT).with_suffix("")
-    if relative.name == "__init__":
-        relative = relative.parent
-    dotted = relative.as_posix().replace("/", ".")
-    return f"grelmicro.{dotted}" if dotted else "grelmicro"
-
-
 def _discover_from_config() -> list[tuple[str, str]]:
     """Return `(module, class)` for every class defining `from_config`."""
     found: list[tuple[str, str]] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module = _module_name(path)
+        module = module_name(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
                 continue
@@ -75,7 +61,7 @@ def _discover_from_config() -> list[tuple[str, str]]:
 
 DOORS = _discover_from_config()
 
-IDS = [f"{module}.{name}".rsplit(".", 2)[-1] for module, name in DOORS]
+IDS = [name for module, name in DOORS]
 
 
 def test_the_sweep_finds_declarative_doors() -> None:
@@ -152,6 +138,46 @@ ENV_FREE_DOORS = [
 ]
 
 
+def _module_functions(module: Any) -> dict[str, str]:  # noqa: ANN401
+    """Return `{name: source}` for every function the module defines."""
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(module)))
+    except (OSError, TypeError):  # pragma: no cover  # no readable source
+        return {}
+    # Module level only, deliberately. A method such as `_setup` is shared
+    # by both construction doors and builds the env prefix for the door that
+    # needs it, so following it would report a path `from_config` never
+    # takes. A bypass helper realistically lives at module level, which is
+    # the case this closes.
+    return {
+        node.name: ast.unparse(node)
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _env_names_reached(source: str, module: Any) -> set[str]:  # noqa: ANN401
+    """Return the env-reading names `source` reaches, following its callees.
+
+    Checking only `from_config`'s own body was not enough: moving the read
+    one function away passed the sweep while breaking R8. Helpers defined
+    in the same module are followed transitively, which is where such a
+    helper realistically lives.
+    """
+    functions = _module_functions(module)
+    seen: set[str] = set()
+    pending = [source]
+    found: set[str] = set()
+    while pending:
+        names = called_names(ast.parse(pending.pop()))
+        found |= names & ENV_READERS
+        for name in sorted(names - seen):
+            seen.add(name)
+            if name in functions:
+                pending.append(functions[name])
+    return found
+
+
 ENV_READERS = frozenset(
     {
         "environ",
@@ -175,9 +201,7 @@ forbids. The check walks the call graph for any of these instead.
 @pytest.mark.parametrize(
     ("module_name", "class_name"),
     ENV_FREE_DOORS,
-    ids=[
-        f"{module}.{name}".rsplit(".", 2)[-1] for module, name in ENV_FREE_DOORS
-    ],
+    ids=[name for module, name in ENV_FREE_DOORS],
 )
 def test_from_config_reads_no_environment_variable(
     module_name: str,
@@ -195,15 +219,7 @@ def test_from_config_reads_no_environment_variable(
         source = textwrap.dedent(inspect.getsource(cls.from_config))
     except (OSError, TypeError):  # pragma: no cover  # C or builtin
         pytest.skip(f"{class_name}.from_config has no readable source")
-    reached = {
-        name
-        for node in ast.walk(ast.parse(source))
-        for name in (
-            getattr(node, "id", None),
-            getattr(node, "attr", None),
-        )
-        if name in ENV_READERS
-    }
+    reached = _env_names_reached(source, sys.modules[cls.__module__])
     assert not reached, (
         f"{class_name}.from_config reaches {sorted(reached)}, but R8 says a "
         f"pre-built config is taken as-is, with no variable read"
