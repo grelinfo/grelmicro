@@ -351,6 +351,16 @@ the mechanism behind R8 rather than an oversight.
 """
 
 
+def _calls_the_constructor(source: str) -> bool:
+    """Return whether the source contains a real `cls(...)` call."""
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "cls"
+        for node in ast.walk(ast.parse(textwrap.dedent(source)))
+    )
+
+
 def _assigned_attributes(cls: Any, method: str) -> set[str]:  # noqa: ANN401
     """Return the `self.<name>` attributes a method assigns."""
     function = getattr(cls, method, None)
@@ -392,7 +402,18 @@ def test_both_doors_leave_the_same_attributes(
     cls = _resolve(module_name, class_name)
     source = inspect.getsource(cls.from_config)
     if "_setup" not in source:
-        pytest.skip(f"{class_name}.from_config does not use the _setup door")
+        # Asserted rather than skipped. A door that builds through the
+        # ordinary constructor satisfies the invariant by construction, and
+        # saying so is worth more than a skip line that records nothing.
+        # Parsed, not grepped. A substring would match `cls(` inside a
+        # docstring or a comment, and `return cls` would admit
+        # `return cls._instances[name]`, an object that never ran
+        # `__init__` and the exact case this rejects.
+        assert _calls_the_constructor(source), (
+            f"{class_name}.from_config neither uses _setup nor calls "
+            f"cls(...), so which attributes it leaves is unknown"
+        )
+        return
     only_in_init = (
         _assigned_attributes(cls, "__init__")
         - _assigned_attributes(cls, "_setup")

@@ -104,7 +104,7 @@ def _git_tags(pattern: str = "") -> str | None:
         )
     except OSError:  # pragma: no cover  # git missing entirely
         return None
-    if result.returncode != 0:  # pragma: no cover  # not a repository
+    if result.returncode != 0:
         return None
     return result.stdout.strip()
 
