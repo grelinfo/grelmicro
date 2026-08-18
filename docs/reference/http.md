@@ -13,6 +13,7 @@ own, and `send_problem` to write one from a pure-ASGI middleware.
       members:
         - ErrorResponses
         - ProblemDetail
+        - TMFError
         - RenderedError
         - problem_detail
         - send_problem

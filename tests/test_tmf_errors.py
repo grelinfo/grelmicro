@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from starlette.status import (
+    HTTP_400_BAD_REQUEST,
     HTTP_429_TOO_MANY_REQUESTS,
     HTTP_503_SERVICE_UNAVAILABLE,
     HTTP_504_GATEWAY_TIMEOUT,
@@ -220,3 +221,41 @@ def test_the_component_publishes_the_shape_it_answers_in() -> None:
     assert tmf.model is TMFError
     assert rfc.media_type != tmf.media_type
     assert rfc.model is not tmf.model
+
+
+# --- What the second review found ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("detail", "expected"),
+    [
+        (["bad", "worse"], "bad, worse"),
+        ({"errors": "oops"}, "oops"),
+        ([{"field": "amount"}], "{'field': 'amount'}"),
+        ([{"loc": ["body", "amount"], "msg": "nope"}], "body.amount: nope"),
+    ],
+)
+def test_any_structured_detail_renders_in_tmf(
+    detail: object, expected: str
+) -> None:
+    """`errors` carries whatever a handler wrote, not only field errors.
+
+    TMF has no member for a list, so the entries are read into `message`.
+    Reading them must not fail while rendering a failure.
+    """
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/boom")
+    async def boom() -> dict[str, str]:
+        raise HTTPException(HTTP_400_BAD_REQUEST, detail=detail)
+
+    Grelmicro(uses=[ErrorResponses.tmf()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+
+    # Assert
+    assert response.status_code == HTTP_400_BAD_REQUEST
+    assert response.json()["message"] == expected

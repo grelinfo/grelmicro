@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -131,13 +132,28 @@ def _message(occurrence: Occurrence, default: str | None) -> str | None:
     entries = occurrence.extensions.get("errors")
     if not entries:
         return text
-    parts = [
-        f"{'.'.join(str(part) for part in entry.get('loc', ())) or 'request'}"
-        f": {entry.get('msg', '')}"
-        for entry in entries
-    ]
-    listed = "; ".join(parts)
+    if isinstance(entries, (str, bytes)) or not isinstance(entries, Iterable):
+        # `errors` carries whatever a handler put in a non-mapping `detail`,
+        # which is not always a list of field errors.
+        entries = [entries]
+    listed = ", ".join(_entry(entry) for entry in entries)
     return f"{text} {listed}" if text else listed
+
+
+def _entry(entry: object) -> str:
+    """Return one line of a field error, whatever shape it arrived in.
+
+    A validation failure reports mappings with `loc` and `msg`. A `detail`
+    a handler wrote can hold anything, and reading it must not fail while
+    rendering a failure.
+    """
+    if not isinstance(entry, dict):
+        return str(entry)
+    location = ".".join(str(part) for part in entry.get("loc") or ())
+    message = str(entry.get("msg", "")) or str(
+        {key: value for key, value in entry.items() if key != "loc"} or entry
+    )
+    return f"{location}: {message}" if location else message
 
 
 def body_of(error: TMFError) -> bytes:

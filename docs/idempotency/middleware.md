@@ -204,7 +204,7 @@ app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
 document_idempotency(app)
 ```
 
-Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call it after `micro.install(app)`, which is where the error format is registered, and routes added afterwards are covered too.
+Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call it any time after `add_middleware`, and routes added afterwards are covered too.
 
 An operation that already declares the header keeps its own declaration. The `422` that FastAPI generates for request validation keeps its schema and gains the idempotency case in its description and the problem media type alongside it, so neither is lost.
 

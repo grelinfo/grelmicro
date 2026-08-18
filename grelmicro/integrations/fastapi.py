@@ -766,9 +766,9 @@ def document_idempotency(
     document_idempotency(app)
     ```
 
-    Call it after `micro.install(app)`, which is where the error format
-    is registered. The schema is annotated the next time it is built, so
-    routes added afterwards are covered too.
+    Call it any time after `add_middleware`. The schema is annotated the
+    next time it is built, so routes added afterwards are covered too, and
+    an `ErrorResponses` registered later is still the format published.
 
     An operation that already declares the header keeps its own
     declaration. A `422` that FastAPI generated for request validation
@@ -800,14 +800,20 @@ def document_idempotency(
         raise TypeError(msg)
 
     options = _idempotency_options(app)
-    errors = getattr(app.state, "grelmicro_error_responses", None)
-    media_type = PROBLEM_MEDIA_TYPE if errors is None else errors.media_type
-    model = ProblemDetail if errors is None else errors.model
     original = app.openapi
 
     def openapi() -> dict[str, Any]:
+        # Read when the schema is built rather than when this is called, so
+        # the order of `document_idempotency` and `micro.install` cannot
+        # publish a format the app does not answer in.
+        errors = getattr(app.state, "grelmicro_error_responses", None)
         schema = original()
-        _annotate_schema(schema, options, media_type, model)
+        _annotate_schema(
+            schema,
+            options,
+            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
+            ProblemDetail if errors is None else errors.model,
+        )
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -925,6 +931,11 @@ def _rewrite_validation_response(
     operation: dict[str, Any], ref: str, media_type: str
 ) -> None:
     """Point one operation's generated validation response at the new body."""
+    if not ref:
+        # Both names are taken by the app's own models, so there is nothing
+        # to point at. FastAPI's own entry is a better answer than an empty
+        # `$ref`, which no client generator accepts.
+        return
     response = operation.get("responses", {}).get(
         str(HTTP_422_UNPROCESSABLE_CONTENT)
     )

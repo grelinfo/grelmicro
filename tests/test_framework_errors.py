@@ -42,12 +42,19 @@ from starlette.status import (
 from starlette.testclient import TestClient as StarletteTestClient
 
 from grelmicro import Grelmicro
+from grelmicro.cache import Cache
 from grelmicro.http import PROBLEM_MEDIA_TYPE, PROBLEM_TYPE_BASE, ErrorResponses
-from grelmicro.integrations.fastapi import error_response
+from grelmicro.idempotency import Idempotency
+from grelmicro.integrations.fastapi import (
+    IdempotencyMiddleware,
+    document_idempotency,
+    error_response,
+)
 from grelmicro.integrations.litestar import _field_errors
 from grelmicro.integrations.litestar import (
     error_response as litestar_error_response,
 )
+from grelmicro.providers.memory import MemoryProvider
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -685,3 +692,71 @@ def test_litestar_bodiless_status_stays_bodiless(status: int) -> None:
     # Assert
     assert response.status_code == status
     assert response.content == b""
+
+
+def test_no_body_schema_is_published_when_both_names_are_taken() -> None:
+    """An empty `$ref` is not valid OpenAPI, so FastAPI's entry is kept."""
+
+    # Arrange
+    class ProblemDetail(BaseModel):
+        """The app's own, under the plain name."""
+
+        mine: str
+
+    class GrelmicroProblemDetail(BaseModel):
+        """The app's own, under the qualified name too."""
+
+        also_mine: str
+
+    app = FastAPI()
+
+    @app.post(
+        "/charge",
+        responses={
+            402: {"model": ProblemDetail},
+            403: {"model": GrelmicroProblemDetail},
+        },
+    )
+    async def charge(body: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    content = app.openapi()["paths"]["/charge"]["post"]["responses"]["422"][
+        "content"
+    ]
+
+    # Assert
+    assert content == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+        }
+    }
+
+
+def test_documenting_before_install_still_publishes_the_right_format() -> None:
+    """The order of the two calls must not decide what the schema claims."""
+    # Arrange
+    memory = MemoryProvider()
+    app = FastAPI()
+
+    @app.post("/charge")
+    async def charge() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+    document_idempotency(app)
+    Grelmicro(uses=[memory, Cache(memory), ErrorResponses.tmf()]).install(app)
+
+    # Act
+    content = app.openapi()["paths"]["/charge"]["post"]["responses"]["409"][
+        "content"
+    ]
+
+    # Assert
+    assert content == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/TMFError"}
+        }
+    }

@@ -1185,6 +1185,13 @@ def test_document_idempotency_raises_without_fastapi() -> None:
     finally:
         if original is not None:  # pragma: no branch
             sys.modules[name] = original
+            # `import_module` also rebinds the submodule as an attribute of
+            # its package, and restoring `sys.modules` does not undo that.
+            # A later `from grelmicro.integrations import fastapi` would
+            # otherwise reach the throwaway module and its duplicate classes.
+            setattr(  # noqa: B010
+                sys.modules["grelmicro.integrations"], "fastapi", original
+            )
 
 
 def test_document_idempotency_covers_a_custom_method() -> None:
