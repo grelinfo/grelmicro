@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -334,7 +335,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
         """Initialize the rate limiter adapter."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)

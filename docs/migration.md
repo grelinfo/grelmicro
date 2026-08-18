@@ -35,6 +35,7 @@ that a client library used to accept.
 | `ImportError: cannot import name 'LogSettingsValidationError'`, or any other `*SettingsValidationError` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError` where you caught `pydantic.ValidationError` from `Fallback`, `Shield`, or `TTLCache` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError` where you caught `ValueError` or `TypeError` from `cached()`, `TrustedProxies`, or `ExternalConfig` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
+| `SettingsValidationError` on a bad `Lock` name, adapter `table_name`, or Redis `prefix` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError: environment= must be one of ...` on a `Grelmicro(...)` that used to build | 0.40 | [Name a real tier](#0-40-environment-validated) |
 
 ## 0.40
@@ -75,6 +76,11 @@ The same applies to `cached()`, `TrustedProxies`, and `ExternalConfig`, which
 raised a bare `ValueError` or `TypeError`. `cached(ttl=-1)` already raised
 `SettingsValidationError` while `lock=`, `early=`, and `stale_ttl=` did not, so
 one call had two contracts.
+
+A refused *name* moved the same way: a bad `Lock` name, an adapter
+`table_name`, or a Redis `prefix` that cannot survive a cluster. The name is
+still repeated in the message, since it is a literal you wrote in code rather
+than a value read from a variable.
 
 `Fallback`, `Shield`, and `TTLCache` used to let pydantic's `ValidationError`
 through instead, so they now raise `SettingsValidationError` too. If you catch

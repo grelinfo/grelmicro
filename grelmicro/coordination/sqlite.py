@@ -17,6 +17,7 @@ from grelmicro.coordination._protocol import (
     ScheduleBackend,
     WriteGrant,
 )
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
@@ -145,7 +146,7 @@ class SQLiteLockAdapter(LockBackend):
         """Initialize the lock backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = SQLiteProvider(env_prefix=env_prefix)
@@ -388,7 +389,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
         """Initialize the read-write lock backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = SQLiteProvider(env_prefix=env_prefix)
@@ -681,7 +682,7 @@ class SQLiteScheduleAdapter(ScheduleBackend):
         """Initialize the schedule backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = SQLiteProvider(env_prefix=env_prefix)

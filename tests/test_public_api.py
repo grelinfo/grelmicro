@@ -12,15 +12,19 @@ When the surface changes on purpose, regenerate the snapshot with::
 
 and review the ``__snapshots__`` diff as part of the change.
 
-Signatures are captured with annotations stripped and defaults kept, so the
-string carries parameter names, kinds (the ``*`` and ``/`` markers), and the
-default values themselves. Annotation reprs vary across Python and Pydantic
-versions and would make the guard flaky across the supported matrix, so they
-are excluded. Defaults are not: every default on the public surface was
-measured to repr identically on 3.12, 3.13 and 3.14, and only a sentinel's
-memory address is normalised. This catches a parameter rename, removal,
-reorder, required-to-optional flip, and a changed default, which is a
-behavioural break for every caller who never passed the argument.
+Signatures are captured with parameter annotations stripped and defaults kept,
+so the string carries parameter names, kinds (the ``*`` and ``/`` markers), and
+the default values themselves. Parameter annotation reprs carry
+``Annotated[..., Doc(...)]`` payloads that vary across Python and Pydantic
+versions and would make the guard flaky, so those are excluded. Return
+annotations are kept: they are part of the contract, they were measured
+stable across the matrix, and no other tool guards them.
+
+Defaults are kept for the same reason. Every default on the public surface
+reprs identically on 3.12, 3.13 and 3.14, and only a sentinel's memory address
+is normalised. So this catches a parameter rename, removal, reorder,
+required-to-optional flip, a changed return type, and a changed default, which
+is a behavioural break for every caller who never passed the argument.
 
 A ``default_factory`` is resolved and recorded too, so changing what the
 factory returns fails the guard: ``RetryConfig``'s backoff strategy is chosen
@@ -92,6 +96,14 @@ def snapshot_json(snapshot):  # noqa: ANN001, ANN201
     """Snapshot stored as a reviewable JSON file under ``__snapshots__``."""
     return snapshot.use_extension(JSONSnapshotExtension)
 
+
+_MODULE_PATH = re.compile(r"\b[a-zA-Z_][\w.]*\.(?=[A-Za-z_]\w*)")
+"""Matches the module qualifier in front of a rendered type name.
+
+A return type is recorded by name, not by where the name lives. Keeping the
+path would fail the guard when a private class is renamed, or when a public
+one moves behind its re-export, neither of which changes the public surface.
+"""
 
 _ADDRESS = re.compile(r" at 0x[0-9a-f]+")
 """Matches the identity part of a default `object.__repr__`.
@@ -174,10 +186,10 @@ def _factory_default(owner: object, name: str) -> str | None:
 def _signature(obj: object) -> str | None:
     """Return a version-stable signature string, or None when not callable.
 
-    Annotations are stripped, since those do vary across the supported
-    Python and Pydantic versions. Defaults are kept, because they do not:
-    the string carries parameter names, kinds, and the default values
-    themselves.
+    Parameter annotations are stripped, since those do vary across the
+    supported Python and Pydantic versions. Defaults and the return
+    annotation are kept, because they do not: the string carries parameter
+    names, kinds, the default values, and the return type.
     """
     try:
         sig = inspect.signature(obj)  # ty: ignore[invalid-argument-type]
@@ -196,11 +208,32 @@ def _signature(obj: object) -> str | None:
         )
         for param in sig.parameters.values()
     ]
-    return str(
-        sig.replace(
-            parameters=params, return_annotation=inspect.Signature.empty
-        )
-    )
+    return str(sig.replace(parameters=params, return_annotation=_returns(sig)))
+
+
+def _returns(sig: inspect.Signature) -> object:
+    """Return the annotation to record for a signature's return type.
+
+    Kept, unlike parameter annotations. A return type is part of the
+    contract: ``-> tzinfo`` becoming ``-> str`` breaks every caller, and
+    nothing else guards it. Griffe does not either, despite its docs: its
+    ``_returns_are_compatible`` ends in a ``TODO`` and returns ``True``.
+
+    Measured before trusting it, the same way defaults were: all 145 return
+    annotations on the public surface render identically on 3.12, 3.13 and
+    3.14. Parameter annotations are a different matter, since those carry
+    ``Annotated[..., Doc(...)]`` payloads, and stay stripped.
+    """
+    annotation = sig.return_annotation
+    if annotation is inspect.Signature.empty:
+        return inspect.Signature.empty
+    # `formatannotation`, not `str`. `str` on an evaluated class gives
+    # `<class 'grelmicro.cache.cached._CachedDecorator'>`, which writes a
+    # private module path into the public snapshot, and renders `bool` and
+    # `Self` differently depending on whether the defining module uses PEP
+    # 563. Both would fail the guard on a rename that changes nothing public.
+    rendered = inspect.formatannotation(annotation)
+    return _Rendered(_MODULE_PATH.sub("", _ADDRESS.sub(" at 0x...", rendered)))
 
 
 def _symbol_surface(obj: object) -> dict[str, str] | None:

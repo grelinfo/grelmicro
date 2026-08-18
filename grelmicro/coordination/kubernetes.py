@@ -65,7 +65,7 @@ def _sanitize_lease_name(name: str) -> str:
     and end with alphanumeric.
 
     Raises:
-        ValueError: If the name contains no valid characters.
+        SettingsValidationError: If the name contains no valid characters.
 
     Examples:
         ``"election:my-service"`` -> ``"election-my-service"``
@@ -76,7 +76,7 @@ def _sanitize_lease_name(name: str) -> str:
     sanitized = sanitized[:_MAX_NAME_LENGTH].strip("-")
     if not sanitized:
         msg = f"Name produces an empty Kubernetes resource name: {name!r}"
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
     return sanitized
 
 

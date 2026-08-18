@@ -341,3 +341,64 @@ def test_from_config_does_not_register_for_live_reload(
         "Retry.from_config registered the instance for live reload, so a "
         "mounted file could overwrite a config passed in code"
     )
+
+
+_RELOAD_ADDRESS = "_env_prefix"
+"""The one attribute the declarative door is expected to leave unset.
+
+It is the address live reload uses to find an instance, so omitting it is
+the mechanism behind R8 rather than an oversight.
+"""
+
+
+def _assigned_attributes(cls: Any, method: str) -> set[str]:  # noqa: ANN401
+    """Return the `self.<name>` attributes a method assigns."""
+    function = getattr(cls, method, None)
+    if function is None:
+        return set()
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    except (OSError, TypeError):  # pragma: no cover  # no readable source
+        return set()
+    return {
+        target.attr
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        for target in (
+            node.targets if isinstance(node, ast.Assign) else [node.target]
+        )
+        if isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "self"
+    }
+
+
+@pytest.mark.parametrize(("module_name", "class_name"), DOORS, ids=IDS)
+def test_both_doors_leave_the_same_attributes(
+    module_name: str, class_name: str
+) -> None:
+    """Everything `__init__` sets, the declarative door sets too.
+
+    `from_config` skips `__init__` entirely through `__new__` plus
+    `_setup`, so an attribute assigned only in `__init__` is missing on
+    every instance built declaratively, and fails at the first use rather
+    than at construction. #755 records this as audited by hand.
+
+    Read from the source rather than by constructing, so all of the family
+    is covered instead of the few whose arguments are easy to supply. The
+    reload address is exempt: the declarative door omits it on purpose,
+    which is R8 in structural form.
+    """
+    cls = _resolve(module_name, class_name)
+    source = inspect.getsource(cls.from_config)
+    if "_setup" not in source:
+        pytest.skip(f"{class_name}.from_config does not use the _setup door")
+    only_in_init = (
+        _assigned_attributes(cls, "__init__")
+        - _assigned_attributes(cls, "_setup")
+        - {_RELOAD_ADDRESS}
+    )
+    assert not only_in_init, (
+        f"{class_name}.__init__ sets {sorted(only_in_init)} which _setup "
+        f"does not, so from_config leaves the instance incomplete"
+    )

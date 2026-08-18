@@ -88,9 +88,12 @@ def env_segment(name: str) -> str:
         ``weather/svc`` -> ``WEATHER_SVC``
         ``my--lock`` -> ``MY_LOCK``
 
-    Raises ``ValueError`` if the input produces an empty result
-    (every character was non-portable) or starts with a digit
-    (env var names must start with a letter or underscore).
+    Raises ``SettingsValidationError`` if the input produces an empty
+    result (every character was non-portable) or starts with a digit
+    (env var names must start with a letter or underscore). The name is
+    repeated in the message: it is a literal the caller wrote in code, not
+    a value read from the environment, so R7's never-echo rule does not
+    reach it.
     """
     upper = name.upper()
     cleaned = _NON_ENV_CHARS.sub("_", upper)
@@ -100,14 +103,14 @@ def env_segment(name: str) -> str:
             f"name {name!r} produces an empty environment variable "
             f"segment. Pick a name with at least one letter or digit."
         )
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
     if cleaned[0].isdigit():
         msg = (
             f"name {name!r} produces env segment {cleaned!r} that "
             f"starts with a digit. Env var names must start with a "
             f"letter or underscore."
         )
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
     return cleaned
 
 
