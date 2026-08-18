@@ -38,6 +38,7 @@ from grelmicro.idempotency.errors import (
     IdempotencyKeyMakerError,
     IdempotencyWaitTimeoutError,
 )
+from grelmicro.integrations import faststream
 from grelmicro.resilience.errors import (
     BulkheadFullError,
     CircuitBreakerError,
@@ -400,7 +401,7 @@ def test_litestar_renders_a_rejection() -> None:
 
     # Assert
     assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
-    assert response.headers["content-type"].startswith(PROBLEM_MEDIA_TYPE)
+    assert response.headers["content-type"] == PROBLEM_MEDIA_TYPE
     assert response.headers["retry-after"] == "2"
     assert response.headers["cache-control"] == "no-store"
     body = response.json()
@@ -425,3 +426,86 @@ def test_litestar_leaves_a_server_fault_alone() -> None:
 
     # Assert
     assert response.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+
+
+# --- Parity -------------------------------------------------------------
+
+
+def _fastapi_rejection() -> tuple[int, dict[str, str], bytes]:
+    """Answer one rejection through the FastAPI integration."""
+    app = FastAPI()
+
+    @app.get("/limited")
+    async def limited() -> dict[str, str]:
+        raise _rate_limited()
+
+    Grelmicro(uses=[]).install(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/limited")
+    return response.status_code, dict(response.headers), response.content
+
+
+def _starlette_rejection() -> tuple[int, dict[str, str], bytes]:
+    """Answer the same rejection through the Starlette integration."""
+
+    async def limited(request: Request) -> None:  # noqa: ARG001
+        raise _rate_limited()
+
+    app = Starlette(routes=[Route("/limited", limited)])
+    Grelmicro(uses=[]).install(app)
+    with StarletteTestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/limited")
+    return response.status_code, dict(response.headers), response.content
+
+
+def _litestar_rejection() -> tuple[int, dict[str, str], bytes]:
+    """Answer the same rejection through the Litestar integration."""
+
+    @get("/limited")
+    async def limited() -> dict[str, str]:
+        raise _rate_limited()
+
+    app = Litestar(route_handlers=[limited])
+    Grelmicro(uses=[]).install(app)
+    with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
+        response = client.get("/limited")
+    return response.status_code, dict(response.headers), response.content
+
+
+HTTP_FRAMEWORKS = {
+    "fastapi": _fastapi_rejection,
+    "starlette": _starlette_rejection,
+    "litestar": _litestar_rejection,
+}
+"""Every framework grelmicro renders a problem detail on.
+
+FastStream is absent because it serves no HTTP. It carries no
+`install_problem_details`, so `micro.install(app)` skips it.
+"""
+
+
+def test_every_http_framework_answers_identically() -> None:
+    """The same rejection is the same response, whichever framework serves it.
+
+    Not merely the same status and shape. The status line, every header, and
+    the body byte for byte, so a client cannot tell which framework answered
+    and a service can move between them without its callers noticing.
+    """
+    # Act
+    answers = {name: rejection() for name, rejection in HTTP_FRAMEWORKS.items()}
+
+    # Assert
+    assert len(answers) == len(HTTP_FRAMEWORKS)
+    reference = answers["fastapi"]
+    for name, answer in answers.items():
+        status, headers, body = answer
+        expected_status, expected_headers, expected_body = reference
+        assert status == expected_status, name
+        assert body == expected_body, name
+        assert headers == expected_headers, name
+
+
+def test_faststream_takes_no_problem_details() -> None:
+    """A framework that serves no HTTP is skipped, not special-cased by name."""
+    # Assert
+    assert not hasattr(faststream, "install_problem_details")
