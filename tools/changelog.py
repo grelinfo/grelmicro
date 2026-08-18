@@ -152,9 +152,20 @@ def _recut(
     # clock. The changelog pull request routinely merges the day after the
     # cut, and `check` demands today's date, so refusing here would deadlock
     # the two-run procedure with no way forward.
-    updated = text.replace(
-        f"## {version} - {date}\n", f"## {version} - {today}\n", 1
+    # Through the parser's pattern again, so an undated heading added by
+    # hand is re-dated rather than silently skipped. A literal replace built
+    # from `date` would look for `- None` and match nothing while reporting
+    # success, which is the failure this whole function exists to avoid.
+    updated, count = re.subn(
+        rf"^## {re.escape(version)}(?: - \d{{4}}-\d{{2}}-\d{{2}})?[ \t]*$",
+        f"## {version} - {today}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
     )
+    if not count:  # pragma: no cover  # `sections` already found the heading
+        print(f"could not re-date the {version} heading", file=sys.stderr)
+        return 1
     CHANGELOG.write_text(updated, encoding="utf-8")
     print(f"changelog re-dated: {version} now {today}")
     _warn_if_entries_accumulated(found)

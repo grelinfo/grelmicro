@@ -201,3 +201,24 @@ def test_entries_added_after_the_cut_are_reported(
     )
     assert changelog.release("0.40.0", TODAY) == 0
     assert "added under 'Unreleased' after the cut" in capsys.readouterr().err
+
+
+@pytest.mark.usefixtures("changelog_file")
+def test_an_undated_section_is_dated_rather_than_skipped(
+    changelog_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A heading added by hand carries no date, and must still be cut.
+
+    Re-dating was built from the date it read, so an undated heading made
+    it look for `- None`, match nothing, and report success anyway. The
+    failure then surfaced at `check`, two steps from the cause.
+    """
+    monkeypatch.setattr(changelog, "is_tagged", lambda _version: False)
+    changelog_file.write_text(
+        "# Changelog\n\n## 0.40.0\n\n* ✨ Added by hand.\n\n"
+        "## 0.39.0 - 2026-08-16\n\n* ✨ Old.\n",
+        encoding="utf-8",
+    )
+    assert changelog.release("0.40.0", TODAY) == 0
+    assert f"## 0.40.0 - {TODAY}" in changelog_file.read_text(encoding="utf-8")
+    assert changelog.check("0.40.0", TODAY) == 0
