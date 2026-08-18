@@ -38,7 +38,7 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.errors import WouldBlockError
+from grelmicro.errors import SettingsValidationError, WouldBlockError
 
 _MIN_RETRY_INTERVAL: float = 0.001
 _NAME_MAX_LEN = 200
@@ -60,7 +60,7 @@ def validate_lock_name(name: str) -> None:
             f"{_NAME_MAX_LEN} chars. "
             f"Valid examples: 'cart', 'users:42', 'payments/eu'."
         )
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
 
 
 class LockConfig(BaseLockConfig):

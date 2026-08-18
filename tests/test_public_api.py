@@ -12,15 +12,19 @@ When the surface changes on purpose, regenerate the snapshot with::
 
 and review the ``__snapshots__`` diff as part of the change.
 
-Signatures are captured with annotations stripped and defaults kept, so the
-string carries parameter names, kinds (the ``*`` and ``/`` markers), and the
-default values themselves. Annotation reprs vary across Python and Pydantic
-versions and would make the guard flaky across the supported matrix, so they
-are excluded. Defaults are not: every default on the public surface was
-measured to repr identically on 3.12, 3.13 and 3.14, and only a sentinel's
-memory address is normalised. This catches a parameter rename, removal,
-reorder, required-to-optional flip, and a changed default, which is a
-behavioural break for every caller who never passed the argument.
+Signatures are captured with parameter annotations stripped and defaults kept,
+so the string carries parameter names, kinds (the ``*`` and ``/`` markers), and
+the default values themselves. Parameter annotation reprs carry
+``Annotated[..., Doc(...)]`` payloads that vary across Python and Pydantic
+versions and would make the guard flaky, so those are excluded. Return
+annotations are kept: they are part of the contract, they were measured
+stable across the matrix, and no other tool guards them.
+
+Defaults are kept for the same reason. Every default on the public surface
+reprs identically on 3.12, 3.13 and 3.14, and only a sentinel's memory address
+is normalised. So this catches a parameter rename, removal, reorder,
+required-to-optional flip, a changed return type, and a changed default, which
+is a behavioural break for every caller who never passed the argument.
 
 A ``default_factory`` is resolved and recorded too, so changing what the
 factory returns fails the guard: ``RetryConfig``'s backoff strategy is chosen
@@ -196,11 +200,26 @@ def _signature(obj: object) -> str | None:
         )
         for param in sig.parameters.values()
     ]
-    return str(
-        sig.replace(
-            parameters=params, return_annotation=inspect.Signature.empty
-        )
-    )
+    return str(sig.replace(parameters=params, return_annotation=_returns(sig)))
+
+
+def _returns(sig: inspect.Signature) -> object:
+    """Return the annotation to record for a signature's return type.
+
+    Kept, unlike parameter annotations. A return type is part of the
+    contract: ``-> tzinfo`` becoming ``-> str`` breaks every caller, and
+    nothing else guards it. Griffe does not either, despite its docs: its
+    ``_returns_are_compatible`` ends in a ``TODO`` and returns ``True``.
+
+    Measured before trusting it, the same way defaults were: all 145 return
+    annotations on the public surface render identically on 3.12, 3.13 and
+    3.14. Parameter annotations are a different matter, since those carry
+    ``Annotated[..., Doc(...)]`` payloads, and stay stripped.
+    """
+    annotation = sig.return_annotation
+    if annotation is inspect.Signature.empty:
+        return inspect.Signature.empty
+    return _Rendered(_ADDRESS.sub(" at 0x...", str(annotation)))
 
 
 def _symbol_surface(obj: object) -> dict[str, str] | None:

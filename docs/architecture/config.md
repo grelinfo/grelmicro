@@ -122,6 +122,13 @@ Three mechanisms keep this true, because one is not enough:
    pydantic (`union_tag_invalid` quotes the tag, `import_error` quotes the
    module) or by a third-party config class.
 
+A name is code, not a value. R3 makes an instance name the address the
+environment writes to, and R6 keeps structure in code, so a rejected name is
+repeated in the error: it is a literal the caller wrote, not something read
+from a variable, and the message is useless without it. The error is still
+`SettingsValidationError`, because a caller should not have to know whether
+their bad input counted as configuration or as identity.
+
 A validator raises `ValueError`, never `TypeError`. Pydantic converts only
 `ValueError` and `AssertionError` into a validation error, so a `TypeError`
 escapes `except SettingsValidationError` and `except ValueError` alike, and

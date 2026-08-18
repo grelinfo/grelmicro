@@ -76,7 +76,7 @@ def _sanitize_lease_name(name: str) -> str:
     sanitized = sanitized[:_MAX_NAME_LENGTH].strip("-")
     if not sanitized:
         msg = f"Name produces an empty Kubernetes resource name: {name!r}"
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
     return sanitized
 
 
