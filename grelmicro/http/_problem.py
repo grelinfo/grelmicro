@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import ceil
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -274,94 +274,69 @@ def _wait(seconds: float) -> dict[str, float]:
     return {"retry_after": wait} if wait > 0 else {}
 
 
-def _from_rate_limit(
-    exc: RateLimitExceededError, instance: str | None
-) -> ProblemDetail:
-    return build(
-        RATE_LIMIT_EXCEEDED,
-        instance=instance,
-        extensions=_wait(exc.retry_after),
-    )
+@dataclass(frozen=True, slots=True)
+class Occurrence:
+    """One rejection, classified once and rendered in whichever format.
+
+    The kind says which rejection it is, and is the same whatever standard
+    the body follows. `detail` and `extensions` carry what is specific to
+    this occurrence.
+    """
+
+    kind: _Kind
+    detail: str | None = None
+    extensions: dict[str, Any] = field(default_factory=dict)
 
 
-def _from_circuit_breaker(
-    exc: CircuitBreakerError, instance: str | None
-) -> ProblemDetail:
-    return build(
-        CIRCUIT_BREAKER_OPEN,
-        instance=instance,
-        extensions=_wait(exc.retry_after),
-    )
+def _from_rate_limit(exc: RateLimitExceededError) -> Occurrence:
+    return Occurrence(RATE_LIMIT_EXCEEDED, extensions=_wait(exc.retry_after))
 
 
-def _from_bulkhead(
-    exc: BulkheadFullError,  # noqa: ARG001
-    instance: str | None,
-) -> ProblemDetail:
-    return build(BULKHEAD_FULL, instance=instance)
+def _from_circuit_breaker(exc: CircuitBreakerError) -> Occurrence:
+    return Occurrence(CIRCUIT_BREAKER_OPEN, extensions=_wait(exc.retry_after))
 
 
-def _from_would_block(
-    exc: WouldBlockError,  # noqa: ARG001
-    instance: str | None,
-) -> ProblemDetail:
-    return build(LOCK_UNAVAILABLE, instance=instance)
+def _from_bulkhead(exc: BulkheadFullError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(BULKHEAD_FULL)
 
 
-def _from_lock_timeout(
-    exc: LockTimeoutError, instance: str | None
-) -> ProblemDetail:
-    # The same `type` as a non-blocking refusal, because a client branching
-    # on it wants the one fact both carry: the lock was not granted. Only
-    # the sentence differs, which is what `detail` is for.
-    return build(
+def _from_would_block(exc: WouldBlockError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(LOCK_UNAVAILABLE)
+
+
+def _from_lock_timeout(exc: LockTimeoutError) -> Occurrence:
+    # The same kind as a non-blocking refusal, because a client branching on
+    # the identifier wants the one fact both carry: the lock was not granted.
+    # Only the sentence differs, which is what `detail` is for.
+    return Occurrence(
         LOCK_UNAVAILABLE,
         detail=(
             f"Another holder still had the lock this request needs after "
             f"{exc.timeout}s of waiting."
         ),
-        instance=instance,
     )
 
 
-def _from_admission(
-    exc: AdmissionError,  # noqa: ARG001
-    instance: str | None,
-) -> ProblemDetail:
-    return build(REQUEST_REFUSED, instance=instance)
+def _from_admission(exc: AdmissionError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(REQUEST_REFUSED)
 
 
-def _from_deadline(
-    exc: DeadlineExceededError, instance: str | None
-) -> ProblemDetail:
-    return build(
-        DEADLINE_EXCEEDED,
-        instance=instance,
-        extensions={"timeout": exc.timeout},
-    )
+def _from_deadline(exc: DeadlineExceededError) -> Occurrence:
+    return Occurrence(DEADLINE_EXCEEDED, extensions={"timeout": exc.timeout})
 
 
-def _from_conflict(
-    exc: IdempotencyConflictError,  # noqa: ARG001
-    instance: str | None,
-) -> ProblemDetail:
-    return build(IDEMPOTENCY_KEY_REUSED, instance=instance)
+def _from_conflict(exc: IdempotencyConflictError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(IDEMPOTENCY_KEY_REUSED)
 
 
-def _from_in_flight(
-    exc: IdempotencyWaitTimeoutError,  # noqa: ARG001
-    instance: str | None,
-) -> ProblemDetail:
-    return build(
+def _from_in_flight(exc: IdempotencyWaitTimeoutError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(
         IDEMPOTENCY_IN_FLIGHT,
-        instance=instance,
         extensions={"retry_after": _IN_FLIGHT_RETRY_AFTER},
     )
 
 
-_RULES: dict[
-    type[BaseException], Callable[[Any, str | None], ProblemDetail]
-] = {
+_RULES: dict[type[BaseException], Callable[[Any], Occurrence]] = {
     RateLimitExceededError: _from_rate_limit,
     CircuitBreakerError: _from_circuit_breaker,
     BulkheadFullError: _from_bulkhead,
@@ -414,10 +389,29 @@ def problem_detail(
     exception message, which can name a rate limit key, a breaker, or a
     backend.
     """
+    occurrence = classify(exc)
+    if occurrence is None:
+        return None
+    return build(
+        occurrence.kind,
+        detail=occurrence.detail,
+        instance=instance,
+        extensions=occurrence.extensions,
+    )
+
+
+def classify(exc: BaseException) -> Occurrence | None:
+    """Return what `exc` is, or `None` when grelmicro does not render it.
+
+    Read through the raised exception's MRO, so a subclass lands on its own
+    entry when it has one and on its base otherwise. Every format renders
+    from this one answer, so a rejection means the same thing whichever
+    standard the body follows.
+    """
     for klass in type(exc).__mro__:
         rule = _RULES.get(klass)
         if rule is not None:
-            return rule(exc, instance)
+            return rule(exc)
     return None
 
 

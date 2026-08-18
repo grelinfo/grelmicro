@@ -22,6 +22,8 @@
 * ✨ `CircuitBreakerError.retry_after` reports the seconds until the breaker next admits a probe, counted on the backend that holds the state so every replica agrees. It reaches a client as `Retry-After`. A breaker an operator forced open reports `0.0`, because nothing but a reset releases it. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 * ✨ `CircuitBreakerSnapshot.retry_after` carries the same value from every adapter, memory, Redis, Postgres, and SQLite alike. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 * ✨ `document_idempotency(app)` publishes a `ProblemDetail` component and points each middleware response at it, so a generated client knows the body it will get. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* ✨ `ErrorResponses.tmf()` renders rejections in the TM Forum error format of TMF630, for a service answering to a telco or OSS platform built on TM Forum Open APIs. The status codes are unchanged: TMF630 mandates the IANA registry and names `422`, `429` and `503` itself, so nothing is remapped and `Retry-After` keeps its meaning. `code_prefix=` namespaces the mandatory `code`, and `reference_error=` points the documentation URI at your own docs or leaves it out. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
+* ✨ `document_idempotency(app)` publishes whichever format is registered, so a generated client decodes `TMFError` rather than `ProblemDetail` when `ErrorResponses.tmf()` is wired. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
 * 📝 A [Problem Details](http/problems.md) guide and an [HTTP](reference/http.md) reference page. Each `type` URI dereferences to its own section. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 
 ## 0.40.0 - 2026-08-18

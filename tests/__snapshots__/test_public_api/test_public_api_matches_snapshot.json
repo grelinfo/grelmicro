@@ -248,7 +248,8 @@
   "grelmicro.http": {
     "ErrorResponses": {
       "()": "(*, name='default') -> 'None'",
-      ".problem_details": "(*, name='default') -> 'Self'"
+      ".problem_details": "(*, name='default') -> 'Self'",
+      ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/problems/', name='default') -> 'Self'"
     },
     "PROBLEM_MEDIA_TYPE": null,
     "PROBLEM_TYPE_BASE": null,
@@ -257,6 +258,9 @@
     },
     "RenderedError": {
       "()": "(status, media_type, headers, body) -> None"
+    },
+    "TMFError": {
+      "()": "(*, code, reason, message=None, referenceError=None, type_='Error', **extra_data) -> None"
     },
     "problem_detail": {
       "()": "(exc, *, instance=None) -> 'ProblemDetail | None'"

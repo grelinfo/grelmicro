@@ -183,6 +183,59 @@ Every problem response also carries:
   path back. The media type already says the body is data, and this stops a
   client that guesses otherwise.
 
+## The TM Forum format
+
+A service answering to a telco or OSS platform built on TM Forum Open APIs
+speaks a different error body. `ErrorResponses.tmf()` renders it:
+
+```python
+micro = Grelmicro(uses=[ErrorResponses.tmf()])
+```
+
+```http
+HTTP/1.1 429 Too Many Requests
+content-type: application/json
+retry-after: 2
+
+{
+  "code": "GREL-RATE-LIMIT-EXCEEDED",
+  "reason": "Rate limit exceeded",
+  "message": "The client sent more requests than the rate limit allows. Wait for the interval in the Retry-After header before sending another.",
+  "referenceError": "https://grelmicro.grel.info/http/problems/#rate-limit-exceeded",
+  "@type": "Error"
+}
+```
+
+**The statuses are the same.** TMF630 mandates the IANA registry and names
+`422`, `429` and `503` itself, so nothing is remapped and `Retry-After` keeps
+its meaning. Only the body changes.
+
+`code` is mandatory in TMF630 and its values are left to the API. grelmicro
+derives it from the same slug the `type` URI uses, so there is no second
+catalogue of identifiers to keep in step. The prefix says which system
+defined the code, since your own business codes share the field:
+
+```python
+ErrorResponses.tmf(code_prefix="SBB")   # SBB-RATE-LIMIT-EXCEEDED
+```
+
+Two things do not survive the format. TMF630 has no equivalent of `instance`,
+and it defines no extension member, so `retry_after` reaches the client only
+as the `Retry-After` header.
+
+`referenceError` points at this page by default. Point it at your own
+documentation, or leave it out for a service whose responses must name no
+address outside it:
+
+```python
+ErrorResponses.tmf(reference_error="https://docs.example.com/errors/")
+ErrorResponses.tmf(reference_error=None)
+```
+
+`document_idempotency(app)` follows whichever format is registered, so the
+OpenAPI schema publishes `TMFError` rather than `ProblemDetail` when this one
+is.
+
 ## Returning one yourself
 
 `ProblemDetail` is a plain Pydantic model. Use it for your own errors and the

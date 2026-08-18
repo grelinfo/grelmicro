@@ -295,6 +295,10 @@ def install_error_responses(
             headers=rendered.headers,
         )
 
+    # Recorded so `document_idempotency` publishes the format the app
+    # actually answers in, rather than assuming RFC 9457.
+    app.state.grelmicro_error_responses = errors
+
     for klass in HANDLED:
         # A handler the app registered first wins. Registering before
         # `install` is the natural order (build the app, register handlers,
@@ -738,11 +742,14 @@ def document_idempotency(
         raise TypeError(msg)
 
     options = _idempotency_options(app)
+    errors = getattr(app.state, "grelmicro_error_responses", None)
+    media_type = PROBLEM_MEDIA_TYPE if errors is None else errors.media_type
+    model = ProblemDetail if errors is None else errors.model
     original = app.openapi
 
     def openapi() -> dict[str, Any]:
         schema = original()
-        _annotate_schema(schema, options)
+        _annotate_schema(schema, options, media_type, model)
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -774,7 +781,12 @@ def _idempotency_options(app: "FastAPI") -> dict[str, Any]:
     raise TypeError(msg)
 
 
-def _annotate_schema(schema: dict[str, Any], options: dict[str, Any]) -> None:
+def _annotate_schema(
+    schema: dict[str, Any],
+    options: dict[str, Any],
+    media_type: str,
+    model: type[BaseModel],
+) -> None:
     """Add the header and the middleware's responses to covered operations."""
     methods = {method.lower() for method in options["methods"]}
     header = options["header"]
@@ -817,14 +829,14 @@ def _annotate_schema(schema: dict[str, Any], options: dict[str, Any]) -> None:
     ]
     if not covered:
         return
-    ref = _add_problem_schema(schema)
+    ref = _add_error_schema(schema, model)
     for path_item, operation in covered:
         _add_parameter(operation, path_item, parameter)
         for status, description in responses.items():
-            _merge_response(operation, status, description, ref)
+            _merge_response(operation, status, description, ref, media_type)
 
 
-def _add_problem_schema(schema: dict[str, Any]) -> str:
+def _add_error_schema(schema: dict[str, Any], model: type[BaseModel]) -> str:
     """Publish the problem body component and return the ref that points at it.
 
     An app may already publish a model of its own under the same name, in
@@ -834,10 +846,8 @@ def _add_problem_schema(schema: dict[str, Any]) -> str:
     qualified name rather than replacing what the app declared.
     """
     schemas = schema.setdefault("components", {}).setdefault("schemas", {})
-    ours = ProblemDetail.model_json_schema(
-        ref_template="#/components/schemas/{model}"
-    )
-    for name in (_PROBLEM_SCHEMA_NAME, _QUALIFIED_PROBLEM_SCHEMA_NAME):
+    ours = model.model_json_schema(ref_template="#/components/schemas/{model}")
+    for name in (model.__name__, f"Grelmicro{model.__name__}"):
         existing = schemas.get(name)
         if existing is None:
             schemas[name] = ours
@@ -875,7 +885,11 @@ def _add_parameter(
 
 
 def _merge_response(
-    operation: dict[str, Any], status: str, description: str, ref: str
+    operation: dict[str, Any],
+    status: str,
+    description: str,
+    ref: str,
+    media_type: str,
 ) -> None:
     """Describe a status the middleware returns, keeping what is there.
 
@@ -895,15 +909,8 @@ def _merge_response(
             existing["description"] = f"{current}\n\n{description}".strip()
     if ref:
         existing.setdefault("content", {}).setdefault(
-            PROBLEM_MEDIA_TYPE, {"schema": {"$ref": ref}}
+            media_type, {"schema": {"$ref": ref}}
         )
-
-
-_PROBLEM_SCHEMA_NAME = "ProblemDetail"
-"""Name the problem body is published under in the OpenAPI components."""
-
-_QUALIFIED_PROBLEM_SCHEMA_NAME = "GrelmicroProblemDetail"
-"""Fallback name, for an app that publishes a `ProblemDetail` of its own."""
 
 
 _UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")

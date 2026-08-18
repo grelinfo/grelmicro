@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
+from pydantic import BaseModel
 from typing_extensions import Doc
 
+from grelmicro.http import _tmf
 from grelmicro.http._problem import (
     PROBLEM_MEDIA_TYPE,
+    PROBLEM_TYPE_BASE,
+    SAFETY_HEADERS,
+    ProblemDetail,
     body_of,
+    classify,
     framework_headers_of,
     problem_detail,
 )
@@ -17,6 +24,8 @@ from grelmicro.http._problem import (
 if TYPE_CHECKING:
     from collections.abc import Callable
     from types import TracebackType
+
+    from pydantic import BaseModel
 
 __all__ = ["ErrorResponses", "RenderedError"]
 
@@ -53,6 +62,36 @@ def _render_problem_details(
     )
 
 
+def _render_tmf(
+    prefix: str, reference_error: str | None
+) -> Callable[[BaseException, str | None], RenderedError | None]:
+    """Bind a TM Forum renderer to the prefix and documentation base it uses."""
+
+    def render(
+        exc: BaseException, instance: str | None
+    ) -> RenderedError | None:
+        rendered = _tmf.render(exc, instance, prefix, reference_error)
+        if rendered is None:
+            return None
+        status, error = rendered
+        headers = dict(SAFETY_HEADERS)
+        # TMF630 defines no extension member, so the delay reaches the
+        # client through the header or not at all.
+        occurrence = classify(exc)
+        if occurrence is not None:  # pragma: no branch
+            wait = occurrence.extensions.get("retry_after")
+            if wait is not None:
+                headers["retry-after"] = str(ceil(wait))
+        return RenderedError(
+            status=status,
+            media_type=_tmf.TMF_MEDIA_TYPE,
+            headers=headers,
+            body=_tmf.body_of(error),
+        )
+
+    return render
+
+
 class ErrorResponses:
     """Answer every grelmicro rejection in a standard error format.
 
@@ -66,7 +105,8 @@ class ErrorResponses:
     a body carrying what it can act on, instead of becoming a `500`.
 
     The bare constructor renders [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)
-    problem details, which is the format an HTTP API is expected to speak:
+    problem details, which is the format an HTTP API is expected to speak.
+    `ErrorResponses.tmf()` renders the TM Forum format instead:
 
     ```python
     from fastapi import FastAPI
@@ -108,6 +148,67 @@ class ErrorResponses:
         self._render: Callable[
             [BaseException, str | None], RenderedError | None
         ] = _render_problem_details
+        self._media_type = PROBLEM_MEDIA_TYPE
+        self._model: type[BaseModel] = ProblemDetail
+
+    @classmethod
+    def tmf(
+        cls,
+        *,
+        code_prefix: Annotated[
+            str,
+            Doc(
+                """
+                Namespace for the `code` member, which TMF630 makes
+                mandatory and leaves to the API. An application writes its
+                own business codes into the same field, so the prefix says
+                which system defined this one. Set it to fold grelmicro's
+                codes into an operator's catalogue.
+                """
+            ),
+        ] = _tmf.DEFAULT_CODE_PREFIX,
+        reference_error: Annotated[
+            str | None,
+            Doc(
+                """
+                Base the `referenceError` documentation URI is built on.
+                Pass `None` to leave the member out, for a service whose
+                responses must name no address outside it. Pass your own
+                base to point at your documentation instead of grelmicro's.
+                """
+            ),
+        ] = PROBLEM_TYPE_BASE,
+        name: Annotated[
+            str,
+            Doc("Registration name. Only one may be registered."),
+        ] = "default",
+    ) -> Self:
+        """Render rejections in the TM Forum error format of TMF630.
+
+        For a service that answers to a telco or OSS platform built on TM
+        Forum Open APIs, where the client expects `code` and `reason`
+        rather than `type` and `title`.
+
+        The status codes are the same ones RFC 9457 mode returns. TMF630
+        mandates the IANA registry and names `422`, `429` and `503` itself,
+        so nothing is remapped and `Retry-After` keeps its meaning.
+
+        ```python
+        micro = Grelmicro(uses=[ErrorResponses.tmf(code_prefix="SBB")])
+        ```
+
+        Two members do not survive the format. There is no equivalent of
+        `instance`, and TMF630 defines no extension mechanism, so a
+        `retry_after` reaches the client only as the `Retry-After` header.
+
+        `reference_error=None` leaves the documentation URI out, for a
+        service whose responses must name no address outside it.
+        """
+        instance = cls(name=name)
+        instance._render = _render_tmf(code_prefix, reference_error)
+        instance._media_type = _tmf.TMF_MEDIA_TYPE
+        instance._model = _tmf.TMFError
+        return instance
 
     @classmethod
     def problem_details(
@@ -129,6 +230,20 @@ class ErrorResponses:
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def media_type(self) -> str:
+        """Return the content type every rendered error is served with."""
+        return self._media_type
+
+    @property
+    def model(self) -> type[BaseModel]:
+        """Return the body model, for publishing the shape in OpenAPI.
+
+        `document_idempotency(app)` reads it, so a schema describes the
+        format the app actually answers in rather than assuming one.
+        """
+        return self._model
 
     def render(
         self,
