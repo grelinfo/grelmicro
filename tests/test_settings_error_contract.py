@@ -23,7 +23,7 @@ import pytest
 import grelmicro
 import grelmicro._config
 from grelmicro import Grelmicro
-from grelmicro._config import reconfigure_all
+from grelmicro._config import env_segment, reconfigure_all
 from grelmicro.cache import TTLCache, cached
 from grelmicro.config import ExternalConfig, FileConfigAdapter
 from grelmicro.coordination import (
@@ -32,6 +32,7 @@ from grelmicro.coordination import (
     ReadWriteLock,
     TaskLock,
 )
+from grelmicro.coordination.postgres import PostgresLockAdapter
 from grelmicro.errors import SettingsValidationError, _scrub
 from grelmicro.log import Log
 from grelmicro.metrics import Metrics
@@ -484,3 +485,49 @@ def test_scrub_removes_a_rejected_number_too() -> None:
     assert _scrub("Input should be True", boolean_input, "value_error") == (
         "Input should be True"
     )
+
+
+IDENTITY_CASES: list[tuple[str, Callable[[], object]]] = [
+    ("Lock name", lambda: Lock("bad name with spaces")),
+    ("env segment", lambda: env_segment("123-starts-with-digit")),
+    ("table name", lambda: PostgresLockAdapter(table_name="1bad")),
+]
+"""Names refused at construction, one per validator that checks an identity."""
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    IDENTITY_CASES,
+    ids=[case[0] for case in IDENTITY_CASES],
+)
+def test_a_rejected_name_raises_the_one_error(
+    label: str, build: Callable[[], object]
+) -> None:
+    """A bad name raises `SettingsValidationError`, not a bare `ValueError`.
+
+    A caller should not have to know whether their bad input counted as
+    configuration or as identity. These raised a bare `ValueError`, so
+    `except SettingsValidationError` missed them, and nothing failed when
+    the fix was reverted because no test asserted the subtype.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(SettingsValidationError) as exc_info:
+            build()
+    assert type(exc_info.value) is not ValueError, (
+        f"{label} raised a bare ValueError, which escapes "
+        f"except SettingsValidationError"
+    )
+
+
+def test_a_rejected_name_is_repeated_in_the_message() -> None:
+    """A name is code, so echoing it is the point, unlike a value.
+
+    R3 makes a name the address the environment writes to and R6 keeps
+    structure in code, so the name is a literal the caller wrote. The
+    message is useless without it, and R7 governs values read from a
+    variable.
+    """
+    with pytest.raises(SettingsValidationError) as exc_info:
+        Lock("bad name with spaces")
+    assert "bad name with spaces" in str(exc_info.value)

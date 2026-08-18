@@ -17,6 +17,7 @@ from grelmicro.coordination._protocol import (
     ScheduleBackend,
     WriteGrant,
 )
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 
 if TYPE_CHECKING:
@@ -129,7 +130,7 @@ class PostgresLockAdapter(LockBackend):
         """Initialize the adapter."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
@@ -517,7 +518,7 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
         """Initialize the adapter."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
@@ -748,7 +749,7 @@ class PostgresScheduleAdapter(ScheduleBackend):
         """Initialize the adapter."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)
@@ -1030,7 +1031,7 @@ class PostgresLeaderElectionAdapter:
         """Initialize the leader election backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)

@@ -98,7 +98,7 @@ follows the broadcast row: the bare prefix cannot tell "this instance's field"
 from "every instance's field", and an ambiguous address is not an unambiguous
 mistake.
 
-The rejected value is never echoed, with no exceptions. A variable name is the
+A rejected *value* is never echoed, with no exceptions. A rejected *name* is, and the next rule says why. A variable name is the
 operator's own, but its value can be a credential, so an error carries the name
 and the reason and stops there.
 
@@ -174,6 +174,7 @@ not.
 | A Provider reads its vendor namespace, not `GREL_*` | Connection settings belong to the deployment, and every vendor already defines those names | grelmicro starts owning connection settings |
 | One `SettingsValidationError` for every class, no per-module subclass | No caller reacts differently to a bad value by module, and the message names the variable | A caller needs to branch on the module a config error came from |
 | The rejected value is never echoed, with no closed-set exemption | The echoed string is one the domain rejected, so it is arbitrary input whatever the field accepts | A field's input is bounded before it reaches the message |
+| A rejected name is echoed, a rejected value is not | R3 makes a name the address the environment writes to and R6 keeps structure in code, so a name is a literal the caller wrote | Names start arriving from the environment |
 | A validator raises `ValueError`, never `TypeError` | Pydantic converts only `ValueError` and `AssertionError`, so a `TypeError` escapes every documented `except` | Pydantic converts `TypeError` too |
 
 ## `resolve_config()`

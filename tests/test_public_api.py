@@ -97,6 +97,14 @@ def snapshot_json(snapshot):  # noqa: ANN001, ANN201
     return snapshot.use_extension(JSONSnapshotExtension)
 
 
+_MODULE_PATH = re.compile(r"\b[a-zA-Z_][\w.]*\.(?=[A-Za-z_]\w*)")
+"""Matches the module qualifier in front of a rendered type name.
+
+A return type is recorded by name, not by where the name lives. Keeping the
+path would fail the guard when a private class is renamed, or when a public
+one moves behind its re-export, neither of which changes the public surface.
+"""
+
 _ADDRESS = re.compile(r" at 0x[0-9a-f]+")
 """Matches the identity part of a default `object.__repr__`.
 
@@ -178,10 +186,10 @@ def _factory_default(owner: object, name: str) -> str | None:
 def _signature(obj: object) -> str | None:
     """Return a version-stable signature string, or None when not callable.
 
-    Annotations are stripped, since those do vary across the supported
-    Python and Pydantic versions. Defaults are kept, because they do not:
-    the string carries parameter names, kinds, and the default values
-    themselves.
+    Parameter annotations are stripped, since those do vary across the
+    supported Python and Pydantic versions. Defaults and the return
+    annotation are kept, because they do not: the string carries parameter
+    names, kinds, the default values, and the return type.
     """
     try:
         sig = inspect.signature(obj)  # ty: ignore[invalid-argument-type]
@@ -219,7 +227,13 @@ def _returns(sig: inspect.Signature) -> object:
     annotation = sig.return_annotation
     if annotation is inspect.Signature.empty:
         return inspect.Signature.empty
-    return _Rendered(_ADDRESS.sub(" at 0x...", str(annotation)))
+    # `formatannotation`, not `str`. `str` on an evaluated class gives
+    # `<class 'grelmicro.cache.cached._CachedDecorator'>`, which writes a
+    # private module path into the public snapshot, and renders `bool` and
+    # `Self` differently depending on whether the defining module uses PEP
+    # 563. Both would fail the guard on a rename that changes nothing public.
+    rendered = inspect.formatannotation(annotation)
+    return _Rendered(_MODULE_PATH.sub("", _ADDRESS.sub(" at 0x...", rendered)))
 
 
 def _symbol_surface(obj: object) -> dict[str, str] | None:

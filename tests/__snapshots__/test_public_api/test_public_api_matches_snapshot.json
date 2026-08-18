@@ -20,11 +20,11 @@
     },
     "EnvLoadOffWarning": null,
     "ExternalConfig": {
-      "()": "(config=None, *, secrets=None, reload_interval=10.0) -> None"
+      "()": "(config=None, *, secrets=None, reload_interval=10.0) -> 'None'"
     },
     "Grelmicro": {
-      "()": "(*, uses=None, environment=None, strict=False, allow_multiple=False) -> None",
-      ".current": "() -> Grelmicro"
+      "()": "(*, uses=None, environment=None, strict=False, allow_multiple=False) -> 'None'",
+      ".current": "() -> 'Grelmicro'"
     },
     "GrelmicroConfigWarning": null,
     "GrelmicroError": null,
@@ -48,8 +48,8 @@
   },
   "grelmicro.cache": {
     "Cache": {
-      "()": "(source, *, requires=None, name='default') -> None",
-      ".cached": "(cache=None, *, ttl=None, maxsize=0, key=None, key_maker=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> <class 'grelmicro.cache.cached._CachedDecorator'>"
+      "()": "(source, *, requires=None, name='default') -> 'None'",
+      ".cached": "(cache=None, *, ttl=None, maxsize=0, key=None, key_maker=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
     },
     "CacheBackend": {
       "()": "(*args, **kwargs)"
@@ -71,20 +71,20 @@
       "()": "()"
     },
     "PickleSerializer": {
-      "()": "(*, protocol=5) -> None"
+      "()": "(*, protocol=5) -> 'None'"
     },
     "PydanticSerializer": {
-      "()": "(model) -> None"
+      "()": "(model) -> 'None'"
     },
     "TTLCache": {
-      "()": "(maxsize=0, ttl=60, *, backend=None, serializer=None) -> None",
-      ".from_config": "(config, *, backend=None, serializer=None) -> Self"
+      "()": "(maxsize=0, ttl=60, *, backend=None, serializer=None) -> 'None'",
+      ".from_config": "(config, *, backend=None, serializer=None) -> 'Self'"
     },
     "TTLCacheConfig": {
       "()": "(*, maxsize=0, ttl=60) -> None"
     },
     "cached": {
-      "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_maker=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> <class 'grelmicro.cache.cached._CachedDecorator'>"
+      "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_maker=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
     }
   },
   "grelmicro.clock": {
@@ -92,16 +92,16 @@
       "()": "(*args, **kwargs)"
     },
     "RealClock": {
-      "()": "(*, name='default') -> None"
+      "()": "(*, name='default') -> 'None'"
     },
     "VirtualClock": {
-      "()": "(*, start=0.0, name='default') -> None"
+      "()": "(*, start=0.0, name='default') -> 'None'"
     },
     "monotonic": {
-      "()": "() -> float"
+      "()": "() -> 'float'"
     },
     "sleep": {
-      "()": "(seconds) -> None"
+      "()": "(seconds) -> 'None'"
     }
   },
   "grelmicro.config": {
@@ -109,21 +109,21 @@
       "()": "(*args, **kwargs)"
     },
     "ExternalConfig": {
-      "()": "(config=None, *, secrets=None, reload_interval=10.0) -> None"
+      "()": "(config=None, *, secrets=None, reload_interval=10.0) -> 'None'"
     },
     "FileConfigAdapter": {
-      "()": "(path) -> None"
+      "()": "(path) -> 'None'"
     }
   },
   "grelmicro.coordination": {
     "Coordination": {
-      "()": "(source=None, *, lock=None, election=None, rwlock=None, schedule=None, requires=None, name='default') -> None"
+      "()": "(source=None, *, lock=None, election=None, rwlock=None, schedule=None, requires=None, name='default') -> 'None'"
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,
     "LeaderElection": {
       "()": "(name, *, backend=None, worker=None, lease_duration=None, renew_deadline=None, retry_interval=None, retry_jitter=None, backend_timeout=None, error_interval=None, env_prefix=None, env_load=None, metadata=None) -> None",
-      ".from_config": "(name, config, *, backend=None, metadata=None) -> typing.Self"
+      ".from_config": "(name, config, *, backend=None, metadata=None) -> Self"
     },
     "LeaderElectionBackend": {
       "()": "(*args, **kwargs)"
@@ -136,7 +136,7 @@
     },
     "Lock": {
       "()": "(name, *, backend=None, worker=None, lease_duration=None, retry_interval=None, retry_jitter=None, env_prefix=None, env_load=None) -> None",
-      ".from_config": "(name, config, *, backend=None) -> typing.Self"
+      ".from_config": "(name, config, *, backend=None) -> Self"
     },
     "LockAcquireError": {
       "()": "(*, name) -> None"
@@ -173,11 +173,11 @@
       "()": "(*, name) -> None"
     },
     "ReadGuard": {
-      "()": "(*, owner, name, token, generation, expires_at) -> None"
+      "()": "(*, owner, name, token, generation, expires_at) -> 'None'"
     },
     "ReadWriteLock": {
-      "()": "(name, *, backend=None, worker=None, lease_duration=None, retry_interval=None, retry_jitter=None, env_prefix=None, env_load=None) -> None",
-      ".from_config": "(name, config, *, backend=None) -> Self"
+      "()": "(name, *, backend=None, worker=None, lease_duration=None, retry_interval=None, retry_jitter=None, env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(name, config, *, backend=None) -> 'Self'"
     },
     "ReadWriteLockBackend": {
       "()": "(*args, **kwargs)"
@@ -193,7 +193,7 @@
     },
     "TaskLock": {
       "()": "(name='default', *, backend=None, worker=None, min_hold_duration=None, lease_duration=None, env_prefix=None, env_load=None) -> None",
-      ".from_config": "(name, config, *, backend=None) -> typing.Self"
+      ".from_config": "(name, config, *, backend=None) -> Self"
     },
     "TaskLockConfig": {
       "()": "(*, worker=<factory>, min_hold_duration=1, lease_duration=60) -> None"
@@ -203,7 +203,7 @@
       "()": "(fencing_token, poisoned) -> None"
     },
     "WriteGuard": {
-      "()": "(*, owner, name, token, fencing_token, poisoned, expires_at) -> None"
+      "()": "(*, owner, name, token, fencing_token, poisoned, expires_at) -> 'None'"
     }
   },
   "grelmicro.describe": {
@@ -228,7 +228,7 @@
     "HealthCheckFunc": null,
     "HealthChecks": {
       "()": "(*, name='default', timeout=None, cache_ttl=None, env_prefix=None, env_load=None, auto_health=False) -> None",
-      ".from_config": "(config, *, name='default', auto_health=False) -> typing.Self"
+      ".from_config": "(config, *, name='default', auto_health=False) -> Self"
     },
     "HealthChecksConfig": {
       "()": "(*, timeout=5.0, cache_ttl=1.0) -> None"
@@ -244,8 +244,8 @@
   },
   "grelmicro.idempotency": {
     "Idempotency": {
-      "()": "(name, *, ttl=None, fingerprint=None, cache=None, serializer=None, env_prefix=None, env_load=None) -> None",
-      ".from_config": "(name, config, *, fingerprint=None, cache=None, serializer=None) -> Self"
+      "()": "(name, *, ttl=None, fingerprint=None, cache=None, serializer=None, env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(name, config, *, fingerprint=None, cache=None, serializer=None) -> 'Self'"
     },
     "IdempotencyConfig": {
       "()": "(*, ttl=86400) -> None"
@@ -260,10 +260,10 @@
       "()": "(*, name, key, timeout) -> None"
     },
     "Operation": {
-      "()": "(*, replayed, response) -> None"
+      "()": "(*, replayed, response) -> 'None'"
     },
     "idempotent": {
-      "()": "(idempotency, *, key, fingerprint=None) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]"
+      "()": "(idempotency, *, key, fingerprint=None) -> 'Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]'"
     }
   },
   "grelmicro.integrations": {},
@@ -285,21 +285,21 @@
       "()": "(app) -> None"
     },
     "health_router": {
-      "()": "(component=None, *, prefix='', show_details=False, healthz_dependencies=None) -> APIRouter"
+      "()": "(component=None, *, prefix='', show_details=False, healthz_dependencies=None) -> 'APIRouter'"
     },
-    "install": {
-      "()": "(app, micro, *, ambient=True) -> None"
-    },
-    "is_bound": {
-      "()": "(app) -> <class 'bool'>"
-    }
-  },
-  "grelmicro.integrations.faststream": {
     "install": {
       "()": "(app, micro, *, ambient=True) -> None"
     },
     "is_bound": {
       "()": "(app) -> bool"
+    }
+  },
+  "grelmicro.integrations.faststream": {
+    "install": {
+      "()": "(app, micro, *, ambient=True) -> 'None'"
+    },
+    "is_bound": {
+      "()": "(app) -> 'bool'"
     }
   },
   "grelmicro.integrations.litestar": {
@@ -307,16 +307,16 @@
       "()": "(app, *, micro) -> None"
     },
     "install": {
-      "()": "(app, micro, *, ambient=True) -> None"
+      "()": "(app, micro, *, ambient=True) -> 'None'"
     },
     "is_bound": {
-      "()": "(app) -> bool"
+      "()": "(app) -> 'bool'"
     }
   },
   "grelmicro.log": {
     "DuplicateFilter": {
       "()": "(*, allowed_repetitions=None, cache_size=None, key_mode=None, ttl=None, key=None, env_name='default', env_prefix=None, env_load=None) -> None",
-      ".from_config": "(config, *, key=None) -> typing.Self"
+      ".from_config": "(config, *, key=None) -> Self"
     },
     "DuplicateFilterConfig": {
       "()": "(*, allowed_repetitions=5, cache_size=100, key_mode='template', ttl=None) -> None"
@@ -324,8 +324,8 @@
     "ErrorDict": null,
     "JSONRecordDict": null,
     "Log": {
-      "()": "(*, name='default', backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, env_load=None) -> None",
-      ".from_config": "(config, *, name='default') -> Self"
+      "()": "(*, name='default', backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "LogBackendType": {
       "()": "(*values)"
@@ -348,22 +348,22 @@
     },
     "RateLimitFilter": {
       "()": "(*, capacity=None, refill_rate=None, key_mode=None, cost=None, key=None, env_name='default', env_prefix=None, env_load=None) -> None",
-      ".from_config": "(config, *, key=None) -> typing.Self"
+      ".from_config": "(config, *, key=None) -> Self"
     },
     "RateLimitFilterConfig": {
       "()": "(*, capacity=5, refill_rate=1, key_mode='logger', cost=1.0) -> None"
     },
     "configure": {
-      "()": "(*, backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, env_load=None) -> <class 'grelmicro.log.config.LogConfig'>"
+      "()": "(*, backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, env_load=None) -> LogConfig"
     },
     "configure_with": {
-      "()": "(config) -> <class 'grelmicro.log.config.LogConfig'>"
+      "()": "(config) -> LogConfig"
     }
   },
   "grelmicro.metrics": {
     "Metrics": {
-      "()": "(*, name='default', service_name=None, exporter=None, endpoint=None, headers=None, basic_auth=None, export_interval=None, export_timeout=None, resource_attributes=None, shutdown_timeout=None, env_load=None) -> None",
-      ".from_config": "(config, *, name='default') -> Self"
+      "()": "(*, name='default', service_name=None, exporter=None, endpoint=None, headers=None, basic_auth=None, export_interval=None, export_timeout=None, resource_attributes=None, shutdown_timeout=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "MetricsConfig": {
       "()": "(*, service_name=None, exporter=<MetricsExporterType.AUTO: 'auto'>, endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, export_interval=60.0, export_timeout=30.0, resource_attributes={}, shutdown_timeout=5.0) -> None"
@@ -373,15 +373,15 @@
       "()": "(*values)"
     },
     "measure": {
-      "()": "(func=None, *, name=None, record_in_flight=False) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]"
+      "()": "(func=None, *, name=None, record_in_flight=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
     },
     "metrics_router": {
-      "()": "(component=None, *, prefix='', path='/metrics', dependencies=None) -> APIRouter"
+      "()": "(component=None, *, prefix='', path='/metrics', dependencies=None) -> 'APIRouter'"
     }
   },
   "grelmicro.outbox": {
     "Cancel": {
-      "()": "(reason) -> None"
+      "()": "(reason) -> 'None'"
     },
     "HandlerAlreadyRegisteredError": null,
     "HandlerNotFoundError": null,
@@ -389,9 +389,9 @@
       "()": "(id, topic, key, data, payload, headers, attempts) -> None"
     },
     "Outbox": {
-      "()": "(source, *, requires=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=None, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> None",
-      ".current": "(name='default') -> Outbox",
-      ".from_config": "(source, config, *, requires=None, name='default', shutdown_timeout=30.0) -> Self"
+      "()": "(source, *, requires=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=None, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> 'None'",
+      ".current": "(name='default') -> 'Outbox'",
+      ".from_config": "(source, config, *, requires=None, name='default', shutdown_timeout=30.0) -> 'Self'"
     },
     "OutboxBackend": {
       "()": "(*args, **kwargs)"
@@ -406,7 +406,7 @@
     },
     "OutboxTransactionError": null,
     "Retry": {
-      "()": "(*, delay=None) -> None"
+      "()": "(*, delay=None) -> 'None'"
     }
   },
   "grelmicro.providers": {
@@ -419,8 +419,8 @@
       "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
     },
     "Bulkhead": {
-      "()": "(name, *, max_concurrent=None, max_wait=None, max_workers=None, uses=(), env_load=None) -> None",
-      ".from_config": "(name, config, *, uses=()) -> Self"
+      "()": "(name, *, max_concurrent=None, max_wait=None, max_workers=None, uses=(), env_load=None) -> 'None'",
+      ".from_config": "(name, config, *, uses=()) -> 'Self'"
     },
     "BulkheadConfig": {
       "()": "(*, max_concurrent=None, max_wait=None, max_workers=None) -> None"
@@ -429,15 +429,15 @@
       "()": "(*, name, max_concurrent) -> None"
     },
     "CircuitBreaker": {
-      "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> None",
-      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> Self",
-      ".from_config": "(name, config, *, backend=None, maxsize=1024) -> Self"
+      "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> 'None'",
+      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
+      ".from_config": "(name, config, *, backend=None, maxsize=1024) -> 'Self'"
     },
     "CircuitBreakerBackend": {
       "()": "(*args, **kwargs)"
     },
     "CircuitBreakerComponent": {
-      "()": "(source, *, requires=None, name='default') -> None"
+      "()": "(source, *, requires=None, name='default') -> 'None'"
     },
     "CircuitBreakerConfig": {
       "()": "(*args, **kwargs)"
@@ -470,14 +470,14 @@
       "()": "(*, kind='exponential', base_delay=0.1, max_delay=30.0, jitter='full') -> None"
     },
     "Fallback": {
-      "()": "(name, *, when=None, default=<object object at 0x...>, factory=None, env_load=None) -> None",
-      ".from_config": "(name, config) -> Self"
+      "()": "(name, *, when=None, default=<object object at 0x...>, factory=None, env_load=None) -> 'None'",
+      ".from_config": "(name, config) -> 'Self'"
     },
     "FallbackConfig": {
       "()": "(*, when, default=<object object at 0x...>, factory=None) -> None"
     },
     "FallbackResult": {
-      "()": "() -> None"
+      "()": "() -> 'None'"
     },
     "FibonacciBackoff": {
       "()": "(*, kind='fibonacci', base_delay=1.0, max_delay=30.0) -> None"
@@ -489,41 +489,41 @@
       "()": "(*, kind='linear', base_delay=1.0, max_delay=30.0) -> None"
     },
     "Match": {
-      "()": "(matcher, repr_) -> None",
-      ".always": "() -> Match",
-      ".exception": "(*exception_types_or_predicate) -> Match",
-      ".exception_cause": "(*exception_types_or_predicate) -> Match",
-      ".exception_message": "(*, contains=None, regex=None) -> Match",
-      ".never": "() -> Match",
-      ".not_exception": "(*exception_types_or_predicate) -> Match",
-      ".not_exception_cause": "(*exception_types_or_predicate) -> Match",
-      ".not_exception_message": "(*, contains=None, regex=None) -> Match",
-      ".not_result": "(value_or_predicate) -> Match",
-      ".predicate": "(fn) -> Match",
-      ".result": "(value_or_predicate) -> Match"
+      "()": "(matcher, repr_) -> 'None'",
+      ".always": "() -> 'Match'",
+      ".exception": "(*exception_types_or_predicate) -> 'Match'",
+      ".exception_cause": "(*exception_types_or_predicate) -> 'Match'",
+      ".exception_message": "(*, contains=None, regex=None) -> 'Match'",
+      ".never": "() -> 'Match'",
+      ".not_exception": "(*exception_types_or_predicate) -> 'Match'",
+      ".not_exception_cause": "(*exception_types_or_predicate) -> 'Match'",
+      ".not_exception_message": "(*, contains=None, regex=None) -> 'Match'",
+      ".not_result": "(value_or_predicate) -> 'Match'",
+      ".predicate": "(fn) -> 'Match'",
+      ".result": "(value_or_predicate) -> 'Match'"
     },
     "Matcher": {
       "()": "(*args, **kwargs)"
     },
     "MemoryCircuitBreakerAdapter": {
-      "()": "() -> None"
+      "()": "() -> 'None'"
     },
     "MemoryRateLimiterAdapter": {
-      "()": "() -> None"
+      "()": "() -> 'None'"
     },
     "MemoryTokenBucket": {
-      "()": "(*, capacity, refill_rate) -> None"
+      "()": "(*, capacity, refill_rate) -> 'None'"
     },
     "Outcome": {
       "()": "(exception, result, raised) -> None",
-      ".from_exception": "(exception) -> Outcome[T]",
-      ".from_result": "(result) -> Outcome[T]"
+      ".from_exception": "(exception) -> 'Outcome[T]'",
+      ".from_result": "(result) -> 'Outcome[T]'"
     },
     "PostgresCircuitBreakerAdapter": {
-      "()": "(*, provider=None, env_prefix='POSTGRES_', prefix='', table_name='grelmicro_circuit_breaker', auto_migrate=True, cleanup_interval=3600.0) -> None"
+      "()": "(*, provider=None, env_prefix='POSTGRES_', prefix='', table_name='grelmicro_circuit_breaker', auto_migrate=True, cleanup_interval=3600.0) -> 'None'"
     },
     "PostgresRateLimiterAdapter": {
-      "()": "(*, provider=None, env_prefix='POSTGRES_', prefix='', table_name='grelmicro_rate_limiter', auto_migrate=True) -> None"
+      "()": "(*, provider=None, env_prefix='POSTGRES_', prefix='', table_name='grelmicro_rate_limiter', auto_migrate=True) -> 'None'"
     },
     "RandomBackoff": {
       "()": "(*, kind='random', min_delay=0.5, max_delay=2.0) -> None"
@@ -535,16 +535,16 @@
       "()": "(allowed, limit, remaining, retry_after, reset_after)"
     },
     "RateLimiter": {
-      "()": "(*args, **kwargs) -> None",
-      ".from_config": "(name, config, *, backend=None) -> Self",
-      ".sliding_window": "(name, *, limit=None, window=None, fail_open=None, backend=None, env_load=None) -> Self",
-      ".token_bucket": "(name, *, capacity=None, refill_rate=None, fail_open=None, backend=None, env_load=None) -> Self"
+      "()": "(*args, **kwargs) -> 'None'",
+      ".from_config": "(name, config, *, backend=None) -> 'Self'",
+      ".sliding_window": "(name, *, limit=None, window=None, fail_open=None, backend=None, env_load=None) -> 'Self'",
+      ".token_bucket": "(name, *, capacity=None, refill_rate=None, fail_open=None, backend=None, env_load=None) -> 'Self'"
     },
     "RateLimiterBackend": {
       "()": "(*args, **kwargs)"
     },
     "RateLimiterComponent": {
-      "()": "(source, *, requires=None, name='default') -> None"
+      "()": "(source, *, requires=None, name='default') -> 'None'"
     },
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"
@@ -553,20 +553,20 @@
       "()": "(*args, **kwargs)"
     },
     "RedisCircuitBreakerAdapter": {
-      "()": "(*, provider=None, env_prefix='REDIS_', prefix='') -> None"
+      "()": "(*, provider=None, env_prefix='REDIS_', prefix='') -> 'None'"
     },
     "RedisRateLimiterAdapter": {
-      "()": "(*, provider=None, env_prefix='REDIS_', prefix='') -> None"
+      "()": "(*, provider=None, env_prefix='REDIS_', prefix='') -> 'None'"
     },
     "ResilienceError": null,
     "Retry": {
-      "()": "(name, backoff=None, *, when=None, attempts=None, max_seconds=None, env_load=None) -> None",
-      ".constant": "(name, *, when, attempts=3, max_seconds=None, delay=1.0, env_load=None) -> Self",
-      ".exponential": "(name, *, when, attempts=3, max_seconds=None, base_delay=0.1, max_delay=30.0, jitter='full', env_load=None) -> Self",
-      ".from_config": "(name, config) -> Self"
+      "()": "(name, backoff=None, *, when=None, attempts=None, max_seconds=None, env_load=None) -> 'None'",
+      ".constant": "(name, *, when, attempts=3, max_seconds=None, delay=1.0, env_load=None) -> 'Self'",
+      ".exponential": "(name, *, when, attempts=3, max_seconds=None, base_delay=0.1, max_delay=30.0, jitter='full', env_load=None) -> 'Self'",
+      ".from_config": "(name, config) -> 'Self'"
     },
     "RetryAttempt": {
-      "()": "(*, number, delay_before, attempts, matcher, loop, started_at, max_seconds) -> None"
+      "()": "(*, number, delay_before, attempts, matcher, loop, started_at, max_seconds) -> 'None'"
     },
     "RetryBackoffConfig": {
       "()": "(*args, **kwargs)"
@@ -578,17 +578,17 @@
       "()": "(*args, **kwargs)"
     },
     "SQLiteCircuitBreakerAdapter": {
-      "()": "(*, provider=None, env_prefix='SQLITE_', prefix='', table_name='grelmicro_circuit_breaker', auto_migrate=True, cleanup_interval=3600.0) -> None"
+      "()": "(*, provider=None, env_prefix='SQLITE_', prefix='', table_name='grelmicro_circuit_breaker', auto_migrate=True, cleanup_interval=3600.0) -> 'None'"
     },
     "SQLiteRateLimiterAdapter": {
-      "()": "(*, provider=None, env_prefix='SQLITE_', prefix='', table_name='grelmicro_rate_limiter', auto_migrate=True) -> None"
+      "()": "(*, provider=None, env_prefix='SQLITE_', prefix='', table_name='grelmicro_rate_limiter', auto_migrate=True) -> 'None'"
     },
     "Shield": {
-      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> None",
-      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> Self",
-      ".from_config": "(name, config) -> Self",
-      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> Self",
-      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> Self"
+      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
+      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".from_config": "(name, config) -> 'Self'",
+      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
     },
     "ShieldConfig": {
       "()": "(*args, **kwargs)"
@@ -600,8 +600,8 @@
       "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
     },
     "Timeout": {
-      "()": "(name, *, seconds=None, env_load=None) -> None",
-      ".from_config": "(name, config) -> Self"
+      "()": "(name, *, seconds=None, env_load=None) -> 'None'",
+      ".from_config": "(name, config) -> 'Self'"
     },
     "TimeoutConfig": {
       "()": "(*, seconds) -> None"
@@ -610,19 +610,19 @@
       "()": "(*, fail_open=False, kind='token_bucket', capacity, refill_rate) -> None"
     },
     "fallback": {
-      "()": "(*, when, default=<object object at 0x...>, factory=None) -> Callable[[F], F]"
+      "()": "(*, when, default=<object object at 0x...>, factory=None) -> 'Callable[[F], F]'"
     },
     "falling_back": {
-      "()": "(*, when, default=<object object at 0x...>, factory=None) -> _FallbackBlock[Any]"
+      "()": "(*, when, default=<object object at 0x...>, factory=None) -> '_FallbackBlock[Any]'"
     },
     "retry": {
-      "()": "(*, when, attempts=3, backoff=None) -> Callable[[F], F]"
+      "()": "(*, when, attempts=3, backoff=None) -> 'Callable[[F], F]'"
     },
     "retrying": {
-      "()": "(*, when, attempts=3, backoff=None) -> AsyncIterator[RetryAttempt]"
+      "()": "(*, when, attempts=3, backoff=None) -> 'AsyncIterator[RetryAttempt]'"
     },
     "shield": {
-      "()": "(fn) -> _AsyncFn"
+      "()": "(fn) -> '_AsyncFn'"
     }
   },
   "grelmicro.resilience.backoffs": {
@@ -647,9 +647,9 @@
   },
   "grelmicro.resilience.circuitbreaker": {
     "CircuitBreaker": {
-      "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> None",
-      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> Self",
-      ".from_config": "(name, config, *, backend=None, maxsize=1024) -> Self"
+      "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> 'None'",
+      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
+      ".from_config": "(name, config, *, backend=None, maxsize=1024) -> 'Self'"
     },
     "CircuitBreakerConfig": {
       "()": "(*args, **kwargs)"
@@ -672,10 +672,10 @@
   },
   "grelmicro.resilience.ratelimiter": {
     "RateLimiter": {
-      "()": "(*args, **kwargs) -> None",
-      ".from_config": "(name, config, *, backend=None) -> Self",
-      ".sliding_window": "(name, *, limit=None, window=None, fail_open=None, backend=None, env_load=None) -> Self",
-      ".token_bucket": "(name, *, capacity=None, refill_rate=None, fail_open=None, backend=None, env_load=None) -> Self"
+      "()": "(*args, **kwargs) -> 'None'",
+      ".from_config": "(name, config, *, backend=None) -> 'Self'",
+      ".sliding_window": "(name, *, limit=None, window=None, fail_open=None, backend=None, env_load=None) -> 'Self'",
+      ".token_bucket": "(name, *, capacity=None, refill_rate=None, fail_open=None, backend=None, env_load=None) -> 'Self'"
     },
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"
@@ -695,11 +695,11 @@
       "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
     },
     "Shield": {
-      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> None",
-      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> Self",
-      ".from_config": "(name, config) -> Self",
-      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> Self",
-      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> Self"
+      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
+      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".from_config": "(name, config) -> 'Self'",
+      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
     },
     "ShieldConfig": {
       "()": "(*args, **kwargs)"
@@ -708,7 +708,7 @@
       "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
     },
     "shield": {
-      "()": "(fn) -> _AsyncFn"
+      "()": "(fn) -> '_AsyncFn'"
     }
   },
   "grelmicro.security": {
@@ -716,16 +716,16 @@
       "()": "(ip, port, reason, hops) -> None"
     },
     "ClientAddressMiddleware": {
-      "()": "(app, *, trusted, overwrite_scope_client=False) -> None"
+      "()": "(app, *, trusted, overwrite_scope_client=False) -> 'None'"
     },
     "ClientAddressReason": {
       "()": "(*values)"
     },
     "TrustedProxies": {
-      "()": "(networks, /, *, max_hops=None, max_entries=64, max_header_bytes=8192) -> None"
+      "()": "(networks, /, *, max_hops=None, max_entries=64, max_header_bytes=8192) -> 'None'"
     },
     "resolve_client_address": {
-      "()": "(scope, trusted) -> ClientAddress | None"
+      "()": "(scope, trusted) -> 'ClientAddress | None'"
     }
   },
   "grelmicro.task": {
@@ -756,7 +756,7 @@
     },
     "Tasks": {
       "()": "(*, auto_start=True, tasks=None, timezone=None, shutdown_timeout=None, env_prefix=None, env_load=None) -> None",
-      ".from_config": "(config, *, auto_start=True, tasks=None) -> typing.Self"
+      ".from_config": "(config, *, auto_start=True, tasks=None) -> Self"
     },
     "TasksConfig": {
       "()": "(*, timezone='UTC', shutdown_timeout=30.0) -> None"
@@ -773,13 +773,13 @@
       "()": "(calls=<factory>) -> None"
     },
     "record": {
-      "()": "(backend) -> CallLog"
+      "()": "(backend) -> 'CallLog'"
     }
   },
   "grelmicro.trace": {
     "Trace": {
-      "()": "(*, name='default', service_name=None, exporter=None, endpoint=None, headers=None, basic_auth=None, processor=None, sampler=None, sample_ratio=None, resource_attributes=None, instrument=True, shutdown_timeout=None, env_load=None) -> None",
-      ".from_config": "(config, *, name='default') -> Self"
+      "()": "(*, name='default', service_name=None, exporter=None, endpoint=None, headers=None, basic_auth=None, processor=None, sampler=None, sample_ratio=None, resource_attributes=None, instrument=True, shutdown_timeout=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "TraceConfig": {
       "()": "(*, service_name=None, exporter=<TraceExporterType.AUTO: 'auto'>, endpoint=None, headers={}, basic_auth_username=None, basic_auth_password=None, processor=<TraceProcessorType.BATCH: 'batch'>, sampler=<TraceSamplerType.PARENTBASED_ALWAYS_ON: 'parentbased_always_on'>, sample_ratio=1.0, resource_attributes={}, shutdown_timeout=5.0) -> None"
@@ -795,16 +795,16 @@
       "()": "(*values)"
     },
     "add_context": {
-      "()": "(**fields) -> None"
+      "()": "(**fields) -> 'None'"
     },
     "get_context": {
-      "()": "() -> dict[str, Any]"
+      "()": "() -> 'dict[str, Any]'"
     },
     "instrument": {
-      "()": "(func=None, *, name=None, skip=None, skip_all=False) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]"
+      "()": "(func=None, *, name=None, skip=None, skip_all=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
     },
     "span": {
-      "()": "(name, **fields) -> Generator[None, None, None]"
+      "()": "(name, **fields) -> 'Generator[None, None, None]'"
     }
   },
   "grelmicro.types": {
@@ -812,7 +812,7 @@
     "Environment": null,
     "LogLevel": null,
     "SecretUrl": {
-      "()": "(secret_value) -> None"
+      "()": "(secret_value) -> 'None'"
     },
     "TimeZoneName": null
   }

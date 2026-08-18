@@ -12,6 +12,7 @@ from typing_extensions import Doc
 
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.coordination._base import jittered_interval
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
 
 logger = getLogger("grelmicro")
@@ -189,7 +190,7 @@ class PostgresCacheAdapter(CacheBackend):
         """Initialize the Postgres cache backend."""
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if cleanup_interval is not None and cleanup_interval <= 0:
             msg = f"cleanup_interval must be positive, got {cleanup_interval!r}"

@@ -908,7 +908,7 @@ def require_cluster_hash_tag(
             f"Redis Cluster. Add a hash tag to the prefix so every key lands "
             f'in one slot, e.g. prefix="{{myapp}}{prefix or "cache"}".'
         )
-        raise ValueError(msg)
+        raise SettingsValidationError(msg)
 
 
 class RedisProviderConfigError(SettingsValidationError):

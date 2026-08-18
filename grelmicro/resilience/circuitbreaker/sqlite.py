@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro.coordination._base import jittered_interval
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.resilience._protocol import (
     CircuitBreakerBackend,
@@ -202,7 +203,7 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
 
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"
-            raise ValueError(msg)
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = SQLiteProvider(env_prefix=env_prefix)

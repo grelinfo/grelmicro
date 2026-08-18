@@ -65,7 +65,7 @@ def _sanitize_lease_name(name: str) -> str:
     and end with alphanumeric.
 
     Raises:
-        ValueError: If the name contains no valid characters.
+        SettingsValidationError: If the name contains no valid characters.
 
     Examples:
         ``"election:my-service"`` -> ``"election-my-service"``
