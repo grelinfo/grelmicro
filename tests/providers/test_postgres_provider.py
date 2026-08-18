@@ -8,11 +8,11 @@ from pydantic import ValidationError
 from grelmicro import Grelmicro
 from grelmicro.cache.postgres import PostgresCacheAdapter
 from grelmicro.coordination.postgres import PostgresLockAdapter
+from grelmicro.errors import SettingsValidationError
 from grelmicro.providers._base import Provider
 from grelmicro.providers.postgres import (
     PostgresConfig,
     PostgresProvider,
-    PostgresProviderConfigError,
 )
 from grelmicro.resilience.circuitbreaker.postgres import (
     PostgresCircuitBreakerAdapter,
@@ -85,12 +85,12 @@ class TestConstruction:
     ) -> None:
         """A non-numeric `POSTGRES_COMMAND_TIMEOUT` raises."""
         monkeypatch.setenv("POSTGRES_COMMAND_TIMEOUT", "abc")
-        with pytest.raises(PostgresProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             PostgresProvider(URL)
 
     def test_url_and_host_mutually_exclusive(self) -> None:
         """Passing both `url` and `host` raises."""
-        with pytest.raises(PostgresProviderConfigError, match="not both"):
+        with pytest.raises(SettingsValidationError, match="not both"):
             PostgresProvider(url=URL, host="test_host")
 
     def test_env_load_disabled_requires_kwargs(
@@ -100,7 +100,7 @@ class TestConstruction:
         monkeypatch.delenv("POSTGRES_URL", raising=False)
         monkeypatch.delenv("POSTGRES_HOST", raising=False)
 
-        with pytest.raises(PostgresProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             PostgresProvider(env_load=False)
 
     @pytest.mark.parametrize(
@@ -179,13 +179,13 @@ class TestConstruction:
         environs: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Invalid env combinations raise `PostgresProviderConfigError`."""
+        """Invalid env combinations raise `SettingsValidationError`."""
         monkeypatch.delenv("POSTGRES_URL", raising=False)
         monkeypatch.delenv("POSTGRES_HOST", raising=False)
         for key, value in environs.items():
             monkeypatch.setenv(key, value)
 
-        with pytest.raises(PostgresProviderConfigError):
+        with pytest.raises(SettingsValidationError):
             PostgresProvider()
 
     def test_custom_env_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -613,9 +613,9 @@ class TestUrlValidationParity:
         """Both paths reject the same URL, and with the same error."""
         monkeypatch.setenv("POSTGRES_URL", url)
 
-        with pytest.raises(PostgresProviderConfigError) as from_env:
+        with pytest.raises(SettingsValidationError) as from_env:
             PostgresProvider()
-        with pytest.raises(PostgresProviderConfigError) as from_kwarg:
+        with pytest.raises(SettingsValidationError) as from_kwarg:
             PostgresProvider(url, env_load=False)
 
         assert str(from_kwarg.value) == str(from_env.value)
@@ -630,7 +630,7 @@ class TestUrlValidationParity:
         self,
     ) -> None:
         """A wrong scheme reports the failure without the credential."""
-        with pytest.raises(PostgresProviderConfigError) as excinfo:
+        with pytest.raises(SettingsValidationError) as excinfo:
             PostgresProvider("mysql://usr:test_password@h/db", env_load=False)
 
         assert "test_password" not in str(excinfo.value)

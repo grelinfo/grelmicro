@@ -193,8 +193,8 @@ class PostgresCacheAdapter(CacheBackend):
             raise SettingsValidationError(msg)
 
         if cleanup_interval is not None and cleanup_interval <= 0:
-            msg = f"cleanup_interval must be positive, got {cleanup_interval!r}"
-            raise ValueError(msg)
+            msg = "cleanup_interval must be positive"
+            raise SettingsValidationError(msg)
 
         if provider is None:
             self._provider = PostgresProvider(env_prefix=env_prefix)

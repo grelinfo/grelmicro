@@ -104,9 +104,8 @@ def _fill_from_env(
     kwargs: dict[str, Any],
     field: str,
     passed: Any,  # noqa: ANN401
-    read: Callable[[str], str | None],
+    read: Callable[[str], tuple[str, str] | None],
     *,
-    env_prefix: str,
     cast: Callable[[str], Any] | None = None,
 ) -> None:
     """Take the caller's value, else the environment's, else leave unset.
@@ -114,23 +113,28 @@ def _fill_from_env(
     A keyword beats the environment, which is the same order
     `resolve_config` applies for every other pattern.
 
-    A value the cast refuses raises `SettingsValidationError` naming the
-    variable, in the same shape `resolve_config` renders. `float()` reports
+    `read` returns the variable it found together with the value, so a
+    value the cast refuses raises `SettingsValidationError` naming the
+    variable that is set rather than the instance address, which may not
+    be. The shape matches what `resolve_config` renders. `float()` reports
     the rejected string in its own message, so it never escapes.
     """
     if passed is not None:
         kwargs[field] = passed
         return
-    value = read(field.upper())
-    if value is None or (cast is not None and value.strip() == ""):
+    found = read(field.upper())
+    if found is None:
         return
+    env_key, value = found
     if cast is None:
         kwargs[field] = value
+        return
+    if value.strip() == "":
         return
     try:
         kwargs[field] = cast(value)
     except ValueError:
-        msg = f"- {env_prefix}{field.upper()}: input is not a valid number"
+        msg = f"- {env_key}: input is not a valid number"
         raise SettingsValidationError(msg) from None
 
 
@@ -157,20 +161,24 @@ def _resolve_config_from_env(
     cls = _PROFILE_BY_NAME[profile]
     env_prefix, kind_prefix = env_prefixes("SHIELD", name)
 
-    def _env(field: str) -> str | None:
-        """Read the instance variable, falling back to the kind-wide one."""
-        value = os.environ.get(f"{env_prefix}{field}")
+    def _env(field: str) -> tuple[str, str] | None:
+        """Read the instance variable, falling back to the kind-wide one.
+
+        Returns the variable it read together with the value, so an error
+        names the one the operator set.
+        """
+        env_key = f"{env_prefix}{field}"
+        value = os.environ.get(env_key)
         if value is None and kind_prefix:
-            value = os.environ.get(f"{kind_prefix}{field}")
-        return value
+            env_key = f"{kind_prefix}{field}"
+            value = os.environ.get(env_key)
+        if value is None:
+            return None
+        return env_key, value
 
     kwargs: dict[str, Any] = {"kind": profile}
-    _fill_from_env(
-        kwargs, "timeout_errors", timeout_errors, _env, env_prefix=env_prefix
-    )
-    _fill_from_env(
-        kwargs, "max_rate", max_rate, _env, env_prefix=env_prefix, cast=float
-    )
+    _fill_from_env(kwargs, "timeout_errors", timeout_errors, _env)
+    _fill_from_env(kwargs, "max_rate", max_rate, _env, cast=float)
     if cache is not None:
         kwargs["cache"] = cache
     if cache_key is not None:

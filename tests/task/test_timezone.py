@@ -83,6 +83,40 @@ def test_abbreviation_that_names_no_zone_is_rejected() -> None:
         _cron_task("0 2 * * *", "PST")
 
 
+@pytest.mark.parametrize(
+    "abbreviation", ["PST", "BST", "JST", "EDT", "CEST", "PDT"]
+)
+def test_an_abbreviation_is_offered_no_suggestion(abbreviation: str) -> None:
+    """A wrong continent is worse than no hint.
+
+    Every one of these scored close enough to a three-letter zone to be
+    offered one: `PST` reached `MST`, `CEST` reached `EST`. The rejected
+    name is not echoed, so the hint is all the operator reads.
+    """
+    # Act / Assert
+    with pytest.raises(TimezoneError) as error:
+        _cron_task("0 2 * * *", abbreviation)
+    assert "did you mean" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("written", "meant"),
+    [
+        ("Zurich", "Europe/Zurich"),
+        ("Europe/Zurichh", "Europe/Zurich"),
+        ("europe/zurichh", "Europe/Zurich"),
+    ],
+)
+def test_a_near_miss_is_offered_the_zone_it_resembles(
+    written: str, meant: str
+) -> None:
+    """A city on its own reaches its zone, which the full name scores too far from."""
+    # Act / Assert
+    with pytest.raises(TimezoneError) as error:
+        _cron_task("0 2 * * *", written)
+    assert f"did you mean {meant!r}" in str(error.value)
+
+
 async def test_tasks_timezone_reaches_every_cron_task() -> None:
     """The `Tasks` timezone applies to a task that declares none."""
     # Arrange

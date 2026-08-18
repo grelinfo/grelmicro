@@ -1,9 +1,10 @@
 """Errors."""
 
 import re
-from typing import ClassVar
+from typing import ClassVar, get_args
 
 from pydantic import ValidationError
+from pydantic_core import ErrorType
 
 
 class GrelmicroError(Exception):
@@ -259,6 +260,39 @@ the option the operator was reaching for.
 """
 
 
+_KNOWN_ERROR_TYPES = frozenset(get_args(ErrorType))
+"""Every error code pydantic raises itself.
+
+Read from pydantic rather than listed here, so a code added by a later
+release is not mistaken for someone's own. An empty set means the
+catalogue could not be read, and `_is_echoing` then falls back to the
+explicit list alone rather than treating every message as unreviewed.
+"""
+
+_SAFE_CUSTOM_ERROR_TYPES = frozenset({"time_zone_name"})
+"""grelmicro's own custom codes, whose messages are written not to echo.
+
+`time_zone_name` offers a member of the timezone database, which can
+share a segment with the name it rejects. Scrubbing would take the
+suggestion apart, and the message carries nothing else.
+"""
+
+
+def _is_echoing(error_type: str) -> bool:
+    """Whether a message of this type can repeat the rejected input.
+
+    A code pydantic does not define comes from a `PydanticCustomError`
+    someone wrote, so its message is unreviewed and treated as echoing.
+    Without this the backstop covered only the codes pydantic ships and
+    missed every custom one.
+    """
+    if error_type in _ECHOING_ERROR_TYPES:
+        return True
+    if error_type in _SAFE_CUSTOM_ERROR_TYPES:
+        return False
+    return bool(_KNOWN_ERROR_TYPES) and error_type not in _KNOWN_ERROR_TYPES
+
+
 def _candidates(value: object) -> set[str]:
     """Return every string inside `value`, whole and unsplit.
 
@@ -308,7 +342,7 @@ def _scrub(msg: str, value: object, error_type: str) -> str:
     """
     if error_type == "import_error":
         return _IMPORT_ERROR_MESSAGE
-    if error_type not in _ECHOING_ERROR_TYPES:
+    if not _is_echoing(error_type):
         return msg
     for candidate in sorted(_candidates(value), key=len, reverse=True):
         msg = re.sub(

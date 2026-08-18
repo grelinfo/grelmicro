@@ -198,8 +198,8 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
     ) -> None:
         """Initialize the circuit breaker adapter."""
         if cleanup_interval is not None and cleanup_interval <= 0:
-            msg = f"cleanup_interval must be positive, got {cleanup_interval!r}"
-            raise ValueError(msg)
+            msg = "cleanup_interval must be positive"
+            raise SettingsValidationError(msg)
 
         if not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", table_name):
             msg = f"Table name '{table_name}' is not a valid SQL identifier"

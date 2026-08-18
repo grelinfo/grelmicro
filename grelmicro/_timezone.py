@@ -62,7 +62,7 @@ def normalize_timezone_name(value: str) -> str:
     if known:
         correct = known.get(name.upper())
         if correct is None:
-            msg = f"unknown timezone name{_did_you_mean(name, known)}"
+            msg = f"unknown timezone name{_did_you_mean(name)}"
             raise ValueError(msg)
         return correct
     # No timezone database, so the name cannot be checked against a list.
@@ -76,7 +76,34 @@ def normalize_timezone_name(value: str) -> str:
     return name
 
 
-def _did_you_mean(name: str, known: dict[str, str]) -> str:
+_MIN_HINT_LENGTH = 5
+"""Shortest name that earns a hint when it carries no region.
+
+`PST`, `CEST` and the other abbreviations are the common mistake, and
+each sits close enough to `MST` or `EST` for a match. A hint naming the
+wrong continent is worse than none, and the rejected name is not echoed,
+so the hint is the only thing the operator reads.
+"""
+
+_HINT_CUTOFF = 0.75
+"""How close a candidate must be before it is offered."""
+
+
+@cache
+def _hint_candidates() -> dict[str, str]:
+    """Map every full name and city segment to its correctly cased zone.
+
+    The city segment is matched too, so `Zurich` reaches `Europe/Zurich`,
+    which the full name alone scores too far apart to reach.
+    """
+    candidates: dict[str, str] = {}
+    for upper, correct in sorted(_known_timezones().items()):
+        candidates.setdefault(upper, correct)
+        candidates.setdefault(upper.rpartition("/")[2], correct)
+    return candidates
+
+
+def _did_you_mean(name: str) -> str:
     """Return a `, did you mean 'X'` hint, or an empty string.
 
     The rejected value is never repeated: it is arbitrary operator input,
@@ -84,10 +111,14 @@ def _did_you_mean(name: str, known: dict[str, str]) -> str:
     credential put there by a swapped variable. A *member* of the timezone
     database carries the same diagnostic and can never be a secret.
     """
-    close = get_close_matches(name.upper(), known, n=1)
+    upper = name.upper()
+    if "/" not in upper and len(upper) < _MIN_HINT_LENGTH:
+        return ""
+    candidates = _hint_candidates()
+    close = get_close_matches(upper, candidates, n=1, cutoff=_HINT_CUTOFF)
     if not close:
         return ""
-    return f", did you mean {known[close[0]]!r}"
+    return f", did you mean {candidates[close[0]]!r}"
 
 
 def resolve_timezone(name: str) -> tzinfo:

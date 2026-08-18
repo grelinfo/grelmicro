@@ -118,9 +118,11 @@ Three mechanisms keep this true, because one is not enough:
    every error it raises, for every field, reviewed or not.
 2. grelmicro's own validators are written not to name the value.
 3. `SettingsValidationError` scrubs the input out of the message as a backstop,
-   including the fragments it splits into, because some messages are built by
-   pydantic (`union_tag_invalid` quotes the tag, `import_error` quotes the
-   module) or by a third-party config class.
+   because some messages are built by pydantic (`union_tag_invalid` quotes the
+   tag, `import_error` quotes the module) or by a config class it does not own.
+   Whole occurrences are removed, never fragments: a typo is usually a prefix
+   of the name that was meant, so removing pieces took the correct spelling out
+   of the very message offering it.
 
 A name is code, not a value. R3 makes an instance name the address the
 environment writes to, and R6 keeps structure in code, so a rejected name is

@@ -458,7 +458,7 @@ def _resolve_command_timeout(
     try:
         settings = _PostgresTimeoutEnvSettings(_env_prefix=env_prefix)
     except ValidationError as error:
-        raise PostgresProviderConfigError(error) from None
+        raise SettingsValidationError(error) from None
     return settings.command_timeout
 
 
@@ -481,7 +481,7 @@ def _resolve_url(
     """
     if url is not None and host is not None:
         msg = "pass either `url` or `host`, not both"
-        raise PostgresProviderConfigError(msg)
+        raise SettingsValidationError(msg)
 
     if url is not None:
         try:
@@ -489,7 +489,7 @@ def _resolve_url(
                 str(url), settings_cls=_PostgresEnvSettings
             )
         except ValidationError as error:
-            raise PostgresProviderConfigError(error) from None
+            raise SettingsValidationError(error) from None
         return _normalize_scheme(validated)
 
     if host is not None:
@@ -503,7 +503,7 @@ def _resolve_url(
 
     if not env_load:
         msg = "no `url` or `host` provided and env_load is False"
-        raise PostgresProviderConfigError(msg)
+        raise SettingsValidationError(msg)
 
     try:
         # `_env_prefix` is a pydantic-settings runtime kwarg that overrides
@@ -511,11 +511,11 @@ def _resolve_url(
         # so static checkers reject it even though the runtime accepts it.
         settings = _PostgresEnvSettings(_env_prefix=env_prefix)
     except ValidationError as error:
-        raise PostgresProviderConfigError(error) from None
+        raise SettingsValidationError(error) from None
 
     if settings.url is not None and settings.host is not None:
         msg = f"set either {env_prefix}URL or {env_prefix}HOST, not both"
-        raise PostgresProviderConfigError(msg)
+        raise SettingsValidationError(msg)
     if settings.url is not None:
         return _normalize_scheme(
             settings.url.get_secret_value().unicode_string()
@@ -533,7 +533,7 @@ def _resolve_url(
             ),
         )
     msg = f"either {env_prefix}URL or {env_prefix}HOST must be set"
-    raise PostgresProviderConfigError(msg)
+    raise SettingsValidationError(msg)
 
 
 _POSTGRESQL_SCHEME = "postgresql"
@@ -581,7 +581,3 @@ def _compose_url(
         port=port,
         path=database,
     ).unicode_string()
-
-
-class PostgresProviderConfigError(SettingsValidationError):
-    """Raised when the Postgres provider cannot resolve a connection URL."""

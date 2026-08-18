@@ -212,12 +212,21 @@ def test_bad_kwarg_raises_settings_error(
 
 
 def test_no_module_declares_a_settings_error_subclass() -> None:
-    """One error, so a per-module subclass never comes back by accident."""
+    """One error, so a per-module subclass never comes back by accident.
+
+    Every module is walked, not only the ones named `errors`. Scoping the
+    scan to `*.errors` let the provider modules keep a subclass each while
+    this passed.
+    """
     offenders = []
+    scanned = 0
     for info in pkgutil.walk_packages(grelmicro.__path__, prefix="grelmicro."):
-        if not info.name.endswith(".errors"):
+        try:
+            module = importlib.import_module(info.name)
+        except ImportError:
+            # An adapter whose optional client library is not installed.
             continue
-        module = importlib.import_module(info.name)
+        scanned += 1
         offenders += [
             f"{info.name}.{name}"
             for name, obj in vars(module).items()
@@ -226,6 +235,7 @@ def test_no_module_declares_a_settings_error_subclass() -> None:
             and obj is not SettingsValidationError
             and obj.__module__ == info.name
         ]
+    assert scanned, "no module was scanned, so this proves nothing"
     assert not offenders, (
         f"configuration errors are not split by module: {offenders}"
     )
@@ -456,6 +466,34 @@ def test_scrub_removes_the_value_only_where_a_message_can_carry_it() -> None:
         "union_tag_invalid",
     )
     assert SECRET not in _scrub(f"got {SECRET}", [SECRET], "value_error")
+
+
+def test_scrub_covers_a_custom_error_code() -> None:
+    """A code pydantic does not define carries an unreviewed message.
+
+    The backstop listed pydantic's own echoing types, so a
+    `PydanticCustomError` raised by grelmicro or by a third-party config
+    class was skipped entirely.
+    """
+    # Act / Assert
+    assert SECRET not in _scrub(
+        f"rejected {SECRET}", SECRET, "some_third_party_code"
+    )
+    # grelmicro's own code is reviewed, and its message offers a member of
+    # the timezone database that can share a segment with the rejected name.
+    assert (
+        _scrub(
+            "unknown timezone name, did you mean 'Europe/Zurich'",
+            "Zurich",
+            "time_zone_name",
+        )
+        == "unknown timezone name, did you mean 'Europe/Zurich'"
+    )
+    # A code pydantic does define keeps the message it wrote.
+    assert (
+        _scrub("Input should be 'DEBUG', 'INFO'", "INF", "literal_error")
+        == "Input should be 'DEBUG', 'INFO'"
+    )
 
 
 NUMERIC_CANARY = 943257

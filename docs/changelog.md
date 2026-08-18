@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.40.0 - 2026-08-18
 
 ### Breaking
 
@@ -9,6 +9,8 @@
 * 💥 A rejected instance name, table name, or key prefix raises `SettingsValidationError` instead of a bare `ValueError`, so one `except` covers identity and configuration alike. It still subclasses `ValueError`. ([#755](https://github.com/grelinfo/grelmicro/issues/755))
 * 💥 `cached()`, `TrustedProxies`, and `ExternalConfig` raise `SettingsValidationError` for a bad value instead of a bare `ValueError` or `TypeError`. `cached(ttl=-1)` already did, while `lock=`, `early=`, and `stale_ttl=` did not, so one call had two contracts. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
 * 💥 `Grelmicro(environment=...)` refuses a value outside the four tiers instead of storing it. It was accepted in silence, and the backend check then ran as if no tier were declared. The environment variable already warned, so the two doors disagreed. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
+* 💥 `Match.exception()` and `Match.exception_cause()` raise `ValueError` instead of `TypeError` on an argument that is not an exception class, and on no argument at all. The same goes for a `when=` that is not a `Match`, an exception class, a tuple, or a callable. pydantic converts only `ValueError`, so the old `TypeError` escaped every documented `except` when the value came from a variable. An `except TypeError` around a direct `Match.exception(...)` call stops matching. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* 💥 `RedisProviderConfigError` and `PostgresProviderConfigError` are removed. A provider raises `SettingsValidationError`, like every other class. They were the last two per-module subclasses, left behind when the other ten went. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
 * 💥 An error no longer repeats any part of the value it rejected, including an unknown timezone name, which used to be quoted. The message names a close match instead, as `did you mean 'Europe/Zurich'`. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
 
 ### Fixed
@@ -20,6 +22,12 @@
 * 🐛 A malformed dict-valued variable such as `GREL_METRICS_HEADERS` raised `pydantic_settings.SettingsError` at app open, not `SettingsValidationError`. pydantic-settings decodes a complex field before validation runs, so the error never reached the wrapper. Affects the `headers` and `resource_attributes` fields on `Metrics` and `Trace`. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
 * 🔒 `SettingsValidationError` now scrubs the rejected value out of messages built elsewhere. Pydantic writes the input into some of its own text, so `GREL_RETRY_{NAME}_BACKOFF` echoed an unknown algorithm tag and `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS` echoed the module half of an import path. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
 * 🔒 `RandomBackoff` reported both delays it rejected, reachable through `GREL_RETRY_{NAME}_BACKOFF`, and `UnknownEnvironmentWarning` reported the `GREL_ENVIRONMENT` value on both the warning and the logging channel. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
+* 🐛 An unknown timezone abbreviation was offered a zone on the wrong continent. `PST` and `JST` both suggested `MST`, `CEST` suggested `EST`. A short name that carries no region now gets no suggestion, and a city on its own such as `Zurich` reaches `Europe/Zurich`, which it could not before. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* 🔒 The scrub covers a custom error code, which is a message someone wrote rather than one pydantic built. It listed pydantic's own types, so a `PydanticCustomError` raised by a third-party config class was skipped. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* 🐛 `PostgresOutboxAdapter` raised a bare `ValueError` for a rejected table name while every other adapter raised `SettingsValidationError`. ([#755](https://github.com/grelinfo/grelmicro/issues/755))
+* 🐛 `cleanup_interval` raised a bare `ValueError` and echoed the value it rejected, in the same constructor whose `table_name` raised `SettingsValidationError`. Affects the Postgres and SQLite cache and circuit breaker adapters. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
+* 🐛 A bad `GREL_SHIELD_MAX_RATE` reported `GREL_SHIELD_{NAME}_MAX_RATE`, a variable that is not set, sending the operator to the wrong one. The error names the variable it read. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
+* 🔒 A `reconfigure()` that refused a value wrote its message to the log on the reload path, where the message may name the value. Only the error class is logged, which the handler beside it already did. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
 * 🐛 `Trace(instrument=...)` validated the directive only when an exporter was active, so a bad one opened cleanly in development and first raised on the deploy that set an endpoint. ([#760](https://github.com/grelinfo/grelmicro/issues/760))
 
 ### Added
@@ -27,8 +35,8 @@
 * 👷 `just release <version>` runs everything ahead of the tag: it cuts the changelog, runs the full preflight, and prints the `gh release create` command rather than running it. Creating the tag stays a conscious act, because it cannot be undone. CONTRIBUTING documents the sequence, which was previously discoverable only by triggering the failures. ([#757](https://github.com/grelinfo/grelmicro/issues/757))
 * ✅ The public API snapshot records default values, including what a `default_factory` returns and the return annotation, so a changed default or return type fails CI. ([#764](https://github.com/grelinfo/grelmicro/pull/764))
 * ✅ Three contract sweeps enforce what the architecture docs publish, discovered by walking the package rather than by a hand-written list. `tests/test_backend_contracts.py` covers the `bind` contract over every backend adapter, `tests/test_config_contracts.py` covers R3, R4 and the reload rules over every `Reconfigurable`, and `tests/test_construction_contracts.py` covers the declarative door over every class with `from_config`. Each refuses to pass on an empty scan, so an adapter or pattern added later is covered without anyone remembering. ([#755](https://github.com/grelinfo/grelmicro/issues/755))
-* 📝 An [Errors](reference/errors.md) reference page. `SettingsValidationError` is now the one configuration error, and it had no documented home.
-* ✅ The public API snapshot covers `grelmicro.outbox` and `grelmicro.types`. Both were documented in the API reference while their exports went unguarded, so a rename could have shipped unnoticed. A test now reads the reference pages, so documenting a module guards it.
+* 📝 An [Errors](reference/errors.md) reference page. `SettingsValidationError` is now the one configuration error, and it had no documented home. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
+* ✅ The public API snapshot covers `grelmicro.outbox` and `grelmicro.types`. Both were documented in the API reference while their exports went unguarded, so a rename could have shipped unnoticed. A test now reads the reference pages, so documenting a module guards it. ([#750](https://github.com/grelinfo/grelmicro/issues/750))
 
 ## 0.39.0 - 2026-08-16
 

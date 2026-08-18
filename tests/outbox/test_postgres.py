@@ -11,6 +11,7 @@ import asyncpg
 import pytest
 from pydantic import BaseModel
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox import Message, Outbox
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._uuid import uuid7
@@ -71,8 +72,14 @@ def _record() -> OutboxRecord:
 
 
 def test_invalid_table_name() -> None:
-    """A non-identifier table name is rejected."""
-    with pytest.raises(ValueError, match="not a valid SQL identifier"):
+    """A non-identifier table name is rejected.
+
+    `SettingsValidationError`, like every other adapter, so one `except`
+    covers a rejected name whichever backend it was written for.
+    """
+    with pytest.raises(
+        SettingsValidationError, match="not a valid SQL identifier"
+    ):
         PostgresOutboxAdapter(provider=PostgresProvider(URL), table="bad name")
 
 

@@ -181,12 +181,13 @@ A URL the provider cannot use is refused before any client is built:
 
 ```python
 RedisProvider("anything://localhost:6379")
-# RedisProviderConfigError: Could not validate settings:
+# SettingsValidationError: Could not validate settings:
 # - url: URL scheme should be 'redis', 'rediss', 'unix', 'redis+sentinel' or 'redis+cluster'
 ```
 
-`RedisProviderConfigError` and `PostgresProviderConfigError` are both
-`GrelmicroError`, so one `except` covers every way the URL arrives.
+Every provider raises `SettingsValidationError`, the same error every other
+class raises for a bad value, so one `except` covers every way the URL
+arrives.
 
 ## Credentials in a config object
 

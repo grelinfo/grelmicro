@@ -9,11 +9,8 @@ import pytest
 
 from grelmicro.coordination._protocol import ScheduleBackend
 from grelmicro.coordination.postgres import PostgresScheduleAdapter
-from grelmicro.errors import OutOfContextError
-from grelmicro.providers.postgres import (
-    PostgresProvider,
-    PostgresProviderConfigError,
-)
+from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.providers.postgres import PostgresProvider
 from tests._postgres import mock_pool
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
@@ -98,11 +95,11 @@ def test_adapter_env_prefix_passed_to_implicit_provider(
 def test_env_validation_error_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Implicit provider surfaces `PostgresProviderConfigError`."""
+    """Implicit provider surfaces `SettingsValidationError`."""
     monkeypatch.delenv("POSTGRES_URL", raising=False)
     monkeypatch.delenv("POSTGRES_HOST", raising=False)
 
-    with pytest.raises(PostgresProviderConfigError):
+    with pytest.raises(SettingsValidationError):
         PostgresScheduleAdapter()
 
 
