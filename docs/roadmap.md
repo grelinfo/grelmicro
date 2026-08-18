@@ -6,7 +6,7 @@ Each heading names a few concrete things. They illustrate the direction, they ar
 
 ## The HTTP edge
 
-A pattern you already use should reach the wire without hand-written glue. Today the rate limiter hands you a `RateLimitResult` and you build the 429 yourself. Next: rate limit response headers, problem-detail error responses, admission per route instead of per handler, and dependency helpers.
+A pattern you already use should reach the wire without hand-written glue. Every rejection already answers the client as a problem detail. Next: rate limit response headers, admission per route instead of per handler, dependency helpers, and HTTP server metrics.
 
 ## Checks on the request you were handed
 

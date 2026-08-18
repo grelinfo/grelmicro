@@ -15,6 +15,22 @@ from grelmicro._json import json_dumps_bytes
 from grelmicro.errors import OutOfContextError
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import CheckResult, HealthStatus
+from grelmicro.http._problem import (
+    _IN_FLIGHT_RETRY_AFTER,
+    HANDLED,
+    IDEMPOTENCY_IN_FLIGHT,
+    IDEMPOTENCY_KEY_INVALID,
+    IDEMPOTENCY_KEY_REUSED,
+    PROBLEM_MEDIA_TYPE,
+    REQUEST_BODY_TOO_LARGE,
+    ProblemDetail,
+    _Kind,
+    body_of,
+    build,
+    framework_headers_of,
+    problem_detail,
+    send_problem,
+)
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyMakerError,
@@ -34,6 +50,8 @@ if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
     from fastapi.params import Depends
     from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import Response
 
     from grelmicro import Grelmicro
     from grelmicro.idempotency import Idempotency
@@ -54,6 +72,7 @@ __all__ = [
     "document_idempotency",
     "health_router",
     "install",
+    "install_problem_details",
     "is_bound",
 ]
 
@@ -228,6 +247,58 @@ def install(
     else:
         micro._on_ambient_disabled()  # noqa: SLF001
     _instrument_app(app, micro)
+
+
+def install_problem_details(
+    app: Annotated[
+        "Starlette",
+        Doc("The Starlette or FastAPI application to wire."),
+    ],
+) -> None:
+    """Render grelmicro rejections as problem details on a Starlette app.
+
+    Registers one exception handler per rejection grelmicro raises to turn a
+    caller away, so a rate limiter, a bulkhead, an open circuit breaker, an
+    elapsed deadline, or an idempotency conflict answers the client with an
+    `application/problem+json` body instead of a `500`.
+
+    Starlette looks a handler up through the raised exception's class
+    hierarchy, so registering `AdmissionError` covers every rejection under
+    it, including one a later release adds.
+
+    `micro.install(app)` calls this. Call it directly only on an app that
+    never goes through `install`, or after `install(app, problem_details=False)`.
+
+    ```python
+    from grelmicro.integrations.fastapi import install_problem_details
+
+    install_problem_details(app)
+    ```
+
+    Read more in the [Problem Details](../http/problems.md) docs.
+    """
+    for klass in HANDLED:
+        # A handler the app registered first wins. Registering before
+        # `install` is the natural order (build the app, register handlers,
+        # wire grelmicro), and overwriting there would take a handler away
+        # from an app that upgrades, without saying so.
+        if klass not in app.exception_handlers:
+            app.add_exception_handler(klass, _problem_response)
+
+
+async def _problem_response(request: "Request", exc: Exception) -> "Response":
+    """Render one rejection, taking the occurrence from the request path."""
+    from starlette.responses import Response  # noqa: PLC0415
+
+    problem = problem_detail(exc, instance=request.url.path)
+    if problem is None:  # pragma: no cover
+        raise exc
+    return Response(
+        content=body_of(problem),
+        status_code=problem.status,
+        media_type=PROBLEM_MEDIA_TYPE,
+        headers=framework_headers_of(problem),
+    )
 
 
 def _is_binding(middleware: object) -> bool:
@@ -500,18 +571,24 @@ class IdempotencyMiddleware:
         key = _header_value(scope["headers"], self._header)
         if not key:
             if self._require_key:
-                await _send_error(
-                    send, 400, f"Missing {self._header_name} header."
+                await _send_problem(
+                    send,
+                    scope,
+                    IDEMPOTENCY_KEY_INVALID,
+                    f"The {self._header_name} header is required on this "
+                    f"request and was not sent.",
                 )
                 return
             await self.app(scope, receive, send)
             return
 
         if len(key) > _MAX_KEY_LENGTH:
-            await _send_error(
+            await _send_problem(
                 send,
-                400,
-                f"{self._header_name} exceeds {_MAX_KEY_LENGTH} characters.",
+                scope,
+                IDEMPOTENCY_KEY_INVALID,
+                f"The {self._header_name} header is longer than "
+                f"{_MAX_KEY_LENGTH} characters.",
             )
             return
 
@@ -521,9 +598,7 @@ class IdempotencyMiddleware:
                 receive, self._max_body_size
             )
             if too_large:
-                await _send_error(
-                    send, 413, "Request body too large to fingerprint."
-                )
+                await _send_problem(send, scope, REQUEST_BODY_TOO_LARGE)
                 return
             if body is not None:
                 fingerprint = hashlib.sha256(body).hexdigest()
@@ -549,20 +624,24 @@ class IdempotencyMiddleware:
         try:
             operation = await block.__aenter__()
         except IdempotencyConflictError:
-            await _send_error(
+            await _send_problem(
                 send,
-                422,
-                f"{self._header_name} was already used with a different "
-                f"request payload.",
+                scope,
+                IDEMPOTENCY_KEY_REUSED,
+                f"The {self._header_name} header was already used with a "
+                f"different request payload. Use a fresh key, or resend the "
+                f"original payload.",
             )
             return
         except IdempotencyWaitTimeoutError:
-            await _send_error(
+            await _send_problem(
                 send,
-                409,
-                f"A request with this {self._header_name} is still in "
-                f"flight. Retry shortly.",
-                headers=[(b"retry-after", b"1")],
+                scope,
+                IDEMPOTENCY_IN_FLIGHT,
+                f"A request with this {self._header_name} is still running. "
+                f"Retry after the delay in the Retry-After header to read "
+                f"its response.",
+                retry_after=_IN_FLIGHT_RETRY_AFTER,
             )
             return
         except OutOfContextError as exc:
@@ -724,16 +803,47 @@ def _annotate_schema(schema: dict[str, Any], options: dict[str, Any]) -> None:
             f"payload."
         )
 
-    for path_item in schema.get("paths", {}).values():
-        for method, operation in path_item.items():
-            # Every non-operation key of a path item (`parameters`,
-            # `servers`, `summary`, `$ref`) holds a list or a string, so a
-            # mapping under a covered method is an operation.
-            if method.lower() not in methods or not isinstance(operation, dict):
-                continue
-            _add_parameter(operation, path_item, parameter)
-            for status, description in responses.items():
-                _merge_response(operation, status, description)
+    covered = [
+        (path_item, operation)
+        for path_item in schema.get("paths", {}).values()
+        for method, operation in path_item.items()
+        # Every non-operation key of a path item (`parameters`, `servers`,
+        # `summary`, `$ref`) holds a list or a string, so a mapping under a
+        # covered method is an operation.
+        if method.lower() in methods and isinstance(operation, dict)
+    ]
+    if not covered:
+        return
+    ref = _add_problem_schema(schema)
+    for path_item, operation in covered:
+        _add_parameter(operation, path_item, parameter)
+        for status, description in responses.items():
+            _merge_response(operation, status, description, ref)
+
+
+def _add_problem_schema(schema: dict[str, Any]) -> str:
+    """Publish the problem body component and return the ref that points at it.
+
+    An app may already publish a model of its own under the same name, in
+    which case pointing the middleware's responses at it would hand a
+    generated client the wrong shape to decode. The component is compared
+    before it is reused, and a different one is published beside it under a
+    qualified name rather than replacing what the app declared.
+    """
+    schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+    ours = ProblemDetail.model_json_schema(
+        ref_template="#/components/schemas/{model}"
+    )
+    for name in (_PROBLEM_SCHEMA_NAME, _QUALIFIED_PROBLEM_SCHEMA_NAME):
+        existing = schemas.get(name)
+        if existing is None:
+            schemas[name] = ours
+            return f"#/components/schemas/{name}"
+        if existing == ours:
+            return f"#/components/schemas/{name}"
+    # Both names are taken by something else, which takes a deliberate act.
+    # Say nothing about the body rather than name the wrong shape.
+    return ""
 
 
 def _add_parameter(
@@ -762,22 +872,35 @@ def _add_parameter(
 
 
 def _merge_response(
-    operation: dict[str, Any], status: str, description: str
+    operation: dict[str, Any], status: str, description: str, ref: str
 ) -> None:
     """Describe a status the middleware returns, keeping what is there.
 
     FastAPI generates a `422` carrying the validation error schema. That
-    entry keeps its schema and gains this description, so neither case is
-    lost and a second call adds nothing.
+    entry keeps its schema and gains this description and the problem
+    media type alongside it, so neither case is lost and a second call
+    adds nothing.
     """
     responses = operation.setdefault("responses", {})
     existing = responses.get(status)
     if existing is None:
         responses[status] = {"description": description}
-        return
-    current = existing.get("description", "")
-    if description not in current:
-        existing["description"] = f"{current}\n\n{description}".strip()
+        existing = responses[status]
+    else:
+        current = existing.get("description", "")
+        if description not in current:
+            existing["description"] = f"{current}\n\n{description}".strip()
+    if ref:
+        existing.setdefault("content", {}).setdefault(
+            PROBLEM_MEDIA_TYPE, {"schema": {"$ref": ref}}
+        )
+
+
+_PROBLEM_SCHEMA_NAME = "ProblemDetail"
+"""Name the problem body is published under in the OpenAPI components."""
+
+_QUALIFIED_PROBLEM_SCHEMA_NAME = "GrelmicroProblemDetail"
+"""Fallback name, for an app that publishes a `ProblemDetail` of its own."""
 
 
 _UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")
@@ -998,27 +1121,32 @@ async def _send_stored(send: "Send", stored: _Entry, *, head: bool) -> None:
     await send({"type": "http.response.body", "body": b"" if head else body})
 
 
-async def _send_error(
+async def _send_problem(
     send: "Send",
-    status: int,
-    detail: str,
+    scope: "Scope",
+    kind: _Kind,
+    detail: str | None = None,
     *,
-    headers: "Sequence[tuple[bytes, bytes]]" = (),
+    retry_after: float | None = None,
 ) -> None:
-    """Send a JSON error the middleware produced itself."""
-    body = json_dumps_bytes({"detail": detail})
-    await send(
-        {
-            "type": "http.response.start",
-            "status": status,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"content-length", str(len(body)).encode("latin-1")),
-                *headers,
-            ],
-        }
+    """Answer a request the middleware refuses itself, before the app runs.
+
+    A middleware sits outside the routing layer, so no exception handler
+    sees what it decides. It writes the same problem detail a raised
+    rejection would produce, in the same shape and media type.
+    """
+    extensions: dict[str, Any] | None = (
+        None if retry_after is None else {"retry_after": retry_after}
     )
-    await send({"type": "http.response.body", "body": body})
+    await send_problem(
+        send,
+        build(
+            kind,
+            detail=detail,
+            instance=scope["path"],
+            extensions=extensions,
+        ),
+    )
 
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}

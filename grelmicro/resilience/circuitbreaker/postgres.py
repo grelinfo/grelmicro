@@ -183,11 +183,13 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             p_threshold INT,
             p_reset_timeout DOUBLE PRECISION
         ) RETURNS TABLE(
-            r_state TEXT, r_cerr INT, r_csucc INT, r_opened_at DOUBLE PRECISION
+            r_state TEXT, r_cerr INT, r_csucc INT,
+            r_opened_at DOUBLE PRECISION, r_retry_after DOUBLE PRECISION
         ) AS $$
         DECLARE
             v_state TEXT;
             v_opened_at DOUBLE PRECISION;
+            v_cool_down DOUBLE PRECISION;
             v_ho_admit INT;
             v_cerr INT;
             v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
@@ -201,16 +203,18 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                   AND updated_at + GREATEST(
                       {state_ttl}, {state_ttl_factor} * cool_down
                   ) <= v_now;
-            SELECT t.state, t.opened_at, t.ho_admit
-                INTO v_state, v_opened_at, v_ho_admit
+            SELECT t.state, t.opened_at, t.cool_down, t.ho_admit
+                INTO v_state, v_opened_at, v_cool_down, v_ho_admit
                 FROM {table_name} t WHERE t.name = p_name;
             IF v_state IS NULL THEN
                 v_state := 'CLOSED';
                 v_opened_at := 0;
+                v_cool_down := 0;
                 v_ho_admit := 0;
             END IF;
             IF v_state IN ('FORCED_OPEN', 'FORCED_CLOSED', 'OPEN') THEN
-                RETURN QUERY SELECT v_state, 0, 0, v_opened_at;
+                RETURN QUERY SELECT v_state, 0, 0, v_opened_at,
+                    {remaining};
                 RETURN;
             END IF;
             INSERT INTO {table_name} (name, state, cerr, csucc, updated_at)
@@ -231,10 +235,11 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                         cerr = 0, csucc = 0, ho_admit = 0,
                         updated_at = v_now
                     WHERE name = p_name;
-                RETURN QUERY SELECT 'OPEN'::TEXT, 0, 0, v_now;
+                RETURN QUERY SELECT 'OPEN'::TEXT, 0, 0, v_now, p_reset_timeout;
                 RETURN;
             END IF;
-            RETURN QUERY SELECT v_state, v_cerr, 0, v_opened_at;
+            RETURN QUERY SELECT v_state, v_cerr, 0, v_opened_at,
+                0::double precision;
         END;
         $$ LANGUAGE plpgsql;
     """
@@ -245,11 +250,13 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             p_threshold INT,
             p_reset_timeout DOUBLE PRECISION
         ) RETURNS TABLE(
-            r_state TEXT, r_cerr INT, r_csucc INT, r_opened_at DOUBLE PRECISION
+            r_state TEXT, r_cerr INT, r_csucc INT,
+            r_opened_at DOUBLE PRECISION, r_retry_after DOUBLE PRECISION
         ) AS $$
         DECLARE
             v_state TEXT;
             v_opened_at DOUBLE PRECISION;
+            v_cool_down DOUBLE PRECISION;
             v_ho_admit INT;
             v_csucc INT;
             v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
@@ -263,16 +270,18 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                   AND updated_at + GREATEST(
                       {state_ttl}, {state_ttl_factor} * cool_down
                   ) <= v_now;
-            SELECT t.state, t.opened_at, t.ho_admit
-                INTO v_state, v_opened_at, v_ho_admit
+            SELECT t.state, t.opened_at, t.cool_down, t.ho_admit
+                INTO v_state, v_opened_at, v_cool_down, v_ho_admit
                 FROM {table_name} t WHERE t.name = p_name;
             IF v_state IS NULL THEN
                 v_state := 'CLOSED';
                 v_opened_at := 0;
+                v_cool_down := 0;
                 v_ho_admit := 0;
             END IF;
             IF v_state IN ('FORCED_OPEN', 'FORCED_CLOSED', 'OPEN') THEN
-                RETURN QUERY SELECT v_state, 0, 0, v_opened_at;
+                RETURN QUERY SELECT v_state, 0, 0, v_opened_at,
+                    {remaining};
                 RETURN;
             END IF;
             INSERT INTO {table_name} (name, state, cerr, csucc, updated_at)
@@ -290,10 +299,12 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 -- A closed circuit with cleared counters is what a
                 -- missing row already means, so store nothing.
                 DELETE FROM {table_name} WHERE name = p_name;
-                RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0, 0::double precision;
+                RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0,
+                    0::double precision, 0::double precision;
                 RETURN;
             END IF;
-            RETURN QUERY SELECT v_state, 0, v_csucc, v_opened_at;
+            RETURN QUERY SELECT v_state, 0, v_csucc, v_opened_at,
+                0::double precision;
         END;
         $$ LANGUAGE plpgsql;
     """
@@ -384,16 +395,19 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     _SQL_CREATE_FN_GET_STATE = """
         CREATE OR REPLACE FUNCTION {table_name}_cb_get_state(p_name TEXT)
         RETURNS TABLE(
-            r_state TEXT, r_cerr INT, r_csucc INT, r_opened_at DOUBLE PRECISION
+            r_state TEXT, r_cerr INT, r_csucc INT,
+            r_opened_at DOUBLE PRECISION, r_retry_after DOUBLE PRECISION
         ) AS $$
         DECLARE
             v_state TEXT;
             v_cerr INT;
             v_csucc INT;
             v_opened_at DOUBLE PRECISION;
+            v_cool_down DOUBLE PRECISION;
+            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
         BEGIN
-            SELECT t.state, t.cerr, t.csucc, t.opened_at
-                INTO v_state, v_cerr, v_csucc, v_opened_at
+            SELECT t.state, t.cerr, t.csucc, t.opened_at, t.cool_down
+                INTO v_state, v_cerr, v_csucc, v_opened_at, v_cool_down
                 FROM {table_name} t
                 WHERE t.name = p_name
                   AND (
@@ -403,12 +417,73 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                       ) > EXTRACT(EPOCH FROM clock_timestamp())
                   );
             IF v_state IS NULL THEN
-                RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0, 0::double precision;
+                RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0,
+                    0::double precision, 0::double precision;
                 RETURN;
             END IF;
-            RETURN QUERY SELECT v_state, v_cerr, v_csucc, v_opened_at;
+            RETURN QUERY SELECT v_state, v_cerr, v_csucc, v_opened_at,
+                {remaining};
         END;
         $$ LANGUAGE plpgsql;
+    """
+
+    _SQL_REMAINING = (
+        "CASE WHEN v_state = 'OPEN' THEN GREATEST("
+        "0::double precision, v_opened_at + v_cool_down - v_now"
+        ") ELSE 0::double precision END"
+    )
+    """Seconds an OPEN circuit still has to wait out.
+
+    Evaluated inside the function, on the Postgres clock that stamped
+    `opened_at`. The two clocks have no common reference from Python, so
+    the subtraction cannot be done there.
+    """
+
+    _SQL_DROP_WIDENED_FNS = """
+        DO $do$
+        DECLARE
+            v_name TEXT;
+        BEGIN
+            FOREACH v_name IN ARRAY ARRAY[
+                '{table_name}_cb_record_error',
+                '{table_name}_cb_record_success',
+                '{table_name}_cb_get_state'
+            ] LOOP
+                IF EXISTS (
+                    SELECT 1 FROM pg_proc p
+                        JOIN pg_namespace n ON n.oid = p.pronamespace
+                        WHERE p.proname = v_name
+                          AND n.nspname = current_schema()
+                          AND pg_get_function_result(p.oid)
+                              NOT LIKE '%r_retry_after%'
+                ) THEN
+                    EXECUTE format(
+                        'DROP FUNCTION %I(%s)',
+                        v_name,
+                        CASE WHEN v_name = '{table_name}_cb_get_state'
+                            THEN 'TEXT'
+                            ELSE 'TEXT, INT, DOUBLE PRECISION'
+                        END
+                    );
+                END IF;
+            END LOOP;
+        END
+        $do$;
+    """
+    """Drops the three functions whose result columns grew, once.
+
+    Postgres refuses `CREATE OR REPLACE FUNCTION` when the returned columns
+    change, so an install that predates `r_retry_after` has to be dropped
+    first. The drop is guarded on the stored result signature rather than
+    run unconditionally: a new function OID invalidates every cached plan
+    that references it across the cluster, and paying that on every restart
+    forever, for a migration that happens once, is not a trade worth making.
+
+    Runs under the same advisory lock as the creates that follow, in one
+    transaction, so two replicas cannot migrate at once. The runtime call
+    path takes no advisory lock, so a replica already serving on the old
+    functions blocks the drop until its call returns, which is what the
+    lock Postgres takes on the function is for.
     """
 
     _KEY_PREFIX = "cb:"
@@ -545,6 +620,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             )
             for sql in (
                 self._SQL_CREATE_TABLE,
+                self._SQL_DROP_WIDENED_FNS,
                 self._SQL_CREATE_FN_TRY_ACQUIRE,
                 self._SQL_CREATE_FN_RECORD_ERROR,
                 self._SQL_CREATE_FN_RECORD_SUCCESS,
@@ -558,6 +634,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                         lock_namespace=_CIRCUIT_BREAKER_ADVISORY_NAMESPACE,
                         state_ttl=_STATE_TTL,
                         state_ttl_factor=_STATE_TTL_RESET_FACTOR,
+                        remaining=self._SQL_REMAINING,
                     )
                 )
 
@@ -727,4 +804,5 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
             opened_at=float(row["r_opened_at"]),
             consecutive_error_count=int(row["r_cerr"]),
             consecutive_success_count=int(row["r_csucc"]),
+            retry_after=float(row["r_retry_after"]),
         )

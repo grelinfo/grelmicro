@@ -158,12 +158,22 @@ The wait is bounded by `wait_timeout`, ten seconds by default:
 
 ```http
 HTTP/1.1 409 Conflict
+content-type: application/problem+json
 retry-after: 1
 
-{"detail": "A request with this Idempotency-Key is still in flight. Retry shortly."}
+{
+  "type": "https://grelmicro.grel.info/http/problems/#idempotency-in-flight",
+  "title": "Idempotent request in flight",
+  "status": 409,
+  "detail": "A request with this Idempotency-Key is still running. Retry after the delay in the Retry-After header to read its response.",
+  "instance": "/charge",
+  "retry_after": 1.0
+}
 ```
 
 Past the timeout the duplicate receives that instead of holding the connection open.
+
+Every response the middleware writes itself is a [problem detail](../http/problems.md), the `400`, `409`, `413`, and `422` alike. A client branches on `type` and gets the same shape here as from a rejection raised in a handler.
 
 ## Conflicting payloads
 
@@ -196,7 +206,9 @@ document_idempotency(app)
 
 Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call it any time after `add_middleware`, and routes added afterwards are covered too.
 
-An operation that already declares the header keeps its own declaration. The `422` that FastAPI generates for request validation keeps its schema and gains the idempotency case in its description, so neither is lost.
+An operation that already declares the header keeps its own declaration. The `422` that FastAPI generates for request validation keeps its schema and gains the idempotency case in its description and the problem media type alongside it, so neither is lost.
+
+Each response the middleware adds points at a `ProblemDetail` component, so a generated client knows the body it will get.
 
 !!! note "Mounted sub-applications"
     A mounted sub-application builds its own schema. Call `document_idempotency` on it as well.

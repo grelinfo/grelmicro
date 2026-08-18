@@ -8,7 +8,9 @@ A **Timeout** policy bounds how long an async call may run. Use it to keep a slo
 - Reconfigure the deadline at runtime from a `ConfigMap` without redeploying.
 - Compose with `Retry`, `CircuitBreaker`, `Bulkhead`, and `Fallback`.
 
-`Timeout` wraps `asyncio.timeout`. When the deadline elapses, the inner block is cancelled and `TimeoutError` is raised.
+`Timeout` wraps `asyncio.timeout`. When the deadline elapses, the inner block is cancelled and `DeadlineExceededError` is raised. It subclasses the builtin `TimeoutError`, so an `except TimeoutError` around the block still catches it. Catch `DeadlineExceededError` to tell a deadline you set apart from a socket or driver timeout raised underneath it.
+
+The error carries the deadline it enforced, so a caller reading `exc.timeout` knows the wall it hit. Over HTTP it becomes a `504` [problem detail](../http/problems.md) carrying the same number.
 
 ## Usage
 

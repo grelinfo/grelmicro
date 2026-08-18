@@ -25,6 +25,9 @@ pytestmark = [pytest.mark.timeout(5)]
 
 PATH = "/tmp/test.db"  # noqa: S108
 
+RESET_TIMEOUT = 5
+"""Cool-down the end-to-end breakers are built with."""
+
 
 # --- Construction and wiring unit tests ---
 
@@ -308,7 +311,7 @@ async def test_circuit_breaker_end_to_end(
         "payments",
         error_threshold=2,
         success_threshold=1,
-        reset_timeout=5,
+        reset_timeout=RESET_TIMEOUT,
         backend=backend,
     )
 
@@ -317,11 +320,14 @@ async def test_circuit_breaker_end_to_end(
             async with cb:
                 raise BoomError
 
-    with pytest.raises(CircuitBreakerError):
+    with pytest.raises(CircuitBreakerError) as refused:
         async with cb:
             pass
 
     assert cb.state is CircuitBreakerState.OPEN
+    # The refusal says when the breaker next admits a probe, so an HTTP
+    # edge can put it in a Retry-After header.
+    assert 0 < refused.value.retry_after <= RESET_TIMEOUT
 
 
 async def test_closed_success_stays_closed(
@@ -424,14 +430,14 @@ async def test_two_breakers_share_state(
         "shared",
         error_threshold=2,
         success_threshold=1,
-        reset_timeout=5,
+        reset_timeout=RESET_TIMEOUT,
         backend=backend,
     )
     cb_b = CircuitBreaker.consecutive_count(
         "shared",
         error_threshold=2,
         success_threshold=1,
-        reset_timeout=5,
+        reset_timeout=RESET_TIMEOUT,
         backend=backend,
     )
 

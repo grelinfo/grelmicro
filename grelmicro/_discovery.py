@@ -57,6 +57,11 @@ class Integration(Protocol):
     `install`, so an integration written today keeps working. A new
     capability arrives as a new optional module attribute that grelmicro
     feature-detects with `getattr`.
+
+    `install_problem_details(app)` is the first of those. An integration
+    that defines it renders grelmicro's rejections as RFC 9457 responses,
+    and one that does not is skipped, which is what a framework serving no
+    HTTP wants.
     """
 
     def install(

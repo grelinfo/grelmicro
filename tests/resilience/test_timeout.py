@@ -6,7 +6,12 @@ import pytest
 from pydantic import ValidationError
 
 from grelmicro.errors import SettingsValidationError
-from grelmicro.resilience import Retry, Timeout, TimeoutConfig
+from grelmicro.resilience import (
+    DeadlineExceededError,
+    Retry,
+    Timeout,
+    TimeoutConfig,
+)
 
 _TWO = 2.0
 _THREE_HALF = 3.5
@@ -100,6 +105,44 @@ async def test_context_manager_times_out() -> None:
     with pytest.raises(TimeoutError):
         async with policy:
             await asyncio.sleep(0.5)
+
+
+DEADLINE = 0.01
+"""Deadline the error-shape tests build their policy with."""
+
+
+async def test_the_deadline_error_names_the_policy_and_the_deadline() -> None:
+    """A caller reading the error learns the wall it hit."""
+    # Arrange
+    policy = Timeout("db", seconds=DEADLINE)
+
+    # Act
+    with pytest.raises(DeadlineExceededError) as raised:
+        async with policy:
+            await asyncio.sleep(0.5)
+
+    # Assert
+    assert isinstance(raised.value, TimeoutError)
+    assert raised.value.name == "db"
+    assert raised.value.timeout == DEADLINE
+
+
+async def test_the_deadline_reported_is_the_one_the_block_ran_under() -> None:
+    """A reconfigure mid-call cannot rewrite the deadline that elapsed."""
+    # Arrange
+    policy = Timeout("db", seconds=DEADLINE)
+
+    async def widen_then_wait() -> None:
+        async with policy:
+            await policy._apply_reconfigure(TimeoutConfig(seconds=99.0))
+            await asyncio.sleep(0.5)
+
+    # Act
+    with pytest.raises(DeadlineExceededError) as raised:
+        await widen_then_wait()
+
+    # Assert
+    assert raised.value.timeout == DEADLINE
 
 
 async def test_context_manager_concurrent_tasks() -> None:

@@ -97,6 +97,7 @@ nav:
         - resilience/timeout.md
         - resilience/composition.md
     - health.md
+    - http/problems.md
     - Security:
         - security/index.md
         - security/clientip.md
@@ -128,6 +129,7 @@ nav:
     - reference/faststream.md
     - reference/litestar.md
     - reference/health.md
+    - reference/http.md
     - reference/idempotency.md
     - reference/logging.md
     - reference/metrics.md

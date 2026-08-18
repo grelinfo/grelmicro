@@ -62,6 +62,7 @@ PUBLIC_MODULES = [
     "grelmicro.coordination",
     "grelmicro.describe",
     "grelmicro.health",
+    "grelmicro.http",
     "grelmicro.idempotency",
     "grelmicro.integrations",
     "grelmicro.integrations.fastapi",

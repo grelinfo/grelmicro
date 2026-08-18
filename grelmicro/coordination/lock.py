@@ -38,7 +38,11 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.errors import SettingsValidationError, WouldBlockError
+from grelmicro.errors import (
+    LockTimeoutError,
+    SettingsValidationError,
+    WouldBlockError,
+)
 
 _MIN_RETRY_INTERVAL: float = 0.001
 _NAME_MAX_LEN = 200
@@ -428,7 +432,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
                 When None (the default), waits indefinitely. When set to
                 a positive number, retries until the deadline then raises
-                TimeoutError.
+                LockTimeoutError.
                 """,
             ),
         ] = None,
@@ -441,7 +445,8 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
-            TimeoutError: If `timeout` is set and the lock was not acquired within that time.
+            LockTimeoutError: If `timeout` is set and the lock was not acquired
+                within that time. Subclasses builtin `TimeoutError`.
 
         """
         config = self._config
@@ -450,20 +455,18 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             raise LockReentrantError(name=self._name)
         token = generate_task_token(config.worker)
         duration = config.lease_duration
-        deadline = (
-            asyncio.get_running_loop().time() + timeout
-            if timeout is not None
-            else None
-        )
+        # Stamped whether or not a timeout is set, so the deadline is
+        # `started + timeout` and the guard narrows `timeout` where it
+        # reports the wait that elapsed.
+        started = asyncio.get_running_loop().time()
         jitter = config.retry_jitter
         fencing_token = await self.do_acquire(token=token, duration=duration)
         while fencing_token is None:
             if (
-                deadline is not None
-                and asyncio.get_running_loop().time() >= deadline
+                timeout is not None
+                and asyncio.get_running_loop().time() >= started + timeout
             ):
-                msg = f"Lock not acquired within timeout: name={self._name}"
-                raise TimeoutError(msg)
+                raise LockTimeoutError(name=self._name, timeout=timeout)
             interval = jittered_interval(config.retry_interval, jitter)
             await asyncio.sleep(interval)
             fencing_token = await self.do_acquire(
@@ -650,27 +653,26 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
-            TimeoutError: If `timeout` is set and the lock was not acquired within that time.
+            LockTimeoutError: If `timeout` is set and the lock was not acquired
+                within that time. Subclasses builtin `TimeoutError`.
         """
         config = self._config
         if thread_id in self._held_by_threads:
             raise LockReentrantError(name=self._name)
         token = generate_thread_token(config.worker, thread_id=thread_id)
         duration = config.lease_duration
-        deadline = (
-            asyncio.get_running_loop().time() + timeout
-            if timeout is not None
-            else None
-        )
+        # Stamped whether or not a timeout is set, so the deadline is
+        # `started + timeout` and the guard narrows `timeout` where it
+        # reports the wait that elapsed.
+        started = asyncio.get_running_loop().time()
         jitter = config.retry_jitter
         fencing_token = await self.do_acquire(token=token, duration=duration)
         while fencing_token is None:
             if (
-                deadline is not None
-                and asyncio.get_running_loop().time() >= deadline
+                timeout is not None
+                and asyncio.get_running_loop().time() >= started + timeout
             ):
-                msg = f"Lock not acquired within timeout: name={self._name}"
-                raise TimeoutError(msg)
+                raise LockTimeoutError(name=self._name, timeout=timeout)
             interval = jittered_interval(config.retry_interval, jitter)
             await asyncio.sleep(interval)
             fencing_token = await self.do_acquire(
@@ -797,7 +799,8 @@ class ThreadLockAdapter:
         Raises:
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
             LockAcquireError: Cannot acquire the lock due to backend error.
-            TimeoutError: If `timeout` is set and the lock was not acquired within that time.
+            LockTimeoutError: If `timeout` is set and the lock was not acquired
+                within that time. Subclasses builtin `TimeoutError`.
         """
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_acquire(get_ident(), timeout=timeout),

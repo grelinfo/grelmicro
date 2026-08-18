@@ -7,10 +7,15 @@ This is the explicit list of what that call supports.
 
 | Framework | Extra | What `install` wires |
 |---|---|---|
-| [FastAPI](https://fastapi.tiangolo.com/) | `grelmicro[fastapi]` | The lifespan, the per-request binding, and OpenTelemetry auto-instrumentation. |
-| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan and the per-request binding. |
-| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks, and the per-request binding. |
+| [FastAPI](https://fastapi.tiangolo.com/) | `grelmicro[fastapi]` | The lifespan, the per-request binding, problem details, and OpenTelemetry auto-instrumentation. |
+| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan, the per-request binding, and problem details. |
+| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks, the per-request binding, and problem details. |
 | [FastStream](https://faststream.airt.ai/) | `grelmicro[faststream]` | The startup and shutdown hooks, the per-message binding, and the broker telemetry middleware. |
+
+Problem details mean every rejection grelmicro raises answers the client as an
+RFC 9457 `application/problem+json` body instead of becoming a `500`. Read
+[Problem Details](http/problems.md), or pass `problem_details=False` to answer
+them yourself. FastStream serves no HTTP, so the flag does nothing there.
 
 The extra installs the framework itself. grelmicro imports nothing from it
 until you call `install`, so an app that already depends on FastAPI needs no

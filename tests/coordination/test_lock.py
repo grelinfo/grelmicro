@@ -8,6 +8,7 @@ from threading import get_ident
 
 import pytest
 from pytest_mock import MockerFixture
+from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 
 import grelmicro.coordination._base as base_module
 import grelmicro.coordination.lock as lock_module
@@ -23,9 +24,18 @@ from grelmicro.coordination.errors import (
 )
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
-from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.errors import (
+    AdmissionError,
+    LockTimeoutError,
+    OutOfContextError,
+    SettingsValidationError,
+)
 from grelmicro.errors import WouldBlockError as WouldBlock
+from grelmicro.http import problem_detail
 from tests._faults import cancel_midflight
+
+BOUNDED_WAIT = 0.01
+"""Seconds the bounded-acquire tests wait before giving up."""
 
 # 5s, not 1s: the from_thread tests do several thread-to-loop round-trips that
 # slow down under heavy parallel CI load. The timeout guards against hangs, so
@@ -1055,8 +1065,52 @@ async def test_lock_acquire_timeout_raises_when_held(
     )
     await holder.acquire()
 
-    with pytest.raises(TimeoutError):
-        await waiter.acquire(timeout=0.01)
+    with pytest.raises(LockTimeoutError) as raised:
+        await waiter.acquire(timeout=BOUNDED_WAIT)
+
+    # One outcome, one `except`: the bounded wait and the non-blocking
+    # refusal both say the lock was not granted. The builtin still catches
+    # it, so an `except TimeoutError` around a bounded acquire keeps working.
+    assert isinstance(raised.value, TimeoutError)
+    assert isinstance(raised.value, WouldBlock)
+    assert isinstance(raised.value, AdmissionError)
+    assert raised.value.name == LOCK_NAME
+    assert raised.value.timeout == BOUNDED_WAIT
+
+
+async def test_lock_acquire_timeout_renders_as_a_lock_problem(
+    backend: LockBackend,
+) -> None:
+    """A bounded acquire that ran out answers the client, not a 500."""
+    # Arrange
+    holder = Lock(
+        name=LOCK_NAME,
+        backend=backend,
+        worker="worker_holder",
+        lease_duration=5.0,
+        retry_interval=0.001,
+    )
+    waiter = Lock(
+        name=LOCK_NAME,
+        backend=backend,
+        worker="worker_waiter",
+        lease_duration=5.0,
+        retry_interval=0.001,
+    )
+    await holder.acquire()
+
+    # Act
+    with pytest.raises(LockTimeoutError) as raised:
+        await waiter.acquire(timeout=BOUNDED_WAIT)
+    problem = problem_detail(raised.value, instance="/checkout")
+
+    # Assert
+    assert problem is not None
+    assert problem.status == HTTP_503_SERVICE_UNAVAILABLE
+    assert problem.type.endswith("#lock-unavailable")
+    assert "waiting" in (problem.detail or "")
+    # The lock name is internal topology and never reaches the wire.
+    assert LOCK_NAME not in (problem.detail or "")
 
 
 async def test_lock_acquire_timeout_succeeds_when_released_in_time(

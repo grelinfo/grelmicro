@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+* 💥 A bounded lock acquire raises `LockTimeoutError` instead of a bare `TimeoutError`. It subclasses `WouldBlockError`, so one `except` now covers a lock you did not get whether the call refused to wait or waited and ran out, and it subclasses the builtin, so an `except TimeoutError` keeps working. It carries the lock and the elapsed wait, and answers a client with the same `503` a non-blocking refusal does instead of a `500`. Affects `Lock.acquire(timeout=...)` and `ReadWriteLock.acquire(timeout=...)`. ([#772](https://github.com/grelinfo/grelmicro/issues/772))
+* 💥 `Timeout` raises `DeadlineExceededError` instead of a bare `TimeoutError`. It subclasses the builtin, so an `except TimeoutError` keeps working, and it carries `name` and `timeout`, which a bare builtin could not. Catch it to tell a deadline you set apart from a socket timeout raised underneath it. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 💥 `IdempotencyMiddleware` answers with `application/problem+json` instead of `{"detail": ...}`. The `400`, `409`, `413`, and `422` responses all change shape, and a client reading `detail` still finds it, now beside `type`, `title`, `status`, and `instance`. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 💥 The Postgres circuit breaker drops and recreates three stored functions on the next start, because their result columns grew. `auto_migrate` handles it under the advisory lock it already takes. A deployment that runs with `auto_migrate=False` has to apply the change itself. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+
+### Security
+
+* 🔒 A problem detail never carries the exception message. Those messages name the thing that was refused, and `RateLimitExceededError` alone would have published the key it rejected, which is often a client address or a user id. grelmicro writes every `detail` itself. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 🔒 A problem detail serializes through pydantic's JSON mode, so an extension member that is not a JSON native cannot fail the response. Whether the encoder coped with a `UUID` or a `Decimal` otherwise depended on which JSON library was installed, which is a page that works in development and fails in production. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 🔒 Every problem response carries `Cache-Control: no-store`, so a shared cache cannot serve one client's `429` to another, and `X-Content-Type-Options: nosniff`, because the body reflects the request path back in `instance`. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+
+### Added
+
+* ✨ Every rejection grelmicro raises answers the client as an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) problem detail. `micro.install(app)` registers the handler on FastAPI, Starlette, and Litestar, so a rate limiter over budget, a full bulkhead, an open circuit breaker, an elapsed deadline, or an idempotency conflict returns `application/problem+json` instead of becoming a `500`. Pass `problem_details=False` to answer them yourself. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* ✨ `grelmicro.http` ships `ProblemDetail`, a Pydantic model for the body, `problem_detail(exc)` to render a rejection, and `send_problem(send, problem)` to write one from a pure-ASGI middleware. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* ✨ `CircuitBreakerError.retry_after` reports the seconds until the breaker next admits a probe, counted on the backend that holds the state so every replica agrees. It reaches a client as `Retry-After`. A breaker an operator forced open reports `0.0`, because nothing but a reset releases it. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* ✨ `CircuitBreakerSnapshot.retry_after` carries the same value from every adapter, memory, Redis, Postgres, and SQLite alike. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* ✨ `document_idempotency(app)` publishes a `ProblemDetail` component and points each middleware response at it, so a generated client knows the body it will get. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 📝 A [Problem Details](http/problems.md) guide and an [HTTP](reference/http.md) reference page. Each `type` URI dereferences to its own section. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+
 ## 0.40.0 - 2026-08-18
 
 ### Breaking

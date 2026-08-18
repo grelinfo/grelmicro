@@ -25,6 +25,9 @@ OPEN = CircuitBreakerState.OPEN
 HALF_OPEN = CircuitBreakerState.HALF_OPEN
 CLOCK_START = 1000.0
 DAY = 86400.0
+COOL_DOWN = 30.0
+HALFWAY = 20.0
+REMAINING = COOL_DOWN - HALFWAY
 
 
 def strategy(
@@ -51,6 +54,35 @@ async def test_error_threshold_opens_and_resets_counters() -> None:
         assert snap.opened_at == CLOCK_START
         assert snap.consecutive_error_count == 0
         assert snap.consecutive_success_count == 0
+
+
+async def test_retry_after_counts_the_cool_down_down() -> None:
+    """An OPEN circuit reports the seconds until it next admits a probe."""
+    config = ConsecutiveCountConfig(error_threshold=1, reset_timeout=COOL_DOWN)
+    async with VirtualClock(start=CLOCK_START) as clock:
+        cb = strategy(config)
+
+        snap = await cb.record_outcome(success=False)
+        assert snap.state is OPEN
+        assert snap.retry_after == COOL_DOWN
+
+        await clock.advance(HALFWAY)
+        assert (await cb.get_snapshot()).retry_after == REMAINING
+
+        await clock.advance(COOL_DOWN)
+        assert (await cb.get_snapshot()).retry_after == 0.0
+
+
+async def test_retry_after_is_zero_when_nothing_releases_the_circuit() -> None:
+    """A CLOSED circuit waits for nothing, and a forced one for an operator."""
+    config = ConsecutiveCountConfig(error_threshold=1, reset_timeout=COOL_DOWN)
+    async with VirtualClock(start=CLOCK_START):
+        cb = strategy(config)
+
+        assert (await cb.get_snapshot()).retry_after == 0.0
+
+        await cb.transition(desired=CircuitBreakerState.FORCED_OPEN)
+        assert (await cb.get_snapshot()).retry_after == 0.0
 
 
 async def test_half_open_entry_and_close_reset_snapshot() -> None:

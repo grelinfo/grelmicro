@@ -95,12 +95,23 @@ This is the right pattern when locking by business identity (`order_id`,
 ## Bounded acquire
 
 Pass `timeout=` to `acquire()` to limit how long the call waits. When the
-deadline passes without winning the lock, `TimeoutError` is raised:
+deadline passes without winning the lock, `LockTimeoutError` is raised:
 
 ```python
-# Wait up to 5 seconds, then raise TimeoutError.
+# Wait up to 5 seconds, then raise LockTimeoutError.
 held = await lock.acquire(timeout=5.0)
 ```
+
+It carries the lock and the wait that elapsed, and it subclasses two things
+you may already catch:
+
+- `WouldBlockError`, so one `except` covers a lock you did not get, whether
+  the call refused to wait at all or waited and ran out.
+- The builtin `TimeoutError`, so an `except TimeoutError` around a bounded
+  acquire keeps working.
+
+Over HTTP it becomes a `503` [problem detail](../http/problems.md), the same
+one a non-blocking acquire produces.
 
 The context manager (`async with lock`) calls `acquire()` with no timeout and
 waits indefinitely. Use `acquire(timeout=...)` directly when you need a

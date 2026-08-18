@@ -12,8 +12,12 @@ from grelmicro.errors import WouldBlockError
 from grelmicro.resilience.errors import (
     BulkheadFullError,
     CircuitBreakerError,
+    DeadlineExceededError,
     RateLimitExceededError,
 )
+
+RETRY_AFTER = 12.5
+DEADLINE = 2.0
 
 
 @pytest.mark.parametrize(
@@ -50,6 +54,29 @@ def test_circuit_breaker_error() -> None:
     assert str(error) == "Circuit breaker 'test' call not permitted"
     assert error.last_error == exc
     assert error.last_error_time == time
+    assert error.retry_after == 0.0
+
+
+def test_circuit_breaker_error_carries_retry_after() -> None:
+    """An open breaker reports how long until it next admits a probe."""
+    # Act
+    error = CircuitBreakerError(name="test", retry_after=RETRY_AFTER)
+
+    # Assert
+    assert error.retry_after == RETRY_AFTER
+
+
+def test_deadline_exceeded_error_is_a_builtin_timeout() -> None:
+    """`except TimeoutError` still catches an elapsed grelmicro deadline."""
+    # Act
+    error = DeadlineExceededError(name="db", timeout=DEADLINE)
+
+    # Assert
+    assert isinstance(error, TimeoutError)
+    assert issubclass(DeadlineExceededError, GrelmicroError)
+    assert error.name == "db"
+    assert error.timeout == DEADLINE
+    assert str(error) == "Timeout 'db' exceeded its 2.0s deadline"
 
 
 def test_resilience_module_exports() -> None:
@@ -70,6 +97,7 @@ def test_resilience_module_exports() -> None:
         "CircuitBreakerStrategy",
         "ConsecutiveCountConfig",
         "ConstantBackoff",
+        "DeadlineExceededError",
         "ErrorDetails",
         "ExponentialBackoff",
         "Fallback",
