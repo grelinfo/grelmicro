@@ -1,12 +1,17 @@
-"""Read a version's section out of `docs/changelog.md`.
+"""Read and write a version's section in `docs/changelog.md`.
 
-Two release steps need the same parsing. `check` gates a release on the
-section existing and carrying today's date, so a tag is never cut against a
-changelog that still says `Unreleased` or carries yesterday's date. `notes`
-prints the section body, which is what the GitHub Release description
-should hold.
+Three release steps need the same parsing. `release` renames the
+`Unreleased` heading to the version being cut, which was the one manual
+step in the procedure and the easiest to get wrong. `check` then gates the
+release on that section existing and carrying today's date, so a tag is
+never cut against a changelog that still says `Unreleased` or carries
+yesterday's date. `notes` prints the section body, which is what the GitHub
+Release description should hold.
 
-Run via `just release-check` and `just release-notes`.
+The writer and the checker live together on purpose: one parser, so they
+cannot disagree about the format.
+
+Run via `just release`, `just release-check` and `just release-notes`.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -77,6 +83,166 @@ def check(version: str, today: str) -> int:
     return 0
 
 
+VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[abrc]\w*|\.dev\d+|\.post\d+)?$")
+"""A bare release version, matching how this project's tags are written.
+
+`v0.40.0` is a natural thing to type and every tag here is bare, so the
+prefix is refused rather than written into a heading that `check` would
+then accept.
+"""
+
+
+def _git_tags(pattern: str = "") -> str | None:
+    """Return matching git tags, or None when git cannot answer."""
+    command = ["git", "tag", "--list"] + ([pattern] if pattern else [])
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:  # pragma: no cover  # git missing entirely
+        return None
+    if result.returncode != 0:  # pragma: no cover  # not a repository
+        return None
+    return result.stdout.strip()
+
+
+def is_tagged(version: str) -> bool:
+    """Return whether a git tag exists for `version`.
+
+    A tagged section describes what shipped and is never rewritten. An
+    untagged one is still being prepared.
+
+    Fails closed. A shallow clone carries no tags, so asking whether one
+    exists answers "no" for a version that shipped months ago, and the
+    guard protecting a released section would quietly disappear exactly
+    where nobody is watching. When the repository has no tags at all, the
+    question is unanswerable rather than answered "no", so a released
+    section is treated as released.
+    """
+    matching = _git_tags(version)
+    if matching:
+        return True
+    return not _git_tags()
+
+
+def _has_entries(body: str) -> bool:
+    """Return whether a section holds an entry, not just sub-headings."""
+    return any(line.lstrip().startswith("* ") for line in body.splitlines())
+
+
+def _warn_if_entries_accumulated(
+    found: dict[str, tuple[str | None, str]],
+) -> None:
+    """Report entries added under `Unreleased` after the cut.
+
+    They would ship inside the tag while the release notes, which are the
+    cut section, say nothing about them.
+    """
+    leftover = found.get("Unreleased")
+    if leftover and _has_entries(leftover[1]):
+        print(
+            "warning: entries were added under 'Unreleased' after the cut. "
+            "They will ship in this tag but not appear in its notes.",
+            file=sys.stderr,
+        )
+
+
+def _recut(
+    text: str,
+    found: dict[str, tuple[str | None, str]],
+    version: str,
+    today: str,
+) -> int:
+    """Handle a version whose section already exists. Returns an exit code."""
+    date = found[version][0]
+    if date == today:
+        print(f"changelog already cut: {version} dated {today}")
+        _warn_if_entries_accumulated(found)
+        return 0
+    if is_tagged(version):
+        print(
+            f"{version} is already tagged, and a tagged section describes "
+            f"what shipped. Pick the next version.",
+            file=sys.stderr,
+        )
+        return 1
+    # Cut but not tagged, so this is the same release catching up with the
+    # clock. The changelog pull request routinely merges the day after the
+    # cut, and `check` demands today's date, so refusing here would deadlock
+    # the two-run procedure with no way forward.
+    # Through the parser's pattern again, so an undated heading added by
+    # hand is re-dated rather than silently skipped. A literal replace built
+    # from `date` would look for `- None` and match nothing while reporting
+    # success, which is the failure this whole function exists to avoid.
+    updated, count = re.subn(
+        rf"^## {re.escape(version)}(?: - \d{{4}}-\d{{2}}-\d{{2}})?[ \t]*$",
+        f"## {version} - {today}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if not count:  # pragma: no cover  # `sections` already found the heading
+        print(f"could not re-date the {version} heading", file=sys.stderr)
+        return 1
+    CHANGELOG.write_text(updated, encoding="utf-8")
+    print(f"changelog re-dated: {version} now {today}")
+    _warn_if_entries_accumulated(found)
+    return 0
+
+
+def release(version: str, today: str) -> int:
+    """Rename the `Unreleased` heading to `version`. Returns an exit code.
+
+    Idempotent when the section already carries today's date, so re-running
+    after a failed step later in the procedure is safe. Refuses when the
+    section is dated for a different day, since that is a section already
+    cut rather than one waiting to be.
+    """
+    if not VERSION.match(version):
+        print(
+            f"{version!r} is not a release version. Tags here are bare, so "
+            f"write 0.40.0 rather than v0.40.0.",
+            file=sys.stderr,
+        )
+        return 1
+    text = CHANGELOG.read_text(encoding="utf-8")
+    found = sections(text)
+    if version in found:
+        return _recut(text, found, version, today)
+    if "Unreleased" not in found:
+        print(
+            "changelog has no 'Unreleased' section to cut. Add entries "
+            "under '## Unreleased' first.",
+            file=sys.stderr,
+        )
+        return 1
+    if not _has_entries(found["Unreleased"][1]):
+        print(
+            "the 'Unreleased' section holds no entries, only headings",
+            file=sys.stderr,
+        )
+        return 1
+    # Rewritten through the pattern `sections` matches, not a literal
+    # string. A literal replace missed `## Unreleased ` while the parser
+    # found it, so the cut reported success and changed nothing.
+    updated, count = re.subn(
+        r"^## Unreleased[ \t]*$",
+        f"## {version} - {today}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if not count:  # pragma: no cover  # `sections` already found it
+        print("could not rewrite the 'Unreleased' heading", file=sys.stderr)
+        return 1
+    CHANGELOG.write_text(updated, encoding="utf-8")
+    print(f"changelog cut: {version} dated {today}")
+    return 0
+
+
 def notes(version: str) -> int:
     """Print the body of `version`'s section. Returns an exit code."""
     found = sections(CHANGELOG.read_text(encoding="utf-8"))
@@ -91,12 +257,14 @@ def main() -> int:
     """Parse arguments and dispatch."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("check", "notes"):
+    for name in ("release", "check", "notes"):
         item = sub.add_parser(name)
         item.add_argument("version")
     args = parser.parse_args()
+    today = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+    if args.command == "release":
+        return release(args.version, today)
     if args.command == "check":
-        today = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
         return check(args.version, today)
     return notes(args.version)
 

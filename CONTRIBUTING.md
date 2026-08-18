@@ -484,6 +484,52 @@ cannot drift away from what CI runs.
 `just release-notes 0.33.1` prints that version's changelog section, which
 is what the GitHub Release body should hold.
 
+### Cutting a release
+
+Pick the version first. Pre-1.0, `0.x.0` is the breaking position, so a
+release with any `### Breaking` entry takes the next minor and everything
+else takes the next patch. The queued entries are under `## Unreleased` in
+`docs/changelog.md`.
+
+Then one command does everything ahead of the tag:
+
+```bash
+just release 0.40.0
+```
+
+It renames `## Unreleased` to `## 0.40.0 - <today>`, then runs the full
+preflight, then prints the tag command for you to run.
+
+The first run stops after the rename, because the changelog change has to
+be on `main` before it can be released: `release-check` refuses unless
+`HEAD` is `origin/main`, and `main` is protected. So the rename goes in its
+own pull request:
+
+```bash
+git checkout -b chore/release-0.40.0
+git commit -m "🔖 Prepare the 0.40.0 release" -- docs/changelog.md
+gh pr create --fill && gh pr merge --squash --admin
+git checkout main && git pull
+```
+
+Run `just release 0.40.0` again from `main`. This time it reaches the
+preflight, and on success prints:
+
+```bash
+just release-notes 0.40.0 > /tmp/notes-0.40.0.md
+gh release create 0.40.0 --target main \
+    --title 0.40.0 --notes-file /tmp/notes-0.40.0.md
+```
+
+Creating the tag is deliberately left to you. It is immutable, and a
+version that fails after tagging is burned. Everything that can be checked
+has been checked by this point.
+
+Pushing the tag starts `release.yml`, which runs the full matrix again,
+builds, attests provenance, verifies that provenance, and only then
+publishes to PyPI over OIDC. When it finishes, confirm the published
+artifacts with `just verify-release 0.40.0`.
+
 ### Verifying a published release
 
 The README advertises SLSA Build Level 2. That claim holds only while

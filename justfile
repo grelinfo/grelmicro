@@ -117,6 +117,39 @@ release-check-fast version:
     uv run mkdocs build --strict
     echo "release-check-fast passed for {{version}}"
 
+# Everything before the tag, in one command. Stops short of tagging.
+# The tag is immutable, so creating it stays a conscious act: this prints the
+# command rather than running it. Everything ahead of that line is mechanical
+# and is done here, in the order `release-check` requires.
+[doc("Cut the changelog and run every preflight, then print the tag command")]
+release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    uv run python tools/changelog.py release "{{version}}"
+    if [ -n "$(git status --porcelain docs/changelog.md)" ]; then
+        echo
+        echo "The changelog is cut but not merged. release-check runs from"
+        echo "origin/main, and main is protected, so this needs its own PR:"
+        echo
+        echo "  git checkout -b chore/release-{{version}}"
+        echo "  git commit -m '🔖 Prepare the {{version}} release' -- docs/changelog.md"
+        echo "  gh pr create --fill && gh pr merge --squash --admin"
+        echo
+        echo "Then run 'just release {{version}}' again from main."
+        exit 1
+    fi
+    just release-check "{{version}}"
+    echo
+    echo "Preflight passed. The tag is immutable, so cutting it is yours:"
+    echo
+    echo "  just release-notes {{version}} > /tmp/notes-{{version}}.md"
+    echo "  gh release create {{version}} --target main \\"
+    echo "      --title {{version}} --notes-file /tmp/notes-{{version}}.md"
+    echo
+    echo "Then, once the workflow finishes:"
+    echo
+    echo "  just verify-release {{version}}"
+
 # Print a version's changelog section, which is the GitHub Release body.
 release-notes version:
     @uv run python tools/changelog.py notes "{{version}}"
