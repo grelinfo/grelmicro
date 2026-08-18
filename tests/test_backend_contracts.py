@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 import grelmicro
+from tests._contract_support import base_names, module_name
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
@@ -59,42 +60,16 @@ class HostileProvider:
         raise AssertionError(msg)
 
 
-def _declared_protocols(node: ast.ClassDef) -> set[str]:
-    """Return the base names a class declares, by source not by import."""
-    names = set()
-    for base in node.bases:
-        if isinstance(base, ast.Name):
-            names.add(base.id)
-        elif isinstance(base, ast.Attribute):
-            names.add(base.attr)
-    return names
-
-
-def _module_name(path: Path) -> str:
-    """Return the importable module name for a source path.
-
-    A package is named by its directory, never by its `__init__`. Importing
-    `pkg.__init__` re-executes the module under a second name, so the sweep
-    would check a duplicate class object that nobody imports, and re-run any
-    registration the module does at import time.
-    """
-    relative = path.relative_to(PACKAGE_ROOT).with_suffix("")
-    if relative.name == "__init__":
-        relative = relative.parent
-    dotted = relative.as_posix().replace("/", ".")
-    return f"grelmicro.{dotted}" if dotted else "grelmicro"
-
-
 def _discover_backends() -> list[tuple[str, str]]:
     """Return `(module, class)` for every class declaring a strategy backend."""
     found: list[tuple[str, str]] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module = _module_name(path)
+        module = module_name(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            if _declared_protocols(node) & STRATEGY_PROTOCOLS:
+            if base_names(node) & STRATEGY_PROTOCOLS:
                 found.append((module, node.name))
     return found
 
@@ -125,7 +100,7 @@ def _build(module_name: str, class_name: str) -> Any:  # noqa: ANN401
 @pytest.mark.parametrize(
     ("module_name", "class_name"),
     BACKENDS,
-    ids=[f"{module}.{name}".rsplit(".", 2)[-1] for module, name in BACKENDS],
+    ids=[name for module, name in BACKENDS],
 )
 def test_bind_refuses_an_unknown_kind_without_touching_the_provider(
     module_name: str,
@@ -158,7 +133,7 @@ def _bind(backend: Any, config: object) -> object:  # noqa: ANN401
 @pytest.mark.parametrize(
     ("module_name", "class_name"),
     BACKENDS,
-    ids=[f"{module}.{name}".rsplit(".", 2)[-1] for module, name in BACKENDS],
+    ids=[name for module, name in BACKENDS],
 )
 def test_backend_declares_its_scope(
     module_name: str,

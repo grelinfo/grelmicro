@@ -23,6 +23,7 @@ from pydantic import BaseModel
 import grelmicro
 from grelmicro._config import Reconfigurable, env_prefixes
 from grelmicro.cache import TTLCache
+from tests._contract_support import base_names, module_name
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
@@ -34,48 +35,23 @@ sweep exists to catch. Raise it deliberately when a class is added.
 """
 
 
-def _module_name(path: Path) -> str:
-    """Return the importable module name for a source path.
-
-    A package is named by its directory, never by its `__init__`. Importing
-    `pkg.__init__` re-executes the module under a second name, so the sweep
-    would check a duplicate class object that nobody imports, and re-run any
-    registration the module does at import time.
-    """
-    relative = path.relative_to(PACKAGE_ROOT).with_suffix("")
-    if relative.name == "__init__":
-        relative = relative.parent
-    dotted = relative.as_posix().replace("/", ".")
-    return f"grelmicro.{dotted}" if dotted else "grelmicro"
-
-
 def _discover_reconfigurables() -> list[tuple[str, str]]:
     """Return `(module, class)` for every class declaring `Reconfigurable`."""
     found: list[tuple[str, str]] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        module = _module_name(path)
+        module = module_name(path)
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef) or node.name.startswith("_"):
                 continue
-            for base in node.bases:
-                target = base
-                if isinstance(target, ast.Subscript):
-                    target = target.value
-                name = getattr(target, "id", None) or getattr(
-                    target, "attr", None
-                )
-                if name == "Reconfigurable":
-                    found.append((module, node.name))
-                    break
+            if "Reconfigurable" in base_names(node):
+                found.append((module, node.name))
     return found
 
 
 RECONFIGURABLES = _discover_reconfigurables()
 
-IDS = [
-    f"{module}.{name}".rsplit(".", 2)[-1] for module, name in RECONFIGURABLES
-]
+IDS = [name for module, name in RECONFIGURABLES]
 
 
 def test_the_sweep_finds_reconfigurables() -> None:
