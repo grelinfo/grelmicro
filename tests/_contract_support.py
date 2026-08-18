@@ -64,19 +64,19 @@ def called_names(tree: ast.AST) -> set[str]:
 
 
 def call_targets(tree: ast.AST) -> set[str]:
-    """Return the names `tree` actually calls, not every name it mentions.
+    """Return the bare names `tree` calls as plain functions.
 
     Following every mention would pull in a module-level function whenever
-    its name appears as an attribute or a variable, and then judge the
+    its name appeared as an attribute or a variable, and then judge the
     caller on a body it never runs.
+
+    Method calls are excluded for the same reason. `self._clock.monotonic()`
+    is not a call to whatever `monotonic` a module happens to import, and
+    resolving it against the module namespace would blame the caller for an
+    unrelated function's body.
     """
     return {
-        name
+        node.func.id
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        for name in (
-            getattr(node.func, "id", None),
-            getattr(node.func, "attr", None),
-        )
-        if isinstance(name, str)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
