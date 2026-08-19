@@ -26,7 +26,7 @@
 * ✨ `document_idempotency(app)` publishes whichever format is registered, so a generated client decodes `TMFError` rather than `ProblemDetail` when `ErrorResponses.tmf()` is wired. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
 * ✨ The framework's own errors answer in the registered format too, so the whole API answers in one shape. An `HTTPException` keeps its status, its message and any header it carried, and a request that failed validation becomes a `validation-failed` response carrying the field errors. The validation status stays the framework's, `422` on FastAPI and `400` on Litestar. Register a handler of your own for either and grelmicro leaves it alone. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
 * ✨ `error_response(request, status=...)` builds a response in the app's registered format from your own exception handler, on Starlette, FastAPI and Litestar. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
-* ✨ FastAPI's generated `422` is republished with the media type and model the app answers with, so a client generated from the schema decodes the right shape. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
+* ✨ The generated OpenAPI follows the registered format on FastAPI and Litestar, so a client built from the schema decodes what the app actually sends. The models the framework published for its own error shape are dropped once nothing points at them. A response you declared yourself keeps its schema. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
 * 📝 A [Error Responses](http/errors.md) guide and an [HTTP](reference/http.md) reference page. Each `type` URI dereferences to its own section. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 
 ## 0.40.0 - 2026-08-18

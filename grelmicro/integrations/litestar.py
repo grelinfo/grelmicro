@@ -200,6 +200,7 @@ def install_error_responses(
         )
 
     app.state.grelmicro_error_responses = errors
+    _document_error_responses(app, errors)
 
     from litestar.exceptions import HTTPException  # noqa: PLC0415
 
@@ -211,6 +212,88 @@ def install_error_responses(
         # same way one registered before `install` does on Starlette.
         if klass not in app.exception_handlers:
             app.exception_handlers[klass] = handler
+
+
+_LITESTAR_ERROR_MEMBERS = frozenset({"detail", "status_code"})
+"""What every schema Litestar generates for its own exception requires.
+
+Matched on the shape rather than on the description text, which is drawn
+from a class docstring and is not a contract.
+"""
+
+
+def _document_error_responses(app: Litestar, errors: ErrorResponses) -> None:
+    """Republish the schema's error responses in the format now installed.
+
+    Litestar describes every error response with the shape of its own
+    `HTTPException`. That is no longer what those operations answer with, so
+    a generated client would decode the wrong body.
+
+    Runs on startup rather than here. Litestar builds the schema lazily and
+    caches it, and a route registered after `install` would be missing from
+    one built too early.
+    """
+
+    async def rewrite() -> None:
+        from litestar._openapi.plugin import (  # noqa: PLC0415
+            OpenAPIPlugin,
+        )
+
+        try:
+            plugin = app.plugins.get(OpenAPIPlugin)
+        except KeyError:  # pragma: no cover
+            # An app built with `openapi_config=None` publishes no schema.
+            return
+        # Built once and cached by the plugin, so rewriting the dict it
+        # returns is what every later reader sees.
+        _rewrite_error_responses(
+            plugin.provide_openapi_schema(),
+            f"#/components/schemas/{errors.model.__name__}",
+            errors,
+        )
+
+    app.on_startup.append(rewrite)
+
+
+def _rewrite_error_responses(
+    schema: dict[str, Any], ref: str, errors: ErrorResponses
+) -> None:
+    """Point every response Litestar generated at the registered body."""
+    responses = [
+        response
+        for path_item in schema.get("paths", {}).values()
+        for operation in path_item.values()
+        if isinstance(operation, dict)
+        for response in operation.get("responses", {}).values()
+    ]
+    rewritten = [
+        response
+        for response in responses
+        if _rewrite_one(response, ref, errors.media_type)
+    ]
+    if rewritten:
+        schema.setdefault("components", {}).setdefault("schemas", {})[
+            errors.model.__name__
+        ] = errors.model.model_json_schema(
+            ref_template="#/components/schemas/{model}"
+        )
+
+
+def _rewrite_one(response: dict[str, Any], ref: str, media_type: str) -> bool:
+    """Replace one generated error body, and say whether it did.
+
+    A response the app declared itself, and one with no body at all, has no
+    schema requiring Litestar's members and is left alone.
+    """
+    generated = (
+        (response.get("content") or {})
+        .get("application/json", {})
+        .get("schema", {})
+    )
+    if not set(generated.get("required", ())) >= _LITESTAR_ERROR_MEMBERS:
+        return False
+    response["content"] = {media_type: {"schema": {"$ref": ref}}}
+    return True
 
 
 _BODYLESS_STATUSES = frozenset({204, 304})

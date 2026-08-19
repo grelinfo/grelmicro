@@ -103,9 +103,11 @@ app.add_exception_handler(HTTPException, my_handler)
 micro.install(app)
 ```
 
-On FastAPI this covers the generated OpenAPI too: the `422` every validating
-operation declares is republished with the media type and model the app now
-answers with, so a generated client decodes the right shape.
+The generated OpenAPI follows too, on FastAPI and Litestar alike. Every error
+response the framework described with its own shape is republished with the
+media type and model the app now answers with, so a client generated from the
+schema decodes what it will actually receive. A response you declared
+yourself is left alone, and so is its schema.
 
 ## Answering from your own handler
 

@@ -25,6 +25,7 @@ from litestar import Litestar, get, post
 from litestar import Request as LitestarRequest
 from litestar.exceptions import HTTPException as LitestarHTTPException
 from litestar.exceptions import NotFoundException
+from litestar.openapi.datastructures import ResponseSpec
 from litestar.response import Response as LitestarResponse
 from litestar.testing import TestClient as LitestarTestClient
 from pydantic import BaseModel
@@ -939,3 +940,102 @@ def test_tmf_keeps_a_mapping_detail() -> None:
     # Assert
     assert "code: X" in message
     assert "field: y" in message
+
+
+def test_litestar_schema_follows_the_registered_format() -> None:
+    """The promise that the schema describes the wire holds on Litestar too."""
+
+    # Arrange
+    @post("/charge")
+    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    app = Litestar(route_handlers=[charge])
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        schema = client.get("/schema/openapi.json").json()
+
+    # Assert
+    assert schema["paths"]["/charge"]["post"]["responses"]["400"][
+        "content"
+    ] == {
+        PROBLEM_MEDIA_TYPE: {
+            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+        }
+    }
+    assert "ProblemDetail" in schema["components"]["schemas"]
+
+
+def test_litestar_schema_follows_the_tmf_format() -> None:
+    """A TMF service publishes `TMFError`, not `ProblemDetail`."""
+
+    # Arrange
+    @post("/charge")
+    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    app = Litestar(route_handlers=[charge])
+    Grelmicro(uses=[ErrorResponses.tmf()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        schema = client.get("/schema/openapi.json").json()
+
+    # Assert
+    assert schema["paths"]["/charge"]["post"]["responses"]["400"][
+        "content"
+    ] == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/TMFError"}
+        }
+    }
+
+
+def test_litestar_schema_is_untouched_without_the_component() -> None:
+    """Nothing is rewritten, so Litestar's own shape stays."""
+
+    # Arrange
+    @post("/charge")
+    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    app = Litestar(route_handlers=[charge])
+    Grelmicro(uses=[]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        schema = client.get("/schema/openapi.json").json()
+
+    # Assert
+    generated = schema["paths"]["/charge"]["post"]["responses"]["400"][
+        "content"
+    ]["application/json"]["schema"]
+    assert set(generated["required"]) == {"detail", "status_code"}
+
+
+def test_litestar_leaves_a_response_the_app_declared() -> None:
+    """Only what Litestar generated is rewritten. Yours is yours."""
+
+    # Arrange
+    class Mine(BaseModel):
+        """A body the app documents itself."""
+
+        mine: str
+
+    @get("/own", responses={409: ResponseSpec(data_container=Mine)})
+    async def own() -> dict[str, bool]:
+        return {"ok": True}
+
+    app = Litestar(route_handlers=[own])
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        schema = client.get("/schema/openapi.json").json()
+
+    # Assert
+    content = schema["paths"]["/own"]["get"]["responses"]["409"]["content"]
+    assert "application/json" in content
+    assert PROBLEM_MEDIA_TYPE not in content
