@@ -22,7 +22,7 @@ from starlette.status import (
 )
 
 from grelmicro import Grelmicro
-from grelmicro.http import PROBLEM_TYPE_BASE, ErrorResponses, TMFError
+from grelmicro.http import ERROR_DOCS_BASE, ErrorResponses, TMFError
 from grelmicro.http._tmf import TMF_MEDIA_TYPE
 from grelmicro.resilience.errors import (
     BulkheadFullError,
@@ -63,7 +63,7 @@ def test_the_body_follows_tmf630() -> None:
             "The client sent more requests than the rate limit allows. Wait "
             "for the interval in the Retry-After header before sending another."
         ),
-        "referenceError": (f"{PROBLEM_TYPE_BASE}#rate-limit-exceeded"),
+        "referenceError": (f"{ERROR_DOCS_BASE}#rate-limit-exceeded"),
         "@type": "Error",
     }
 

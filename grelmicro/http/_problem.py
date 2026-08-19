@@ -17,15 +17,15 @@ from grelmicro.http._kinds import (
 )
 
 __all__ = [
+    "ERROR_DOCS_BASE",
     "PROBLEM_MEDIA_TYPE",
-    "PROBLEM_TYPE_BASE",
     "ProblemDetail",
 ]
 
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 """Media type every problem detail is served with, from RFC 9457."""
 
-PROBLEM_TYPE_BASE = DOCS_BASE
+ERROR_DOCS_BASE = DOCS_BASE
 """Where a `type` URI points, one anchor per rejection."""
 
 STANDARD_MEMBERS = frozenset({"type", "title", "status", "detail", "instance"})
@@ -57,7 +57,7 @@ class ProblemDetail(BaseModel, extra="allow"):
     async def charge() -> Charge: ...
     ```
 
-    Read more in the [Problem Details](../http/problems.md) docs.
+    Read more in the [Error Responses](../http/errors.md) docs.
     """
 
     type: Annotated[
@@ -104,9 +104,7 @@ def build(
     answer that does not fail while rendering a failure.
     """
     return ProblemDetail(
-        type=(
-            f"{PROBLEM_TYPE_BASE}#{kind.slug}" if kind.slug else "about:blank"
-        ),
+        type=(f"{ERROR_DOCS_BASE}#{kind.slug}" if kind.slug else "about:blank"),
         title=kind.title,
         status=kind.status,
         detail=kind.detail if detail is None else detail,

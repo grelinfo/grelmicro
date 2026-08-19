@@ -162,7 +162,7 @@ content-type: application/problem+json
 retry-after: 1
 
 {
-  "type": "https://grelmicro.grel.info/http/problems/#idempotency-in-flight",
+  "type": "https://grelmicro.grel.info/http/errors/#idempotency-in-flight",
   "title": "Idempotent request in flight",
   "status": 409,
   "detail": "A request with this Idempotency-Key is still running. Retry after the delay in the Retry-After header to read its response.",
@@ -173,7 +173,7 @@ retry-after: 1
 
 Past the timeout the duplicate receives that instead of holding the connection open.
 
-Every response the middleware writes itself is a [problem detail](../http/problems.md), the `400`, `409`, `413`, and `422` alike. A client branches on `type` and gets the same shape here as from a rejection raised in a handler.
+Every response the middleware writes itself is a [problem detail](../http/errors.md), the `400`, `409`, `413`, and `422` alike. A client branches on `type` and gets the same shape here as from a rejection raised in a handler.
 
 ## Conflicting payloads
 

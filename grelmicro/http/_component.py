@@ -183,7 +183,7 @@ class ErrorResponses:
 
     A framework that serves no HTTP, such as FastStream, ignores it.
 
-    Read more in the [Problem Details](../http/problems.md) docs.
+    Read more in the [Error Responses](../http/errors.md) docs.
     """
 
     kind: ClassVar[str] = "error_responses"

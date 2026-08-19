@@ -34,8 +34,8 @@ from grelmicro import (
 )
 from grelmicro.errors import LockTimeoutError, WouldBlockError
 from grelmicro.http import (
+    ERROR_DOCS_BASE,
     PROBLEM_MEDIA_TYPE,
-    PROBLEM_TYPE_BASE,
     ErrorResponses,
     ProblemDetail,
     send_error,
@@ -140,7 +140,7 @@ def test_every_rejection_maps_to_a_problem(
     # Assert
     assert problem is not None
     assert problem.status == status
-    assert problem.type == f"{PROBLEM_TYPE_BASE}#{slug}"
+    assert problem.type == f"{ERROR_DOCS_BASE}#{slug}"
     assert problem.instance == "/charge"
     assert problem.title
     assert problem.detail
@@ -166,7 +166,7 @@ def test_a_new_admission_subclass_is_covered() -> None:
     # Assert
     assert problem is not None
     assert problem.status == HTTP_503_SERVICE_UNAVAILABLE
-    assert problem.type == f"{PROBLEM_TYPE_BASE}#request-refused"
+    assert problem.type == f"{ERROR_DOCS_BASE}#request-refused"
 
 
 @pytest.mark.parametrize("exc", [row[0] for row in EXPECTED])
@@ -307,7 +307,7 @@ def test_fastapi_renders_a_rejection(fastapi_client: TestClient) -> None:
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
     body = response.json()
-    assert body["type"] == f"{PROBLEM_TYPE_BASE}#rate-limit-exceeded"
+    assert body["type"] == f"{ERROR_DOCS_BASE}#rate-limit-exceeded"
     assert body["instance"] == "/limited"
     assert body["retry_after"] == RETRY_AFTER
 
@@ -399,7 +399,7 @@ def test_litestar_renders_a_rejection() -> None:
     assert response.headers["retry-after"] == "2"
     assert response.headers["cache-control"] == "no-store"
     body = response.json()
-    assert body["type"] == f"{PROBLEM_TYPE_BASE}#rate-limit-exceeded"
+    assert body["type"] == f"{ERROR_DOCS_BASE}#rate-limit-exceeded"
     assert body["instance"] == "/limited"
 
 

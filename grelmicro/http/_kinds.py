@@ -31,7 +31,7 @@ from grelmicro.resilience.errors import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-DOCS_BASE = "https://grelmicro.grel.info/http/problems/"
+DOCS_BASE = "https://grelmicro.grel.info/http/errors/"
 """Where the documentation of each rejection lives, one anchor per kind.
 
 Fixed rather than configurable. A client branches on the identifier built

@@ -15,7 +15,7 @@ The format comes from the factory you call, never from a variable. RFC 9457
 problem details are the default, and `ErrorResponses.tmf()` renders the TM
 Forum format for a service answering to a TM Forum Open API platform.
 
-Read more in the [Problem Details](../http/problems.md) docs.
+Read more in the [Error Responses](../http/errors.md) docs.
 """
 
 from grelmicro.http._component import (
@@ -24,15 +24,15 @@ from grelmicro.http._component import (
     send_error,
 )
 from grelmicro.http._problem import (
+    ERROR_DOCS_BASE,
     PROBLEM_MEDIA_TYPE,
-    PROBLEM_TYPE_BASE,
     ProblemDetail,
 )
 from grelmicro.http._tmf import TMFError
 
 __all__ = [
+    "ERROR_DOCS_BASE",
     "PROBLEM_MEDIA_TYPE",
-    "PROBLEM_TYPE_BASE",
     "ErrorResponses",
     "ProblemDetail",
     "RenderedError",

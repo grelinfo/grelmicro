@@ -97,7 +97,7 @@ nav:
         - resilience/timeout.md
         - resilience/composition.md
     - health.md
-    - http/problems.md
+    - http/errors.md
     - Security:
         - security/index.md
         - security/clientip.md

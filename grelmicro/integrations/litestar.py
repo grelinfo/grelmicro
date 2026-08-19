@@ -136,7 +136,7 @@ def install_error_responses(
     install_error_responses(app, ErrorResponses())
     ```
 
-    Read more in the [Problem Details](../http/problems.md) docs.
+    Read more in the [Error Responses](../http/errors.md) docs.
     """
 
     def handler(request: Request, exc: Exception) -> Response:

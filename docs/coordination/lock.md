@@ -110,7 +110,7 @@ you may already catch:
 - The builtin `TimeoutError`, so an `except TimeoutError` around a bounded
   acquire keeps working.
 
-Over HTTP it becomes a `503` [problem detail](../http/problems.md), the same
+Over HTTP it becomes a `503` [problem detail](../http/errors.md), the same
 one a non-blocking acquire produces.
 
 The context manager (`async with lock`) calls `acquire()` with no timeout and

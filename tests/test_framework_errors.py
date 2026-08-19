@@ -44,7 +44,7 @@ from starlette.testclient import TestClient as StarletteTestClient
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
-from grelmicro.http import PROBLEM_MEDIA_TYPE, PROBLEM_TYPE_BASE, ErrorResponses
+from grelmicro.http import ERROR_DOCS_BASE, PROBLEM_MEDIA_TYPE, ErrorResponses
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import (
     IdempotencyMiddleware,
@@ -236,7 +236,7 @@ def test_validation_carries_one_identifier_on_every_framework(
     # Assert
     assert response.status_code == status
     body = response.json()
-    assert body["type"] == f"{PROBLEM_TYPE_BASE}#validation-failed"
+    assert body["type"] == f"{ERROR_DOCS_BASE}#validation-failed"
     assert body["status"] == status
     assert body["errors"]
 

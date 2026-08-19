@@ -1,6 +1,6 @@
 # HTTP
 
-- **Start here**: [Problem Details](../http/problems.md)
+- **Start here**: [Error Responses](../http/errors.md)
 - **The errors**: [Errors](errors.md)
 
 Register `ErrorResponses()` and `micro.install(app)` wires the handler, so a
@@ -17,4 +17,4 @@ own, and `send_error` to write one from a pure-ASGI middleware.
         - ProblemDetail
         - TMFError
         - PROBLEM_MEDIA_TYPE
-        - PROBLEM_TYPE_BASE
+        - ERROR_DOCS_BASE

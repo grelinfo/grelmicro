@@ -1,20 +1,22 @@
-# Problem Details
+# Error Responses
 
 grelmicro knows why it turned a request away. A rate limiter knows when the
 budget refills, an open circuit breaker knows when it next tries the
 dependency, a full bulkhead knows there is nothing to wait for. This page is
 how that reaches the client.
 
-Every rejection is rendered as an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html)
-problem detail, the `application/problem+json` body that HTTP APIs use for
-errors.
+Every error the app answers with is rendered in one standard format.
+[RFC 9457](https://www.rfc-editor.org/rfc/rfc9457.html) problem details, the
+`application/problem+json` body HTTP APIs use for errors, is the default.
+The [TM Forum format](#the-tm-forum-format) of TMF630 is the other, for a
+service answering to a TM Forum Open API platform.
 
 ## Wiring
 
 Register `ErrorResponses()`, and `micro.install(app)` wires the handler:
 
-```python title="problems.py"
---8<-- "http/problems.py"
+```python title="errors.py"
+--8<-- "http/errors.py"
 ```
 
 It is registered for FastAPI, Starlette, and Litestar. A framework that
@@ -43,7 +45,7 @@ cache-control: no-store
 retry-after: 2
 
 {
-  "type": "https://grelmicro.grel.info/http/problems/#rate-limit-exceeded",
+  "type": "https://grelmicro.grel.info/http/errors/#rate-limit-exceeded",
   "title": "Rate limit exceeded",
   "status": 429,
   "detail": "The client sent more requests than the rate limit allows. Wait for the interval in the Retry-After header before sending another.",
@@ -277,7 +279,7 @@ retry-after: 2
   "code": "GREL-RATE-LIMIT-EXCEEDED",
   "reason": "Rate limit exceeded",
   "message": "The client sent more requests than the rate limit allows. Wait for the interval in the Retry-After header before sending another.",
-  "referenceError": "https://grelmicro.grel.info/http/problems/#rate-limit-exceeded",
+  "referenceError": "https://grelmicro.grel.info/http/errors/#rate-limit-exceeded",
   "@type": "Error"
 }
 ```

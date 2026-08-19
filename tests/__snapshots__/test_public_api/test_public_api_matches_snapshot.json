@@ -246,13 +246,13 @@
     }
   },
   "grelmicro.http": {
+    "ERROR_DOCS_BASE": null,
     "ErrorResponses": {
       "()": "(*, name='default') -> 'None'",
       ".problem_details": "(*, name='default') -> 'Self'",
-      ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/problems/', name='default') -> 'Self'"
+      ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/errors/', name='default') -> 'Self'"
     },
     "PROBLEM_MEDIA_TYPE": null,
-    "PROBLEM_TYPE_BASE": null,
     "ProblemDetail": {
       "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
     },
