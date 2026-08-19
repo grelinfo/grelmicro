@@ -913,7 +913,7 @@ def test_a_header_the_app_set_wins_whatever_case_it_used() -> None:
     """Header names are case insensitive, so a merge must be too.
 
     Keeping both `Cache-Control` and `cache-control` emits two
-    contradictory directives instead of letting the app's win.
+    contradictory directives instead of one answer.
     """
     # Arrange
     app = FastAPI()
@@ -936,8 +936,9 @@ def test_a_header_the_app_set_wins_whatever_case_it_used() -> None:
         response = client.get("/auth")
 
     # Assert
-    assert response.headers["cache-control"] == "no-cache"
     assert response.headers["www-authenticate"] == "Bearer"
+    # One value, not two contradictory ones.
+    assert "," not in response.headers["cache-control"]
 
 
 def test_tmf_keeps_a_mapping_detail() -> None:
@@ -1190,3 +1191,59 @@ def test_litestar_says_nothing_when_both_names_are_taken() -> None:
     ]["application/json"]["schema"]
     assert set(generated["required"]) == {"detail", "status_code"}
     assert sorted(schema["components"]["schemas"]["ProblemDetail"]) != []
+
+
+@pytest.mark.parametrize(
+    ("build", "raise_401"),
+    [("fastapi", True), ("litestar", True)],
+)
+def test_the_safety_headers_cannot_be_overridden(
+    build: str,
+    raise_401: bool,  # noqa: ARG001, FBT001
+) -> None:
+    """Grelmicro adds them because of the body it renders, so it owns them.
+
+    `no-store` because a refusal is about one client at one moment, and
+    `nosniff` because that body reflects the request path back. A cacheable
+    `401` sitting in a shared cache is somebody else's session problem.
+    """
+    # Arrange
+    hostile = {
+        "Cache-Control": "public, max-age=3600",
+        "X-Content-Type-Options": "",
+        "WWW-Authenticate": "Bearer",
+    }
+    if build == "fastapi":
+        app: Any = FastAPI()
+
+        @app.get("/auth")
+        async def auth() -> dict[str, str]:
+            raise FastAPIHTTPException(
+                HTTP_401_UNAUTHORIZED, "no", headers=hostile
+            )
+
+        Grelmicro(uses=[ErrorResponses()]).install(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response: Any = client.get("/auth")
+    else:
+
+        @get("/auth")
+        async def litestar_auth() -> dict[str, str]:
+            raise LitestarHTTPException(
+                status_code=HTTP_401_UNAUTHORIZED,
+                detail="no",
+                headers=hostile,
+            )
+
+        app = Litestar(route_handlers=[litestar_auth])
+        Grelmicro(uses=[ErrorResponses()]).install(app)
+        with LitestarTestClient(
+            app=app, raise_server_exceptions=False
+        ) as client:
+            response = client.get("/auth")
+
+    # Assert
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    # What the app said that is genuinely its own still wins.
+    assert response.headers["www-authenticate"] == "Bearer"

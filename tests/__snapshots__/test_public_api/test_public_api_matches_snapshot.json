@@ -262,6 +262,9 @@
     "TMFError": {
       "()": "(*, code, reason, message=None, referenceError=None, type_='Error', **extra_data) -> None"
     },
+    "merge_headers": {
+      "()": "(rendered, theirs) -> 'dict[str, str]'"
+    },
     "send_error": {
       "()": "(send, rendered) -> 'None'"
     }

@@ -27,7 +27,7 @@ from grelmicro.http._problem import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping
+    from collections.abc import Awaitable, Callable, Mapping, MutableMapping
     from types import TracebackType
 
     Message = MutableMapping[str, Any]
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
-__all__ = ["ErrorResponses", "RenderedError", "send_error"]
+__all__ = ["ErrorResponses", "RenderedError", "merge_headers", "send_error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +53,40 @@ class RenderedError:
         Doc("Headers beside the content type, `Retry-After` included."),
     ]
     body: Annotated[bytes, Doc("Serialized body.")]
+
+
+def merge_headers(
+    rendered: Annotated[
+        RenderedError,
+        Doc("What the component produced, safety headers included."),
+    ],
+    theirs: Annotated[
+        Mapping[str, str] | None,
+        Doc("Headers the exception carried, keyed however the app wrote them."),
+    ],
+) -> dict[str, str]:
+    """Merge the app's headers over ours, keeping the safety ones ours.
+
+    A header the app set on an exception is part of the answer,
+    `WWW-Authenticate` on a `401` above all, so it outranks what the
+    component produced. `Retry-After` is data too, and an app that knows
+    better than the limiter may say so.
+
+    The two safety headers are not data. grelmicro adds them because of the
+    body it renders: `no-store` because a refusal is about one client at one
+    moment, and `nosniff` because that body reflects the request path back.
+    Letting them be overridden would take away a guarantee the docs make.
+
+    Names are lowercased first. They are case insensitive, and ours are
+    lowercase, so a canonical-cased `Cache-Control` would otherwise survive
+    beside our `cache-control` and emit two contradictory directives.
+    """
+    merged = dict(rendered.headers)
+    merged.update(
+        {name.lower(): value for name, value in (theirs or {}).items()}
+    )
+    merged.update(SAFETY_HEADERS)
+    return merged
 
 
 async def send_error(

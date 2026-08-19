@@ -87,7 +87,8 @@ your framework raises are reshaped too:
 
 - an `HTTPException` you raise keeps its status, its message, and any header
   it carried, `WWW-Authenticate` on a `401` above all. Only the shape
-  changes. It renders with `about:blank` as the type, which is what RFC 9457
+  changes. The two safety headers below are the exception: grelmicro adds
+  them because of the body it renders, so they are not overridden. It renders with `about:blank` as the type, which is what RFC 9457
   says for a problem with no specific kind.
 - a request that failed validation becomes a
   [`validation-failed`](#validation-failed) response, keeping the status the
@@ -140,7 +141,7 @@ key it rejected, which is often a client address or a user id.
 The same rule applies to what is left out. A problem detail carries the delay
 a client can act on, and never the name, the backend, or the limit behind it.
 
-Every problem response also carries:
+Every error response also carries, whatever the app set on the exception:
 
 - `Cache-Control: no-store`, because a refusal is about one client at one
   moment. A shared cache that kept a `429` would serve it to callers who are

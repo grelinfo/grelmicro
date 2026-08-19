@@ -15,7 +15,7 @@ from grelmicro._json import json_dumps_bytes
 from grelmicro.errors import OutOfContextError
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import CheckResult, HealthStatus
-from grelmicro.http import ErrorResponses, send_error
+from grelmicro.http import ErrorResponses, merge_headers, send_error
 from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
     HANDLED,
@@ -40,7 +40,6 @@ if TYPE_CHECKING:
         Awaitable,
         Callable,
         Collection,
-        Mapping,
         MutableMapping,
         Sequence,
     )
@@ -309,7 +308,7 @@ def install_error_responses(
         from starlette.responses import Response  # noqa: PLC0415
 
         http_exc = cast("HTTPException", exc)
-        headers = _lowercased(http_exc.headers)
+        headers = http_exc.headers or {}
         if http_exc.status_code in _BODYLESS_STATUSES:
             # A `204` or a `304` carries no body by the protocol, whatever
             # format the app answers in. Starlette guards this in its own
@@ -326,9 +325,7 @@ def install_error_responses(
             content=rendered.body,
             status_code=rendered.status,
             media_type=rendered.media_type,
-            # A header the app set on the exception is part of the answer,
-            # `WWW-Authenticate` on a `401` above all, so it outranks ours.
-            headers={**rendered.headers, **headers},
+            headers=merge_headers(rendered, headers),
         )
 
     async def validation_error(
@@ -1458,17 +1455,6 @@ def _install_framework_handlers(
         )
         if validates:
             _document_error_responses(app, errors)
-
-
-def _lowercased(headers: "Mapping[str, str] | None") -> dict[str, str]:
-    """Return the headers keyed the way the rendered ones are.
-
-    Header names are case insensitive, and ours are lowercase. Merging a
-    canonical-cased `Cache-Control` over our `cache-control` would keep
-    both and emit two contradictory directives rather than letting the
-    app's win.
-    """
-    return {name.lower(): value for name, value in (headers or {}).items()}
 
 
 def _structured_detail(detail: Any) -> "dict[str, Any] | None":  # noqa: ANN401

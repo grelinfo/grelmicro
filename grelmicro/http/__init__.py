@@ -21,6 +21,7 @@ Read more in the [Error Responses](../http/errors.md) docs.
 from grelmicro.http._component import (
     ErrorResponses,
     RenderedError,
+    merge_headers,
     send_error,
 )
 from grelmicro.http._problem import (
@@ -37,5 +38,6 @@ __all__ = [
     "ProblemDetail",
     "RenderedError",
     "TMFError",
+    "merge_headers",
     "send_error",
 ]

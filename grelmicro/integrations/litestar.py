@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from typing_extensions import Doc
 
-from grelmicro.http import ErrorResponses
+from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._kinds import HANDLED
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.integrations.fastapi import GrelmicroMiddleware
@@ -167,10 +167,7 @@ def install_error_responses(
         )
 
         http_exc = cast("HTTPException", exc)
-        headers = {
-            name.lower(): value
-            for name, value in (http_exc.headers or {}).items()
-        }
+        headers = http_exc.headers or {}
         if http_exc.status_code in _BODYLESS_STATUSES:
             # A `204` or a `304` carries no body by the protocol, whatever
             # format the app answers in.
@@ -196,9 +193,7 @@ def install_error_responses(
             content=rendered.body,
             status_code=rendered.status,
             media_type=rendered.media_type,
-            # A header the app set on the exception is part of the answer,
-            # so it outranks ours.
-            headers={**rendered.headers, **headers},
+            headers=merge_headers(rendered, headers),
         )
 
     app.state.grelmicro_error_responses = errors
