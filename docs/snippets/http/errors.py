@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
+from grelmicro.http import ErrorResponses
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis, RateLimiterComponent(redis)])
+micro = Grelmicro(uses=[redis, RateLimiterComponent(redis), ErrorResponses()])
 app = FastAPI()
 
 micro.install(app)

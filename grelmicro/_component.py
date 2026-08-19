@@ -84,7 +84,13 @@ class Component(
         singleton: Optional class flag. When `True`, the app refuses to
             register a second component of the same `kind`. Set it on
             components that configure process-global state (the root logger,
-            an OTel provider). Absent means `False`.
+            an OTel provider), and on any pair that cannot both be active:
+            two components share a `kind` exactly when only one of them may
+            answer. Absent means `False`.
+        singleton_reason: Optional class string saying why a second
+            registration is refused, rendered into the error. Defaults to
+            the process-global-state explanation, which is wrong for a pair
+            excluded for any other reason.
 
     Example:
         ```python

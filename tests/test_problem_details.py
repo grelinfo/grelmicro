@@ -27,14 +27,18 @@ from starlette.status import (
 )
 from starlette.testclient import TestClient as StarletteTestClient
 
-from grelmicro import AdmissionError, Grelmicro
+from grelmicro import (
+    AdmissionError,
+    ComponentAlreadyRegisteredError,
+    Grelmicro,
+)
 from grelmicro.errors import LockTimeoutError, WouldBlockError
 from grelmicro.http import (
+    ERROR_DOCS_BASE,
     PROBLEM_MEDIA_TYPE,
-    PROBLEM_TYPE_BASE,
+    ErrorResponses,
     ProblemDetail,
-    problem_detail,
-    send_problem,
+    send_error,
 )
 from grelmicro.http._problem import body_of, retry_after_of
 from grelmicro.idempotency.errors import (
@@ -61,6 +65,16 @@ pytestmark = [pytest.mark.timeout(5)]
 def _teapot(request: Request, exc: Exception) -> JSONResponse:  # noqa: ARG001
     """Answer with a teapot, so an overwrite would be visible."""
     return JSONResponse({"mine": True}, status_code=HTTP_418_IM_A_TEAPOT)
+
+
+def _problem_for(
+    exc: BaseException, *, instance: str | None = None
+) -> ProblemDetail | None:
+    """Return the problem body the default component renders for `exc`."""
+    rendered = ErrorResponses().render(exc, instance=instance)
+    return (
+        None if rendered is None else ProblemDetail(**json.loads(rendered.body))
+    )
 
 
 class BoomError(Exception):
@@ -131,12 +145,12 @@ def test_every_rejection_maps_to_a_problem(
 ) -> None:
     """Each rejection renders with its own stable type and status."""
     # Act
-    problem = problem_detail(exc, instance="/charge")
+    problem = _problem_for(exc, instance="/charge")
 
     # Assert
     assert problem is not None
     assert problem.status == status
-    assert problem.type == f"{PROBLEM_TYPE_BASE}#{slug}"
+    assert problem.type == f"{ERROR_DOCS_BASE}#{slug}"
     assert problem.instance == "/charge"
     assert problem.title
     assert problem.detail
@@ -145,8 +159,8 @@ def test_every_rejection_maps_to_a_problem(
 def test_an_unmapped_error_has_no_problem() -> None:
     """A server fault stays unhandled rather than dressed up as a rejection."""
     # Act & Assert
-    assert problem_detail(BoomError()) is None
-    assert problem_detail(IdempotencyKeyMakerError("bad key")) is None
+    assert _problem_for(BoomError()) is None
+    assert _problem_for(IdempotencyKeyMakerError("bad key")) is None
 
 
 def test_a_new_admission_subclass_is_covered() -> None:
@@ -157,12 +171,12 @@ def test_a_new_admission_subclass_is_covered() -> None:
         """A rejection grelmicro does not know about."""
 
     # Act
-    problem = problem_detail(OverQuotaError("nope"))
+    problem = _problem_for(OverQuotaError("nope"))
 
     # Assert
     assert problem is not None
     assert problem.status == HTTP_503_SERVICE_UNAVAILABLE
-    assert problem.type == f"{PROBLEM_TYPE_BASE}#request-refused"
+    assert problem.type == f"{ERROR_DOCS_BASE}#request-refused"
 
 
 @pytest.mark.parametrize("exc", [row[0] for row in EXPECTED])
@@ -171,7 +185,7 @@ def test_the_exception_message_never_reaches_the_wire(
 ) -> None:
     """A rendered detail is written here, so a key or a name cannot leak."""
     # Act
-    problem = problem_detail(exc)
+    problem = _problem_for(exc)
 
     # Assert
     assert problem is not None
@@ -181,7 +195,7 @@ def test_the_exception_message_never_reaches_the_wire(
 def test_the_rate_limit_key_is_not_published() -> None:
     """The key is often a client address or a user id."""
     # Act
-    problem = problem_detail(_rate_limited())
+    problem = _problem_for(_rate_limited())
 
     # Assert
     assert problem is not None
@@ -191,7 +205,7 @@ def test_the_rate_limit_key_is_not_published() -> None:
 def test_retry_after_is_carried_when_there_is_something_to_wait_for() -> None:
     """The delay is the useful half of the response."""
     # Act
-    problem = problem_detail(_rate_limited())
+    problem = _problem_for(_rate_limited())
 
     # Assert
     assert problem is not None
@@ -201,8 +215,8 @@ def test_retry_after_is_carried_when_there_is_something_to_wait_for() -> None:
 def test_no_retry_after_when_nothing_frees_at_a_known_time() -> None:
     """A zero delay would read as "retry now", which is the opposite."""
     # Act
-    full = problem_detail(BulkheadFullError(name="db", max_concurrent=4))
-    forced = problem_detail(CircuitBreakerError(name="payments"))
+    full = _problem_for(BulkheadFullError(name="db", max_concurrent=4))
+    forced = _problem_for(CircuitBreakerError(name="payments"))
 
     # Assert
     assert full is not None
@@ -214,7 +228,7 @@ def test_no_retry_after_when_nothing_frees_at_a_known_time() -> None:
 def test_the_deadline_is_carried() -> None:
     """A 504 that restates the status line is worth nothing."""
     # Act
-    problem = problem_detail(DeadlineExceededError(name="db", timeout=DEADLINE))
+    problem = _problem_for(DeadlineExceededError(name="db", timeout=DEADLINE))
 
     # Assert
     assert problem is not None
@@ -240,7 +254,7 @@ def test_extension_members_serialize_at_the_top_level() -> None:
     }
 
 
-async def test_send_problem_writes_a_whole_asgi_response() -> None:
+async def test_send_error_writes_a_whole_asgi_response() -> None:
     """A middleware answers before the app runs, so it writes the response."""
     # Arrange
     sent: list[MutableMapping[str, Any]] = []
@@ -248,11 +262,11 @@ async def test_send_problem_writes_a_whole_asgi_response() -> None:
     async def send(message: MutableMapping[str, Any]) -> None:
         sent.append(message)
 
-    problem = problem_detail(_rate_limited(), instance="/charge")
-    assert problem is not None
+    rendered = ErrorResponses().render(_rate_limited(), instance="/charge")
+    assert rendered is not None
 
     # Act
-    await send_problem(send, problem)
+    await send_error(send, rendered)
 
     # Assert
     start, body = sent
@@ -286,7 +300,7 @@ def fastapi_client() -> Iterator[TestClient]:
     async def broken() -> dict[str, str]:
         raise BoomError
 
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
@@ -303,7 +317,7 @@ def test_fastapi_renders_a_rejection(fastapi_client: TestClient) -> None:
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
     body = response.json()
-    assert body["type"] == f"{PROBLEM_TYPE_BASE}#rate-limit-exceeded"
+    assert body["type"] == f"{ERROR_DOCS_BASE}#rate-limit-exceeded"
     assert body["instance"] == "/limited"
     assert body["retry_after"] == RETRY_AFTER
 
@@ -331,25 +345,6 @@ def test_fastapi_leaves_a_server_fault_alone(
     assert response.headers["content-type"] != PROBLEM_MEDIA_TYPE
 
 
-def test_opting_out_leaves_rejections_to_you() -> None:
-    """`problem_details=False` registers nothing."""
-    # Arrange
-    app = FastAPI()
-
-    @app.get("/limited")
-    async def limited() -> dict[str, str]:
-        raise _rate_limited()
-
-    Grelmicro(uses=[]).install(app, problem_details=False)
-
-    # Act
-    with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/limited")
-
-    # Assert
-    assert response.status_code == HTTP_500_INTERNAL_SERVER_ERROR
-
-
 def test_a_handler_you_registered_wins() -> None:
     """An explicit handler for one rejection is not overwritten."""
     # Arrange
@@ -359,7 +354,7 @@ def test_a_handler_you_registered_wins() -> None:
     async def limited() -> dict[str, str]:
         raise _rate_limited()
 
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     app.add_exception_handler(
         RateLimitExceededError,
         _teapot,
@@ -381,7 +376,7 @@ def test_starlette_renders_a_rejection() -> None:
         raise _rate_limited()
 
     app = Starlette(routes=[Route("/limited", limited)])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with StarletteTestClient(app, raise_server_exceptions=False) as client:
@@ -402,7 +397,7 @@ def test_litestar_renders_a_rejection() -> None:
         raise _rate_limited()
 
     app = Litestar(route_handlers=[limited])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -414,7 +409,7 @@ def test_litestar_renders_a_rejection() -> None:
     assert response.headers["retry-after"] == "2"
     assert response.headers["cache-control"] == "no-store"
     body = response.json()
-    assert body["type"] == f"{PROBLEM_TYPE_BASE}#rate-limit-exceeded"
+    assert body["type"] == f"{ERROR_DOCS_BASE}#rate-limit-exceeded"
     assert body["instance"] == "/limited"
 
 
@@ -427,7 +422,7 @@ def test_litestar_leaves_a_server_fault_alone() -> None:
         raise BoomError
 
     app = Litestar(route_handlers=[broken])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -448,7 +443,7 @@ def _fastapi_rejection() -> tuple[int, dict[str, str], bytes]:
     async def limited() -> dict[str, str]:
         raise _rate_limited()
 
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -461,7 +456,7 @@ def _starlette_rejection() -> tuple[int, dict[str, str], bytes]:
         raise _rate_limited()
 
     app = Starlette(routes=[Route("/limited", limited)])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with StarletteTestClient(app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -475,7 +470,7 @@ def _litestar_rejection() -> tuple[int, dict[str, str], bytes]:
         raise _rate_limited()
 
     app = Litestar(route_handlers=[limited])
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
         response = client.get("/limited")
     return response.status_code, dict(response.headers), response.content
@@ -489,7 +484,7 @@ HTTP_FRAMEWORKS = {
 """Every framework grelmicro renders a problem detail on.
 
 FastStream is absent because it serves no HTTP. It carries no
-`install_problem_details`, so `micro.install(app)` skips it.
+`install_error_responses`, so `micro.install(app)` skips it.
 """
 
 
@@ -517,7 +512,7 @@ def test_every_http_framework_answers_identically() -> None:
 def test_faststream_takes_no_problem_details() -> None:
     """A framework that serves no HTTP is skipped, not special-cased by name."""
     # Assert
-    assert not hasattr(faststream, "install_problem_details")
+    assert not hasattr(faststream, "install_error_responses")
 
 
 # --- What the review found ----------------------------------------------
@@ -537,7 +532,7 @@ def test_a_handler_registered_before_install_wins() -> None:
         raise _rate_limited()
 
     app.add_exception_handler(AdmissionError, _teapot)
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -562,7 +557,7 @@ def test_litestar_keeps_a_handler_passed_to_the_constructor() -> None:
         route_handlers=[limited],
         exception_handlers={AdmissionError: mine},
     )
-    Grelmicro(uses=[]).install(app)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -601,9 +596,7 @@ def test_a_sub_millisecond_wait_carries_nothing() -> None:
     A limiter reports one at a window boundary under load.
     """
     # Act
-    problem = problem_detail(
-        RateLimitExceededError(key="k", retry_after=0.0004)
-    )
+    problem = _problem_for(RateLimitExceededError(key="k", retry_after=0.0004))
 
     # Assert
     assert problem is not None
@@ -640,8 +633,8 @@ def test_both_lock_refusals_share_a_type_and_differ_in_detail() -> None:
     what `detail` is for.
     """
     # Act
-    refused = problem_detail(WouldBlockError("cart"))
-    waited = problem_detail(LockTimeoutError(name="cart", timeout=5.0))
+    refused = _problem_for(WouldBlockError("cart"))
+    waited = _problem_for(LockTimeoutError(name="cart", timeout=5.0))
 
     # Assert
     assert refused is not None
@@ -651,3 +644,70 @@ def test_both_lock_refusals_share_a_type_and_differ_in_detail() -> None:
     assert "5.0s" in (waited.detail or "")
     # Neither carries a delay: a lock frees when its holder is done.
     assert "retry_after" not in waited.model_dump()
+
+
+# --- The component ------------------------------------------------------
+
+
+def test_the_component_renders_a_rejection() -> None:
+    """`render` is what an integration calls, whatever the format."""
+    # Act
+    rendered = ErrorResponses().render(_rate_limited(), instance="/charge")
+
+    # Assert
+    assert rendered is not None
+    assert rendered.status == HTTP_429_TOO_MANY_REQUESTS
+    assert rendered.media_type == PROBLEM_MEDIA_TYPE
+    assert rendered.headers["retry-after"] == "2"
+    assert json.loads(rendered.body)["instance"] == "/charge"
+
+
+def test_the_component_renders_nothing_for_a_server_fault() -> None:
+    """An error grelmicro did not raise stays the framework's to answer."""
+    # Act & Assert
+    assert ErrorResponses().render(BoomError()) is None
+
+
+def test_the_factory_and_the_bare_constructor_agree() -> None:
+    """`ErrorResponses()` is RFC 9457, said or unsaid."""
+    # Act
+    bare = ErrorResponses().render(_rate_limited())
+    named = ErrorResponses.problem_details().render(_rate_limited())
+
+    # Assert
+    assert bare == named
+
+
+def test_two_formats_cannot_both_be_registered() -> None:
+    """One rendering answers for the whole app.
+
+    The exclusion rides on the shared `kind` and the `singleton` flag, and
+    the message says the reason that applies rather than the process-global
+    one the guard was first written for.
+    """
+    # Act & Assert
+    with pytest.raises(
+        ComponentAlreadyRegisteredError, match="One rendering answers"
+    ):
+        Grelmicro(uses=[ErrorResponses(), ErrorResponses(name="second")])
+
+
+async def test_send_problem_omits_the_header_when_there_is_no_wait() -> None:
+    """A bulkhead frees at no known time, so the raw path sends no delay."""
+    # Arrange
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    rendered = ErrorResponses().render(
+        BulkheadFullError(name="db", max_concurrent=4)
+    )
+    assert rendered is not None
+
+    # Act
+    await send_error(send, rendered)
+
+    # Assert
+    headers = dict(sent[0]["headers"])
+    assert b"retry-after" not in headers

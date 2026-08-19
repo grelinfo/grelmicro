@@ -246,16 +246,27 @@
     }
   },
   "grelmicro.http": {
+    "ERROR_DOCS_BASE": null,
+    "ErrorResponses": {
+      "()": "(*, name='default') -> 'None'",
+      ".problem_details": "(*, name='default') -> 'Self'",
+      ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/errors/', name='default') -> 'Self'"
+    },
     "PROBLEM_MEDIA_TYPE": null,
-    "PROBLEM_TYPE_BASE": null,
     "ProblemDetail": {
       "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
     },
-    "problem_detail": {
-      "()": "(exc, *, instance=None) -> 'ProblemDetail | None'"
+    "RenderedError": {
+      "()": "(status, media_type, headers, body) -> None"
     },
-    "send_problem": {
-      "()": "(send, problem) -> 'None'"
+    "TMFError": {
+      "()": "(*, code, reason, message=None, referenceError=None, type_='Error', **extra_data) -> None"
+    },
+    "merge_headers": {
+      "()": "(rendered, theirs) -> 'dict[str, str]'"
+    },
+    "send_error": {
+      "()": "(send, rendered) -> 'None'"
     }
   },
   "grelmicro.idempotency": {
@@ -300,14 +311,17 @@
     "document_idempotency": {
       "()": "(app) -> None"
     },
+    "error_response": {
+      "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
+    },
     "health_router": {
       "()": "(component=None, *, prefix='', show_details=False, healthz_dependencies=None) -> 'APIRouter'"
     },
     "install": {
       "()": "(app, micro, *, ambient=True) -> None"
     },
-    "install_problem_details": {
-      "()": "(app) -> None"
+    "install_error_responses": {
+      "()": "(app, errors) -> None"
     },
     "is_bound": {
       "()": "(app) -> bool"
@@ -325,14 +339,38 @@
     "GrelmicroMiddleware": {
       "()": "(app, *, micro) -> None"
     },
+    "error_response": {
+      "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
+    },
     "install": {
       "()": "(app, micro, *, ambient=True) -> 'None'"
     },
-    "install_problem_details": {
-      "()": "(app) -> 'None'"
+    "install_error_responses": {
+      "()": "(app, errors) -> 'None'"
     },
     "is_bound": {
       "()": "(app) -> 'bool'"
+    }
+  },
+  "grelmicro.integrations.starlette": {
+    "GrelmicroMiddleware": {
+      "()": "(app, *, micro) -> None"
+    },
+    "IdempotencyMiddleware": {
+      "()": "(app, *, idempotency, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0) -> None"
+    },
+    "StoredResponse": null,
+    "error_response": {
+      "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
+    },
+    "install": {
+      "()": "(app, micro, *, ambient=True) -> None"
+    },
+    "install_error_responses": {
+      "()": "(app, errors) -> None"
+    },
+    "is_bound": {
+      "()": "(app) -> bool"
     }
   },
   "grelmicro.log": {

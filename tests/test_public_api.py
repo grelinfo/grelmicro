@@ -68,6 +68,7 @@ PUBLIC_MODULES = [
     "grelmicro.integrations.fastapi",
     "grelmicro.integrations.faststream",
     "grelmicro.integrations.litestar",
+    "grelmicro.integrations.starlette",
     "grelmicro.log",
     "grelmicro.metrics",
     "grelmicro.outbox",

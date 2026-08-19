@@ -7,15 +7,23 @@ This is the explicit list of what that call supports.
 
 | Framework | Extra | What `install` wires |
 |---|---|---|
-| [FastAPI](https://fastapi.tiangolo.com/) | `grelmicro[fastapi]` | The lifespan, the per-request binding, problem details, and OpenTelemetry auto-instrumentation. |
-| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan, the per-request binding, and problem details. |
-| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks, the per-request binding, and problem details. |
+| [FastAPI](https://fastapi.tiangolo.com/) | `grelmicro[fastapi]` | The lifespan and the per-request binding. |
+| [Starlette](https://www.starlette.io/) | `grelmicro[starlette]` | The lifespan and the per-request binding. |
+| [Litestar](https://litestar.dev/) | `grelmicro[litestar]` | The startup and shutdown hooks and the per-request binding. |
 | [FastStream](https://faststream.airt.ai/) | `grelmicro[faststream]` | The startup and shutdown hooks, the per-message binding, and the broker telemetry middleware. |
 
-Problem details mean every rejection grelmicro raises answers the client as an
-RFC 9457 `application/problem+json` body instead of becoming a `500`. Read
-[Problem Details](http/problems.md), or pass `problem_details=False` to answer
-them yourself. FastStream serves no HTTP, so the flag does nothing there.
+`install` also wires what you registered. `ErrorResponses()` has grelmicro's
+rejections answered as RFC 9457 responses, and `Trace()` has requests
+auto-instrumented. Both happen only because the component is in `uses=[...]`.
+
+`GrelmicroMiddleware`, `IdempotencyMiddleware` and `error_response` are pure
+ASGI and live in `grelmicro.integrations.starlette`. The FastAPI module
+re-exports them and adds what only FastAPI has, the OpenAPI schema and the
+[health router](health.md), so a FastAPI app needs one import either way.
+
+Nothing else about how your framework answers a request changes. The
+per-request binding adds one middleware that sets a context variable, and
+changes nothing a client can see.
 
 The extra installs the framework itself. grelmicro imports nothing from it
 until you call `install`, so an app that already depends on FastAPI needs no

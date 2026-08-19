@@ -7,3 +7,7 @@
     options:
       members:
         - install
+        - install_error_responses
+        - is_bound
+        - GrelmicroMiddleware
+        - error_response

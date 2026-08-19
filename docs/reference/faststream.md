@@ -7,3 +7,4 @@
     options:
       members:
         - install
+        - is_bound

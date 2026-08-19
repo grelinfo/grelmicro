@@ -1,6 +1,7 @@
 """Test Lock."""
 
 import asyncio
+import json
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
@@ -31,7 +32,7 @@ from grelmicro.errors import (
     SettingsValidationError,
 )
 from grelmicro.errors import WouldBlockError as WouldBlock
-from grelmicro.http import problem_detail
+from grelmicro.http import ErrorResponses
 from tests._faults import cancel_midflight
 
 BOUNDED_WAIT = 0.01
@@ -1102,15 +1103,16 @@ async def test_lock_acquire_timeout_renders_as_a_lock_problem(
     # Act
     with pytest.raises(LockTimeoutError) as raised:
         await waiter.acquire(timeout=BOUNDED_WAIT)
-    problem = problem_detail(raised.value, instance="/checkout")
+    problem = ErrorResponses().render(raised.value, instance="/checkout")
 
     # Assert
     assert problem is not None
+    body = json.loads(problem.body)
     assert problem.status == HTTP_503_SERVICE_UNAVAILABLE
-    assert problem.type.endswith("#lock-unavailable")
-    assert "waiting" in (problem.detail or "")
+    assert body["type"].endswith("#lock-unavailable")
+    assert "waiting" in body["detail"]
     # The lock name is internal topology and never reaches the wire.
-    assert LOCK_NAME not in (problem.detail or "")
+    assert LOCK_NAME not in body["detail"]
 
 
 async def test_lock_acquire_timeout_succeeds_when_released_in_time(

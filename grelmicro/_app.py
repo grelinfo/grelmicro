@@ -473,11 +473,13 @@ class Grelmicro:
                 getattr(component, "singleton", False)
                 or getattr(other, "singleton", False)
             ):
+                reason = getattr(
+                    component, "singleton_reason", None
+                ) or getattr(other, "singleton_reason", _SINGLETON_REASON)
                 msg = (
                     f"component kind {component.kind!r} is a singleton "
-                    f"and is already registered as {other.name!r}. It "
-                    f"configures process-global state, so only one may "
-                    f"exist per Grelmicro app."
+                    f"and is already registered as {other.name!r}. "
+                    f"{reason}."
                 )
                 raise ComponentAlreadyRegisteredError(msg)
         self._by_key[key] = component
@@ -940,20 +942,6 @@ class Grelmicro:
                 """,
             ),
         ] = True,
-        problem_details: Annotated[
-            bool,
-            Doc(
-                """
-                Render every rejection grelmicro raises as an RFC 9457
-                `application/problem+json` response, so a rate limiter, a
-                bulkhead, an open circuit breaker, or an elapsed deadline
-                answers the client instead of becoming a `500`. Default
-                `True`. Pass `False` to answer those in your own handlers.
-                Ignored by a framework that serves no HTTP, such as
-                FastStream.
-                """,
-            ),
-        ] = True,
     ) -> None:
         """Wire the app lifecycle and ambient binding in one call.
 
@@ -964,7 +952,15 @@ class Grelmicro:
 
         When `ambient` is `True` (the default), each request handler or message
         subscriber runs with this app bound as `Grelmicro.current()`, so
-        patterns that omit `backend=` resolve ambiently.
+        patterns that omit `backend=` resolve ambiently. It adds one
+        middleware that sets a context variable and changes nothing a client
+        can see.
+
+        Nothing else about how the framework answers a request changes.
+        Register `ErrorResponses()` to have grelmicro's rejections rendered
+        as RFC 9457 responses, and `Trace()` to have requests
+        auto-instrumented. Both are wired here, and only because they were
+        registered.
 
         ```python
         from fastapi import FastAPI
@@ -986,14 +982,26 @@ class Grelmicro:
                 _unsupported_framework_message("micro.install", app)
             )
         integration.install(app, self, ambient=ambient)
-        if problem_details:
+        errors = next(
+            (
+                component
+                for component in self.components
+                if getattr(component, "kind", None) == "error_responses"
+            ),
+            None,
+        )
+        if errors is not None:
+            # Registering `ErrorResponses()` is the opt-in. grelmicro changes
+            # how your framework answers an error only because you asked, and
+            # the component carries which format it answers in.
+            #
             # Feature-detected rather than passed to `install`, whose
             # signature is frozen so an integration written for an older
             # release keeps working. A framework that serves no HTTP simply
             # does not carry the attribute.
-            wire = getattr(integration, "install_problem_details", None)
+            wire = getattr(integration, "install_error_responses", None)
             if wire is not None:
-                wire(app)
+                wire(app, errors)
 
     def _ambient_component_labels(self) -> list[str]:
         """Return sorted `kind:name` labels of registered ambient components."""
@@ -1614,6 +1622,16 @@ def _provider_backend_or_none(factory: Any) -> Any:  # noqa: ANN401
         return factory()
     except NotImplementedError:
         return None
+
+
+_SINGLETON_REASON = "It configures process-global state, so only one may exist per Grelmicro app"
+"""Why a singleton kind refuses a second registration, when it does not say.
+
+`Log` and `Trace` own the stdlib root logger and the OpenTelemetry provider,
+which is the case the guard was written for. A component with a different
+reason sets `singleton_reason`, so the message sends the reader after the
+right problem instead of one that is not there.
+"""
 
 
 class ComponentAlreadyRegisteredError(GrelmicroError, RuntimeError):
