@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from math import ceil
+from math import ceil, isfinite
 from typing import TYPE_CHECKING, Any
 
 from grelmicro.errors import (
@@ -335,9 +335,12 @@ def retry_after_seconds(value: object) -> str | None:
     renderer and not another. HTTP takes whole seconds, so the delay is
     rounded up: rounding down invites a retry that is refused again.
 
-    A wait that is not a number carries no header. `bool` is a number in
-    Python and never a delay, so it is excluded by name.
+    A wait that is not a real number carries no header. `bool` is a number
+    in Python and never a delay, and infinity and NaN pass every type check
+    while `ceil` raises on both, inside the path that renders a failure.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not isfinite(value):
         return None
     return str(ceil(value))

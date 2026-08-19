@@ -47,6 +47,7 @@ from starlette.testclient import TestClient as StarletteTestClient
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.http import ERROR_DOCS_BASE, PROBLEM_MEDIA_TYPE, ErrorResponses
+from grelmicro.http import ProblemDetail as GrelmicroProblem
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import (
     IdempotencyMiddleware,
@@ -1247,3 +1248,69 @@ def test_the_safety_headers_cannot_be_overridden(
     assert response.headers["x-content-type-options"] == "nosniff"
     # What the app said that is genuinely its own still wins.
     assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_registering_your_handler_after_install_keeps_your_schema() -> None:
+    """The order of the two calls must not decide what the schema claims."""
+    # Arrange
+    app = _fastapi()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    async def mine(request: Request, exc: Exception) -> Response:  # noqa: ARG001
+        return JSONResponse({"my_errors": []}, status_code=422)
+
+    app.add_exception_handler(RequestValidationError, mine)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        body = client.post("/charge", json={"amount": "abc"}).json()
+    schema = app.openapi()
+
+    # Assert
+    assert body == {"my_errors": []}
+    assert schema["paths"]["/charge"]["post"]["responses"]["422"][
+        "content"
+    ] == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+        }
+    }
+    assert "ValidationError" in schema["components"]["schemas"]
+
+
+def test_declaring_our_model_yourself_publishes_it_once() -> None:
+    """The documented `responses={...}` pattern must not duplicate the body.
+
+    FastAPI renders the same class with an explicit `default: None` where
+    `model_json_schema` writes nothing, so comparing whole renderings
+    published it twice under two names.
+    """
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/quote", responses={429: {"model": GrelmicroProblem}})
+    async def quote() -> dict[str, int]:
+        return {"price": 42}
+
+    @app.post("/charge")
+    async def charge(body: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    schemas = app.openapi()["components"]["schemas"]
+
+    # Assert
+    assert "GrelmicroProblemDetail" not in schemas
+    assert sorted(schemas) == ["Charge", "ProblemDetail"]
+
+
+def test_a_delay_that_is_not_a_real_number_carries_no_header() -> None:
+    """Infinity and NaN pass every type check, and `ceil` raises on both."""
+    # Act & Assert
+    for wait in (float("inf"), float("-inf"), float("nan")):
+        rendered = ErrorResponses().render_status(
+            HTTP_409_CONFLICT, extensions={"retry_after": wait}
+        )
+        assert "retry-after" not in rendered.headers

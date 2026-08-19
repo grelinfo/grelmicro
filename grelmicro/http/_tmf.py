@@ -178,7 +178,12 @@ def _entry(entry: object) -> str:
     """
     if not isinstance(entry, dict):
         return str(entry)
-    location = ".".join(str(part) for part in entry.get("loc") or ())
+    where = entry.get("loc") or ()
+    if isinstance(where, (str, bytes)):
+        # A caller's own `errors` entry may name one place as a plain
+        # string, and iterating that yields its characters.
+        where = [where]
+    location = ".".join(str(part) for part in where)
     message = str(entry.get("msg", "")) or str(
         {key: value for key, value in entry.items() if key != "loc"} or entry
     )

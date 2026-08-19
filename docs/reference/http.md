@@ -14,6 +14,7 @@ own, and `send_error` to write one from a pure-ASGI middleware.
         - ErrorResponses
         - RenderedError
         - send_error
+        - merge_headers
         - ProblemDetail
         - TMFError
         - PROBLEM_MEDIA_TYPE

@@ -296,3 +296,25 @@ def test_the_delay_is_not_restated_in_the_message() -> None:
     # Assert
     assert "retry_after" not in json.loads(rendered.body)["message"]
     assert rendered.headers["retry-after"] == "2"
+
+
+def test_a_location_given_as_a_string_is_one_place() -> None:
+    """Iterating a bare string yields its characters, not its parts."""
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/boom")
+    async def boom() -> dict[str, str]:
+        raise HTTPException(
+            HTTP_400_BAD_REQUEST, detail=[{"loc": "amount", "msg": "bad"}]
+        )
+
+    Grelmicro(uses=[ErrorResponses.tmf()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        message = client.get("/boom").json()["message"]
+
+    # Assert
+    assert "amount: bad" in message
+    assert "a.m.o.u.n.t" not in message

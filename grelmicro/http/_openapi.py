@@ -28,11 +28,33 @@ def add_error_schema(schema: dict[str, Any], model: type[BaseModel]) -> str:
         if existing is None:
             schemas[name] = ours
             return f"#/components/schemas/{name}"
-        if existing == ours:
+        if _same_model(existing, ours):
             return f"#/components/schemas/{name}"
     # Both names are taken by something else, which takes a deliberate act.
     # Say nothing about the body rather than name the wrong shape.
     return ""
+
+
+def _same_model(published: dict[str, Any], ours: dict[str, Any]) -> bool:
+    """Return whether a published component describes the model we would add.
+
+    Compared by what identifies the model rather than by the whole
+    rendering. A framework that already published the very same class
+    renders it slightly differently, FastAPI writing an explicit
+    `default: None` where `model_json_schema` writes nothing, and treating
+    that as a different model publishes the same body twice under two
+    names. Which is what happens to anyone following the documented
+    `responses={429: {"model": ProblemDetail}}`.
+    """
+    return (
+        all(published.get(key) == ours.get(key) for key in ("title", "type"))
+        and all(
+            sorted(published.get(key) or ()) == sorted(ours.get(key) or ())
+            for key in ("required",)
+        )
+        and sorted(published.get("properties") or ())
+        == sorted(ours.get("properties") or ())
+    )
 
 
 def referenced(node: object) -> set[str]:

@@ -909,6 +909,11 @@ def _document_error_responses(app: "Starlette", errors: ErrorResponses) -> None:
 
     def openapi() -> dict[str, Any]:
         schema = original()
+        if not _renders_validation(app):
+            # A handler registered after `install` takes the error back, so
+            # the schema has to follow. Deciding here rather than at install
+            # keeps the promise that the order of the two does not matter.
+            return schema
         ref = add_error_schema(schema, errors.model)
         for _, operation in _operations(schema):
             _rewrite_validation_response(operation, ref, errors.media_type)
@@ -919,6 +924,24 @@ def _document_error_responses(app: "Starlette", errors: ErrorResponses) -> None:
     # Drop a schema built before this call, which would otherwise be served
     # from the cache describing the shape the app no longer answers with.
     app.openapi_schema = None
+
+
+def _renders_validation(app: "Starlette") -> bool:
+    """Return whether grelmicro is still the one answering a bad request."""
+    try:
+        from fastapi.exceptions import (  # noqa: PLC0415
+            RequestValidationError,
+        )
+    except ImportError:  # pragma: no cover
+        return False
+    return (
+        getattr(
+            app.exception_handlers.get(RequestValidationError),
+            "__name__",
+            "",
+        )
+        == "validation_error"
+    )
 
 
 def _rewrite_validation_response(

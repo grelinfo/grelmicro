@@ -173,7 +173,7 @@ retry-after: 1
 
 Past the timeout the duplicate receives that instead of holding the connection open.
 
-Every response the middleware writes itself is a [problem detail](../http/errors.md), the `400`, `409`, `413`, and `422` alike. A client branches on `type` and gets the same shape here as from a rejection raised in a handler.
+Every response the middleware writes itself follows the [error format](../http/errors.md) the app registered, the `400`, `409`, `413`, and `422` alike, so a client reads the same shape here as from a rejection raised in a handler. The body below is RFC 9457, the default.
 
 ## Conflicting payloads
 
