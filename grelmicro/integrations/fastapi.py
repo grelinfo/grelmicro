@@ -906,16 +906,37 @@ def _document_error_responses(app: "Starlette", errors: ErrorResponses) -> None:
         return
 
     original = app.openapi
+    applied: list[bool] = []
 
     def openapi() -> dict[str, Any]:
+        # A handler registered after `install` takes the error back, so the
+        # schema has to follow. Deciding here rather than at install keeps
+        # the promise that the order of the two does not matter.
+        renders = _renders_validation(app)
+        if applied and applied[-1] != renders:
+            # The cached schema was built under the other answer, and the
+            # rewrite mutated it in place. Drop it and build again.
+            app.openapi_schema = None
+        applied.append(renders)
         schema = original()
-        if not _renders_validation(app):
-            # A handler registered after `install` takes the error back, so
-            # the schema has to follow. Deciding here rather than at install
-            # keeps the promise that the order of the two does not matter.
+        if not renders:
+            return schema
+        targets = [
+            operation
+            for _, operation in _operations(schema)
+            if _has_generated_validation(operation)
+        ]
+        if not targets:
+            # Nothing answers with the model, so publishing it would leave
+            # the schema carrying a component nothing points at.
             return schema
         ref = add_error_schema(schema, errors.model)
-        for _, operation in _operations(schema):
+        if not ref:
+            # Both names are taken by the app's own models. FastAPI's own
+            # entry is a better answer than one pointing at nothing, and
+            # its models have to stay for that entry to resolve.
+            return schema
+        for operation in targets:
             _rewrite_validation_response(operation, ref, errors.media_type)
         _drop_unreferenced_validation_schemas(schema)
         return schema
@@ -927,43 +948,48 @@ def _document_error_responses(app: "Starlette", errors: ErrorResponses) -> None:
 
 
 def _renders_validation(app: "Starlette") -> bool:
-    """Return whether grelmicro is still the one answering a bad request."""
+    """Return whether grelmicro is still the one answering a bad request.
+
+    Compared by identity against the handler `install` registered. A name
+    comparison would call an app's own handler ours the moment someone
+    named theirs `validation_error`, which is the obvious name for it.
+    """
     try:
         from fastapi.exceptions import (  # noqa: PLC0415
             RequestValidationError,
         )
     except ImportError:  # pragma: no cover
         return False
+    ours = getattr(app.state, "grelmicro_validation_handler", None)
     return (
-        getattr(
-            app.exception_handlers.get(RequestValidationError),
-            "__name__",
-            "",
-        )
-        == "validation_error"
+        ours is not None
+        and app.exception_handlers.get(RequestValidationError) is ours
     )
+
+
+def _has_generated_validation(operation: dict[str, Any]) -> bool:
+    """Return whether this operation still carries FastAPI's own `422`."""
+    generated = (
+        operation.get("responses", {})
+        .get(str(HTTP_422_UNPROCESSABLE_CONTENT), {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+    )
+    return generated.get("$ref") == _FASTAPI_VALIDATION_REF
 
 
 def _rewrite_validation_response(
     operation: dict[str, Any], ref: str, media_type: str
 ) -> None:
-    """Point one operation's generated validation response at the new body."""
-    if not ref:
-        # Both names are taken by the app's own models, so there is nothing
-        # to point at. FastAPI's own entry is a better answer than an empty
-        # `$ref`, which no client generator accepts.
-        return
-    response = operation.get("responses", {}).get(
-        str(HTTP_422_UNPROCESSABLE_CONTENT)
-    )
-    if response is None:
-        return
-    content = response.get("content", {})
-    generated = content.get("application/json", {}).get("schema", {})
-    if generated.get("$ref") != _FASTAPI_VALIDATION_REF:
-        # Something the app declared itself, which it owns.
-        return
-    response["content"] = {media_type: {"schema": {"$ref": ref}}}
+    """Point one operation's generated validation response at the new body.
+
+    Only called for an operation `_has_generated_validation` already
+    picked, so there is nothing left to check here.
+    """
+    operation["responses"][str(HTTP_422_UNPROCESSABLE_CONTENT)]["content"] = {
+        media_type: {"schema": {"$ref": ref}}
+    }
 
 
 _FASTAPI_VALIDATION_REF = "#/components/schemas/HTTPValidationError"
@@ -981,28 +1007,30 @@ def _drop_unreferenced_validation_schemas(schema: dict[str, Any]) -> None:
     answers with it. Only these two are considered, and only while nothing
     outside them refers to them: an operation that declared its own `422`
     keeps FastAPI's entry, and with it the models.
+
+    Called only after every generated `422` was rewritten, so a candidate
+    that is still referenced is one the app itself points at.
     """
     schemas = schema.get("components", {}).get("schemas", {})
     candidates = [
         name for name in _FASTAPI_VALIDATION_SCHEMAS if name in schemas
     ]
-    if not candidates:
-        return
     elsewhere = {
         name: definition
         for name, definition in schemas.items()
         if name not in _FASTAPI_VALIDATION_SCHEMAS
     }
-    reachable = referenced(schema.get("paths", {})) | referenced(elsewhere)
+    # Everything that can point at a candidate without being one: the
+    # operations, the webhooks, and the components that are not candidates.
+    reachable = referenced(
+        {section: schema.get(section, {}) for section in ("paths", "webhooks")}
+    ) | referenced(elsewhere)
     # A surviving model keeps what it points at: `HTTPValidationError`
-    # holds a list of `ValidationError`, and dropping the second would
-    # leave the first with a `$ref` to nothing.
-    while True:
-        kept = [name for name in candidates if name in reachable]
-        grown = reachable | referenced({name: schemas[name] for name in kept})
-        if grown == reachable:
-            break
-        reachable = grown
+    # holds a list of `ValidationError`, and an app that references the
+    # first itself would otherwise be left with a `$ref` to nothing.
+    for name in candidates:
+        if name in reachable:
+            reachable |= referenced({name: schemas[name]})
     for name in candidates:
         if name not in reachable:
             del schemas[name]
@@ -1142,13 +1170,18 @@ def _operations(
 ) -> "list[tuple[dict[str, Any], dict[str, Any]]]":
     """Return each operation in the schema, paired with its path item.
 
+    Both `paths` and `webhooks` hold them. A webhook left out of the walk
+    keeps a `$ref` to a component the walk then deletes, and an
+    unresolvable ref fails every client generator.
+
     Every non-operation key of a path item (`parameters`, `servers`,
     `summary`, `$ref`) holds a list or a string, so a mapping under a method
     key is an operation. `methods` narrows to the ones a middleware covers.
     """
     return [
         (path_item, operation)
-        for path_item in schema.get("paths", {}).values()
+        for section in ("paths", "webhooks")
+        for path_item in schema.get(section, {}).values()
         for method, operation in path_item.items()
         if isinstance(operation, dict)
         and (methods is None or method.lower() in methods)
@@ -1473,10 +1506,10 @@ def _install_framework_handlers(
     for klass, validates in _framework_errors():
         if not _is_framework_default(app, klass):
             continue
-        app.add_exception_handler(
-            klass, validation_error if validates else http_error
-        )
+        handler = validation_error if validates else http_error
+        app.add_exception_handler(klass, handler)
         if validates:
+            app.state.grelmicro_validation_handler = handler
             _document_error_responses(app, errors)
 
 

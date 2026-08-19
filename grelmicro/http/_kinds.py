@@ -54,10 +54,6 @@ The media type already says it is data, and this stops a client that
 guesses otherwise from ever treating it as markup.
 """
 
-_SAFETY_HEADERS_RAW = tuple(
-    (name.encode("latin-1"), value.encode("latin-1"))
-    for name, value in SAFETY_HEADERS
-)
 
 _IN_FLIGHT_RETRY_AFTER = 1.0
 """Seconds a duplicate is told to wait for an execution still running.

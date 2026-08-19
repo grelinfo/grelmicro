@@ -259,24 +259,29 @@ def _rewrite_error_responses(
     The component is published through the shared helper, so a model the
     app already declared under that name is not replaced by ours.
     """
-    ref = add_error_schema(schema, errors.model)
-    if not ref:
-        # Both names are taken by the app's own models. Litestar's own
-        # entry is a better answer than one pointing at nothing.
-        return
-    responses = [
+    targets = [
         response
         for path_item in schema.get("paths", {}).values()
         for operation in path_item.values()
         if isinstance(operation, dict)
         for response in operation.get("responses", {}).values()
+        if _is_generated(response)
     ]
-    for response in responses:
-        _rewrite_one(response, ref, errors.media_type)
+    if not targets:
+        # Nothing answers with the model, so publishing it would leave the
+        # schema carrying a component nothing points at.
+        return
+    ref = add_error_schema(schema, errors.model)
+    if not ref:
+        # Both names are taken by the app's own models. Litestar's own
+        # entry is a better answer than one pointing at nothing.
+        return
+    for response in targets:
+        response["content"] = {errors.media_type: {"schema": {"$ref": ref}}}
 
 
-def _rewrite_one(response: dict[str, Any], ref: str, media_type: str) -> bool:
-    """Replace one generated error body, and say whether it did.
+def _is_generated(response: dict[str, Any]) -> bool:
+    """Return whether Litestar described this response with its own shape.
 
     A response the app declared itself, and one with no body at all, has no
     schema requiring Litestar's members and is left alone.
@@ -286,10 +291,7 @@ def _rewrite_one(response: dict[str, Any], ref: str, media_type: str) -> bool:
         .get("application/json", {})
         .get("schema", {})
     )
-    if not set(generated.get("required", ())) >= _LITESTAR_ERROR_MEMBERS:
-        return False
-    response["content"] = {media_type: {"schema": {"$ref": ref}}}
-    return True
+    return set(generated.get("required", ())) >= _LITESTAR_ERROR_MEMBERS
 
 
 _BODYLESS_STATUSES = frozenset({204, 304})

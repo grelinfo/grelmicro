@@ -1314,3 +1314,138 @@ def test_a_delay_that_is_not_a_real_number_carries_no_header() -> None:
             HTTP_409_CONFLICT, extensions={"retry_after": wait}
         )
         assert "retry-after" not in rendered.headers
+
+
+def test_a_webhook_keeps_a_resolvable_reference() -> None:
+    """FastAPI publishes webhooks beside paths, and both must stay valid.
+
+    A webhook left out of the walk keeps a `$ref` to a component the walk
+    then deletes, and an unresolvable ref fails every client generator.
+    """
+    # Arrange
+    app = FastAPI()
+
+    @app.webhooks.post("new-subscription")
+    async def subscribed(body: Charge) -> None: ...
+
+    @app.post("/charge")
+    async def charge(body: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    schema = app.openapi()
+
+    # Assert
+    assert _dangling(schema) == []
+    assert schema["webhooks"]["new-subscription"]["post"]["responses"]["422"][
+        "content"
+    ] == {
+        PROBLEM_MEDIA_TYPE: {
+            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+        }
+    }
+
+
+def test_no_model_is_published_when_nothing_validates() -> None:
+    """A component nothing points at reads as though something answers with it."""
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/ping")
+    async def ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    schemas = app.openapi().get("components", {}).get("schemas", {})
+
+    # Assert
+    assert "ProblemDetail" not in schemas
+
+
+def test_a_handler_named_like_ours_is_still_yours() -> None:
+    """`validation_error` is the obvious name, so identity decides, not it."""
+    # Arrange
+    app = _fastapi()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    async def validation_error(request: Request, exc: Exception) -> Response:  # noqa: ARG001
+        return JSONResponse({"mine": True}, status_code=422)
+
+    app.add_exception_handler(RequestValidationError, validation_error)
+
+    # Act
+    content = app.openapi()["paths"]["/charge"]["post"]["responses"]["422"][
+        "content"
+    ]
+
+    # Assert
+    assert content == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+        }
+    }
+
+
+def test_a_schema_built_before_your_handler_is_rebuilt() -> None:
+    """The rewrite mutates FastAPI's cached dict, so the cache must go."""
+    # Arrange
+    app = _fastapi()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+    built = app.openapi()
+    assert (
+        PROBLEM_MEDIA_TYPE
+        in built["paths"]["/charge"]["post"]["responses"]["422"]["content"]
+    )
+
+    async def mine(request: Request, exc: Exception) -> Response:  # noqa: ARG001
+        return JSONResponse({"mine": True}, status_code=422)
+
+    app.add_exception_handler(RequestValidationError, mine)
+
+    # Act
+    content = app.openapi()["paths"]["/charge"]["post"]["responses"]["422"][
+        "content"
+    ]
+
+    # Assert
+    assert content == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+        }
+    }
+
+
+def test_a_model_the_app_still_points_at_is_kept() -> None:
+    """Only what nothing references is dropped."""
+    # Arrange
+    app = FastAPI()
+
+    @app.post(
+        "/charge",
+        responses={
+            409: {
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/HTTPValidationError"
+                        }
+                    }
+                }
+            }
+        },
+    )
+    async def charge(body: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    schema = app.openapi()
+
+    # Assert
+    assert "HTTPValidationError" in schema["components"]["schemas"]
+    assert _dangling(schema) == []
