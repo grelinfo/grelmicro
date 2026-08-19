@@ -23,6 +23,11 @@ from starlette.status import (
 
 from grelmicro import Grelmicro
 from grelmicro.http import ERROR_DOCS_BASE, ErrorResponses, TMFError
+from grelmicro.http._kinds import (
+    REQUEST_REFUSED,
+    VALIDATION_FAILED,
+    Occurrence,
+)
 from grelmicro.http._tmf import TMF_MEDIA_TYPE
 from grelmicro.resilience.errors import (
     BulkheadFullError,
@@ -259,3 +264,35 @@ def test_any_structured_detail_renders_in_tmf(
     # Assert
     assert response.status_code == HTTP_400_BAD_REQUEST
     assert response.json()["message"] == expected
+
+
+def test_an_extension_beside_the_field_errors_is_not_dropped() -> None:
+    """Nothing has a home of its own in TMF, so nothing may be lost."""
+    # Arrange
+    occurrence = Occurrence(
+        VALIDATION_FAILED,
+        extensions={"errors": [{"loc": ["a"], "msg": "m"}], "balance": 30},
+    )
+
+    # Act
+    rendered = ErrorResponses.tmf()._render_occurrence(
+        occurrence, instance="/x"
+    )
+
+    # Assert
+    message = json.loads(rendered.body)["message"]
+    assert "a: m" in message
+    assert "balance: 30" in message
+
+
+def test_the_delay_is_not_restated_in_the_message() -> None:
+    """It reaches the client as a header, so saying it twice adds nothing."""
+    # Act
+    rendered = ErrorResponses.tmf()._render_occurrence(
+        Occurrence(REQUEST_REFUSED, extensions={"retry_after": 2.0}),
+        instance="/x",
+    )
+
+    # Assert
+    assert "retry_after" not in json.loads(rendered.body)["message"]
+    assert rendered.headers["retry-after"] == "2"

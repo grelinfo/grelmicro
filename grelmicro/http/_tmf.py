@@ -129,36 +129,44 @@ entry above, so an empty one has nothing to say rather than a literal
 
 
 def _message(occurrence: Occurrence, default: str | None) -> str | None:
-    """Return the `message` member, with any field errors folded in.
+    """Return the `message` member, with everything else folded into it.
 
-    TMF630 defines no extension member, so an `errors` list has nowhere of
-    its own to go. `message` is the member for "more details and corrective
-    actions related to the error which can be shown to a client user",
-    which is what those entries are, so they are read into it rather than
-    dropped.
+    TMF630 defines no extension member, so nothing an occurrence carries
+    has a home of its own. `message` is the member for "more details and
+    corrective actions related to the error which can be shown to a client
+    user", which is what those all are, so they are read into it rather
+    than dropped.
+
+    `retry_after` is the exception: it reaches the client as a header, so
+    restating it here would say the same thing twice.
     """
-    text = occurrence.detail or default or None
+    parts = [occurrence.detail or default or ""]
+    parts += [_entry(entry) for entry in _entries(occurrence)]
+    parts += [
+        f"{name}: {value}"
+        for name, value in occurrence.extensions.items()
+        if name not in _NOT_IN_MESSAGE
+    ]
+    return (
+        (
+            ", ".join(part for part in parts[1:])
+            and (f"{parts[0]} {', '.join(parts[1:])}".strip())
+        )
+        or parts[0]
+        or None
+    )
+
+
+def _entries(occurrence: Occurrence) -> list[object]:
+    """Return the field errors, whatever shape `errors` arrived in."""
     entries = occurrence.extensions.get("errors")
     if not entries:
-        # TMF630 has no extension mechanism, so anything else a handler
-        # carried has nowhere of its own either. `message` is the member
-        # for what a client user should read, so it goes there rather than
-        # being dropped.
-        extra = {
-            name: value
-            for name, value in occurrence.extensions.items()
-            if name not in _NOT_IN_MESSAGE
-        }
-        if not extra:
-            return text
-        listed = ", ".join(f"{name}: {value}" for name, value in extra.items())
-        return f"{text} {listed}" if text else listed
+        return []
     if isinstance(entries, (str, bytes)) or not isinstance(entries, Iterable):
         # `errors` carries whatever a handler put in a non-mapping `detail`,
         # which is not always a list of field errors.
-        entries = [entries]
-    listed = ", ".join(_entry(entry) for entry in entries)
-    return f"{text} {listed}" if text else listed
+        return [entries]
+    return list(entries)
 
 
 def _entry(entry: object) -> str:
