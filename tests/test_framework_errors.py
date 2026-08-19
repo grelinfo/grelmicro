@@ -760,3 +760,96 @@ def test_documenting_before_install_still_publishes_the_right_format() -> None:
             "schema": {"$ref": "#/components/schemas/TMFError"}
         }
     }
+
+
+def _dangling(schema: dict[str, Any]) -> list[str]:
+    """Return every component name pointed at but not defined."""
+    defined = set(schema.get("components", {}).get("schemas", {}))
+
+    def walk(node: object) -> set[str]:
+        if isinstance(node, dict):
+            found: set[str] = set()
+            for key, value in node.items():
+                if key == "$ref" and isinstance(value, str):
+                    found.add(value.rsplit("/", 1)[-1])
+                else:
+                    found |= walk(value)
+            return found
+        if isinstance(node, list):
+            found = set()
+            for item in node:
+                found |= walk(item)
+            return found
+        return set()
+
+    return sorted(walk(schema) - defined)
+
+
+def test_the_replaced_validation_models_are_dropped() -> None:
+    """A model no response uses reads as though some operation still does."""
+    # Arrange
+    app = _fastapi()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    schema = app.openapi()
+
+    # Assert
+    assert "HTTPValidationError" not in schema["components"]["schemas"]
+    assert "ValidationError" not in schema["components"]["schemas"]
+    assert _dangling(schema) == []
+
+
+def test_a_kept_validation_model_keeps_what_it_points_at() -> None:
+    """`HTTPValidationError` holds a list of `ValidationError`.
+
+    Dropping the second while the first survives would leave a `$ref` to
+    nothing, which is the same defect as publishing an empty one.
+    """
+
+    # Arrange
+    class ProblemDetail(BaseModel):
+        """The app's own, under the plain name."""
+
+        mine: str
+
+    class GrelmicroProblemDetail(BaseModel):
+        """The app's own, under the qualified name too."""
+
+        also_mine: str
+
+    app = FastAPI()
+
+    @app.post(
+        "/charge",
+        responses={
+            402: {"model": ProblemDetail},
+            403: {"model": GrelmicroProblemDetail},
+        },
+    )
+    async def charge(body: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    schema = app.openapi()
+
+    # Assert
+    assert "HTTPValidationError" in schema["components"]["schemas"]
+    assert "ValidationError" in schema["components"]["schemas"]
+    assert _dangling(schema) == []
+
+
+def test_an_app_without_the_component_keeps_its_schema() -> None:
+    """Nothing is rewritten, so nothing is pruned."""
+    # Arrange
+    app = _fastapi()
+    Grelmicro(uses=[]).install(app)
+
+    # Act
+    schemas = app.openapi()["components"]["schemas"]
+
+    # Assert
+    assert "HTTPValidationError" in schemas
+    assert "ValidationError" in schemas

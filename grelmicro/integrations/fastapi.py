@@ -919,6 +919,7 @@ def _document_error_responses(app: "Starlette", errors: ErrorResponses) -> None:
         ref = _add_error_schema(schema, errors.model)
         for _, operation in _operations(schema):
             _rewrite_validation_response(operation, ref, errors.media_type)
+        _drop_unreferenced_validation_schemas(schema)
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -951,6 +952,62 @@ def _rewrite_validation_response(
 
 _FASTAPI_VALIDATION_REF = "#/components/schemas/HTTPValidationError"
 """What FastAPI points a generated validation response at."""
+
+_FASTAPI_VALIDATION_SCHEMAS = ("HTTPValidationError", "ValidationError")
+"""What FastAPI publishes for a validation response it generated."""
+
+
+def _drop_unreferenced_validation_schemas(schema: dict[str, Any]) -> None:
+    """Remove FastAPI's validation models once nothing points at them.
+
+    Rewriting every generated `422` leaves them behind, and a schema
+    carrying a model no response uses reads as though some operation still
+    answers with it. Only these two are considered, and only while nothing
+    outside them refers to them: an operation that declared its own `422`
+    keeps FastAPI's entry, and with it the models.
+    """
+    schemas = schema.get("components", {}).get("schemas", {})
+    candidates = [
+        name for name in _FASTAPI_VALIDATION_SCHEMAS if name in schemas
+    ]
+    if not candidates:
+        return
+    elsewhere = {
+        name: definition
+        for name, definition in schemas.items()
+        if name not in _FASTAPI_VALIDATION_SCHEMAS
+    }
+    reachable = _referenced(schema.get("paths", {})) | _referenced(elsewhere)
+    # A surviving model keeps what it points at: `HTTPValidationError`
+    # holds a list of `ValidationError`, and dropping the second would
+    # leave the first with a `$ref` to nothing.
+    while True:
+        kept = [name for name in candidates if name in reachable]
+        grown = reachable | _referenced({name: schemas[name] for name in kept})
+        if grown == reachable:
+            break
+        reachable = grown
+    for name in candidates:
+        if name not in reachable:
+            del schemas[name]
+
+
+def _referenced(node: object) -> set[str]:
+    """Return the component names anything under `node` points at."""
+    if isinstance(node, dict):
+        found: set[str] = set()
+        for key, value in node.items():
+            if key == "$ref" and isinstance(value, str):
+                found.add(value.rsplit("/", 1)[-1])
+            else:
+                found |= _referenced(value)
+        return found
+    if isinstance(node, list):
+        found = set()
+        for item in node:
+            found |= _referenced(item)
+        return found
+    return set()
 
 
 def error_response(
