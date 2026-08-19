@@ -15,19 +15,18 @@ from grelmicro._json import json_dumps_bytes
 from grelmicro.errors import OutOfContextError
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import CheckResult, HealthStatus
-from grelmicro.http import ErrorResponses
-from grelmicro.http._problem import (
+from grelmicro.http import ErrorResponses, send_error
+from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
     HANDLED,
     IDEMPOTENCY_IN_FLIGHT,
     IDEMPOTENCY_KEY_INVALID,
     IDEMPOTENCY_KEY_REUSED,
-    PROBLEM_MEDIA_TYPE,
     REQUEST_BODY_TOO_LARGE,
     Occurrence,
-    ProblemDetail,
     _Kind,
 )
+from grelmicro.http._problem import PROBLEM_MEDIA_TYPE, ProblemDetail
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyMakerError,
@@ -40,6 +39,7 @@ if TYPE_CHECKING:
         Awaitable,
         Callable,
         Collection,
+        Mapping,
         MutableMapping,
         Sequence,
     )
@@ -302,14 +302,13 @@ def install_error_responses(
     # Recorded so `document_idempotency` and `error_response` read the
     # format the app actually answers in, rather than assuming RFC 9457.
     app.state.grelmicro_error_responses = errors
-    _document_error_responses(app, errors)
 
     async def http_error(request: "Request", exc: Exception) -> "Response":
         """Reshape the framework's own error into the registered format."""
         from starlette.responses import Response  # noqa: PLC0415
 
         http_exc = cast("HTTPException", exc)
-        headers = http_exc.headers or {}
+        headers = _lowercased(http_exc.headers)
         if http_exc.status_code in _BODYLESS_STATUSES:
             # A `204` or a `304` carries no body by the protocol, whatever
             # format the app answers in. Starlette guards this in its own
@@ -350,11 +349,7 @@ def install_error_responses(
             headers=rendered.headers,
         )
 
-    for klass, validates in _framework_errors():
-        if _is_framework_default(app, klass):
-            app.add_exception_handler(
-                klass, validation_error if validates else http_error
-            )
+    _install_framework_handlers(app, errors, http_error, validation_error)
 
     for klass in HANDLED:
         # A handler the app registered first wins. Registering before
@@ -635,7 +630,7 @@ class IdempotencyMiddleware:
         key = _header_value(scope["headers"], self._header)
         if not key:
             if self._require_key:
-                await _send_problem(
+                await _refuse(
                     send,
                     scope,
                     IDEMPOTENCY_KEY_INVALID,
@@ -647,7 +642,7 @@ class IdempotencyMiddleware:
             return
 
         if len(key) > _MAX_KEY_LENGTH:
-            await _send_problem(
+            await _refuse(
                 send,
                 scope,
                 IDEMPOTENCY_KEY_INVALID,
@@ -662,7 +657,7 @@ class IdempotencyMiddleware:
                 receive, self._max_body_size
             )
             if too_large:
-                await _send_problem(send, scope, REQUEST_BODY_TOO_LARGE)
+                await _refuse(send, scope, REQUEST_BODY_TOO_LARGE)
                 return
             if body is not None:
                 fingerprint = hashlib.sha256(body).hexdigest()
@@ -688,7 +683,7 @@ class IdempotencyMiddleware:
         try:
             operation = await block.__aenter__()
         except IdempotencyConflictError:
-            await _send_problem(
+            await _refuse(
                 send,
                 scope,
                 IDEMPOTENCY_KEY_REUSED,
@@ -698,7 +693,7 @@ class IdempotencyMiddleware:
             )
             return
         except IdempotencyWaitTimeoutError:
-            await _send_problem(
+            await _refuse(
                 send,
                 scope,
                 IDEMPOTENCY_IN_FLIGHT,
@@ -1452,7 +1447,7 @@ async def _send_stored(send: "Send", stored: _Entry, *, head: bool) -> None:
     await send({"type": "http.response.body", "body": b"" if head else body})
 
 
-async def _send_problem(
+async def _refuse(
     send: "Send",
     scope: "Scope",
     kind: _Kind,
@@ -1469,7 +1464,7 @@ async def _send_problem(
     that registered none gets RFC 9457, which an error body always needs.
     """
     errors = _registered_errors(scope)
-    rendered = errors.render_occurrence(
+    rendered = errors._render_occurrence(  # noqa: SLF001
         Occurrence(
             kind,
             detail=detail,
@@ -1479,22 +1474,41 @@ async def _send_problem(
         ),
         instance=scope["path"],
     )
-    headers: list[tuple[bytes, bytes]] = [
-        (b"content-type", rendered.media_type.encode("latin-1")),
-        *(
-            (name.encode("latin-1"), value.encode("latin-1"))
-            for name, value in rendered.headers.items()
-        ),
-        (b"content-length", str(len(rendered.body)).encode("latin-1")),
-    ]
-    await send(
-        {
-            "type": "http.response.start",
-            "status": rendered.status,
-            "headers": headers,
-        }
-    )
-    await send({"type": "http.response.body", "body": rendered.body})
+    await send_error(send, rendered)
+
+
+def _install_framework_handlers(
+    app: "Starlette",
+    errors: ErrorResponses,
+    http_error: "Callable[..., Any]",
+    validation_error: "Callable[..., Any]",
+) -> None:
+    """Reshape the framework's own errors, and document what was reshaped.
+
+    A handler the app registered itself is left alone, and its schema is
+    left alone with it. Rewriting the generated `422` for an app that kept
+    its own validation handler would publish a shape it does not answer
+    with.
+    """
+    for klass, validates in _framework_errors():
+        if not _is_framework_default(app, klass):
+            continue
+        app.add_exception_handler(
+            klass, validation_error if validates else http_error
+        )
+        if validates:
+            _document_error_responses(app, errors)
+
+
+def _lowercased(headers: "Mapping[str, str] | None") -> dict[str, str]:
+    """Return the headers keyed the way the rendered ones are.
+
+    Header names are case insensitive, and ours are lowercase. Merging a
+    canonical-cased `Cache-Control` over our `cache-control` would keep
+    both and emit two contradictory directives rather than letting the
+    app's win.
+    """
+    return {name.lower(): value for name, value in (headers or {}).items()}
 
 
 def _structured_detail(detail: Any) -> "dict[str, Any] | None":  # noqa: ANN401

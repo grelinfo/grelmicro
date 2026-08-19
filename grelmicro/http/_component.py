@@ -8,29 +8,34 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 from typing_extensions import Doc
 
 from grelmicro.http import _tmf
-from grelmicro.http._problem import (
-    PROBLEM_MEDIA_TYPE,
-    PROBLEM_TYPE_BASE,
+from grelmicro.http._kinds import (
+    DOCS_BASE,
     SAFETY_HEADERS,
     VALIDATION_FAILED,
     Occurrence,
-    ProblemDetail,
-    body_of,
-    build,
     classify,
-    framework_headers_of,
     phrase_of,
     retry_after_seconds,
     unclassified,
 )
+from grelmicro.http._problem import (
+    PROBLEM_MEDIA_TYPE,
+    ProblemDetail,
+    body_of,
+    build,
+    framework_headers_of,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable, MutableMapping
     from types import TracebackType
+
+    Message = MutableMapping[str, Any]
+    Send = Callable[[Message], Awaitable[None]]
 
     from pydantic import BaseModel
 
-__all__ = ["ErrorResponses", "RenderedError"]
+__all__ = ["ErrorResponses", "RenderedError", "send_error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +53,55 @@ class RenderedError:
         Doc("Headers beside the content type, `Retry-After` included."),
     ]
     body: Annotated[bytes, Doc("Serialized body.")]
+
+
+async def send_error(
+    send: Annotated[
+        Send,
+        Doc("The ASGI `send` callable of the request being refused."),
+    ],
+    rendered: Annotated[
+        RenderedError,
+        Doc("What to write, from `ErrorResponses.render`."),
+    ],
+) -> None:
+    """Write a rendered error as a complete ASGI response.
+
+    For a middleware that refuses a request itself, before the app runs and
+    before any exception handler can see it. It takes what the app's
+    `ErrorResponses` produced rather than a body of its own, so a middleware
+    cannot answer in a format the rest of the app does not speak.
+
+    ```python
+    class Gate:
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            try:
+                await self.app(scope, receive, send)
+            except AdmissionError as exc:
+                errors = Grelmicro.current().error_responses
+                rendered = errors.render(exc, instance=scope["path"])
+                await send_error(send, rendered)
+    ```
+    """
+    headers: list[tuple[bytes, bytes]] = [
+        (b"content-type", rendered.media_type.encode("latin-1")),
+        *(
+            (name.encode("latin-1"), value.encode("latin-1"))
+            for name, value in rendered.headers.items()
+        ),
+        (b"content-length", str(len(rendered.body)).encode("latin-1")),
+    ]
+    await send(
+        {
+            "type": "http.response.start",
+            "status": rendered.status,
+            "headers": headers,
+        }
+    )
+    await send({"type": "http.response.body", "body": rendered.body})
 
 
 def _render_problem_details(
@@ -181,7 +235,7 @@ class ErrorResponses:
                 base to point at your documentation instead of grelmicro's.
                 """
             ),
-        ] = PROBLEM_TYPE_BASE,
+        ] = DOCS_BASE,
         name: Annotated[
             str,
             Doc("Registration name. Only one may be registered."),
@@ -249,7 +303,7 @@ class ErrorResponses:
         """
         return self._model
 
-    def render_occurrence(
+    def _render_occurrence(
         self,
         occurrence: Annotated[
             Occurrence,

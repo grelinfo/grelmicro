@@ -11,7 +11,7 @@ from typing_extensions import Doc
 from grelmicro._json import json_dumps_bytes
 
 if TYPE_CHECKING:
-    from grelmicro.http._problem import Occurrence
+    from grelmicro.http._kinds import Occurrence
 
 __all__ = ["DEFAULT_CODE_PREFIX", "TMF_MEDIA_TYPE", "TMFError", "code_of"]
 
@@ -131,7 +131,19 @@ def _message(occurrence: Occurrence, default: str | None) -> str | None:
     text = occurrence.detail or default or None
     entries = occurrence.extensions.get("errors")
     if not entries:
-        return text
+        # TMF630 has no extension mechanism, so anything else a handler
+        # carried has nowhere of its own either. `message` is the member
+        # for what a client user should read, so it goes there rather than
+        # being dropped.
+        extra = {
+            name: value
+            for name, value in occurrence.extensions.items()
+            if name != "retry_after"
+        }
+        if not extra:
+            return text
+        listed = ", ".join(f"{name}: {value}" for name, value in extra.items())
+        return f"{text} {listed}" if text else listed
     if isinstance(entries, (str, bytes)) or not isinstance(entries, Iterable):
         # `errors` carries whatever a handler put in a non-mapping `detail`,
         # which is not always a list of field errors.

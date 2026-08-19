@@ -72,7 +72,7 @@ client that honours the header without reading the body.
 | `DeadlineExceededError` | 504 | [`deadline-exceeded`](#deadline-exceeded) | `timeout` |
 | `IdempotencyConflictError` | 422 | [`idempotency-key-reused`](#idempotency-key-reused) | nothing |
 | `IdempotencyWaitTimeoutError` | 409 | [`idempotency-in-flight`](#idempotency-in-flight) | `retry_after` |
-| `RequestValidationError` | 422 | [`validation-failed`](#validation-failed) | `errors` |
+| a request that failed validation | the framework's | [`validation-failed`](#validation-failed) | `errors` |
 
 The handler is registered on the base classes, so a rejection a later release
 adds is covered the day it lands. `AdmissionError` is the catch-all: anything
@@ -88,11 +88,8 @@ your framework raises are reshaped too:
   changes. It renders with `about:blank` as the type, which is what RFC 9457
   says for a problem with no specific kind.
 - a request that failed validation becomes a
-  [`validation-failed`](#validation-failed) response. **The status stays the
-  framework's**: FastAPI answers `422` and Litestar `400`. Which is right is
-  contested, and those projects have already answered it for their users.
-  grelmicro reshapes an answer rather than overruling it, so a client
-  branches on the identifier and reads the same one either way.
+  [`validation-failed`](#validation-failed) response, keeping the status the
+  framework chose.
 
 Answering half the API in one shape and half in another would be the
 surprising outcome, so this is not a separate switch. To keep your own
@@ -202,9 +199,16 @@ Retrying the same work unchanged hits it again.
 
 ### Validation failed { #validation-failed }
 
-`422`. The request did not match the shape the endpoint accepts. Raised by
-the framework, not by grelmicro, and reshaped so it answers in the same
-format as everything else.
+The request did not match the shape the endpoint accepts. Raised by the
+framework, not by grelmicro, and reshaped so it answers in the same format
+as everything else.
+
+**The status is the framework's**, not grelmicro's: FastAPI answers `422`
+and Litestar `400`. `422` is the more precise code for a request that is
+well formed but semantically wrong, and RFC 9110 section 15.5.21 defines
+it, but those projects have already answered this for their users and
+grelmicro reshapes an answer rather than overruling it. Branch on the
+identifier, which is the same either way.
 
 `errors` carries one entry per part that did not match, with `loc`, `msg`
 and `type`. The `input` FastAPI includes by default is dropped: it only
@@ -344,11 +348,11 @@ for.
 ## From a middleware
 
 A middleware runs outside the routing layer, so no exception handler sees what
-it decides. `send_problem` writes the same body from raw ASGI:
+it decides. `send_error` writes the app's format from raw ASGI:
 
 ```python
-from grelmicro import AdmissionError
-from grelmicro.http import problem_detail, send_problem
+from grelmicro import AdmissionError, Grelmicro
+from grelmicro.http import send_error
 
 
 class Gate:
@@ -359,9 +363,14 @@ class Gate:
         try:
             await self.app(scope, receive, send)
         except AdmissionError as exc:
-            problem = problem_detail(exc, instance=scope["path"])
-            await send_problem(send, problem)
+            errors = Grelmicro.current().error_responses
+            rendered = errors.render(exc, instance=scope["path"])
+            await send_error(send, rendered)
 ```
+
+`send_error` takes what the app's `ErrorResponses` produced rather than a
+body of its own, so a middleware cannot answer in a format the rest of the
+app does not speak.
 
 `IdempotencyMiddleware` answers this way, so its `400`, `409`, `413`, and
 `422` responses carry the same shape as a rejection raised in a handler.

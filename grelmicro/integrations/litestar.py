@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 from typing_extensions import Doc
 
 from grelmicro.http import ErrorResponses
-from grelmicro.http._problem import HANDLED
+from grelmicro.http._kinds import HANDLED
 from grelmicro.integrations.fastapi import GrelmicroMiddleware
 
 if TYPE_CHECKING:
@@ -166,7 +166,10 @@ def install_error_responses(
         )
 
         http_exc = cast("HTTPException", exc)
-        headers = http_exc.headers or {}
+        headers = {
+            name.lower(): value
+            for name, value in (http_exc.headers or {}).items()
+        }
         if http_exc.status_code in _BODYLESS_STATUSES:
             # A `204` or a `304` carries no body by the protocol, whatever
             # format the app answers in.

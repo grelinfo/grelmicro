@@ -58,10 +58,11 @@ class Integration(Protocol):
     capability arrives as a new optional module attribute that grelmicro
     feature-detects with `getattr`.
 
-    `install_problem_details(app)` is the first of those. An integration
-    that defines it renders grelmicro's rejections as RFC 9457 responses,
-    and one that does not is skipped, which is what a framework serving no
-    HTTP wants.
+    `install_error_responses(app, errors)` is the first of those, where
+    `errors` is the registered `ErrorResponses` component. An integration
+    that defines it answers every error in the format that component
+    carries, and one that does not is skipped, which is what a framework
+    serving no HTTP wants.
     """
 
     def install(

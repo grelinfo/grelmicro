@@ -38,10 +38,9 @@ from grelmicro.http import (
     PROBLEM_TYPE_BASE,
     ErrorResponses,
     ProblemDetail,
-    problem_detail,
-    send_problem,
+    send_error,
 )
-from grelmicro.http._problem import body_of, retry_after_of
+from grelmicro.http._problem import body_of, render_problem, retry_after_of
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyMakerError,
@@ -136,7 +135,7 @@ def test_every_rejection_maps_to_a_problem(
 ) -> None:
     """Each rejection renders with its own stable type and status."""
     # Act
-    problem = problem_detail(exc, instance="/charge")
+    problem = render_problem(exc, instance="/charge")
 
     # Assert
     assert problem is not None
@@ -150,8 +149,8 @@ def test_every_rejection_maps_to_a_problem(
 def test_an_unmapped_error_has_no_problem() -> None:
     """A server fault stays unhandled rather than dressed up as a rejection."""
     # Act & Assert
-    assert problem_detail(BoomError()) is None
-    assert problem_detail(IdempotencyKeyMakerError("bad key")) is None
+    assert render_problem(BoomError()) is None
+    assert render_problem(IdempotencyKeyMakerError("bad key")) is None
 
 
 def test_a_new_admission_subclass_is_covered() -> None:
@@ -162,7 +161,7 @@ def test_a_new_admission_subclass_is_covered() -> None:
         """A rejection grelmicro does not know about."""
 
     # Act
-    problem = problem_detail(OverQuotaError("nope"))
+    problem = render_problem(OverQuotaError("nope"))
 
     # Assert
     assert problem is not None
@@ -176,7 +175,7 @@ def test_the_exception_message_never_reaches_the_wire(
 ) -> None:
     """A rendered detail is written here, so a key or a name cannot leak."""
     # Act
-    problem = problem_detail(exc)
+    problem = render_problem(exc)
 
     # Assert
     assert problem is not None
@@ -186,7 +185,7 @@ def test_the_exception_message_never_reaches_the_wire(
 def test_the_rate_limit_key_is_not_published() -> None:
     """The key is often a client address or a user id."""
     # Act
-    problem = problem_detail(_rate_limited())
+    problem = render_problem(_rate_limited())
 
     # Assert
     assert problem is not None
@@ -196,7 +195,7 @@ def test_the_rate_limit_key_is_not_published() -> None:
 def test_retry_after_is_carried_when_there_is_something_to_wait_for() -> None:
     """The delay is the useful half of the response."""
     # Act
-    problem = problem_detail(_rate_limited())
+    problem = render_problem(_rate_limited())
 
     # Assert
     assert problem is not None
@@ -206,8 +205,8 @@ def test_retry_after_is_carried_when_there_is_something_to_wait_for() -> None:
 def test_no_retry_after_when_nothing_frees_at_a_known_time() -> None:
     """A zero delay would read as "retry now", which is the opposite."""
     # Act
-    full = problem_detail(BulkheadFullError(name="db", max_concurrent=4))
-    forced = problem_detail(CircuitBreakerError(name="payments"))
+    full = render_problem(BulkheadFullError(name="db", max_concurrent=4))
+    forced = render_problem(CircuitBreakerError(name="payments"))
 
     # Assert
     assert full is not None
@@ -219,7 +218,7 @@ def test_no_retry_after_when_nothing_frees_at_a_known_time() -> None:
 def test_the_deadline_is_carried() -> None:
     """A 504 that restates the status line is worth nothing."""
     # Act
-    problem = problem_detail(DeadlineExceededError(name="db", timeout=DEADLINE))
+    problem = render_problem(DeadlineExceededError(name="db", timeout=DEADLINE))
 
     # Assert
     assert problem is not None
@@ -245,7 +244,7 @@ def test_extension_members_serialize_at_the_top_level() -> None:
     }
 
 
-async def test_send_problem_writes_a_whole_asgi_response() -> None:
+async def test_send_error_writes_a_whole_asgi_response() -> None:
     """A middleware answers before the app runs, so it writes the response."""
     # Arrange
     sent: list[MutableMapping[str, Any]] = []
@@ -253,11 +252,11 @@ async def test_send_problem_writes_a_whole_asgi_response() -> None:
     async def send(message: MutableMapping[str, Any]) -> None:
         sent.append(message)
 
-    problem = problem_detail(_rate_limited(), instance="/charge")
-    assert problem is not None
+    rendered = ErrorResponses().render(_rate_limited(), instance="/charge")
+    assert rendered is not None
 
     # Act
-    await send_problem(send, problem)
+    await send_error(send, rendered)
 
     # Assert
     start, body = sent
@@ -475,7 +474,7 @@ HTTP_FRAMEWORKS = {
 """Every framework grelmicro renders a problem detail on.
 
 FastStream is absent because it serves no HTTP. It carries no
-`install_problem_details`, so `micro.install(app)` skips it.
+`install_error_responses`, so `micro.install(app)` skips it.
 """
 
 
@@ -503,7 +502,7 @@ def test_every_http_framework_answers_identically() -> None:
 def test_faststream_takes_no_problem_details() -> None:
     """A framework that serves no HTTP is skipped, not special-cased by name."""
     # Assert
-    assert not hasattr(faststream, "install_problem_details")
+    assert not hasattr(faststream, "install_error_responses")
 
 
 # --- What the review found ----------------------------------------------
@@ -587,7 +586,7 @@ def test_a_sub_millisecond_wait_carries_nothing() -> None:
     A limiter reports one at a window boundary under load.
     """
     # Act
-    problem = problem_detail(
+    problem = render_problem(
         RateLimitExceededError(key="k", retry_after=0.0004)
     )
 
@@ -626,8 +625,8 @@ def test_both_lock_refusals_share_a_type_and_differ_in_detail() -> None:
     what `detail` is for.
     """
     # Act
-    refused = problem_detail(WouldBlockError("cart"))
-    waited = problem_detail(LockTimeoutError(name="cart", timeout=5.0))
+    refused = render_problem(WouldBlockError("cart"))
+    waited = render_problem(LockTimeoutError(name="cart", timeout=5.0))
 
     # Assert
     assert refused is not None
@@ -693,11 +692,13 @@ async def test_send_problem_omits_the_header_when_there_is_no_wait() -> None:
     async def send(message: MutableMapping[str, Any]) -> None:
         sent.append(message)
 
-    problem = problem_detail(BulkheadFullError(name="db", max_concurrent=4))
-    assert problem is not None
+    rendered = ErrorResponses().render(
+        BulkheadFullError(name="db", max_concurrent=4)
+    )
+    assert rendered is not None
 
     # Act
-    await send_problem(send, problem)
+    await send_error(send, rendered)
 
     # Assert
     headers = dict(sent[0]["headers"])

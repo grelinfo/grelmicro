@@ -18,13 +18,15 @@ Forum format for a service answering to a TM Forum Open API platform.
 Read more in the [Problem Details](../http/problems.md) docs.
 """
 
-from grelmicro.http._component import ErrorResponses, RenderedError
+from grelmicro.http._component import (
+    ErrorResponses,
+    RenderedError,
+    send_error,
+)
 from grelmicro.http._problem import (
     PROBLEM_MEDIA_TYPE,
     PROBLEM_TYPE_BASE,
     ProblemDetail,
-    problem_detail,
-    send_problem,
 )
 from grelmicro.http._tmf import TMFError
 
@@ -35,6 +37,5 @@ __all__ = [
     "ProblemDetail",
     "RenderedError",
     "TMFError",
-    "problem_detail",
-    "send_problem",
+    "send_error",
 ]

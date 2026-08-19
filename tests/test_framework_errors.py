@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import pytest
 from fastapi import FastAPI
 from fastapi import HTTPException as FastAPIHTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from litestar import Litestar, get, post
 from litestar import Request as LitestarRequest
@@ -853,3 +854,88 @@ def test_an_app_without_the_component_keeps_its_schema() -> None:
     # Assert
     assert "HTTPValidationError" in schemas
     assert "ValidationError" in schemas
+
+
+def test_keeping_your_validation_handler_keeps_your_schema() -> None:
+    """A shape the app still answers with must stay in the schema.
+
+    Rewriting the generated `422` for an app that kept its own handler
+    would publish a body it does not send.
+    """
+    # Arrange
+    app = _fastapi()
+
+    async def mine(request: Request, exc: Exception) -> Response:  # noqa: ARG001
+        return JSONResponse({"my_errors": []}, status_code=422)
+
+    app.add_exception_handler(RequestValidationError, mine)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        body = client.post("/charge", json={"amount": "abc"}).json()
+    schema = app.openapi()
+
+    # Assert
+    assert body == {"my_errors": []}
+    assert schema["paths"]["/charge"]["post"]["responses"]["422"][
+        "content"
+    ] == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/HTTPValidationError"}
+        }
+    }
+    assert "ValidationError" in schema["components"]["schemas"]
+
+
+def test_a_header_the_app_set_wins_whatever_case_it_used() -> None:
+    """Header names are case insensitive, so a merge must be too.
+
+    Keeping both `Cache-Control` and `cache-control` emits two
+    contradictory directives instead of letting the app's win.
+    """
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/auth")
+    async def auth() -> dict[str, str]:
+        raise FastAPIHTTPException(
+            HTTP_401_UNAUTHORIZED,
+            "No",
+            headers={
+                "WWW-Authenticate": "Bearer",
+                "Cache-Control": "no-cache",
+            },
+        )
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/auth")
+
+    # Assert
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+def test_tmf_keeps_a_mapping_detail() -> None:
+    """TMF has no extension member, so `message` carries it or nothing does."""
+    # Arrange
+    app = FastAPI()
+
+    @app.get("/x")
+    async def boom() -> dict[str, str]:
+        raise FastAPIHTTPException(
+            HTTP_400_BAD_REQUEST, detail={"code": "X", "field": "y"}
+        )
+
+    Grelmicro(uses=[ErrorResponses.tmf()]).install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        message = client.get("/x").json()["message"]
+
+    # Assert
+    assert "code: X" in message
+    assert "field: y" in message

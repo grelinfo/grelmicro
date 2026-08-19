@@ -262,11 +262,8 @@
     "TMFError": {
       "()": "(*, code, reason, message=None, referenceError=None, type_='Error', **extra_data) -> None"
     },
-    "problem_detail": {
-      "()": "(exc, *, instance=None) -> 'ProblemDetail | None'"
-    },
-    "send_problem": {
-      "()": "(send, problem) -> 'None'"
+    "send_error": {
+      "()": "(send, rendered) -> 'None'"
     }
   },
   "grelmicro.idempotency": {
