@@ -1449,3 +1449,43 @@ def test_a_model_the_app_still_points_at_is_kept() -> None:
     # Assert
     assert "HTTPValidationError" in schema["components"]["schemas"]
     assert _dangling(schema) == []
+
+
+def test_a_webhook_is_not_documented_as_idempotent() -> None:
+    """A webhook is a request the app sends, so no key of ours reaches it."""
+    # Arrange
+    memory = MemoryProvider()
+    app = FastAPI()
+
+    @app.webhooks.post("new-subscription")
+    async def subscribed(body: Charge) -> None: ...
+
+    @app.post("/charge")
+    async def charge() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+    Grelmicro(uses=[memory, Cache(memory), ErrorResponses()]).install(app)
+    document_idempotency(app)
+
+    # Act
+    schema = app.openapi()
+    hook = schema["webhooks"]["new-subscription"]["post"]
+    served = schema["paths"]["/charge"]["post"]
+
+    # Assert
+    assert "409" not in hook.get("responses", {})
+    assert not [p for p in hook.get("parameters", []) if p["in"] == "header"]
+    assert "409" in served["responses"]
+
+
+@pytest.mark.parametrize("wait", [-5.0, 0.0])
+def test_a_delay_already_past_carries_no_header(wait: float) -> None:
+    """RFC 9110 takes `1*DIGIT`, and a past delay says the opposite of refuse."""
+    # Act
+    rendered = ErrorResponses().render_status(
+        HTTP_409_CONFLICT, extensions={"retry_after": wait}
+    )
+
+    # Assert
+    assert "retry-after" not in rendered.headers

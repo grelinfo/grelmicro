@@ -9,7 +9,7 @@ from typing_extensions import Doc
 from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._kinds import HANDLED
 from grelmicro.http._openapi import add_error_schema
-from grelmicro.integrations.fastapi import GrelmicroMiddleware
+from grelmicro.integrations.starlette import GrelmicroMiddleware
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping

@@ -114,9 +114,13 @@ async def send_error(
         async def __call__(self, scope, receive, send):
             try:
                 await self.app(scope, receive, send)
-            except AdmissionError as exc:
+            except Exception as exc:
                 errors = Grelmicro.current().error_responses
                 rendered = errors.render(exc, instance=scope["path"])
+                if rendered is None:
+                    # Not a rejection grelmicro renders, so it stays the
+                    # framework's to answer.
+                    raise
                 await send_error(send, rendered)
     ```
     """

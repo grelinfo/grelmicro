@@ -331,12 +331,15 @@ def retry_after_seconds(value: object) -> str | None:
     renderer and not another. HTTP takes whole seconds, so the delay is
     rounded up: rounding down invites a retry that is refused again.
 
-    A wait that is not a real number carries no header. `bool` is a number
-    in Python and never a delay, and infinity and NaN pass every type check
-    while `ceil` raises on both, inside the path that renders a failure.
+    A wait that is not a positive real number carries no header. `bool` is
+    a number in Python and never a delay, infinity and NaN pass every type
+    check while `ceil` raises on both, and a delay computed from a deadline
+    already past comes out negative, which no client can honour.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if not isfinite(value):
+    if not isfinite(value) or value <= 0:
+        # RFC 9110 defines the header as `1*DIGIT`, and a delay already
+        # past says "retry now", which is the opposite of a refusal.
         return None
     return str(ceil(value))

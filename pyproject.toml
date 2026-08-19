@@ -76,7 +76,7 @@ Issues = "https://github.com/grelinfo/grelmicro/issues"
 
 [project.entry-points."grelmicro.integrations"]
 fastapi = "grelmicro.integrations.fastapi"
-starlette = "grelmicro.integrations.fastapi"
+starlette = "grelmicro.integrations.starlette"
 litestar = "grelmicro.integrations.litestar"
 faststream = "grelmicro.integrations.faststream"
 

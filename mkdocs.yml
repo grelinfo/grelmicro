@@ -134,6 +134,7 @@ nav:
     - reference/logging.md
     - reference/metrics.md
     - reference/resilience.md
+    - reference/starlette.md
     - reference/security.md
     - reference/coordination.md
     - reference/outbox.md

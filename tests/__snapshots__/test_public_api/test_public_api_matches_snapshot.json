@@ -352,6 +352,27 @@
       "()": "(app) -> 'bool'"
     }
   },
+  "grelmicro.integrations.starlette": {
+    "GrelmicroMiddleware": {
+      "()": "(app, *, micro) -> None"
+    },
+    "IdempotencyMiddleware": {
+      "()": "(app, *, idempotency, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0) -> None"
+    },
+    "StoredResponse": null,
+    "error_response": {
+      "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
+    },
+    "install": {
+      "()": "(app, micro, *, ambient=True) -> None"
+    },
+    "install_error_responses": {
+      "()": "(app, errors) -> None"
+    },
+    "is_bound": {
+      "()": "(app) -> bool"
+    }
+  },
   "grelmicro.log": {
     "DuplicateFilter": {
       "()": "(*, allowed_repetitions=None, cache_size=None, key_mode=None, ttl=None, key=None, env_name='default', env_prefix=None, env_load=None) -> None",

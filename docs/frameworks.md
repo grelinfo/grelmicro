@@ -16,6 +16,11 @@ This is the explicit list of what that call supports.
 rejections answered as RFC 9457 responses, and `Trace()` has requests
 auto-instrumented. Both happen only because the component is in `uses=[...]`.
 
+`GrelmicroMiddleware`, `IdempotencyMiddleware` and `error_response` are pure
+ASGI and live in `grelmicro.integrations.starlette`. The FastAPI module
+re-exports them and adds what only FastAPI has, the OpenAPI schema and the
+[health router](health.md), so a FastAPI app needs one import either way.
+
 Nothing else about how your framework answers a request changes. The
 per-request binding adds one middleware that sets a context variable, and
 changes nothing a client can see.
