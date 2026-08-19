@@ -12,7 +12,6 @@ from grelmicro.http._kinds import (
     DOCS_BASE,
     SAFETY_HEADERS,
     Kind,
-    classify,
     retry_after_seconds,
 )
 
@@ -114,39 +113,6 @@ def build(
             for name, value in (extensions or {}).items()
             if name not in STANDARD_MEMBERS
         },
-    )
-
-
-def render_problem(
-    exc: Annotated[
-        BaseException,
-        Doc("The exception to render."),
-    ],
-    *,
-    instance: Annotated[
-        str | None,
-        Doc(
-            "Request path recorded as the occurrence, usually `scope['path']`."
-        ),
-    ] = None,
-) -> ProblemDetail | None:
-    """Return the problem detail for `exc`, or `None` when grelmicro has none.
-
-    Every rejection under `AdmissionError` maps, whichever primitive raised
-    it, along with `DeadlineExceededError` and the idempotency rejections.
-
-    The rendered `detail` is written by grelmicro and never carries the
-    exception message, which can name a rate limit key, a breaker, or a
-    backend.
-    """
-    occurrence = classify(exc)
-    if occurrence is None:
-        return None
-    return build(
-        occurrence.kind,
-        detail=occurrence.detail,
-        instance=instance,
-        extensions=occurrence.extensions,
     )
 
 

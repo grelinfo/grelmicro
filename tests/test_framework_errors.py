@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from litestar import Litestar, get, post
 from litestar import Request as LitestarRequest
 from litestar.exceptions import HTTPException as LitestarHTTPException
-from litestar.exceptions import NotFoundException
+from litestar.exceptions import NotFoundException, ValidationException
 from litestar.openapi.datastructures import ResponseSpec
 from litestar.response import Response as LitestarResponse
 from litestar.testing import TestClient as LitestarTestClient
@@ -34,6 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.status import (
+    HTTP_200_OK,
     HTTP_400_BAD_REQUEST,
     HTTP_401_UNAUTHORIZED,
     HTTP_404_NOT_FOUND,
@@ -64,6 +65,9 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.timeout(5)]
 
+VALIDATION_MESSAGE = "bad input"
+"""What the framework said, which must reach the client in every format."""
+
 NOT_FOUND_DETAIL = "Charge not found"
 """Message the app puts on its own error, which must survive untouched."""
 
@@ -78,6 +82,22 @@ class Charge(BaseModel):
     """A body with one required integer, so a string fails validation."""
 
     amount: int
+
+
+class GrelmicroProblemDetail(BaseModel):
+    """An app model under the qualified name grelmicro falls back to."""
+
+    also_mine: str
+
+
+class ProblemDetail(BaseModel):
+    """An app model that happens to share grelmicro's name.
+
+    Defined at module scope because Litestar resolves a handler's signature
+    against its module, and a class defined inside a test is invisible there.
+    """
+
+    mine: str
 
 
 def _fastapi() -> FastAPI:
@@ -1039,3 +1059,134 @@ def test_litestar_leaves_a_response_the_app_declared() -> None:
     content = schema["paths"]["/own"]["get"]["responses"]["409"]["content"]
     assert "application/json" in content
     assert PROBLEM_MEDIA_TYPE not in content
+
+
+def test_litestar_without_a_schema_still_starts() -> None:
+    """`openapi_config=None` publishes nothing, so there is nothing to rewrite.
+
+    Asking the plugin to build a schema there raises rather than returning
+    nothing, which would take the app down in its own lifespan.
+    """
+
+    # Arrange
+    @get("/ping")
+    async def ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    app = Litestar(route_handlers=[ping], openapi_config=None)
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        response = client.get("/ping")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+
+
+def test_litestar_does_not_replace_a_model_of_yours() -> None:
+    """An app may already publish a `ProblemDetail` that is not ours."""
+
+    # Arrange
+    @post("/items")
+    async def items(data: ProblemDetail) -> ProblemDetail:
+        return data
+
+    app = Litestar(route_handlers=[items])
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        schemas = client.get("/schema/openapi.json").json()["components"][
+            "schemas"
+        ]
+
+    # Assert
+    assert sorted(schemas["ProblemDetail"]["properties"]) == ["mine"]
+    assert "GrelmicroProblemDetail" in schemas
+
+
+def test_litestar_keeping_your_handler_keeps_your_schema() -> None:
+    """The schema must not describe a body the app does not send."""
+
+    # Arrange
+    @post("/charge")
+    async def charge(data: Charge) -> dict[str, bool]:  # noqa: ARG001
+        return {"ok": True}
+
+    def mine(
+        request: LitestarRequest,  # noqa: ARG001
+        exc: Exception,  # noqa: ARG001
+    ) -> LitestarResponse:
+        return LitestarResponse(
+            content=b'{"mine":true}',
+            status_code=HTTP_400_BAD_REQUEST,
+            media_type="application/json",
+        )
+
+    app = Litestar(
+        route_handlers=[charge],
+        exception_handlers={LitestarHTTPException: mine},
+    )
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
+        body = client.post("/charge", json={"amount": "abc"}).content
+        schema = client.get("/schema/openapi.json").json()
+
+    # Assert
+    assert body == b'{"mine":true}'
+    generated = schema["paths"]["/charge"]["post"]["responses"][
+        str(HTTP_400_BAD_REQUEST)
+    ]["content"]["application/json"]["schema"]
+    assert set(generated["required"]) == {"detail", "status_code"}
+
+
+def test_a_validation_message_the_framework_had_survives() -> None:
+    """It is the one actionable string, and both formats must keep it."""
+
+    # Arrange
+    @get("/v")
+    async def bad() -> dict[str, str]:
+        raise ValidationException(VALIDATION_MESSAGE)
+
+    for errors in (ErrorResponses(), ErrorResponses.tmf()):
+        app = Litestar(route_handlers=[bad])
+        Grelmicro(uses=[errors]).install(app)
+
+        # Act
+        with LitestarTestClient(
+            app=app, raise_server_exceptions=False
+        ) as client:
+            body = client.get("/v").json()
+
+        # Assert
+        said = body.get("detail") or body.get("message")
+        assert said == VALIDATION_MESSAGE
+        # An empty field-error list has nothing to say, in either format.
+        assert "errors" not in body
+        assert "[]" not in str(said)
+
+
+def test_litestar_says_nothing_when_both_names_are_taken() -> None:
+    """Litestar's own entry beats one pointing at nothing."""
+
+    # Arrange
+    @post("/items")
+    async def items(data: ProblemDetail) -> GrelmicroProblemDetail:
+        return GrelmicroProblemDetail(also_mine=data.mine)
+
+    app = Litestar(route_handlers=[items])
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        schema = client.get("/schema/openapi.json").json()
+
+    # Assert
+    generated = schema["paths"]["/items"]["post"]["responses"]["400"][
+        "content"
+    ]["application/json"]["schema"]
+    assert set(generated["required"]) == {"detail", "status_code"}
+    assert sorted(schema["components"]["schemas"]["ProblemDetail"]) != []

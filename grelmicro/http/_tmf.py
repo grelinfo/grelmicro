@@ -119,6 +119,15 @@ def render(
     )
 
 
+_NOT_IN_MESSAGE = frozenset({"retry_after", "errors"})
+"""Extensions with a home of their own, or none, in a TM Forum body.
+
+`retry_after` reaches the client as a header. `errors` is read out entry by
+entry above, so an empty one has nothing to say rather than a literal
+`errors: []`.
+"""
+
+
 def _message(occurrence: Occurrence, default: str | None) -> str | None:
     """Return the `message` member, with any field errors folded in.
 
@@ -138,7 +147,7 @@ def _message(occurrence: Occurrence, default: str | None) -> str | None:
         extra = {
             name: value
             for name, value in occurrence.extensions.items()
-            if name != "retry_after"
+            if name not in _NOT_IN_MESSAGE
         }
         if not extra:
             return text

@@ -26,6 +26,7 @@ from grelmicro.http._kinds import (
     Kind,
     Occurrence,
 )
+from grelmicro.http._openapi import add_error_schema, referenced
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE, ProblemDetail
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -883,7 +884,7 @@ def _annotate_schema(
     ]
     if not covered:
         return
-    ref = _add_error_schema(schema, model)
+    ref = add_error_schema(schema, model)
     for path_item, operation in covered:
         _add_parameter(operation, path_item, parameter)
         for status, description in responses.items():
@@ -911,7 +912,7 @@ def _document_error_responses(app: "Starlette", errors: ErrorResponses) -> None:
 
     def openapi() -> dict[str, Any]:
         schema = original()
-        ref = _add_error_schema(schema, errors.model)
+        ref = add_error_schema(schema, errors.model)
         for _, operation in _operations(schema):
             _rewrite_validation_response(operation, ref, errors.media_type)
         _drop_unreferenced_validation_schemas(schema)
@@ -972,37 +973,19 @@ def _drop_unreferenced_validation_schemas(schema: dict[str, Any]) -> None:
         for name, definition in schemas.items()
         if name not in _FASTAPI_VALIDATION_SCHEMAS
     }
-    reachable = _referenced(schema.get("paths", {})) | _referenced(elsewhere)
+    reachable = referenced(schema.get("paths", {})) | referenced(elsewhere)
     # A surviving model keeps what it points at: `HTTPValidationError`
     # holds a list of `ValidationError`, and dropping the second would
     # leave the first with a `$ref` to nothing.
     while True:
         kept = [name for name in candidates if name in reachable]
-        grown = reachable | _referenced({name: schemas[name] for name in kept})
+        grown = reachable | referenced({name: schemas[name] for name in kept})
         if grown == reachable:
             break
         reachable = grown
     for name in candidates:
         if name not in reachable:
             del schemas[name]
-
-
-def _referenced(node: object) -> set[str]:
-    """Return the component names anything under `node` points at."""
-    if isinstance(node, dict):
-        found: set[str] = set()
-        for key, value in node.items():
-            if key == "$ref" and isinstance(value, str):
-                found.add(value.rsplit("/", 1)[-1])
-            else:
-                found |= _referenced(value)
-        return found
-    if isinstance(node, list):
-        found = set()
-        for item in node:
-            found |= _referenced(item)
-        return found
-    return set()
 
 
 def error_response(
@@ -1150,29 +1133,6 @@ def _operations(
         if isinstance(operation, dict)
         and (methods is None or method.lower() in methods)
     ]
-
-
-def _add_error_schema(schema: dict[str, Any], model: type[BaseModel]) -> str:
-    """Publish the problem body component and return the ref that points at it.
-
-    An app may already publish a model of its own under the same name, in
-    which case pointing the middleware's responses at it would hand a
-    generated client the wrong shape to decode. The component is compared
-    before it is reused, and a different one is published beside it under a
-    qualified name rather than replacing what the app declared.
-    """
-    schemas = schema.setdefault("components", {}).setdefault("schemas", {})
-    ours = model.model_json_schema(ref_template="#/components/schemas/{model}")
-    for name in (model.__name__, f"Grelmicro{model.__name__}"):
-        existing = schemas.get(name)
-        if existing is None:
-            schemas[name] = ours
-            return f"#/components/schemas/{name}"
-        if existing == ours:
-            return f"#/components/schemas/{name}"
-    # Both names are taken by something else, which takes a deliberate act.
-    # Say nothing about the body rather than name the wrong shape.
-    return ""
 
 
 def _add_parameter(

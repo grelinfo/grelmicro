@@ -370,6 +370,10 @@ class ErrorResponses:
             int,
             Doc("Status the framework chose. Kept, not second-guessed."),
         ],
+        detail: Annotated[
+            str | None,
+            Doc("What the framework said, when it said anything useful."),
+        ] = None,
         instance: Annotated[
             str | None,
             Doc("Request path recorded as the occurrence."),
@@ -391,7 +395,8 @@ class ErrorResponses:
         return self._from_occurrence(
             Occurrence(
                 replace(VALIDATION_FAILED, status=status),
-                extensions={"errors": field_errors},
+                detail=detail,
+                extensions={"errors": field_errors} if field_errors else {},
             ),
             instance,
         )

@@ -40,7 +40,7 @@ from grelmicro.http import (
     ProblemDetail,
     send_error,
 )
-from grelmicro.http._problem import body_of, render_problem, retry_after_of
+from grelmicro.http._problem import body_of, retry_after_of
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyMakerError,
@@ -65,6 +65,16 @@ pytestmark = [pytest.mark.timeout(5)]
 def _teapot(request: Request, exc: Exception) -> JSONResponse:  # noqa: ARG001
     """Answer with a teapot, so an overwrite would be visible."""
     return JSONResponse({"mine": True}, status_code=HTTP_418_IM_A_TEAPOT)
+
+
+def _problem_for(
+    exc: BaseException, *, instance: str | None = None
+) -> ProblemDetail | None:
+    """Return the problem body the default component renders for `exc`."""
+    rendered = ErrorResponses().render(exc, instance=instance)
+    return (
+        None if rendered is None else ProblemDetail(**json.loads(rendered.body))
+    )
 
 
 class BoomError(Exception):
@@ -135,7 +145,7 @@ def test_every_rejection_maps_to_a_problem(
 ) -> None:
     """Each rejection renders with its own stable type and status."""
     # Act
-    problem = render_problem(exc, instance="/charge")
+    problem = _problem_for(exc, instance="/charge")
 
     # Assert
     assert problem is not None
@@ -149,8 +159,8 @@ def test_every_rejection_maps_to_a_problem(
 def test_an_unmapped_error_has_no_problem() -> None:
     """A server fault stays unhandled rather than dressed up as a rejection."""
     # Act & Assert
-    assert render_problem(BoomError()) is None
-    assert render_problem(IdempotencyKeyMakerError("bad key")) is None
+    assert _problem_for(BoomError()) is None
+    assert _problem_for(IdempotencyKeyMakerError("bad key")) is None
 
 
 def test_a_new_admission_subclass_is_covered() -> None:
@@ -161,7 +171,7 @@ def test_a_new_admission_subclass_is_covered() -> None:
         """A rejection grelmicro does not know about."""
 
     # Act
-    problem = render_problem(OverQuotaError("nope"))
+    problem = _problem_for(OverQuotaError("nope"))
 
     # Assert
     assert problem is not None
@@ -175,7 +185,7 @@ def test_the_exception_message_never_reaches_the_wire(
 ) -> None:
     """A rendered detail is written here, so a key or a name cannot leak."""
     # Act
-    problem = render_problem(exc)
+    problem = _problem_for(exc)
 
     # Assert
     assert problem is not None
@@ -185,7 +195,7 @@ def test_the_exception_message_never_reaches_the_wire(
 def test_the_rate_limit_key_is_not_published() -> None:
     """The key is often a client address or a user id."""
     # Act
-    problem = render_problem(_rate_limited())
+    problem = _problem_for(_rate_limited())
 
     # Assert
     assert problem is not None
@@ -195,7 +205,7 @@ def test_the_rate_limit_key_is_not_published() -> None:
 def test_retry_after_is_carried_when_there_is_something_to_wait_for() -> None:
     """The delay is the useful half of the response."""
     # Act
-    problem = render_problem(_rate_limited())
+    problem = _problem_for(_rate_limited())
 
     # Assert
     assert problem is not None
@@ -205,8 +215,8 @@ def test_retry_after_is_carried_when_there_is_something_to_wait_for() -> None:
 def test_no_retry_after_when_nothing_frees_at_a_known_time() -> None:
     """A zero delay would read as "retry now", which is the opposite."""
     # Act
-    full = render_problem(BulkheadFullError(name="db", max_concurrent=4))
-    forced = render_problem(CircuitBreakerError(name="payments"))
+    full = _problem_for(BulkheadFullError(name="db", max_concurrent=4))
+    forced = _problem_for(CircuitBreakerError(name="payments"))
 
     # Assert
     assert full is not None
@@ -218,7 +228,7 @@ def test_no_retry_after_when_nothing_frees_at_a_known_time() -> None:
 def test_the_deadline_is_carried() -> None:
     """A 504 that restates the status line is worth nothing."""
     # Act
-    problem = render_problem(DeadlineExceededError(name="db", timeout=DEADLINE))
+    problem = _problem_for(DeadlineExceededError(name="db", timeout=DEADLINE))
 
     # Assert
     assert problem is not None
@@ -586,9 +596,7 @@ def test_a_sub_millisecond_wait_carries_nothing() -> None:
     A limiter reports one at a window boundary under load.
     """
     # Act
-    problem = render_problem(
-        RateLimitExceededError(key="k", retry_after=0.0004)
-    )
+    problem = _problem_for(RateLimitExceededError(key="k", retry_after=0.0004))
 
     # Assert
     assert problem is not None
@@ -625,8 +633,8 @@ def test_both_lock_refusals_share_a_type_and_differ_in_detail() -> None:
     what `detail` is for.
     """
     # Act
-    refused = render_problem(WouldBlockError("cart"))
-    waited = render_problem(LockTimeoutError(name="cart", timeout=5.0))
+    refused = _problem_for(WouldBlockError("cart"))
+    waited = _problem_for(LockTimeoutError(name="cart", timeout=5.0))
 
     # Assert
     assert refused is not None

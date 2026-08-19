@@ -8,6 +8,7 @@ from typing_extensions import Doc
 
 from grelmicro.http import ErrorResponses
 from grelmicro.http._kinds import HANDLED
+from grelmicro.http._openapi import add_error_schema
 from grelmicro.integrations.fastapi import GrelmicroMiddleware
 
 if TYPE_CHECKING:
@@ -182,6 +183,7 @@ def install_error_responses(
             rendered = errors.render_validation(
                 _field_errors(exc),
                 status=http_exc.status_code,
+                detail=http_exc.detail or None,
                 instance=request.url.path,
             )
         else:
@@ -200,12 +202,15 @@ def install_error_responses(
         )
 
     app.state.grelmicro_error_responses = errors
-    _document_error_responses(app, errors)
 
     from litestar.exceptions import HTTPException  # noqa: PLC0415
 
     if HTTPException not in app.exception_handlers:
         app.exception_handlers[HTTPException] = http_error
+        # Only now is what the framework describes no longer what the app
+        # answers with. An app that kept its own handler keeps its own
+        # schema too, or the two would disagree.
+        _document_error_responses(app, errors)
 
     for klass in HANDLED:
         # A handler passed to `Litestar(exception_handlers=...)` wins, the
@@ -239,26 +244,31 @@ def _document_error_responses(app: Litestar, errors: ErrorResponses) -> None:
             OpenAPIPlugin,
         )
 
-        try:
-            plugin = app.plugins.get(OpenAPIPlugin)
-        except KeyError:  # pragma: no cover
-            # An app built with `openapi_config=None` publishes no schema.
+        if app.openapi_config is None:
+            # `openapi_config=None` publishes no schema, and asking the
+            # plugin to build one raises rather than returning nothing.
             return
+        plugin = app.plugins.get(OpenAPIPlugin)
         # Built once and cached by the plugin, so rewriting the dict it
         # returns is what every later reader sees.
-        _rewrite_error_responses(
-            plugin.provide_openapi_schema(),
-            f"#/components/schemas/{errors.model.__name__}",
-            errors,
-        )
+        _rewrite_error_responses(plugin.provide_openapi_schema(), errors)
 
     app.on_startup.append(rewrite)
 
 
 def _rewrite_error_responses(
-    schema: dict[str, Any], ref: str, errors: ErrorResponses
+    schema: dict[str, Any], errors: ErrorResponses
 ) -> None:
-    """Point every response Litestar generated at the registered body."""
+    """Point every response Litestar generated at the registered body.
+
+    The component is published through the shared helper, so a model the
+    app already declared under that name is not replaced by ours.
+    """
+    ref = add_error_schema(schema, errors.model)
+    if not ref:
+        # Both names are taken by the app's own models. Litestar's own
+        # entry is a better answer than one pointing at nothing.
+        return
     responses = [
         response
         for path_item in schema.get("paths", {}).values()
@@ -266,17 +276,8 @@ def _rewrite_error_responses(
         if isinstance(operation, dict)
         for response in operation.get("responses", {}).values()
     ]
-    rewritten = [
-        response
-        for response in responses
-        if _rewrite_one(response, ref, errors.media_type)
-    ]
-    if rewritten:
-        schema.setdefault("components", {}).setdefault("schemas", {})[
-            errors.model.__name__
-        ] = errors.model.model_json_schema(
-            ref_template="#/components/schemas/{model}"
-        )
+    for response in responses:
+        _rewrite_one(response, ref, errors.media_type)
 
 
 def _rewrite_one(response: dict[str, Any], ref: str, media_type: str) -> bool:
