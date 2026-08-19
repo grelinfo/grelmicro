@@ -69,8 +69,12 @@ either reads the stored response or is told to wait again.
 
 
 @dataclass(frozen=True, slots=True)
-class _Kind:
+class Kind:
     """One error grelmicro knows how to put on the wire.
+
+    The module is private, so this needs no second marker. It crosses into
+    the renderers and the integrations, which is what makes it the shared
+    vocabulary rather than one format's detail.
 
     An empty `slug` marks an error grelmicro did not classify, which is the
     framework's own. RFC 9457 says `about:blank` for a problem with no
@@ -83,7 +87,7 @@ class _Kind:
     detail: str | None
 
 
-RATE_LIMIT_EXCEEDED = _Kind(
+RATE_LIMIT_EXCEEDED = Kind(
     slug="rate-limit-exceeded",
     status=429,
     title="Rate limit exceeded",
@@ -93,7 +97,7 @@ RATE_LIMIT_EXCEEDED = _Kind(
     ),
 )
 
-CIRCUIT_BREAKER_OPEN = _Kind(
+CIRCUIT_BREAKER_OPEN = Kind(
     slug="circuit-breaker-open",
     status=503,
     title="Circuit breaker open",
@@ -103,7 +107,7 @@ CIRCUIT_BREAKER_OPEN = _Kind(
     ),
 )
 
-BULKHEAD_FULL = _Kind(
+BULKHEAD_FULL = Kind(
     slug="bulkhead-full",
     status=503,
     title="Concurrency limit reached",
@@ -113,7 +117,7 @@ BULKHEAD_FULL = _Kind(
     ),
 )
 
-LOCK_UNAVAILABLE = _Kind(
+LOCK_UNAVAILABLE = Kind(
     slug="lock-unavailable",
     status=503,
     title="Lock held elsewhere",
@@ -123,28 +127,28 @@ LOCK_UNAVAILABLE = _Kind(
     ),
 )
 
-REQUEST_REFUSED = _Kind(
+REQUEST_REFUSED = Kind(
     slug="request-refused",
     status=503,
     title="Request refused",
     detail="The service refused the request before running it.",
 )
 
-DEADLINE_EXCEEDED = _Kind(
+DEADLINE_EXCEEDED = Kind(
     slug="deadline-exceeded",
     status=504,
     title="Deadline exceeded",
     detail="The request did not finish within the deadline the service allows.",
 )
 
-IDEMPOTENCY_KEY_INVALID = _Kind(
+IDEMPOTENCY_KEY_INVALID = Kind(
     slug="idempotency-key-invalid",
     status=400,
     title="Idempotency key invalid",
     detail="The idempotency key is missing or malformed.",
 )
 
-IDEMPOTENCY_KEY_REUSED = _Kind(
+IDEMPOTENCY_KEY_REUSED = Kind(
     slug="idempotency-key-reused",
     status=422,
     title="Idempotency key reused",
@@ -154,7 +158,7 @@ IDEMPOTENCY_KEY_REUSED = _Kind(
     ),
 )
 
-IDEMPOTENCY_IN_FLIGHT = _Kind(
+IDEMPOTENCY_IN_FLIGHT = Kind(
     slug="idempotency-in-flight",
     status=409,
     title="Idempotent request in flight",
@@ -164,14 +168,14 @@ IDEMPOTENCY_IN_FLIGHT = _Kind(
     ),
 )
 
-VALIDATION_FAILED = _Kind(
+VALIDATION_FAILED = Kind(
     slug="validation-failed",
     status=422,
     title="Validation failed",
     detail="The request did not match the shape this endpoint accepts.",
 )
 
-REQUEST_BODY_TOO_LARGE = _Kind(
+REQUEST_BODY_TOO_LARGE = Kind(
     slug="request-body-too-large",
     status=413,
     title="Request body too large",
@@ -202,7 +206,7 @@ class Occurrence:
     this occurrence.
     """
 
-    kind: _Kind
+    kind: Kind
     detail: str | None = None
     extensions: dict[str, Any] = field(default_factory=dict)
 
@@ -301,14 +305,14 @@ def classify(exc: BaseException) -> Occurrence | None:
     return None
 
 
-def unclassified(status: int, title: str) -> _Kind:
+def unclassified(status: int, title: str) -> Kind:
     """Return a kind for an error the framework raised, not grelmicro.
 
     Carries no slug, so it renders with no identifier and no documentation
     URI. There is nothing to point at: the error is the application's, and
     grelmicro only reshapes it into the format the app answers in.
     """
-    return _Kind(slug="", status=status, title=title, detail=None)
+    return Kind(slug="", status=status, title=title, detail=None)
 
 
 def phrase_of(status: int) -> str:

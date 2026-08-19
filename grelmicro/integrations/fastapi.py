@@ -23,8 +23,8 @@ from grelmicro.http._kinds import (
     IDEMPOTENCY_KEY_INVALID,
     IDEMPOTENCY_KEY_REUSED,
     REQUEST_BODY_TOO_LARGE,
+    Kind,
     Occurrence,
-    _Kind,
 )
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE, ProblemDetail
 from grelmicro.idempotency.errors import (
@@ -1450,7 +1450,7 @@ async def _send_stored(send: "Send", stored: _Entry, *, head: bool) -> None:
 async def _refuse(
     send: "Send",
     scope: "Scope",
-    kind: _Kind,
+    kind: Kind,
     detail: str | None = None,
     *,
     retry_after: float | None = None,

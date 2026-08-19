@@ -11,7 +11,7 @@ from grelmicro._json import json_dumps_bytes
 from grelmicro.http._kinds import (
     DOCS_BASE,
     SAFETY_HEADERS,
-    _Kind,
+    Kind,
     classify,
     retry_after_seconds,
 )
@@ -89,7 +89,7 @@ class ProblemDetail(BaseModel, extra="allow"):
 
 
 def build(
-    kind: _Kind,
+    kind: Kind,
     *,
     detail: str | None = None,
     instance: str | None = None,
