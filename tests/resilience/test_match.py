@@ -15,6 +15,25 @@ from grelmicro.resilience import Match, Outcome
 # --- Match.exception -------------------------------------------------------
 
 
+_REPEAT_CALLS = 5
+_OVER_THE_BOUND = 5
+
+
+class _HostileRepr:
+    """A predicate that cannot be weakly held and refuses to be repr'd."""
+
+    __slots__ = ()
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to trigger the warning."""
+        return 1
+
+    def __repr__(self) -> str:
+        """Raise, as a badly behaved object can."""
+        msg = "repr exploded"
+        raise RuntimeError(msg)
+
+
 @dataclass
 class _UnhashablePredicate:
     """A predicate a `WeakSet` can neither hash nor weakly reference."""
@@ -446,3 +465,70 @@ def test_a_predicate_that_cannot_be_tracked_warns_instead_of_raising(
 
     assert result is True
     assert any("non-bool" in record.message for record in caplog.records)
+
+
+def test_an_untrackable_predicate_is_still_warned_only_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A predicate a `WeakSet` cannot hold must not warn on every attempt.
+
+    A `Retry` calls the matcher once per attempt, so warning per call
+    would flood the log of a service whose predicate returns a non-bool.
+    """
+    predicate = operator.attrgetter("args")
+    outcome = Outcome.from_exception(ValueError("x"))
+    matcher = Match.exception(predicate)
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        for _ in range(_REPEAT_CALLS):
+            matcher(outcome)
+
+    warnings = [r for r in caplog.records if "non-bool" in r.message]
+    assert len(warnings) == 1
+
+
+def test_a_predicate_whose_repr_raises_does_not_break_the_matcher(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Naming a predicate must never raise out of the matcher.
+
+    `Retry` calls the matcher from an `except` block, so an error raised
+    while building the warning would replace the one the caller was
+    already handling.
+    """
+    outcome = Outcome.from_exception(ValueError("x"))
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        result = Match.exception(_HostileRepr())(outcome)  # ty: ignore[invalid-argument-type]
+
+    assert result is True
+    assert any("non-bool" in record.message for record in caplog.records)
+
+
+def test_the_untrackable_registry_stops_growing_at_its_bound() -> None:
+    """Past the bound, an untrackable predicate reports again rather than growing.
+
+    Each entry keeps its predicate alive, which is what makes the address
+    safe to key on, so the registry has to stop somewhere.
+    """
+    import grelmicro.resilience._match as match_mod  # noqa: PLC0415
+
+    saved = dict(match_mod._warned_untrackable)
+    match_mod._warned_untrackable.clear()
+    outcome = Outcome.from_exception(ValueError("x"))
+    # Held in a list so every address stays distinct.
+    predicates = [
+        operator.attrgetter("args")
+        for _ in range(match_mod._UNTRACKABLE_LIMIT + _OVER_THE_BOUND)
+    ]
+
+    try:
+        for predicate in predicates:
+            Match.exception(predicate)(outcome)
+
+        assert (
+            len(match_mod._warned_untrackable) == match_mod._UNTRACKABLE_LIMIT
+        )
+    finally:
+        match_mod._warned_untrackable.clear()
+        match_mod._warned_untrackable.update(saved)

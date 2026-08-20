@@ -33,23 +33,47 @@ _log = logging.getLogger("grelmicro.resilience")
 _warned_predicates: WeakSet[Any] = WeakSet()
 """Predicates already warned about, dropped when the predicate is."""
 
+_warned_untrackable: dict[int, Any] = {}
+"""Predicates a `WeakSet` cannot hold, kept by address and by reference.
+
+The reference is what makes the address usable as a key: the predicate
+cannot be collected, so nothing else is handed its address. Bounded, so a
+program minting these endlessly reports again rather than growing.
+"""
+
+_UNTRACKABLE_LIMIT = 128
+"""How many untrackable predicates are remembered before repeats resume."""
+
+
+def _describe(predicate: Any) -> str:  # noqa: ANN401
+    """Return a readable name for a predicate, whatever it is."""
+    name = getattr(predicate, "__name__", None)
+    if name is not None:
+        return str(name)
+    try:
+        return repr(predicate)
+    except Exception:  # noqa: BLE001
+        return type(predicate).__name__
+
 
 def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
-    """Return whether this predicate has been warned about, and record it.
+    """Return whether this predicate was warned about, recording it if not.
 
-    Tracked weakly, so a predicate that is collected stops speaking for
-    the next one allocated at its address. A predicate that cannot be
-    tracked, an `operator.attrgetter` or an unhashable instance among
-    them, reports every time rather than raising: this runs inside the
-    resilience machinery, where an exception here would replace the error
-    the caller was already handling.
+    Held weakly, so a collected predicate stops speaking for the next one
+    allocated at its address. One that cannot be held weakly, an
+    `operator.attrgetter` or an unhashable instance among them, is kept by
+    address alongside a reference, up to `_UNTRACKABLE_LIMIT`.
     """
     try:
         if predicate in _warned_predicates:
             return True
         _warned_predicates.add(predicate)
     except TypeError:
-        return False
+        key = id(predicate)
+        if key in _warned_untrackable:
+            return True
+        if len(_warned_untrackable) < _UNTRACKABLE_LIMIT:
+            _warned_untrackable[key] = predicate
     return False
 
 
@@ -61,9 +85,9 @@ def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
     """
     if type(result) is not bool and not _already_warned(predicate):
         _log.warning(
-            "Match predicate %r returned non-bool %r; coercing to bool. "
+            "Match predicate %s returned non-bool %r; coercing to bool. "
             "Return an explicit bool to suppress this warning.",
-            getattr(predicate, "__name__", repr(predicate)),
+            _describe(predicate),
             result,
         )
     return bool(result)
@@ -152,7 +176,7 @@ class Match:
 
             return cls(
                 _check_predicate,
-                f"exception({getattr(predicate, '__name__', repr(predicate))})",
+                f"exception({_describe(predicate)})",
             )
 
         # All arguments must be exception classes.
@@ -201,7 +225,7 @@ class Match:
 
             return cls(
                 _check_predicate,
-                f"result({getattr(predicate, '__name__', repr(predicate))})",
+                f"result({_describe(predicate)})",
             )
 
         value = value_or_predicate
@@ -286,7 +310,7 @@ class Match:
 
             return cls(
                 _check_predicate,
-                f"exception_cause({getattr(predicate, '__name__', repr(predicate))})",
+                f"exception_cause({_describe(predicate)})",
             )
 
         for type_ in exception_types_or_predicate:
@@ -342,7 +366,7 @@ class Match:
         """
         return cls(
             fn,
-            f"predicate({getattr(fn, '__name__', repr(fn))})",
+            f"predicate({_describe(fn)})",
         )
 
     # --- Negated forms (symmetric `not_*` prefix) ----------------------
