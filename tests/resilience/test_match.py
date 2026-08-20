@@ -14,6 +14,7 @@ import pytest
 
 from grelmicro.resilience import Match, Outcome
 from grelmicro.resilience._match import (
+    _UNTRACKABLE_LIMIT,
     _already_warned,
     _coerce_bool,
     _describe,
@@ -1373,7 +1374,9 @@ def test_a_non_callable_predicate_is_refused_at_construction() -> None:
         Match.predicate(42)  # ty: ignore[invalid-argument-type]
 
 
-def test_a_predicate_whose_hash_changes_stays_bounded() -> None:
+def test_a_predicate_whose_hash_changes_stays_bounded(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A predicate that never finds its own entry is kept by address.
 
     A `WeakSet` stores one entry per distinct hash, so a `__hash__` that
@@ -1399,8 +1402,37 @@ def test_a_predicate_whose_hash_changes_stays_bounded() -> None:
     outcome = Outcome.from_exception(ValueError("x"))
     before = len(match_mod._warned_predicates)
 
-    for _ in range(_REPEAT_CALLS):
-        assert matcher(outcome) is True
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        for _ in range(_HAMMER_ROUNDS):
+            assert matcher(outcome) is True
 
+    # One stray entry from the first call, then the address answers.
     assert len(match_mod._warned_predicates) - before <= 1
     assert id(predicate) in match_mod._warned_untrackable
+    assert len(caplog.records) == 1
+
+    del predicate, matcher
+    gc.collect()
+
+    # The address registry holds it on purpose, so its address cannot be
+    # handed to another predicate while it is still remembered. Enough
+    # newer ones evict it, and then nothing of it is left.
+    for i in range(_UNTRACKABLE_LIMIT):
+        Match.exception(_Unweakrefable(i))(outcome)  # ty: ignore[invalid-argument-type]
+    gc.collect()
+
+    assert len(match_mod._warned_predicates) == before
+    assert len(match_mod._warned_untrackable) <= _UNTRACKABLE_LIMIT
+
+
+class _Unweakrefable:
+    """A predicate a `WeakSet` cannot hold, minted fresh each time."""
+
+    __slots__ = ("number",)
+
+    def __init__(self, number: int) -> None:
+        self.number = number
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to reach the warning path."""
+        return 1
