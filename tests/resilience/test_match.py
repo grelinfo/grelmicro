@@ -1134,3 +1134,77 @@ def test_argument_inspection_lets_a_real_interrupt_through(
     """Inspecting an argument absorbs a hostile object, not a genuine Ctrl-C."""
     with pytest.raises(KeyboardInterrupt):
         call()
+
+
+@pytest.mark.parametrize(
+    "matcher",
+    [
+        pytest.param(Match.exception_message(contains="boom"), id="contains"),
+        pytest.param(Match.exception_message(regex="boom"), id="regex"),
+    ],
+)
+def test_a_message_matcher_ignores_a_returned_value(matcher: Match) -> None:
+    """A call that returned has no exception message, whatever it returned.
+
+    The returned value is never read as a message, so a function returning
+    the very text being matched does not engage an exception matcher.
+    """
+    assert matcher(Outcome.from_result("boom")) is False
+
+
+class _EvilStr(str):
+    """A string that runs caller code when it is used as one."""
+
+    __slots__ = ()
+
+    def __format__(self, _spec: str) -> str:
+        """Raise, the way a hostile subclass does when interpolated."""
+        msg = "ran caller code from __format__"
+        raise RuntimeError(msg)
+
+    def __str__(self) -> str:
+        """Raise, the way a hostile subclass does when printed."""
+        msg = "ran caller code from __str__"
+        raise RuntimeError(msg)
+
+
+class _NameIsEvil:
+    """Names itself with a string subclass."""
+
+    __name__ = _EvilStr("evil-name")
+
+    def __call__(self, _exc: Exception) -> bool:
+        """Match everything, if it is ever reached."""
+        return True
+
+
+class _ReprIsEvil:
+    """Reprs itself as a string subclass."""
+
+    def __repr__(self) -> str:
+        """Return a hostile subclass, which `repr` accepts."""
+        return _EvilStr("evil-repr")
+
+    def __call__(self, _exc: Exception) -> bool:
+        """Match everything, if it is ever reached."""
+        return True
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        pytest.param(_NameIsEvil(), id="via-name"),
+        pytest.param(_ReprIsEvil(), id="via-repr"),
+    ],
+)
+def test_naming_a_predicate_returns_an_exact_str(predicate: object) -> None:
+    """A name is an exact `str`, so interpolating it runs no caller code.
+
+    `repr()` and `str()` both accept a `str` subclass, and a subclass runs
+    caller code again from `__format__` or `__str__`. The name is used in
+    a warning, which is exactly an interpolation.
+    """
+    name = _describe(predicate)
+
+    assert type(name) is str
+    assert f"{name}" == name

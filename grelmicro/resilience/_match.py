@@ -101,7 +101,7 @@ def _is_subclass(candidate: Any, parent: type) -> bool:  # noqa: ANN401
         return False
 
 
-def _message_of(exc: BaseException | None) -> str | None:
+def _message_of(exc: BaseException) -> str | None:
     """Return an exception's message, or None when it cannot be read.
 
     A driver exception that formats lazily from a closed connection raises
@@ -216,11 +216,7 @@ def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
     once rather than on every attempt.
 
     A value whose truth cannot be read counts as no match. Note the
-    `not_*` forms negate that, so an undecidable value engages them. What
-    the predicate itself raises is left alone: that is the caller's error
-    and theirs to see. Everything this function does around it is total,
-    because a matcher runs inside `Retry`'s `except` block, where raising
-    would replace the error being handled.
+    `not_*` forms negate that, so an undecidable value engages them.
     """
     try:
         coerced = bool(result)
@@ -444,10 +440,11 @@ class Match:
             needle = str.__str__(contains)
 
             def _check_contains(outcome: Outcome[Any]) -> bool:
-                message = _message_of(outcome.exception)
-                return (
-                    outcome.raised and message is not None and needle in message
-                )
+                exception = outcome.exception
+                if exception is None:
+                    return False
+                message = _message_of(exception)
+                return message is not None and needle in message
 
             return cls(
                 _check_contains, f"exception_message(contains={needle!r})"
@@ -457,12 +454,11 @@ class Match:
         pattern = _compile_pattern(regex)
 
         def _check_regex(outcome: Outcome[Any]) -> bool:
-            message = _message_of(outcome.exception)
-            return (
-                outcome.raised
-                and message is not None
-                and pattern.search(message) is not None
-            )
+            exception = outcome.exception
+            if exception is None:
+                return False
+            message = _message_of(exception)
+            return message is not None and pattern.search(message) is not None
 
         return cls(
             _check_regex, f"exception_message(regex={pattern.pattern!r})"
