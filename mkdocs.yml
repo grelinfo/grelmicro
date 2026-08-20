@@ -119,6 +119,7 @@ nav:
         - providers/postgres.md
     - capabilities.md
     - comparison.md
+    - performance.md
     - benchmarks.md
 - API Reference:
     - reference/cache.md

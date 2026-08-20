@@ -18,14 +18,18 @@ from grelmicro.errors import DependencyNotFoundError, SettingsValidationError
 from grelmicro.log import configure
 from grelmicro.log._shared import (
     _logfmt_format_value,
+    _orjson_log_dumps,
+    _stdlib_json_dumps,
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
+    resolve_serializer,
     should_colorize,
 )
 from grelmicro.log._structlog import _add_caller_info
+from grelmicro.log.config import LogSerializerType
 from tests.logging.conftest import BACKENDS, log_message, parse_json_log
 
 _USER_ID = 123
@@ -402,19 +406,23 @@ class TestConfigureLoggingJSONSerializer:
     """Test JSON serializer configuration across backends."""
 
     @pytest.mark.parametrize("backend", BACKENDS)
-    def test_default_stdlib_serializer(
+    def test_stdlib_serializer(
         self,
         backend: str,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test default stdlib JSON serializer works."""
+        """Test the stdlib JSON serializer works when it is asked for.
+
+        Set explicitly rather than left to the default, which resolves to
+        orjson wherever orjson is installed.
+        """
         # Arrange
         monkeypatch.setenv("GREL_LOG_BACKEND", backend)
         monkeypatch.setenv("GREL_LOG_FORMAT", "json")
         monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-        monkeypatch.delenv("GREL_LOG_JSON_SERIALIZER", raising=False)
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", "stdlib")
 
         # Act
         configure()
@@ -473,6 +481,46 @@ class TestConfigureLoggingJSONSerializer:
         # Act / Assert
         with pytest.raises(DependencyNotFoundError, match="orjson"):
             configure()
+
+    def test_auto_picks_orjson_when_installed(self) -> None:
+        """`auto` resolves to orjson when it is importable."""
+        assert (
+            resolve_serializer(LogSerializerType.AUTO)
+            is LogSerializerType.ORJSON
+        )
+
+    def test_auto_falls_back_to_stdlib(
+        self, mocker: pytest_mock.MockerFixture
+    ) -> None:
+        """`auto` resolves to the stdlib when orjson is missing, never raises."""
+        mocker.patch("grelmicro.log._shared.has_orjson", return_value=False)
+
+        assert (
+            resolve_serializer(LogSerializerType.AUTO)
+            is LogSerializerType.STDLIB
+        )
+
+    def test_explicit_choice_is_left_alone(self) -> None:
+        """An explicit choice resolves to itself."""
+        assert (
+            resolve_serializer(LogSerializerType.STDLIB)
+            is LogSerializerType.STDLIB
+        )
+        assert (
+            resolve_serializer(LogSerializerType.ORJSON)
+            is LogSerializerType.ORJSON
+        )
+
+    def test_serializers_agree_on_a_non_string_key(self) -> None:
+        """Both serializers render a non-string dict key the same way.
+
+        Without `OPT_NON_STR_KEYS` orjson raises here and the stdlib does
+        not, which would make the installed library decide whether a log
+        call succeeds.
+        """
+        record = {"msg": "hit", "counts": {1: "a", 2: "b"}}
+
+        assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
 
 
 class TestLoadSettings:

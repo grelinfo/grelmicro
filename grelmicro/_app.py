@@ -104,6 +104,28 @@ overlap freely, matching how web frameworks treat multiple app objects.
 """
 
 
+def resolve_ambient(key: tuple[str, str]) -> Any:  # noqa: ANN401
+    """Return the component `key` names in the active app.
+
+    Backs every pattern that resolves without `backend=`, so it runs on each
+    operation. An open `Bulkhead` scope wins, and the app answers whatever
+    the scope leaves alone. Every miss raises `LookupError`, which the caller
+    turns into the `OutOfContextError` that names its own pattern.
+
+    Raises:
+        LookupError: No app is bound in this scope, or it registers no such
+            component.
+    """
+    # Resolves the same way `Grelmicro.get` does. Change one and change the
+    # other, or a component reachable by name stops being reachable ambiently.
+    overrides = _active_bulkhead.get(None)
+    if overrides is not None:
+        override = overrides.get(key)
+        if override is not None:
+            return override
+    return _current_micro.get()._by_key[key]  # noqa: SLF001
+
+
 def _item_owns_global_state(item: object) -> bool:
     """Return True if a registered item configures process-global state.
 
@@ -608,6 +630,8 @@ class Grelmicro:
         """
         if isinstance(kind, type):
             kind = kind.kind
+        # `resolve_ambient` resolves the same way for the pattern hot path.
+        # Change one and change the other.
         overrides = _active_bulkhead.get(None)
         if overrides is not None:
             override = overrides.get((kind, name))

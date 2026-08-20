@@ -8,6 +8,11 @@
 * 💥 `Timeout` raises `DeadlineExceededError` instead of a bare `TimeoutError`. It subclasses the builtin, so an `except TimeoutError` keeps working, and it carries `name` and `timeout`, which a bare builtin could not. Catch it to tell a deadline you set apart from a socket timeout raised underneath it. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 * 💥 `IdempotencyMiddleware` answers with `application/problem+json` instead of `{"detail": ...}`. The `400`, `409`, `413`, and `422` responses all change shape, and a client reading `detail` still finds it, now beside `type`, `title`, `status`, and `instance`. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 * 💥 The Postgres circuit breaker drops and recreates three stored functions on the next start, because their result columns grew. `auto_migrate` handles it under the advisory lock it already takes. A deployment that runs with `auto_migrate=False` has to apply the change itself. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 💥 `GREL_LOG_JSON_SERIALIZER` defaults to `auto`, which uses orjson when it is installed and the standard library when it is not. Install `grelmicro[standard]` and JSON logs get faster with no further setting. The two serializers write the same JSON for everything a log record carries except a non-finite float, which orjson writes as `null` where the standard library writes `NaN`. Set `stdlib` to pin the old output.
+
+### Fixed
+
+* 🐛 orjson renders a non-string dict key as a string, matching the standard library. `extra={"counts": {1: "a"}}` raised `TypeError` on a log line, and a cached JSON value with a non-string key raised the same way.
 
 ### Security
 
@@ -29,6 +34,11 @@
 * ✨ The generated OpenAPI follows the registered format on FastAPI and Litestar, so a client built from the schema decodes what the app actually sends. The models the framework published for its own error shape are dropped once nothing points at them. A response you declared yourself keeps its schema. ([#773](https://github.com/grelinfo/grelmicro/issues/773))
 * ✨ `grelmicro.integrations.starlette` is the home of everything pure ASGI: the per-request binding, the error responses, `IdempotencyMiddleware`, and `error_response`. A Starlette app no longer imports from a module named after another framework. `grelmicro.integrations.fastapi` builds on it and re-exports what it shares, so a FastAPI import path is unchanged. ([#775](https://github.com/grelinfo/grelmicro/issues/775))
 * 📝 An [Error Responses](http/errors.md) guide and an [HTTP](reference/http.md) reference page. Each `type` URI dereferences to its own section. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
+* 📝 A [Performance](performance.md) page: the standard extra, serializer choice, orjson logging, stampede modes, `backend=` on hot paths, and `install(ambient=False)`.
+
+### Performance
+
+* ⚡ Ambient backend resolution costs about 2.7x less. A pattern that omits `backend=` ran three imports and two frames of lookup on every operation, and now runs one function and one dict lookup. `Lock` drops from ~270 ns to ~100 ns per resolution, and `TTLCache`, `RateLimiter`, and `CircuitBreaker` drop about the same. See [Performance](performance.md).
 
 ## 0.40.0 - 2026-08-18
 

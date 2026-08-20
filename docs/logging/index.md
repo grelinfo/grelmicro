@@ -299,7 +299,7 @@ environment:
 | `GREL_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` | `INFO` |
 | `GREL_LOG_FORMAT` | `AUTO`, `JSON`, `LOGFMT`, `TEXT`, `PRETTY` | `AUTO` |
 | `GREL_LOG_TIMEZONE` | IANA timezone (e.g., `UTC`, `Europe/Zurich`) | `UTC` |
-| `GREL_LOG_JSON_SERIALIZER` | `stdlib`, `orjson` | `stdlib` |
+| `GREL_LOG_JSON_SERIALIZER` | `auto`, `stdlib`, `orjson` | `auto` |
 | `GREL_LOG_CALLER_ENABLED` | `true`, `false` | `false` |
 | `GREL_LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
 | `GREL_LOG_UVICORN_ENABLED` | `true`, `false` | `true` |
@@ -334,20 +334,25 @@ Leave it unset to follow [`GREL_TIMEZONE`](../config.md#one-timezone-for-the-who
 the wall clock the whole service runs on. Set it to `UTC` to keep log
 timestamps on UTC under a service that schedules on local time.
 
-### Why orjson is not selected automatically
+### Which serializer you get
 
-Installing orjson does not change anything until you also select it. That is deliberate, and it is the one place in the logging module that is not auto-detected.
+The default is `auto`: orjson when it is installed, the standard library when it is not. Install [`grelmicro[standard]`](../installation.md) and your logs get faster with no further setting. See the [benchmarks](../benchmarks.md#logging) for what that buys.
 
-The two serializers do not agree on every payload:
+Both write the same JSON for every value a log record can carry, with one exception:
 
 | Value in `extra={...}` | `stdlib` | `orjson` |
 |---|---|---|
 | `float("nan")`, `float("inf")` | `NaN`, `Infinity` | `null` |
-| a non-string dict key | coerced to a string | raises `TypeError` |
 
-Picking a serializer because a package happens to be importable would mean an unrelated dependency pulling in orjson could change what your logs say, or turn a working log call into an exception on a payload that used to serialize. A log line that crashes the request is worse than a log line that is slower.
+Note which way that goes. `NaN` is not valid JSON, so the standard library writes a line a strict log reader cannot parse. orjson writes `null` instead.
 
-So the choice stays yours. Set `GREL_LOG_JSON_SERIALIZER=orjson`, or pass `json_serializer="orjson"` to `configure()`, once you know your payloads are compatible. See the [benchmarks](../benchmarks.md#logging) for what it buys.
+Pin the choice when you need the output to be identical everywhere, whatever is installed:
+
+```bash
+export GREL_LOG_JSON_SERIALIZER=stdlib   # or orjson
+```
+
+`orjson` raises `DependencyNotFoundError` at startup when it is not installed, so a deployment that depends on it fails loudly rather than getting the slower serializer. `auto` never raises.
 
 ## JSON Record Structure
 

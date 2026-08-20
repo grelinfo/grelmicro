@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._app import Grelmicro
+from grelmicro._app import resolve_ambient
 from grelmicro._async import sleep_or_stop
 from grelmicro._config import (
     Reconfigurable,
@@ -31,7 +31,7 @@ from grelmicro.coordination._protocol import (
     Seconds,
 )
 from grelmicro.coordination._tokens import resolve_worker
-from grelmicro.errors import WouldBlockError
+from grelmicro.errors import OutOfContextError, WouldBlockError
 from grelmicro.task._protocol import Task
 
 logger = getLogger("grelmicro.leader_election")
@@ -434,7 +434,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
 
         When a backend instance was passed at construction it is
         always returned. Otherwise the active `Grelmicro` app is
-        consulted via `Grelmicro.current()` on every access so that
+        consulted on every access so that
         `micro.override(Coordination(...))` blocks take effect. The
         backend comes from the `Coordination` component, whose election
         backend can point at a different vendor than its lock backend.
@@ -448,17 +448,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         """
         if self._backend is not None:
             return self._backend
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            NoActiveAppError,
-        )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
-            coordination = Grelmicro.current().get(
-                "coordination", self._backend_name or "default"
+            coordination = resolve_ambient(
+                ("coordination", self._backend_name or "default")
             )
-        except (NoActiveAppError, ComponentNotRegisteredError):
+        except LookupError:
             msg = (
                 f"LeaderElection({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryLeaderElectionAdapter() for a per-process "
@@ -757,8 +751,6 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         assert_worker_unchanged(self._config, new_config)
 
     async def _release(self) -> None:
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
             backend = self.backend
         except OutOfContextError:

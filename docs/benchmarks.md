@@ -56,9 +56,11 @@ The logging backends are measured separately, over 50,000 iterations:
 | stdlib | stdlib | 181,745 | 60.1% |
 | loguru | stdlib | 147,185 | 48.7% |
 
-For a high-throughput service, pair `GREL_LOG_JSON_SERIALIZER=orjson` with the
-`structlog` or `stdlib` backend. orjson is never selected for you, and
-[Logging](logging/index.md#why-orjson-is-not-selected-automatically) explains why.
+For a high-throughput service, run the `structlog` or `stdlib` backend with
+orjson installed. The serializer defaults to `auto`, so
+[`grelmicro[standard]`](installation.md) is all it takes.
+[Logging](logging/index.md#which-serializer-you-get) covers the one value the
+two serializers write differently.
 
 ## Reading the numbers
 

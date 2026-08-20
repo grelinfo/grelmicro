@@ -49,10 +49,13 @@ import importlib
 import inspect
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from syrupy.extensions.json import JSONSnapshotExtension
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 PUBLIC_MODULES = [
     "grelmicro",
@@ -279,6 +282,101 @@ def build_public_api() -> dict[str, dict[str, Any]]:
 def test_public_api_matches_snapshot(snapshot_json) -> None:  # noqa: ANN001
     """The live public surface equals the committed snapshot."""
     assert build_public_api() == snapshot_json
+
+
+_LOOP_BOUND = re.compile(
+    r"asyncio\.(?:Lock|Event|Condition|Semaphore|BoundedSemaphore|Barrier"
+    r"|Queue|LifoQueue|PriorityQueue|Future|AbstractEventLoop"
+    r"|AbstractEventLoopPolicy)\b"
+    r"|\bAbstractEventLoop\b"
+)
+"""Objects that bind to the event loop that first awaits them."""
+
+_LOOP_BOUND_ALLOWED = {
+    "grelmicro.providers.sqlite.SQLiteProvider.connection_lock",
+}
+"""Members that hand out a loop-bound object on purpose.
+
+An adapter serializes its `execute` and its `fetch` against every other
+adapter borrowing the same connection, so the lock belongs to the provider
+and an adapter author has to reach it.
+"""
+
+
+def _public_members(obj: object) -> list[tuple[str, Callable[..., Any]]]:
+    """Return every public callable a class defines itself, plus the class.
+
+    A property is represented by its getter, which carries the return
+    annotation the guard reads.
+    """
+    members: list[tuple[str, Callable[..., Any]]] = []
+    if callable(obj):
+        members.append(("()", obj))
+    if isinstance(obj, type):
+        for attr_name, attr in vars(obj).items():
+            if attr_name.startswith("_"):
+                continue
+            target = attr.fget if isinstance(attr, property) else attr
+            if callable(target):
+                members.append((f".{attr_name}", target))
+    return members
+
+
+def test_public_api_hands_out_no_loop_bound_object() -> None:
+    """No public signature accepts or returns an object bound to an event loop.
+
+    Supporting several event loops means making the primitives a component
+    holds per loop. That stays an internal change for as long as none of
+    them reaches the public surface, so this guard is what keeps
+    [#693](https://github.com/grelinfo/grelmicro/issues/693) from turning
+    into a breaking change. Keep the primitives on private attributes.
+
+    `SQLiteProvider.connection_lock` is the deliberate exception, and it is
+    not a counterexample. An adapter has to serialize its `execute` and its
+    `fetch` against every other adapter borrowing the same connection, so
+    the lock belongs to the provider and an adapter author needs to reach
+    it. A per-loop lock would be the wrong answer there anyway: aiosqlite
+    drives one connection from one worker thread and resolves each call on
+    the loop that made it, so a provider already belongs to a single loop.
+    """
+    offenders: list[str] = []
+    for module_name in PUBLIC_MODULES:
+        module = importlib.import_module(module_name)
+        for symbol in sorted(getattr(module, "__all__", ())):
+            obj = getattr(module, symbol)
+            for label, member in _public_members(obj):
+                qualified = f"{module_name}.{symbol}{label}"
+                if qualified in _LOOP_BOUND_ALLOWED:
+                    continue
+                try:
+                    rendered = str(inspect.signature(member))
+                except (TypeError, ValueError):
+                    continue
+                if _LOOP_BOUND.search(rendered):
+                    offenders.append(f"{qualified}: {rendered}")
+    assert not offenders, (
+        "loop-bound objects on the public surface:\n" + "\n".join(offenders)
+    )
+
+
+def test_loop_bound_allowlist_still_describes_something_real() -> None:
+    """Every allowlisted member exists and still hands out a loop-bound object.
+
+    An exemption that stopped applying is one a later change inherits by
+    accident, so it has to be earned on every run.
+    """
+    for qualified in sorted(_LOOP_BOUND_ALLOWED):
+        module_name, symbol, attr = qualified.rsplit(".", 2)
+        module = importlib.import_module(module_name)
+        member = getattr(type(getattr(module, symbol)), attr, None) or getattr(
+            getattr(module, symbol), attr
+        )
+        target = member.fget if isinstance(member, property) else member
+        rendered = str(inspect.signature(target))
+        assert _LOOP_BOUND.search(rendered), (
+            f"{qualified} no longer hands out a loop-bound object "
+            f"({rendered}), so drop it from the allowlist"
+        )
 
 
 def test_interpreter_derived_defaults_are_still_current() -> None:

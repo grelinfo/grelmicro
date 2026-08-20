@@ -24,6 +24,14 @@ except ImportError:  # pragma: no cover
 
 from grelmicro._json import has_orjson
 
+try:
+    from orjson import dumps as _orjson_dumps
+
+    from grelmicro._json import ORJSON_OPTIONS as _ORJSON_OPTIONS
+except ImportError:  # pragma: no cover
+    _orjson_dumps: Any = None  # type: ignore[no-redef]
+    _ORJSON_OPTIONS = 0
+
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
 """Shared key strategy vocabulary for the log filters."""
 
@@ -44,9 +52,9 @@ def _log_json_default(obj: object) -> str:
 
 def _orjson_log_dumps(obj: Mapping[str, Any]) -> str:
     """Serialize a log record with orjson, keeping the line on odd values."""
-    import orjson  # noqa: PLC0415
-
-    return orjson.dumps(obj, default=repr).decode("utf-8")
+    return _orjson_dumps(obj, default=repr, option=_ORJSON_OPTIONS).decode(
+        "utf-8"
+    )
 
 
 def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
@@ -366,6 +374,29 @@ def _resolve_format(
     return log_format
 
 
+def resolve_serializer(
+    json_serializer: LogSerializerType,
+) -> LogSerializerType:
+    """Resolve AUTO to orjson when it is installed, else to the stdlib.
+
+    Both write the same JSON for every value a log record carries, apart
+    from `float("nan")` and `float("inf")`, which orjson writes as `null`
+    and the standard library writes as `NaN` and `Infinity`.
+
+    Raises:
+        DependencyNotFoundError: `orjson` was asked for and is not installed.
+    """
+    if json_serializer == LogSerializerType.ORJSON and not has_orjson():
+        raise DependencyNotFoundError(module="orjson")
+    if json_serializer == LogSerializerType.AUTO:
+        return (
+            LogSerializerType.ORJSON
+            if has_orjson()
+            else LogSerializerType.STDLIB
+        )
+    return json_serializer
+
+
 class LoadedSettings(NamedTuple):
     """Validated logging settings."""
 
@@ -396,9 +427,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]
-    if settings.json_serializer == LogSerializerType.ORJSON:
-        if not has_orjson():
-            raise DependencyNotFoundError(module="orjson")
+    if resolve_serializer(settings.json_serializer) == LogSerializerType.ORJSON:
         json_dumps = _orjson_log_dumps
     else:
         json_dumps = _stdlib_json_dumps

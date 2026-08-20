@@ -44,6 +44,14 @@ class TestOrjsonPath:
         """Test that has_orjson returns True when orjson is installed."""
         assert has_orjson() is True
 
+    def test_non_string_key_matches_the_stdlib(self) -> None:
+        """A non-string dict key is rendered as a string, as the stdlib does.
+
+        Without `OPT_NON_STR_KEYS` orjson raises here, so whether the value
+        serializes would depend on which library happens to be installed.
+        """
+        assert json_dumps_bytes({"counts": {1: "a"}}) == b'{"counts":{"1":"a"}}'
+
     @pytest.mark.parametrize(
         ("obj", "expected_fragment"),
         [

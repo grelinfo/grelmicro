@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Annotated, Any, Generic, Self, cast
 
 from typing_extensions import Doc, TypeVar
@@ -18,6 +19,7 @@ from grelmicro.cache._stampede import (
 )
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination.lock import Lock
+from grelmicro.errors import OutOfContextError
 from grelmicro.idempotency.config import IdempotencyConfig
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -135,23 +137,13 @@ class _Block(Generic[T]):
             IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
                 execution already in flight held the single-flight lock.
         """
-        import asyncio  # noqa: PLC0415
-
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            NoActiveAppError,
-        )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
             replay = await self._idempotency._replay(  # noqa: SLF001
                 self._key, self._fingerprint
             )
-        except (
-            NoActiveAppError,
-            ComponentNotRegisteredError,
-            OutOfContextError,
-        ):
+        # `_replay` already converts a resolution miss, so a bare
+        # `LookupError` here is the backend read or the deserializer failing.
+        except OutOfContextError:
             msg = (
                 f"Idempotency({self._idempotency.name!r}) resolved no "
                 f"cache backend. Pass cache=, register a Cache "

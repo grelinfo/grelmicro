@@ -42,13 +42,21 @@ def json_default(obj: object) -> str:
 try:
     import orjson
 
+    ORJSON_OPTIONS = orjson.OPT_NON_STR_KEYS
+    """Options that align orjson's output with the stdlib json module.
+
+    `OPT_NON_STR_KEYS` renders a non-string dict key as a string, which is
+    what stdlib json does. Without it orjson raises `TypeError` on the same
+    value.
+    """
+
     def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using orjson."""
-        return orjson.dumps(obj)
+        return orjson.dumps(obj, option=ORJSON_OPTIONS)
 
     def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using orjson."""
-        return orjson.dumps(obj).decode("utf-8")
+        return orjson.dumps(obj, option=ORJSON_OPTIONS).decode("utf-8")
 
     def json_loads(data: bytes | str) -> JSONDecodable:
         """Deserialize JSON bytes or string using orjson."""

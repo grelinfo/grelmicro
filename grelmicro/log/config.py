@@ -56,6 +56,7 @@ class LogBackendType(_CaseInsensitiveEnum):
 class LogSerializerType(_CaseInsensitiveEnum):
     """JSON Serializer Enum."""
 
+    AUTO = "auto"
     STDLIB = "stdlib"
     ORJSON = "orjson"
 
@@ -82,8 +83,13 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
     ] = TimeZoneName(UTC_NAME)
     json_serializer: Annotated[
         LogSerializerType,
-        Doc("JSON serializer used for structured output."),
-    ] = LogSerializerType.STDLIB
+        Doc(
+            "JSON serializer used for structured output. `auto` uses "
+            "orjson when it is installed and the standard library "
+            "otherwise. `orjson` requires it and raises when it is "
+            "missing."
+        ),
+    ] = LogSerializerType.AUTO
     caller_enabled: Annotated[
         bool,
         Doc("Include caller (function and line) in log records."),

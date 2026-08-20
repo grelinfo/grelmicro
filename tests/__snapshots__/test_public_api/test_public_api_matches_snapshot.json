@@ -391,7 +391,7 @@
       "()": "(*values)"
     },
     "LogConfig": {
-      "()": "(*, backend=<LogBackendType.STDLIB: 'stdlib'>, level=<LogLevelType.INFO: 'INFO'>, format=<LogFormatType.AUTO: 'AUTO'>, timezone='UTC', json_serializer=<LogSerializerType.STDLIB: 'stdlib'>, caller_enabled=False, otel_enabled=True, uvicorn_enabled=True) -> None"
+      "()": "(*, backend=<LogBackendType.STDLIB: 'stdlib'>, level=<LogLevelType.INFO: 'INFO'>, format=<LogFormatType.AUTO: 'AUTO'>, timezone='UTC', json_serializer=<LogSerializerType.AUTO: 'auto'>, caller_enabled=False, otel_enabled=True, uvicorn_enabled=True) -> None"
     },
     "LogError": null,
     "LogFormatType": {

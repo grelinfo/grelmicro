@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self, overload
 
 from typing_extensions import Doc
 
-from grelmicro._app import Grelmicro
+from grelmicro._app import resolve_ambient
 from grelmicro._async import raise_backend_not_open
 from grelmicro._config import (
     Reconfigurable,
@@ -26,6 +26,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro.clock import monotonic
+from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
 
@@ -613,8 +614,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
 
         Resolution order:
         1. An explicit `backend=` passed at construction wins.
-        2. The active `Grelmicro` app is consulted via
-           `Grelmicro.current()` so that `micro.override(...)` blocks
+        2. The active `Grelmicro` app is consulted on every access
+           so that `micro.override(...)` blocks
            take effect.
 
         Raises:
@@ -626,17 +627,11 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """
         if self._backend is not None:
             return self._backend
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            NoActiveAppError,
-        )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
-            component = Grelmicro.current().get(
-                "circuitbreaker", self._backend_name or "default"
+            component = resolve_ambient(
+                ("circuitbreaker", self._backend_name or "default")
             )
-        except (NoActiveAppError, ComponentNotRegisteredError):
+        except LookupError:
             msg = (
                 f"CircuitBreaker({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryCircuitBreakerAdapter() for a per-replica "

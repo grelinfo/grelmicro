@@ -13,6 +13,7 @@ from grelmicro.log._shared import (
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
+    resolve_serializer,
 )
 from grelmicro.log.config import (
     LogConfig,
@@ -239,11 +240,18 @@ def configure(config: LogConfig | None = None) -> None:
 
     if resolved_format == LogFormatType.JSON:
         processors.append(_build_flat_record)
-        if settings.json_serializer == LogSerializerType.ORJSON:
+        if (
+            resolve_serializer(settings.json_serializer)
+            == LogSerializerType.ORJSON
+        ):
             import orjson  # noqa: PLC0415
 
+            from grelmicro._json import ORJSON_OPTIONS  # noqa: PLC0415
+
             processors.append(
-                structlog.processors.JSONRenderer(serializer=orjson.dumps)
+                structlog.processors.JSONRenderer(
+                    serializer=orjson.dumps, option=ORJSON_OPTIONS
+                )
             )
             logger_factory: (
                 structlog.BytesLoggerFactory | structlog.PrintLoggerFactory

@@ -26,10 +26,12 @@ from grelmicro import (
     MultipleActiveAppsError,
     NoActiveAppError,
 )
+from grelmicro._app import resolve_ambient
 from grelmicro._component import _needs_constructor_arguments
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination, Lock
+from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import OutOfContextError
 from grelmicro.health import HealthChecks
 from grelmicro.metrics import Metrics
@@ -37,6 +39,7 @@ from grelmicro.outbox import Outbox
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.providers import Provider
 from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import Bulkhead
 from grelmicro.resilience._components import (
     CircuitBreakerComponent,
     RateLimiterComponent,
@@ -1313,3 +1316,44 @@ async def test_two_non_singletons_of_one_kind_still_coexist() -> None:
     micro = Grelmicro(uses=[_Plain(name="a"), _Plain(name="b")])
 
     assert len(micro.components) == _TWO_COMPONENTS
+
+
+async def test_resolve_ambient_matches_get() -> None:
+    """The pattern hot path resolves exactly what `micro.get` resolves.
+
+    `resolve_ambient` is a faster copy of the lookup in `Grelmicro.get`, so
+    the two must agree: on the registered component, on a bulkhead override,
+    and on a miss.
+    """
+    default = MemoryLockAdapter()
+    dedicated = MemoryLockAdapter()
+    micro = Grelmicro(
+        uses=[
+            Coordination(lock=default),
+            Cache(MemoryCacheAdapter()),
+        ]
+    )
+    bulkhead = Bulkhead("checkout", uses=[Coordination(lock=dedicated)])
+    key = ("coordination", "default")
+    other = ("cache", "default")
+
+    async with micro:
+        assert resolve_ambient(key) is micro.get(*key)
+
+        async with bulkhead:
+            assert resolve_ambient(key) is micro.get(*key)
+            assert resolve_ambient(key).lock_backend is dedicated
+            # A key the scope leaves alone falls through to the app.
+            assert resolve_ambient(other) is micro.get(*other)
+
+        assert resolve_ambient(key) is micro.get(*key)
+
+        with pytest.raises(LookupError):
+            resolve_ambient(("coordination", "analytics"))
+        with pytest.raises(ComponentNotRegisteredError):
+            micro.get("coordination", "analytics")
+
+    with pytest.raises(LookupError):
+        resolve_ambient(key)
+    with pytest.raises(NoActiveAppError):
+        Grelmicro.current()
