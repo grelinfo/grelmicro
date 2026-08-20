@@ -17,13 +17,15 @@ from grelmicro.resilience._match import (
     _already_warned,
     _coerce_bool,
     _describe,
+    _describe_value,
     _is_class,
     _is_subclass,
     _message_of,
+    _warn,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 # --- Match.exception -------------------------------------------------------
 
@@ -71,6 +73,10 @@ class _UnnameableMeta(type):
         """Raise, so `type(predicate).__name__` cannot be read either."""
         msg = "metaclass __name__"
         raise RuntimeError(msg)
+
+    def __repr__(cls) -> str:
+        """Stay readable, so a failing test still reports which class it is."""
+        return f"<{cls.__qualname__}>"
 
 
 class _Unnameable(metaclass=_UnnameableMeta):
@@ -236,11 +242,18 @@ def test_exception_message_regex_compiled() -> None:
 
 
 def test_exception_message_requires_one_arg() -> None:
-    """Both ``contains=`` and ``regex=`` set raises."""
-    with pytest.raises(TypeError, match="exactly one"):
+    """Both ``contains=`` and ``regex=`` set raises, and neither does too.
+
+    `ValueError`, like every other argument error here: pydantic converts
+    only `ValueError` and `AssertionError`, so a `TypeError` raised inside
+    a validator escapes every documented `except`.
+    """
+    with pytest.raises(ValueError, match="exactly one"):
         Match.exception_message(contains="x", regex="y")
-    with pytest.raises(TypeError, match="exactly one"):
+    with pytest.raises(ValueError, match="exactly one"):
         Match.exception_message()
+    with pytest.raises(ValueError, match="exactly one"):
+        Match.not_exception_message()
 
 
 # --- Match.exception_cause -------------------------------------------------
@@ -706,34 +719,50 @@ class _RaisingEq:
 
 
 @pytest.mark.parametrize(
-    "build",
+    ("build", "expected"),
     [
         pytest.param(
-            lambda: Match.exception(_ClassBomb()), id="exception-proxy"
+            lambda: Match.exception(_ClassBomb()),
+            "Match.exception(_ClassBomb)",
+            id="exception-proxy",
         ),
-        pytest.param(lambda: Match.result(_ClassBomb()), id="result-proxy"),
+        pytest.param(
+            lambda: Match.result(_ClassBomb()),
+            "Match.result(_ClassBomb)",
+            id="result-proxy",
+        ),
         pytest.param(
             lambda: Match.exception_cause(_ClassBomb()),  # ty: ignore[invalid-argument-type]
+            "Match.exception_cause(_ClassBomb)",
             id="cause-proxy",
         ),
         pytest.param(
-            lambda: Match.result(_HostileLiteral()), id="literal-repr"
+            lambda: Match.result(_HostileLiteral()),
+            "Match.result(_HostileLiteral)",
+            id="literal-repr",
         ),
         pytest.param(
-            lambda: Match.not_result(_HostileLiteral()), id="not-literal-repr"
+            lambda: Match.not_result(_HostileLiteral()),
+            "Match.not_result(_HostileLiteral)",
+            id="not-literal-repr",
         ),
     ],
 )
 def test_building_a_match_survives_a_hostile_argument(
-    build: Callable[[], Match],
+    build: Callable[[], Match], expected: str
 ) -> None:
     """Classifying and naming an argument must not raise an arbitrary error.
 
     A lazy proxy forwards `__class__` to an object that raises while
     unbound, and `isinstance` reads `__class__`, so the classification
     branch used to propagate whatever the proxy raised.
+
+    The policy still names itself, by type when nothing else answers.
     """
-    assert build() is not None
+    matcher = build()
+
+    assert repr(matcher) == expected
+    assert matcher.explain() == expected
 
 
 def test_an_argument_posing_as_a_class_is_refused_with_a_value_error() -> None:
@@ -792,6 +821,10 @@ class _ResultMeta(type):
         """Raise, blocking the last resort used to name a result."""
         msg = "metaclass __name__"
         raise RuntimeError(msg)
+
+    def __repr__(cls) -> str:
+        """Stay readable, so a failing test still reports which class it is."""
+        return f"<{cls.__qualname__}>"
 
 
 class _UndecidableResult(metaclass=_ResultMeta):
@@ -964,12 +997,16 @@ def test_a_real_interrupt_is_never_swallowed(
         call()
 
 
-def test_a_matcher_reports_a_raising_predicate_once() -> None:
+def test_a_matcher_reports_a_raising_predicate_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A predicate that raises reads as no match, and is reported once.
 
     This is the ordinary case, a buggy predicate. `Retry` calls the
     matcher from an `except` block, so letting it through would replace
-    the caller's real error with the predicate's bug.
+    the caller's real error with the predicate's bug. A retry loop calls
+    the matcher on every attempt, so reporting it every time would bury
+    the log.
     """
 
     def buggy(_exc: Exception) -> bool:
@@ -979,8 +1016,16 @@ def test_a_matcher_reports_a_raising_predicate_once() -> None:
     matcher = Match.exception(buggy)
     outcome = Outcome.from_exception(ValueError("original"))
 
-    assert matcher(outcome) is False
-    assert matcher(outcome) is False
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        for _ in range(_REPEAT_CALLS):
+            assert matcher(outcome) is False
+
+    warnings = [
+        r for r in caplog.records if "raised while testing" in r.message
+    ]
+
+    assert len(warnings) == 1
+    assert "exception(buggy)" in warnings[0].message
 
 
 @pytest.mark.parametrize(
@@ -1065,7 +1110,9 @@ def test_an_unreadable_message_matches_nothing() -> None:
     assert Match.exception_message(regex=".*")(outcome) is False
 
 
-def test_an_undecidable_result_warns_once_not_every_attempt() -> None:
+def test_an_undecidable_result_warns_once_not_every_attempt(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A retry loop reports the same broken predicate once, then stays quiet."""
 
     class Undecidable:
@@ -1079,9 +1126,14 @@ def test_an_undecidable_result_warns_once_not_every_attempt() -> None:
     matcher = Match.result(predicate)
     outcome = Outcome.from_result(1)
 
-    assert matcher(outcome) is False
-    assert matcher(outcome) is False
-    assert matcher(outcome) is False
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        for _ in range(_REPEAT_CALLS):
+            assert matcher(outcome) is False
+
+    warnings = [r for r in caplog.records if "truth value raised" in r.message]
+
+    assert len(warnings) == 1
+    assert "Undecidable" in warnings[0].message
 
 
 class _ClassInterrupts:
@@ -1208,3 +1260,147 @@ def test_naming_a_predicate_returns_an_exact_str(predicate: object) -> None:
 
     assert type(name) is str
     assert f"{name}" == name
+
+
+class _RaisingFilter(logging.Filter):
+    """A logging filter that raises, the way a request-context one does."""
+
+    def __init__(self, error: type[BaseException]) -> None:
+        super().__init__()
+        self._error = error
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: ARG002
+        """Raise instead of deciding, once a record reaches it."""
+        raise self._error
+
+
+@pytest.fixture
+def raising_log_filter() -> Iterator[Callable[[type[BaseException]], None]]:
+    """Install a filter on the resilience logger for one test."""
+    logger = logging.getLogger("grelmicro.resilience")
+    installed: list[logging.Filter] = []
+
+    def install(error: type[BaseException]) -> None:
+        log_filter = _RaisingFilter(error)
+        logger.addFilter(log_filter)
+        installed.append(log_filter)
+
+    yield install
+
+    for log_filter in installed:
+        logger.removeFilter(log_filter)
+
+
+def test_a_raising_log_filter_does_not_escape_a_matcher(
+    raising_log_filter: Callable[[type[BaseException]], None],
+) -> None:
+    """Reporting a broken predicate must not raise either.
+
+    `Logger.handle` runs filters unguarded, so a correlation-ID filter
+    raising outside a request would escape from the warning itself, and a
+    matcher runs where a raised error replaces the one being handled.
+    """
+
+    def buggy(_exc: Exception) -> object:
+        return 1
+
+    raising_log_filter(RuntimeError)
+
+    matched = Match.exception(buggy)(  # ty: ignore[invalid-argument-type]
+        Outcome.from_exception(ValueError("real"))
+    )
+
+    assert matched is True
+
+
+def test_a_raising_log_filter_still_lets_an_interrupt_through(
+    raising_log_filter: Callable[[type[BaseException]], None],
+) -> None:
+    """The warning guard absorbs a broken filter, not a genuine Ctrl-C."""
+
+    def buggy(_exc: Exception) -> object:
+        return 1
+
+    raising_log_filter(KeyboardInterrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        Match.exception(buggy)(  # ty: ignore[invalid-argument-type]
+            Outcome.from_exception(ValueError("real"))
+        )
+
+
+def test_a_literal_that_cannot_be_repred_still_names_the_policy() -> None:
+    """A policy label falls back to the type name when `repr` refuses."""
+
+    class Untellable:
+        def __repr__(self) -> str:
+            msg = "repr exploded"
+            raise RuntimeError(msg)
+
+    assert repr(Match.result(Untellable())) == "Match.result(Untellable)"
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(
+            lambda: _describe_value(_Interrupts()), id="describe-value"
+        ),
+        pytest.param(lambda: _warn("%s", _Interrupts()), id="warn"),
+    ],
+)
+def test_labelling_lets_a_real_interrupt_through(
+    call: Callable[[], object],
+) -> None:
+    """Labelling absorbs a hostile object, not a genuine Ctrl-C."""
+    with pytest.raises(KeyboardInterrupt):
+        call()
+
+
+def test_a_bytes_pattern_is_refused_at_construction() -> None:
+    """A bytes pattern can never match a message, which is always a string.
+
+    It used to raise `TypeError` at match time, which the total matcher
+    now swallows, so it would have become a silent never-match.
+    """
+    with pytest.raises(ValueError, match="bytes pattern"):
+        Match.exception_message(regex=re.compile(b"boom"))  # ty: ignore[invalid-argument-type]
+
+
+def test_a_non_callable_predicate_is_refused_at_construction() -> None:
+    """`Match.predicate(42)` is a typo, not a policy that never engages."""
+    with pytest.raises(ValueError, match="must be callable"):
+        Match.predicate(42)  # ty: ignore[invalid-argument-type]
+
+
+def test_a_predicate_whose_hash_changes_stays_bounded() -> None:
+    """A predicate that never finds its own entry is kept by address.
+
+    A `WeakSet` stores one entry per distinct hash, so a `__hash__` that
+    answers differently each call would add an entry on every call and
+    warn every time, against both promises the registry makes.
+    """
+    import grelmicro.resilience._match as match_mod  # noqa: PLC0415
+
+    counter = iter(range(1, 10_000))
+
+    class MutatingHash:
+        def __call__(self, _exc: Exception) -> int:
+            return 1
+
+        def __hash__(self) -> int:
+            return next(counter)
+
+        def __eq__(self, other: object) -> bool:
+            return self is other
+
+    predicate = MutatingHash()
+    matcher = Match.exception(predicate)  # ty: ignore[invalid-argument-type]
+    outcome = Outcome.from_exception(ValueError("x"))
+    before = len(match_mod._warned_predicates)
+
+    for _ in range(_REPEAT_CALLS):
+        assert matcher(outcome) is True
+
+    assert len(match_mod._warned_predicates) - before <= 1
+    assert id(predicate) in match_mod._warned_untrackable
