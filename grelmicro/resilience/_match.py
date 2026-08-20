@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from functools import partial
 from typing import Any, cast
 from weakref import WeakSet
 
@@ -66,6 +67,10 @@ def _describe(predicate: Any) -> str:  # noqa: ANN401
     or `__str__` when the caller interpolates it.
     """
     try:
+        # `type(...) is`, not `isinstance`: naming what a partial wraps is
+        # exact behaviour of the one class that guarantees `func`.
+        if type(predicate) is partial:
+            return _describe(predicate.func)
         try:
             name = getattr(predicate, "__name__", None)
             text = str(type(predicate).__name__) if name is None else str(name)
@@ -170,8 +175,11 @@ def _compile_pattern(regex: Any) -> re.Pattern[str]:  # noqa: ANN401
                 f"Match.exception_message() regex= is not a valid regex: {exc}"
             )
             raise ValueError(msg) from None
-    if is_instance(regex, re.Pattern):
-        pattern = cast("re.Pattern[Any]", regex)
+    # `type(...) is`, not `isinstance`: `re.Pattern` cannot be subclassed,
+    # so an object reporting it as its `__class__` is lying, and reading
+    # `.pattern` off it would run whatever it defines.
+    if type(regex) is re.Pattern:
+        pattern: re.Pattern[Any] = regex
         if not _is_exact_str(pattern.pattern):
             msg = (
                 "Match.exception_message() regex= must be a string pattern, "
@@ -187,13 +195,32 @@ def _compile_pattern(regex: Any) -> re.Pattern[str]:  # noqa: ANN401
     raise ValueError(msg)
 
 
+def _finds_itself(value: Any) -> bool:  # noqa: ANN401
+    """Return whether a set could find `value` again once it holds it.
+
+    A set locates an entry by hash and confirms it with `==`, both caller
+    code. An object whose `__hash__` answers differently each call, or
+    whose `__eq__` disagrees with itself, is added and then never found,
+    and never removed either, because removal looks it up the same way.
+    Asked before the set is touched, so nothing is ever stranded in it.
+    """
+    try:
+        # Compared with itself on purpose: this asks whether the object
+        # agrees with itself, which is what a set needs of it.
+        return hash(value) == hash(value) and bool(value == value)  # noqa: PLR0124
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return False
+
+
 def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
     """Return whether this predicate was warned about, recording it if not.
 
     Held weakly, so a collected predicate stops speaking for the next one
-    allocated at its address. One that a `WeakSet` cannot hold, or that a
-    changing `__hash__` makes impossible to find again, is kept by address
-    alongside a reference, and the oldest is dropped once
+    allocated at its address. One that a `WeakSet` cannot hold, or that
+    could not find itself once held, is kept by address alongside a
+    reference, and the oldest is dropped once
     `_UNTRACKABLE_LIMIT` is reached, so a long-lived predicate past the
     bound is reported again rather than the registry growing. The bound is
     approximate: threads racing the same eviction, or a `__del__` that
@@ -210,18 +237,16 @@ def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
         # the address cannot have been handed to another predicate.
         if id(predicate) in _warned_untrackable:
             return True
-        try:
-            if predicate in _warned_predicates:
-                return True
-            _warned_predicates.add(predicate)
-            if predicate in _warned_predicates:
+        if _finds_itself(predicate):
+            try:
+                if predicate in _warned_predicates:
+                    return True
+                _warned_predicates.add(predicate)
+            except Exception:  # noqa: BLE001, S110
+                # A `WeakSet` cannot hold an object without `__weakref__`.
+                pass
+            else:
                 return False
-            # A `__hash__` that answers differently each call never finds
-            # its own entry again, so the set would grow one entry per
-            # call. Remember it by address instead.
-            _warned_predicates.discard(predicate)
-        except Exception:  # noqa: BLE001, S110
-            pass
         while len(_warned_untrackable) >= _UNTRACKABLE_LIMIT:
             oldest = next(iter(_warned_untrackable))
             _warned_untrackable.pop(oldest, None)
@@ -614,15 +639,17 @@ class Match:
         Scoped to raised outcomes: returns ``False`` for any returned
         outcome. Same arguments as ``Match.exception``.
         """
-        positive = cls.exception(*exception_types_or_predicate)
+        twin = cls.exception(*exception_types_or_predicate)
+        label = twin._repr.replace("exception(", "not_exception(", 1)  # noqa: SLF001
+        # Relabelled before it is used: the inner matcher is the one that
+        # reports a broken predicate, and the caller wrote the negated
+        # name, not the positive one.
+        positive = cls(twin._matcher, label)  # noqa: SLF001
 
         def _check(outcome: Outcome[Any]) -> bool:
             return outcome.raised and not positive(outcome)
 
-        return cls(
-            _check,
-            positive._repr.replace("exception(", "not_exception(", 1),  # noqa: SLF001
-        )
+        return cls(_check, label)
 
     @classmethod
     def not_result(
@@ -634,15 +661,17 @@ class Match:
         Scoped to returned outcomes: returns ``False`` for any raised
         outcome. Same argument as ``Match.result``.
         """
-        positive = cls.result(value_or_predicate)
+        twin = cls.result(value_or_predicate)
+        label = twin._repr.replace("result(", "not_result(", 1)  # noqa: SLF001
+        # Relabelled before it is used: the inner matcher is the one that
+        # reports a broken predicate, and the caller wrote the negated
+        # name, not the positive one.
+        positive = cls(twin._matcher, label)  # noqa: SLF001
 
         def _check(outcome: Outcome[Any]) -> bool:
             return not outcome.raised and not positive(outcome)
 
-        return cls(
-            _check,
-            positive._repr.replace("result(", "not_result(", 1),  # noqa: SLF001
-        )
+        return cls(_check, label)
 
     @classmethod
     def not_exception_message(
@@ -656,17 +685,19 @@ class Match:
         Scoped to raised outcomes: returns ``False`` for any returned
         outcome.
         """
-        positive = cls.exception_message(contains=contains, regex=regex)
+        twin = cls.exception_message(contains=contains, regex=regex)
+        label = twin._repr.replace(  # noqa: SLF001
+            "exception_message(", "not_exception_message(", 1
+        )
+        # Relabelled before it is used: the inner matcher is the one that
+        # reports a broken predicate, and the caller wrote the negated
+        # name, not the positive one.
+        positive = cls(twin._matcher, label)  # noqa: SLF001
 
         def _check(outcome: Outcome[Any]) -> bool:
             return outcome.raised and not positive(outcome)
 
-        return cls(
-            _check,
-            positive._repr.replace(  # noqa: SLF001
-                "exception_message(", "not_exception_message(", 1
-            ),
-        )
+        return cls(_check, label)
 
     @classmethod
     def not_exception_cause(
@@ -679,14 +710,16 @@ class Match:
         Scoped to raised outcomes: returns ``False`` for any returned
         outcome.
         """
-        positive = cls.exception_cause(*exception_types_or_predicate)
+        twin = cls.exception_cause(*exception_types_or_predicate)
+        label = twin._repr.replace(  # noqa: SLF001
+            "exception_cause(", "not_exception_cause(", 1
+        )
+        # Relabelled before it is used: the inner matcher is the one that
+        # reports a broken predicate, and the caller wrote the negated
+        # name, not the positive one.
+        positive = cls(twin._matcher, label)  # noqa: SLF001
 
         def _check(outcome: Outcome[Any]) -> bool:
             return outcome.raised and not positive(outcome)
 
-        return cls(
-            _check,
-            positive._repr.replace(  # noqa: SLF001
-                "exception_cause(", "not_exception_cause(", 1
-            ),
-        )
+        return cls(_check, label)

@@ -8,7 +8,8 @@ import operator
 import re
 import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
 _REPEAT_CALLS = 5
 _HAMMER_THREADS = 8
 _HAMMER_ROUNDS = 200
+_EVICTION_CYCLES = 20
 _OVER_THE_BOUND = 5
 
 
@@ -1405,20 +1407,17 @@ def test_a_predicate_whose_hash_changes_stays_bounded(
         for _ in range(_HAMMER_ROUNDS):
             assert matcher(outcome) is True
 
-    # One stray entry from the first call, then the address answers.
-    assert len(match_mod._warned_predicates) - before <= 1
+    assert len(match_mod._warned_predicates) == before
     assert id(predicate) in match_mod._warned_untrackable
     assert len(caplog.records) == 1
 
-    del predicate, matcher
-    gc.collect()
-
-    # The address registry holds it on purpose, so its address cannot be
-    # handed to another predicate while it is still remembered. Enough
-    # newer ones evict it, and then nothing of it is left.
-    for i in range(_UNTRACKABLE_LIMIT):
-        Match.exception(_Unweakrefable(i))(outcome)  # ty: ignore[invalid-argument-type]
-    gc.collect()
+    # Across eviction cycles, not just one. Each cycle drops the predicate
+    # from the address registry and sends it back through the weak path,
+    # which is where an entry it cannot find again would pile up.
+    for _ in range(_EVICTION_CYCLES):
+        matcher(outcome)
+        for i in range(_UNTRACKABLE_LIMIT + 1):
+            Match.exception(_Unweakrefable(i))(outcome)  # ty: ignore[invalid-argument-type]
 
     assert len(match_mod._warned_predicates) == before
     assert len(match_mod._warned_untrackable) <= _UNTRACKABLE_LIMIT
@@ -1435,3 +1434,171 @@ class _Unweakrefable:
     def __call__(self, _exc: Exception) -> int:
         """Return a non-bool, to reach the warning path."""
         return 1
+
+
+class _NeverEqualsItself:
+    """Hashes the same every time and never matches itself.
+
+    A set finds the bucket and then refuses the entry, so the object is
+    added and never found again, exactly like a moving hash.
+    """
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to reach the warning path."""
+        return 1
+
+    def __hash__(self) -> int:
+        """Answer the same every time, so the bucket is found."""
+        return 42
+
+    def __eq__(self, _other: object) -> bool:
+        """Disagree with everything, including itself."""
+        return False
+
+
+def test_a_predicate_that_never_equals_itself_stays_bounded(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A set locates by hash and confirms by `==`, and both are caller code."""
+    import grelmicro.resilience._match as match_mod  # noqa: PLC0415
+
+    predicate = _NeverEqualsItself()
+    matcher = Match.exception(predicate)  # ty: ignore[invalid-argument-type]
+    outcome = Outcome.from_exception(ValueError("x"))
+    before = len(match_mod._warned_predicates)
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        for _ in range(_HAMMER_ROUNDS):
+            assert matcher(outcome) is True
+
+    assert len(match_mod._warned_predicates) == before
+    assert len(caplog.records) == 1
+
+
+def test_an_object_posing_as_a_compiled_pattern_is_refused() -> None:
+    """`re.Pattern` cannot be subclassed, so a claim to be one is a lie.
+
+    Trusting `isinstance` here meant reading `.pattern` off the impostor,
+    which runs whatever it defines. A proxy wrapping a compiled regex
+    raises from both while it is unbound.
+    """
+
+    class FakePattern:
+        @property
+        def __class__(self) -> type:  # type: ignore[override]
+            """Report `re.Pattern`, which `isinstance` believes."""
+            return re.Pattern
+
+        @property
+        def pattern(self) -> str:
+            """Raise, the way an unbound proxy does."""
+            msg = "pattern is not bound yet"
+            raise RuntimeError(msg)
+
+    with pytest.raises(ValueError, match="string or a compiled pattern"):
+        Match.exception_message(regex=FakePattern())  # ty: ignore[invalid-argument-type]
+
+
+def test_a_partial_predicate_reads_as_what_it_wraps() -> None:
+    """Two partials of different functions have to be tellable apart.
+
+    Naming them both `partial` is safe and useless. The wrapped function's
+    name says which one it is, and the arguments bound into the partial,
+    where an API key would sit, stay out of it.
+    """
+    secret = "sk-live-SUPERSECRET"
+
+    def check_status(_exc: Exception, *, api_key: str) -> bool:  # noqa: ARG001
+        return True
+
+    def check_body(_exc: Exception, *, api_key: str) -> bool:  # noqa: ARG001
+        return True
+
+    first = Match.exception(partial(check_status, api_key=secret))
+    second = Match.exception(partial(check_body, api_key=secret))
+
+    assert repr(first) == "Match.exception(check_status)"
+    assert repr(second) == "Match.exception(check_body)"
+    assert secret not in repr(first) + repr(second)
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        pytest.param(Match.not_exception, "not_exception(", id="not-exception"),
+        pytest.param(Match.not_result, "not_result(", id="not-result"),
+        pytest.param(
+            Match.not_exception_cause,
+            "not_exception_cause(",
+            id="not-exception-cause",
+        ),
+    ],
+)
+def test_a_negated_matcher_reports_its_own_name(
+    caplog: pytest.LogCaptureFixture,
+    build: Callable[[Callable[[Any], bool]], Match],
+    expected: str,
+) -> None:
+    """The caller wrote the negated name, so the warning has to say it.
+
+    A negated form delegates to its positive twin, and the twin is what
+    catches a broken predicate, so it used to report a policy the caller
+    never wrote.
+    """
+
+    def buggy(_value: object) -> bool:
+        msg = "predicate bug"
+        raise RuntimeError(msg)
+
+    matcher = build(buggy)
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        matcher(Outcome.from_exception(ValueError("x")))
+        matcher(Outcome.from_result(1))
+
+    assert caplog.records
+    assert expected in caplog.records[0].message
+
+
+class _Boom(BaseException):
+    """Not an `Exception`, so an `except Exception` never sees it."""
+
+
+class _TurnsHostile:
+    """Behaves while it is inspected, then raises a bare `BaseException`.
+
+    A predicate is caller code all the way down, and nothing says it has
+    to answer the same way twice. The bookkeeping is total for that
+    reason, not for any one shape of misbehaviour.
+    """
+
+    def __init__(self, patience: int) -> None:
+        self.patience = patience
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to reach the warning path."""
+        return 1
+
+    def __hash__(self) -> int:
+        """Answer while there is patience left, then raise."""
+        self.patience -= 1
+        if self.patience < 0:
+            raise _Boom
+        return 42
+
+    def __eq__(self, other: object) -> bool:
+        """Agree with itself, so the registry accepts it."""
+        return self is other
+
+
+def test_bookkeeping_never_raises_whatever_the_predicate_does() -> None:
+    """A predicate that turns hostile mid-lookup is reported, not raised.
+
+    The registry decides whether to warn, and it runs inside `Retry`'s
+    `except` block, so an error here would replace the caller's own.
+    """
+    matcher = Match.exception(_TurnsHostile(patience=2))  # ty: ignore[invalid-argument-type]
+    outcome = Outcome.from_exception(ValueError("x"))
+
+    assert matcher(outcome) is True
+    assert matcher(outcome) is True
