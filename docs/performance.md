@@ -56,7 +56,7 @@ Logging runs on every request, and the serializer already follows the standard e
 export GREL_LOG_BACKEND=structlog
 ```
 
-structlog with orjson reaches roughly 300,000 records per second against 147,000 for loguru with stdlib json. [Benchmarks](benchmarks.md#logging) has the full table, and [Logging](logging/index.md#which-serializer-you-get) covers the values the two serializers write differently.
+structlog with orjson reaches roughly 283,000 records per second against 137,000 for loguru with stdlib json, a 2.1x spread. [Benchmarks](benchmarks.md#logging) has the full table, and [Logging](logging/index.md#which-serializer-you-get) covers the values the two serializers write differently.
 
 ## Fold cache misses at the right level
 

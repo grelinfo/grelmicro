@@ -340,7 +340,7 @@ The default is `auto`: orjson when it is installed, the standard library when it
 
 `auto` never writes less than the standard library would. An object JSON has no encoding for is rendered as text rather than raising, a dict keyed by numbers is written with string keys, and anything orjson declines falls back to the standard library, so switching orjson on cannot cost you a record.
 
-Going the other way is not symmetric. `stdlib` refuses a dict key that is not a string, number, or boolean, where orjson writes a `datetime`, `UUID`, or `Enum` key. Pinning `stdlib` is the narrower choice.
+Going the other way is not symmetric. `stdlib` refuses a dict key that is not a string, number, boolean, or `None`, where orjson writes a `datetime`, `UUID`, or `Enum` key. Pinning `stdlib` is the narrower choice.
 
 They do not write every value the same way:
 

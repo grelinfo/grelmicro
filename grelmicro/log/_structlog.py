@@ -11,7 +11,6 @@ from grelmicro.log._shared import (
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
-    orjson_record_dumps,
     orjson_record_dumps_str,
     render_pretty_lines,
     render_text_line,
@@ -246,33 +245,22 @@ def configure(config: LogConfig | None = None) -> None:
             resolve_serializer(settings.json_serializer)
             == LogSerializerType.ORJSON
         ):
-            # orjson writes bytes, so the byte stream under stdout is the
-            # direct route. A stdout that has no `buffer`, such as a test
-            # harness or a notebook, takes the text writer instead of
-            # failing to configure at all.
-            buffer = getattr(sys.stdout, "buffer", None)
-            logger_factory: (
-                structlog.BytesLoggerFactory | structlog.PrintLoggerFactory
+            # Decoded and written as text, not to the byte stream under
+            # stdout. Writing bytes there skips the text buffer, so a log
+            # line lands out of order against anything else on stdout, and
+            # a replaced stdout stops capturing entirely.
+            processors.append(
+                structlog.processors.JSONRenderer(
+                    serializer=orjson_record_dumps_str
+                )
             )
-            if buffer is not None:
-                processors.append(
-                    structlog.processors.JSONRenderer(
-                        serializer=orjson_record_dumps
-                    )
-                )
-                logger_factory = structlog.BytesLoggerFactory(file=buffer)
-            else:
-                processors.append(
-                    structlog.processors.JSONRenderer(
-                        serializer=orjson_record_dumps_str
-                    )
-                )
-                logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
         else:
             processors.append(
                 structlog.processors.JSONRenderer(default=_log_json_default)
             )
-            logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
+        logger_factory: structlog.PrintLoggerFactory = (
+            structlog.PrintLoggerFactory(file=sys.stdout)
+        )
     elif resolved_format == LogFormatType.LOGFMT:
         processors.append(_render_logfmt)
         logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)

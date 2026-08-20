@@ -81,10 +81,15 @@ def _run_benchmark(backend: str, serializer: str, iterations: int) -> float:
     """Run benchmark and return ops/sec."""
     _reset_logging()
 
-    os.environ["LOG_BACKEND"] = backend
-    os.environ["LOG_FORMAT"] = "JSON"
-    os.environ["LOG_JSON_SERIALIZER"] = serializer
-    os.environ["LOG_OTEL_ENABLED"] = "false"
+    # `GREL_LOG_` is the prefix `load_settings` reads, and `GREL_ENV_LOAD`
+    # is what lets it read the environment at all. Without both, every row
+    # below measured the default backend and serializer instead of the one
+    # it was labelled with.
+    os.environ["GREL_ENV_LOAD"] = "1"
+    os.environ["GREL_LOG_BACKEND"] = backend
+    os.environ["GREL_LOG_FORMAT"] = "JSON"
+    os.environ["GREL_LOG_JSON_SERIALIZER"] = serializer
+    os.environ["GREL_LOG_OTEL_ENABLED"] = "false"
 
     grelmicro_logging = _reload_modules()
 

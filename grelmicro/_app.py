@@ -126,7 +126,13 @@ def resolve_ambient(key: tuple[str, str]) -> Any:  # noqa: ANN401
         override = overrides.get(key)
         if override is not None:
             return override
-    return micro._by_key[key]  # noqa: SLF001
+    try:
+        return micro._by_key[key]  # noqa: SLF001
+    except KeyError:
+        # Raised as the error `Grelmicro.get` raises, hint and all, so a
+        # caller that lets it through reports the same miss. Only a miss
+        # pays for building the message.
+        return micro.get(*key)
 
 
 def _item_owns_global_state(item: object) -> bool:
