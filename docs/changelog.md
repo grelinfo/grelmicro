@@ -10,6 +10,8 @@
 * 💥 The Postgres circuit breaker drops and recreates three stored functions on the next start, because their result columns grew. `auto_migrate` handles it under the advisory lock it already takes. A deployment that runs with `auto_migrate=False` has to apply the change itself. ([#740](https://github.com/grelinfo/grelmicro/issues/740))
 * 💥 `GREL_LOG_JSON_SERIALIZER` defaults to `auto`, which uses orjson when it is installed and the standard library when it is not. Install `grelmicro[standard]` and JSON logs get faster with no further setting. The two serializers write the same JSON for everything a log record carries except a non-finite float, which orjson writes as `null` where the standard library writes `NaN`. Set `stdlib` to pin the old output.
 
+* 💥 JSON output writes non-ASCII text as UTF-8 instead of `\uXXXX` escapes. `"Zürich"` was written as `"Zürich"` whenever the standard library serialized it. orjson has always written UTF-8 and offers no option to escape, so the standard library follows it and the two agree whichever is installed. [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259.html#section-8.1) asks for UTF-8, and every JSON reader decodes both forms to the same string.
+
 ### Fixed
 
 * 🐛 orjson renders a non-string dict key as a string, matching the standard library. `extra={"counts": {1: "a"}}` raised `TypeError` on a log line, and a cached JSON value with a non-string key raised the same way.

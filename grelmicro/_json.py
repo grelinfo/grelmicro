@@ -48,6 +48,10 @@ try:
     `OPT_NON_STR_KEYS` renders a non-string dict key as a string, which is
     what stdlib json does. Without it orjson raises `TypeError` on the same
     value.
+
+    Non-ASCII text is aligned from the other side. orjson always writes
+    UTF-8 and offers no option to escape, so the stdlib calls pass
+    `ensure_ascii=False` instead of defaulting to `\\uXXXX`.
     """
 
     def json_dumps_bytes(obj: JSONEncodable) -> bytes:
@@ -69,12 +73,20 @@ except ImportError:
     def json_dumps_bytes(obj: JSONEncodable) -> bytes:
         """Serialize object to JSON bytes using stdlib json."""
         return json.dumps(
-            obj, separators=(",", ":"), default=json_default
+            obj,
+            separators=(",", ":"),
+            default=json_default,
+            ensure_ascii=False,
         ).encode("utf-8")
 
     def json_dumps_str(obj: JSONEncodable) -> str:
         """Serialize object to JSON string using stdlib json."""
-        return json.dumps(obj, separators=(",", ":"), default=json_default)
+        return json.dumps(
+            obj,
+            separators=(",", ":"),
+            default=json_default,
+            ensure_ascii=False,
+        )
 
     def json_loads(data: bytes | str) -> JSONDecodable:
         """Deserialize JSON bytes or string using stdlib json."""

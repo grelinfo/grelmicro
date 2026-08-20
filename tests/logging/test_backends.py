@@ -36,6 +36,7 @@ _USER_ID = 123
 _USER_ID_2 = 456
 _USER_ID_3 = 789
 _COUNT = 42
+_AWARE_MOMENT = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 
 
 class TestConfigureLoggingJSON:
@@ -511,15 +512,27 @@ class TestConfigureLoggingJSONSerializer:
             is LogSerializerType.ORJSON
         )
 
-    def test_serializers_agree_on_a_non_string_key(self) -> None:
-        """Both serializers render a non-string dict key the same way.
+    @pytest.mark.parametrize(
+        "record",
+        [
+            pytest.param(
+                {"msg": "hit", "counts": {1: "a", 2: "b"}}, id="non-string-key"
+            ),
+            pytest.param(
+                {"msg": "Zürich café 東京", "user": "José"}, id="non-ascii"
+            ),
+            pytest.param({"msg": "hit", "n": 3, "ok": True}, id="plain"),
+            pytest.param({"msg": "hit", "at": _AWARE_MOMENT}, id="datetime"),
+        ],
+    )
+    def test_serializers_agree(self, record: dict[str, object]) -> None:
+        """Both serializers write the same JSON, so `auto` changes nothing.
 
-        Without `OPT_NON_STR_KEYS` orjson raises here and the stdlib does
-        not, which would make the installed library decide whether a log
-        call succeeds.
+        Without `OPT_NON_STR_KEYS` orjson raises on a non-string key, and
+        without `ensure_ascii=False` the stdlib escapes non-ASCII that
+        orjson writes as UTF-8. Either one would make the installed library
+        decide what a log line says.
         """
-        record = {"msg": "hit", "counts": {1: "a", 2: "b"}}
-
         assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
 
 

@@ -346,6 +346,8 @@ Both write the same JSON for every value a log record can carry, with one except
 
 Note which way that goes. `NaN` is not valid JSON, so the standard library writes a line a strict log reader cannot parse. orjson writes `null` instead.
 
+Everything else matches, including the two places the libraries disagree out of the box. A non-string dict key is written as a string rather than raising, and non-ASCII text is written as UTF-8 rather than `\uXXXX` escapes. orjson has no option to escape, so the standard library follows it, which is also what [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259.html#section-8.1) asks for.
+
 Pin the choice when you need the output to be identical everywhere, whatever is installed:
 
 ```bash

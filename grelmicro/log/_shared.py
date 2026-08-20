@@ -64,7 +64,12 @@ def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
     whether ``orjson`` is installed. Used when the user explicitly
     selects ``LOG_JSON_SERIALIZER=stdlib``.
     """
-    return json.dumps(obj, separators=(",", ":"), default=_log_json_default)
+    return json.dumps(
+        obj,
+        separators=(",", ":"),
+        default=_log_json_default,
+        ensure_ascii=False,
+    )
 
 
 def has_opentelemetry() -> bool:

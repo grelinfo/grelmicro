@@ -258,7 +258,9 @@ def configure(config: LogConfig | None = None) -> None:
             ) = structlog.BytesLoggerFactory(file=sys.stdout.buffer)
         else:
             processors.append(
-                structlog.processors.JSONRenderer(default=json_default)
+                structlog.processors.JSONRenderer(
+                    default=json_default, ensure_ascii=False
+                )
             )
             logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
     elif resolved_format == LogFormatType.LOGFMT:
