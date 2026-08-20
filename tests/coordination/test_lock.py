@@ -5,7 +5,7 @@ import json
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
-from threading import get_ident
+from threading import current_thread
 
 import pytest
 from pytest_mock import MockerFixture
@@ -1360,7 +1360,7 @@ async def test_thread_acquire_jitter_formula_exact_sleep(
     )
 
     # Act
-    await waiter.do_thread_acquire(get_ident())
+    await waiter.do_thread_acquire(current_thread())
 
     # Assert
     expected = retry_interval * (1.0 + jitter * (2.0 * random_value - 1.0))

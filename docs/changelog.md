@@ -12,6 +12,7 @@
 
 ### Fixed
 
+* 🐛 A lock token identifies the holder, not the thread ident or the object id it happened to sit at. CPython hands both to the next holder as soon as the previous one is gone, so a thread or task that died holding a lease left a token the next one reproduced exactly, and that next holder could release, extend, or take a lock it never acquired. Measured: 200 sequential threads reused 4 idents, and 6 sequential tasks minted only 2 distinct tokens. `Lock` and `ReadWriteLock` now key their thread bookkeeping on the thread object, so a holder that exits without releasing also stops accumulating. ([#781](https://github.com/grelinfo/grelmicro/pull/781))
 * 🐛 A log record carrying a non-string dict key is written instead of raising. `extra={"counts": {1: "a"}}` raised `TypeError` under orjson where the standard library wrote it, so which one was installed decided whether the log call survived. ([#780](https://github.com/grelinfo/grelmicro/pull/780))
 
 ### Security

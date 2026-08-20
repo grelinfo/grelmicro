@@ -1,11 +1,13 @@
 """Coordination Tokens."""
 
 import os
-from asyncio import current_task
+from asyncio import Task, current_task
 from itertools import count
 from secrets import token_hex
-from threading import get_ident
+from threading import Thread, current_thread
+from typing import Any
 from uuid import UUID
+from weakref import WeakKeyDictionary
 
 _guard_counter = count()
 
@@ -52,13 +54,41 @@ def generate_worker_id() -> str:
     return token_hex(8)
 
 
+_task_identities: WeakKeyDictionary[Task[Any], str] = WeakKeyDictionary()
+"""One minted identity per task, dropped when the task is collected."""
+
+_thread_identities: WeakKeyDictionary[Thread, str] = WeakKeyDictionary()
+"""One minted identity per thread, dropped when the thread is collected."""
+
+
+def _identity(registry: WeakKeyDictionary[Any, str], holder: Any) -> str:  # noqa: ANN401
+    """Return the holder's identity, minting it on first use.
+
+    Neither a thread ident nor an `id()` is an identity: CPython hands both
+    to the next holder as soon as the previous one is gone, and a lock
+    token built from one would let that next holder release, extend, or
+    take a lease it never acquired. A minted identity is unique for the
+    life of the holder and disappears with it.
+
+    `setdefault` on a `WeakKeyDictionary` is not atomic, so two threads
+    racing the first mint for one holder could build two. Only the holder
+    itself mints its own identity, so there is no such race.
+    """
+    identity = registry.get(holder)
+    if identity is None:
+        identity = f"{next(_guard_counter)}.{token_hex(8)}"
+        registry[holder] = identity
+    return identity
+
+
 def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
-    """Generate a task token from the worker identity and the async task ID."""
+    """Generate a task token from the worker and the task's own identity."""
     task = current_task()
     if task is None:  # pragma: no cover
         msg = "generate_task_token must be called from a running asyncio task"
         raise RuntimeError(msg)
-    return f"{resolve_worker(worker)}:task:{id(task)}{nonce}"
+    identity = _identity(_task_identities, task)
+    return f"{resolve_worker(worker)}:task:{identity}{nonce}"
 
 
 def generate_token_nonce() -> str:
@@ -75,12 +105,15 @@ def generate_token_nonce() -> str:
 
 
 def generate_thread_token(
-    worker: UUID | str, nonce: str = "", *, thread_id: int | None = None
+    worker: UUID | str, nonce: str = "", *, owner: Thread | None = None
 ) -> str:
-    """Generate a thread token from the worker identity and a thread ID.
+    """Generate a thread token from the worker and the thread's own identity.
 
-    The thread ID defaults to the current thread when not given.
+    `owner` defaults to the calling thread. A method that runs on the event
+    loop on behalf of a worker thread has to name that thread, because the
+    calling thread there is the loop.
     """
-    if thread_id is None:
-        thread_id = get_ident()
-    return f"{resolve_worker(worker)}:thread:{thread_id}{nonce}"
+    if owner is None:
+        owner = current_thread()
+    identity = _identity(_thread_identities, owner)
+    return f"{resolve_worker(worker)}:thread:{identity}{nonce}"

@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from threading import get_ident
+from threading import Thread, current_thread
 from types import TracebackType
 from typing import Annotated, ClassVar, Self
 from uuid import UUID
@@ -329,11 +329,13 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         self._backend_name: str | None = (
             backend if isinstance(backend, str) else None
         )
-        # WeakSet so a task that exits without releasing does not
-        # pin its Task object in memory and does not risk colliding
-        # with a future task that ends up at the same id().
+        # WeakSet so a holder that exits without releasing does not pin
+        # its object in memory and does not risk colliding with a future
+        # holder that lands on the same id(). Threads need it as much as
+        # tasks: a set of idents told the next thread it already held a
+        # lock it never took.
         self._held_by_tasks: WeakSet[asyncio.Task[object]] = WeakSet()
-        self._held_by_threads: set[int] = set()
+        self._held_by_threads: WeakSet[Thread] = WeakSet()
         self._from_thread: ThreadLockAdapter | None = None
 
     @property
@@ -636,7 +638,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
     async def do_thread_acquire(
         self,
-        thread_id: int,
+        owner: Thread,
         *,
         timeout: "Seconds | None" = None,  # noqa: ASYNC109
     ) -> LockHandle:
@@ -652,9 +654,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 within that time. Subclasses builtin `TimeoutError`.
         """
         config = self._config
-        if thread_id in self._held_by_threads:
+        if owner in self._held_by_threads:
             raise LockReentrantError(name=self._name)
-        token = generate_thread_token(config.worker, thread_id=thread_id)
+        token = generate_thread_token(config.worker, owner=owner)
         duration = config.lease_duration
         # Stamped whether or not a timeout is set, so the deadline is
         # `started + timeout` and the guard narrows `timeout` where it
@@ -673,12 +675,12 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             fencing_token = await self.do_acquire(
                 token=token, duration=duration
             )
-        self._held_by_threads.add(thread_id)
+        self._held_by_threads.add(owner)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
 
-    async def do_thread_extend(self, thread_id: int) -> LockHandle:
+    async def do_thread_extend(self, owner: Thread) -> LockHandle:
         """Renew the lease from a worker thread without releasing.
 
         Runs on the event loop so the ownership check and backend acquire
@@ -689,9 +691,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockAcquireError: If the backend call fails.
         """
         config = self._config
-        if thread_id not in self._held_by_threads:
+        if owner not in self._held_by_threads:
             raise LockNotOwnedError(name=self._name)
-        token = generate_thread_token(config.worker, thread_id=thread_id)
+        token = generate_thread_token(config.worker, owner=owner)
         fencing_token = await self.do_acquire(
             token=token, duration=config.lease_duration
         )
@@ -701,7 +703,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             name=self._name, token=token, fencing_token=fencing_token
         )
 
-    async def do_thread_acquire_nowait(self, thread_id: int) -> LockHandle:
+    async def do_thread_acquire_nowait(self, owner: Thread) -> LockHandle:
         """Acquire the lock from a worker thread (non-blocking).
 
         Runs on the event loop so the reentrant check and backend acquire
@@ -713,21 +715,21 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
         config = self._config
-        if thread_id in self._held_by_threads:
+        if owner in self._held_by_threads:
             raise LockReentrantError(name=self._name)
-        token = generate_thread_token(config.worker, thread_id=thread_id)
+        token = generate_thread_token(config.worker, owner=owner)
         fencing_token = await self.do_acquire(
             token=token, duration=config.lease_duration
         )
         if fencing_token is None:
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
-        self._held_by_threads.add(thread_id)
+        self._held_by_threads.add(owner)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
 
-    async def do_thread_release(self, thread_id: int) -> None:
+    async def do_thread_release(self, owner: Thread) -> None:
         """Release the lock from a worker thread.
 
         Runs on the event loop so the backend release is atomic with respect
@@ -737,9 +739,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             LockNotOwnedError: If the lock is not owned by the current token.
             LockReleaseError: If the lock cannot be released due to an error on the backend.
         """
-        token = generate_thread_token(self._config.worker, thread_id=thread_id)
+        token = generate_thread_token(self._config.worker, owner=owner)
         released = await self.do_release(token)
-        self._held_by_threads.discard(thread_id)
+        self._held_by_threads.discard(owner)
         if not released:
             raise LockNotOwnedError(name=self._name)
 
@@ -798,7 +800,7 @@ class ThreadLockAdapter:
                 within that time. Subclasses builtin `TimeoutError`.
         """
         return asyncio.run_coroutine_threadsafe(
-            self._lock.do_thread_acquire(get_ident(), timeout=timeout),
+            self._lock.do_thread_acquire(current_thread(), timeout=timeout),
             self._backend_loop,
         ).result()
 
@@ -812,7 +814,7 @@ class ThreadLockAdapter:
             LockAcquireError: Cannot extend the lock due to backend error.
         """
         return asyncio.run_coroutine_threadsafe(
-            self._lock.do_thread_extend(get_ident()),
+            self._lock.do_thread_extend(current_thread()),
             self._backend_loop,
         ).result()
 
@@ -828,7 +830,7 @@ class ThreadLockAdapter:
             WouldBlockError: If the lock cannot be acquired without blocking.
         """
         return asyncio.run_coroutine_threadsafe(
-            self._lock.do_thread_acquire_nowait(get_ident()),
+            self._lock.do_thread_acquire_nowait(current_thread()),
             self._backend_loop,
         ).result()
 
@@ -840,7 +842,7 @@ class ThreadLockAdapter:
             LockNotOwnedError: If the lock is not currently held.
         """
         asyncio.run_coroutine_threadsafe(
-            self._lock.do_thread_release(get_ident()),
+            self._lock.do_thread_release(current_thread()),
             self._backend_loop,
         ).result()
 
@@ -857,7 +859,7 @@ class ThreadLockAdapter:
             self._lock.do_owned(
                 generate_thread_token(
                     self._lock._config.worker,  # noqa: SLF001
-                    thread_id=get_ident(),
+                    owner=current_thread(),
                 ),
             ),
             self._backend_loop,

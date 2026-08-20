@@ -2,6 +2,7 @@
 
 from asyncio import current_task
 from collections.abc import AsyncGenerator
+from threading import current_thread
 
 import pytest
 from pytest_mock import MockerFixture
@@ -95,7 +96,7 @@ async def test_thread_release_keeps_state_on_backend_error(
     mocker: MockerFixture,
 ) -> None:
     """A backend error during thread release keeps the held-by-thread marker intact."""
-    thread_id = 42
+    thread_id = current_thread()
     await lock.do_thread_acquire(thread_id)
     assert thread_id in lock._held_by_threads
 
@@ -115,7 +116,7 @@ async def test_thread_release_clears_state_when_not_owned(
     mocker: MockerFixture,
 ) -> None:
     """A "not owned" answer from the backend clears the held-by-thread marker."""
-    thread_id = 42
+    thread_id = current_thread()
     await lock.do_thread_acquire(thread_id)
     mocker.patch.object(backend, "release", return_value=False)
 
