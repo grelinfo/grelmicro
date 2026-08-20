@@ -58,11 +58,14 @@ def orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
     `OPT_NON_STR_KEYS` costs about 80% on every call when it is always on.
 
     `kwargs` reaches `orjson.dumps`, so a caller keeps its own `default`.
+    An `option` a caller passed is merged rather than replaced, since
+    overwriting it would raise a second, more confusing `TypeError`.
     """
     try:
         return _orjson_dumps(obj, **kwargs)
     except TypeError:
-        return _orjson_dumps(obj, option=_OPT_NON_STR_KEYS, **kwargs)
+        option = kwargs.pop("option", 0) | _OPT_NON_STR_KEYS
+        return _orjson_dumps(obj, option=option, **kwargs)
 
 
 def orjson_record_dumps_str(obj: object, **kwargs: Any) -> str:  # noqa: ANN401

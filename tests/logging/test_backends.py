@@ -12,6 +12,7 @@ from enum import Enum
 from unittest.mock import MagicMock
 from uuid import UUID
 
+import orjson
 import pytest
 import pytest_mock
 import structlog
@@ -27,6 +28,7 @@ from grelmicro.log._shared import (
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
+    orjson_record_dumps,
     render_pretty_lines,
     render_text_line,
     resolve_serializer,
@@ -581,6 +583,19 @@ class TestConfigureLoggingJSONSerializer:
         log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "awkward value"
         assert field in log_record
+
+    def test_orjson_retry_keeps_a_caller_option(self) -> None:
+        """The retry merges the caller's `option` rather than replacing it.
+
+        Passing a fresh `option` on retry would raise a second `TypeError`
+        about a duplicate keyword, hiding the one the retry exists to fix.
+        """
+        record = {"m": {2: "b", 1: "a"}}
+
+        assert (
+            orjson_record_dumps(record, option=orjson.OPT_SORT_KEYS)
+            == b'{"m":{"1":"a","2":"b"}}'
+        )
 
     def test_structlog_orjson_without_a_stdout_buffer(
         self,
