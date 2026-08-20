@@ -53,18 +53,21 @@ def _describe(predicate: Any) -> str:  # noqa: ANN401
 
     Naming reads caller-controlled code at every step: `__getattr__`, a
     `__name__` property, `str` of what it returns, `__repr__`, and even
-    `type(x).__name__` through a metaclass property. `BaseException` is
-    caught too, because a matcher runs where anything raised replaces the
-    error being handled, and naming is not a cancellation point.
+    `type(x).__name__` through a metaclass property.
+
+    The result is normalized to an exact `str`. `str()` and `repr()` may
+    return a subclass, and a subclass can run caller code again from
+    `__format__` or `__str__` when the caller interpolates it.
     """
     try:
         try:
             name = getattr(predicate, "__name__", None)
-            if name is not None:
-                return str(name)
-            return repr(predicate)
+            text = repr(predicate) if name is None else str(name)
         except Exception:  # noqa: BLE001
-            return str(type(predicate).__name__)
+            text = str(type(predicate).__name__)
+        return str.__str__(text)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:  # noqa: BLE001
         return _UNNAMEABLE
 
@@ -77,6 +80,8 @@ def _is_class(candidate: Any) -> bool:  # noqa: ANN401
     """
     try:
         return isinstance(candidate, type)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:  # noqa: BLE001
         return False
 
@@ -90,20 +95,25 @@ def _is_subclass(candidate: Any, parent: type) -> bool:  # noqa: ANN401
     """
     try:
         return issubclass(candidate, parent)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:  # noqa: BLE001
         return False
 
 
-def _message_of(exc: BaseException | None) -> str:
-    """Return an exception's message, and never raise reading it.
+def _message_of(exc: BaseException | None) -> str | None:
+    """Return an exception's message, or None when it cannot be read.
 
     A driver exception that formats lazily from a closed connection raises
-    from `__str__`. An unreadable message matches nothing.
+    from `__str__`. None rather than an empty string, because an empty
+    string is matched by `contains=""` and by any pattern accepting it.
     """
     try:
         return str(exc)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:  # noqa: BLE001
-        return ""
+        return None
 
 
 def _equals(left: Any, right: Any) -> bool:  # noqa: ANN401
@@ -114,8 +124,51 @@ def _equals(left: Any, right: Any) -> bool:  # noqa: ANN401
     """
     try:
         return bool(left == right)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:  # noqa: BLE001
         return False
+
+
+def _name_of_argument(value: Any) -> str:  # noqa: ANN401
+    """Name a rejected argument by what it is, never by what it holds.
+
+    A validator message is rendered verbatim, so echoing the value would
+    put caller data into the error.
+    """
+    return _describe(value) if _is_class(value) else _describe(type(value))
+
+
+def _is_exact_str(value: Any) -> bool:  # noqa: ANN401
+    """Return whether `value` is a string, without trusting `__class__`."""
+    return type(value) is str or (
+        _is_class(type(value)) and _is_subclass(type(value), str)
+    )
+
+
+def _compile_pattern(regex: Any) -> re.Pattern[str]:  # noqa: ANN401
+    """Return a compiled pattern, refusing anything else with a `ValueError`.
+
+    `re.error` is not a `ValueError`, and a pattern object is caller code
+    whose `.pattern` or `.search` can raise, so both are settled here
+    rather than at match time.
+    """
+    if _is_exact_str(regex):
+        try:
+            return re.compile(str.__str__(regex))
+        except re.error as exc:
+            msg = (
+                f"Match.exception_message() regex= is not a valid regex: {exc}"
+            )
+            raise ValueError(msg) from None
+    if isinstance(regex, re.Pattern):
+        return cast("re.Pattern[str]", regex)
+    msg = (
+        f"Match.exception_message() regex= must be a string or a compiled "
+        f"pattern, got {_describe(type(regex))}"
+    )
+    # `ValueError` so pydantic wraps it, as elsewhere in this module.
+    raise ValueError(msg)
 
 
 def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
@@ -149,6 +202,8 @@ def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
                 oldest = next(iter(_warned_untrackable))
                 _warned_untrackable.pop(oldest, None)
             _warned_untrackable[key] = predicate
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:  # noqa: BLE001
         return False
     return False
@@ -161,23 +216,18 @@ def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
     once rather than on every attempt.
 
     A value whose truth cannot be read counts as no match. Note the
-    `not_*` forms negate that, so an undecidable value engages them.
-    Nothing here raises: coercing is the whole job, and a matcher runs
-    inside `Retry`'s `except` block, where raising would replace the error
-    the caller is handling.
+    `not_*` forms negate that, so an undecidable value engages them. What
+    the predicate itself raises is left alone: that is the caller's error
+    and theirs to see. Everything this function does around it is total,
+    because a matcher runs inside `Retry`'s `except` block, where raising
+    would replace the error being handled.
     """
-    warned = _already_warned(predicate) if type(result) is not bool else True
-    if not warned:
-        _log.warning(
-            "Match predicate %s returned non-bool %s; coercing to bool. "
-            "Return an explicit bool to suppress this warning.",
-            _describe(predicate),
-            _describe(type(result)),
-        )
     try:
-        return bool(result)
+        coerced = bool(result)
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException:  # noqa: BLE001
-        if not warned:
+        if not _already_warned(predicate):
             _log.warning(
                 "Match predicate %s returned %s, whose truth value raised; "
                 "reading it as no match.",
@@ -185,6 +235,14 @@ def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
                 _describe(type(result)),
             )
         return False
+    if type(result) is not bool and not _already_warned(predicate):
+        _log.warning(
+            "Match predicate %s returned non-bool %s; coercing to bool. "
+            "Return an explicit bool to suppress this warning.",
+            _describe(predicate),
+            _describe(type(result)),
+        )
+    return coerced
 
 
 Matcher = Callable[[Outcome[Any]], bool]
@@ -211,8 +269,30 @@ class Match:
         self._repr = repr_
 
     def __call__(self, outcome: Outcome[Any]) -> bool:
-        """Test the outcome against this filter."""
-        return self._matcher(outcome)
+        """Test the outcome against this filter, and never raise.
+
+        A matcher runs inside the resilience machinery, where `Retry`
+        calls it from an `except` block, so anything raised here would
+        replace the error the caller is already handling. A predicate that
+        raises, a class with a hostile `__instancecheck__`, an exception
+        whose `__cause__` raises: each reads as no match and is reported
+        once.
+
+        A real interrupt still propagates.
+        """
+        try:
+            return self._matcher(outcome)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001
+            if not _already_warned(self._matcher):
+                _log.warning(
+                    "Match %s raised while testing an outcome; reading it "
+                    "as no match. A matcher runs where a raised error "
+                    "replaces the one being handled.",
+                    _describe(self._matcher),
+                )
+            return False
 
     def __repr__(self) -> str:
         return f"Match.{self._repr}"
@@ -223,6 +303,8 @@ class Match:
 
     def __or__(self, other: Match) -> Match:
         """Return a Match that engages when either side engages."""
+        if not isinstance(other, Match):
+            return NotImplemented
         return Match(
             lambda outcome: self(outcome) or other(outcome),
             f"any({self._repr}, {other._repr})",
@@ -230,6 +312,8 @@ class Match:
 
     def __and__(self, other: Match) -> Match:
         """Return a Match that engages when both sides engage."""
+        if not isinstance(other, Match):
+            return NotImplemented
         return Match(
             lambda outcome: self(outcome) and other(outcome),
             f"all({self._repr}, {other._repr})",
@@ -276,9 +360,10 @@ class Match:
         # All arguments must be exception classes.
         for type_ in exception_types_or_predicate:
             if not (_is_class(type_) and _is_subclass(type_, Exception)):
+                got = _name_of_argument(type_)
                 msg = (
                     f"Match.exception() arguments must all be exception "
-                    f"classes, got {_describe(type_)}"
+                    f"classes, got {got}"
                 )
                 # `ValueError`, not `TypeError`: pydantic converts only
                 # `ValueError` and `AssertionError`, so a `TypeError` raised
@@ -347,25 +432,36 @@ class Match:
             raise TypeError(msg)
 
         if contains is not None:
-            needle = contains
+            if not _is_exact_str(contains):
+                msg = (
+                    f"Match.exception_message() contains= must be a string, "
+                    f"got {_describe(type(contains))}"
+                )
+                # `ValueError`, not `TypeError`: pydantic converts only
+                # `ValueError` and `AssertionError`, so a `TypeError` raised
+                # inside a validator escapes every documented `except`.
+                raise ValueError(msg)
+            needle = str.__str__(contains)
 
             def _check_contains(outcome: Outcome[Any]) -> bool:
-                return outcome.raised and needle in _message_of(
-                    outcome.exception
+                message = _message_of(outcome.exception)
+                return (
+                    outcome.raised and message is not None and needle in message
                 )
 
             return cls(
-                _check_contains, f"exception_message(contains={contains!r})"
+                _check_contains, f"exception_message(contains={needle!r})"
             )
 
         # ``regex`` is non-None on this branch (mutual-exclusion check above).
-        pattern = re.compile(regex) if isinstance(regex, str) else regex
-        assert pattern is not None  # noqa: S101
+        pattern = _compile_pattern(regex)
 
         def _check_regex(outcome: Outcome[Any]) -> bool:
+            message = _message_of(outcome.exception)
             return (
                 outcome.raised
-                and pattern.search(_message_of(outcome.exception)) is not None
+                and message is not None
+                and pattern.search(message) is not None
             )
 
         return cls(
@@ -409,9 +505,10 @@ class Match:
 
         for type_ in exception_types_or_predicate:
             if not (_is_class(type_) and _is_subclass(type_, BaseException)):
+                got = _name_of_argument(type_)
                 msg = (
                     f"Match.exception_cause() arguments must all be exception "
-                    f"classes, got {_describe(type_)}"
+                    f"classes, got {got}"
                 )
                 # `ValueError`, not `TypeError`: pydantic converts only
                 # `ValueError` and `AssertionError`, so a `TypeError` raised

@@ -17,6 +17,9 @@ from grelmicro.resilience._match import (
     _already_warned,
     _coerce_bool,
     _describe,
+    _is_class,
+    _is_subclass,
+    _message_of,
 )
 
 if TYPE_CHECKING:
@@ -713,9 +716,11 @@ class _RaisingEq:
             lambda: Match.exception_cause(_ClassBomb()),  # ty: ignore[invalid-argument-type]
             id="cause-proxy",
         ),
-        pytest.param(lambda: Match.result(_HostileRepr()), id="literal-repr"),
         pytest.param(
-            lambda: Match.not_result(_HostileRepr()), id="not-literal-repr"
+            lambda: Match.result(_HostileLiteral()), id="literal-repr"
+        ),
+        pytest.param(
+            lambda: Match.not_result(_HostileLiteral()), id="not-literal-repr"
         ),
     ],
 )
@@ -798,12 +803,13 @@ class _UndecidableResult(metaclass=_ResultMeta):
         raise RuntimeError(msg)
 
 
-class _ReprRecurses:
-    """A predicate return whose `repr` recurses until the stack gives out."""
+class _HostileLiteral:
+    """A non-callable literal whose `repr` raises, so it takes the value path."""
 
     def __repr__(self) -> str:
-        """Recurse, which logging re-raises rather than swallowing."""
-        return repr(self)
+        """Raise, as a badly behaved value can."""
+        msg = "literal repr"
+        raise RuntimeError(msg)
 
 
 class _BoolBaseException:
@@ -820,8 +826,6 @@ class _BoolBaseException:
         pytest.param(
             _UndecidableResult(), False, id="unnameable-and-undecidable"
         ),
-        # Truthy on its own terms: only naming it for the warning fails.
-        pytest.param(_ReprRecurses(), True, id="repr-recurses"),
         pytest.param(
             _BoolBaseException(), False, id="bool-raises-base-exception"
         ),
@@ -869,6 +873,9 @@ def test_the_untrackable_registry_survives_concurrent_eviction() -> None:
         def __call__(self, result: object) -> object:
             return result
 
+    import grelmicro.resilience._match as match_mod  # noqa: PLC0415
+
+    saved = dict(match_mod._warned_untrackable)
     escapes: list[str] = []
 
     def hammer(base: int) -> None:
@@ -884,9 +891,246 @@ def test_the_untrackable_registry_survives_concurrent_eviction() -> None:
         threading.Thread(target=hammer, args=(worker * 10_000,))
         for worker in range(_HAMMER_THREADS)
     ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        match_mod._warned_untrackable.clear()
+        match_mod._warned_untrackable.update(saved)
 
     assert escapes == []
+
+
+class _Interrupts:
+    """Raises a real interrupt from every dunder a guard touches."""
+
+    def __call__(self, _exc: Exception) -> bool:
+        """Match everything, if it is ever reached."""
+        return True
+
+    def __getattr__(self, name: str) -> object:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+    def __repr__(self) -> str:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+    def __hash__(self) -> int:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+    def __eq__(self, _other: object) -> bool:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+    def __bool__(self) -> bool:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda: _describe(_Interrupts()), id="describe"),
+        pytest.param(
+            lambda: _already_warned(_Interrupts()), id="already-warned"
+        ),
+        pytest.param(lambda: _coerce_bool(_Interrupts(), len), id="coerce"),
+        pytest.param(
+            lambda: Match.result(0)(Outcome.from_result(_Interrupts())),
+            id="equals",
+        ),
+        pytest.param(
+            lambda: Match.exception(_Interrupts())(
+                Outcome.from_exception(ValueError("x"))
+            ),
+            id="matcher",
+        ),
+    ],
+)
+def test_a_real_interrupt_is_never_swallowed(
+    call: Callable[[], object],
+) -> None:
+    """The guards absorb a hostile object, not a genuine Ctrl-C.
+
+    Each guard catches `BaseException` so a predicate cannot destroy the
+    error being handled, which would eat an interrupt too if the two were
+    not told apart.
+    """
+    with pytest.raises(KeyboardInterrupt):
+        call()
+
+
+def test_a_matcher_reports_a_raising_predicate_once() -> None:
+    """A predicate that raises reads as no match, and is reported once.
+
+    This is the ordinary case, a buggy predicate. `Retry` calls the
+    matcher from an `except` block, so letting it through would replace
+    the caller's real error with the predicate's bug.
+    """
+
+    def buggy(_exc: Exception) -> bool:
+        msg = "predicate bug"
+        raise RuntimeError(msg)
+
+    matcher = Match.exception(buggy)
+    outcome = Outcome.from_exception(ValueError("original"))
+
+    assert matcher(outcome) is False
+    assert matcher(outcome) is False
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        pytest.param(
+            {"contains": 123}, "must be a string", id="contains-not-str"
+        ),
+        pytest.param({"regex": "("}, "not a valid regex", id="regex-invalid"),
+        pytest.param(
+            {"regex": 123}, "string or a compiled", id="regex-wrong-type"
+        ),
+    ],
+)
+def test_a_bad_message_argument_is_refused_at_construction(
+    kwargs: dict[str, object], expected: str
+) -> None:
+    """These used to build, then fail at match time or raise `re.error`.
+
+    Only `ValueError` survives the validator conversion, so a `re.error`
+    or a `TypeError` escaped every documented `except`.
+    """
+    with pytest.raises(ValueError, match=expected):
+        Match.exception_message(**kwargs)  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("operand", [5, object()])
+def test_combining_with_a_non_match_is_refused(operand: object) -> None:
+    """`|` and `&` with a non-Match give the standard `TypeError`."""
+    with pytest.raises(TypeError):
+        Match.always() | operand  # ty: ignore[unsupported-operator]
+    with pytest.raises(TypeError):
+        Match.always() & operand  # ty: ignore[unsupported-operator]
+
+
+class _LazyProxy:
+    """Forwards `__class__` to a target that is not bound yet."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, the way an unbound proxy does."""
+        msg = "proxy is not bound"
+        raise RuntimeError(msg)
+
+
+class _ClaimsToBeAClass:
+    """Reports `type` as its class without being one."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Report `type`, so `isinstance(x, type)` says yes."""
+        return type
+
+
+def test_an_unreadable_class_is_refused_as_an_argument() -> None:
+    """A proxy whose `__class__` raises is an argument error, not a crash."""
+    with pytest.raises(ValueError, match="exception classes"):
+        Match.exception(_LazyProxy())  # ty: ignore[invalid-argument-type]
+
+
+def test_an_object_claiming_to_be_a_class_is_refused() -> None:
+    """`isinstance` says class, `issubclass` refuses it: still an argument error."""
+    with pytest.raises(ValueError, match="exception classes"):
+        Match.exception(_ClaimsToBeAClass())  # ty: ignore[invalid-argument-type]
+
+
+def test_an_unreadable_message_matches_nothing() -> None:
+    """An exception whose `__str__` raises has no message to match.
+
+    A driver error that formats lazily from a closed connection does this.
+    Reading it as an empty string would make `regex='.*'` engage.
+    """
+
+    class UnreadableError(Exception):
+        def __str__(self) -> str:
+            msg = "message unavailable"
+            raise RuntimeError(msg)
+
+    outcome = Outcome.from_exception(UnreadableError())
+
+    assert Match.exception_message(contains="x")(outcome) is False
+    assert Match.exception_message(regex=".*")(outcome) is False
+
+
+def test_an_undecidable_result_warns_once_not_every_attempt() -> None:
+    """A retry loop reports the same broken predicate once, then stays quiet."""
+
+    class Undecidable:
+        def __bool__(self) -> bool:
+            msg = "truth value unavailable"
+            raise RuntimeError(msg)
+
+    def predicate(_result: object) -> object:
+        return Undecidable()
+
+    matcher = Match.result(predicate)
+    outcome = Outcome.from_result(1)
+
+    assert matcher(outcome) is False
+    assert matcher(outcome) is False
+    assert matcher(outcome) is False
+
+
+class _ClassInterrupts:
+    """Raises an interrupt from the `__class__` lookup `isinstance` makes."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+
+class _BasesInterrupt:
+    """Passes the class check, then interrupts the subclass check."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Report `type`, so the object reaches `issubclass`."""
+        return type
+
+    @property
+    def __bases__(self) -> tuple[type, ...]:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+
+class _MessageInterruptsError(Exception):
+    """Raises an interrupt while its message is read."""
+
+    def __str__(self) -> str:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda: _is_class(_ClassInterrupts()), id="is-class"),
+        pytest.param(
+            lambda: _is_subclass(_BasesInterrupt(), Exception),
+            id="is-subclass",
+        ),
+        pytest.param(
+            lambda: _message_of(_MessageInterruptsError()), id="message-of"
+        ),
+    ],
+)
+def test_argument_inspection_lets_a_real_interrupt_through(
+    call: Callable[[], object],
+) -> None:
+    """Inspecting an argument absorbs a hostile object, not a genuine Ctrl-C."""
+    with pytest.raises(KeyboardInterrupt):
+        call()
