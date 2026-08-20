@@ -29,11 +29,11 @@ Lock tokens identify **who** holds a lock. They join the worker identity to an i
 |---|---|---|
 | `Lock` | `{worker}:task:{identity}` | Per async task |
 | `Lock.from_thread` | `{worker}:thread:{identity}` | Per thread |
-| `TaskLock` | `{worker}:task:{identity}` | Per async task |
-| `TaskLock.from_thread` | `{worker}:thread:{identity}` | Per thread |
+| `TaskLock` | `{worker}:task:{identity}:{nonce}` | Per handle |
+| `TaskLock.from_thread` | `{worker}:thread:{identity}:{nonce}` | Per handle |
 | `LeaderElection` | `worker` directly | Per process |
 
-`identity` is minted once per holder and kept for as long as that holder lives. It is deliberately not the thread ident or the object `id()`: CPython hands both to the next holder as soon as the previous one is gone, so a token built from one would let a new thread or task release, extend, or take a lease it never acquired.
+`identity` is minted once per holder and kept for as long as that holder lives. A `TaskLock` adds a per-handle nonce and is scoped by that, so `TaskLock.from_thread` reads the identity of the loop thread it runs on rather than the worker thread that called it. It is deliberately not the thread ident or the object `id()`: CPython hands both to the next holder as soon as the previous one is gone, so a token built from one would let a new thread or task release, extend, or take a lease it never acquired.
 
 !!! warning "Treat a token as opaque"
     The shape above is what grelmicro writes today, not a promise. Match on `record.holder` as a whole rather than parsing an identity out of it.

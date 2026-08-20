@@ -12,7 +12,7 @@
 
 ### Fixed
 
-* 🐛 A lock token identifies the holder, not the thread ident or the object id it happened to sit at. CPython hands both to the next holder as soon as the previous one is gone, so a thread or task that died holding a lease left a token the next one reproduced exactly, and that next holder could release, extend, or take a lock it never acquired. Measured: 200 sequential threads reused 4 idents, and 6 sequential tasks minted only 2 distinct tokens. Each holder now mints an identity that lives exactly as long as it does, and `Lock` and `ReadWriteLock` key their thread bookkeeping on that, so a holder that exits without releasing stops accumulating too. A thread the `threading` module did not create is covered as well, where the shared `_DummyThread` object would not have been. ([#781](https://github.com/grelinfo/grelmicro/pull/781))
+* 🐛 A lock token identifies the holder, not the thread ident or the object id it sat at. CPython hands both to the next holder, so a thread or task that died holding a lease left a token the next one reproduced exactly and could release, extend, or take a lock it never acquired. ([#781](https://github.com/grelinfo/grelmicro/pull/781))
 * 🐛 A log record carrying a non-string dict key is written instead of raising. `extra={"counts": {1: "a"}}` raised `TypeError` under orjson where the standard library wrote it, so which one was installed decided whether the log call survived. ([#780](https://github.com/grelinfo/grelmicro/pull/780))
 
 ### Security

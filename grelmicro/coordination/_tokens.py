@@ -55,13 +55,9 @@ def generate_worker_id() -> str:
 class HolderIdentity:
     """A holder's own identity, minted once and living exactly as long as it.
 
-    Neither a thread ident nor an object `id()` is an identity: CPython
-    hands both to the next holder as soon as the previous one is gone, and
-    a lock token built from one would let that next holder release,
-    extend, or take a lease it never acquired.
-
-    Weak-referenceable, so a caller can key its bookkeeping on the identity
-    and have a holder that exits without releasing drop out on its own.
+    Unique for the life of the holder and never handed to another one.
+    Weak-referenceable, so bookkeeping keyed on it drops a holder that
+    exits without releasing.
     """
 
     __slots__ = ("__weakref__", "value")
@@ -81,13 +77,9 @@ _TASK_SLOT = "_grelmicro_identity"
 _thread_identity = local()
 """Each thread's own identity, released by the interpreter with the thread.
 
-Deliberately not keyed on the `Thread` object. A thread the `threading`
-module did not create shares one cached `_DummyThread` with every later
-thread that lands on the same recycled ident, so keying on it would give
-them all one identity, and that dummy is pinned for the life of the
-process so it would never be released either.
-
-Each thread reads and writes only its own slot, so the first mint needs no
+Covers a thread the `threading` module did not create, which shares one
+cached `_DummyThread` with every later thread on the same recycled ident.
+Each thread reads and writes only its own slot, so the first mint takes no
 lock.
 """
 

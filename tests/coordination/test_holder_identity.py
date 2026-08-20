@@ -208,9 +208,16 @@ def test_foreign_threads_never_share_an_identity() -> None:
 
     assert len(set(values)) == _ROUNDS
 
-    time.sleep(_FOREIGN_SETTLE)
-    gc.collect()
-    assert [ref for ref in refs if ref() is not None] == []
+    # Poll rather than sleep a fixed margin: `done.set()` runs before the
+    # thread returns, so a loaded runner can still be tearing it down.
+    deadline = time.monotonic() + _FOREIGN_TIMEOUT
+    while time.monotonic() < deadline:
+        gc.collect()
+        alive = [ref for ref in refs if ref() is not None]
+        if not alive:
+            break
+        time.sleep(_FOREIGN_SETTLE)
+    assert alive == []
 
 
 def test_an_identity_shows_its_value() -> None:
