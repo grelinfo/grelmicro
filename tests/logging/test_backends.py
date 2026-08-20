@@ -596,6 +596,24 @@ class TestConfigureLoggingJSONSerializer:
 
         assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
 
+    def test_orjson_fallback_keeps_the_caller_default(self) -> None:
+        """One field taking the fallback does not re-render the others.
+
+        The fallback hands the record to the standard library, which uses
+        whatever `default` it is given. Dropping the caller's would change
+        how every other field in that record renders, so a single wide
+        integer would quietly restyle the whole line.
+        """
+
+        def render(obj: object) -> object:
+            return {"rendered": type(obj).__name__}
+
+        record = {"msg": "hi", "payload": object(), "size": uuid4().int}
+
+        written = orjson_record_dumps(record, default=render).decode()
+
+        assert '"payload":{"rendered":"object"}' in written
+
     def test_orjson_retry_keeps_a_caller_option(self) -> None:
         """The retry merges the caller's `option` rather than replacing it.
 

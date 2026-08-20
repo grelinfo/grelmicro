@@ -64,7 +64,14 @@ def orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
     Anything orjson still refuses goes to the standard library, which
     writes values orjson has no encoding for, an integer wider than 64 bits
     among them. `orjson.JSONEncodeError` subclasses `TypeError`, so both
-    arms of this catch every way orjson can decline a record.
+    arms of this catch every way orjson can decline a record. The fallback
+    keeps the caller's `default`, so one field taking this route does not
+    change how the rest of the record renders. Non-ASCII text still comes
+    back escaped, because that is what the standard library writes.
+
+    A dict key the standard library also refuses, a tuple among them,
+    raises from here. Both libraries decline it, so there is nothing left
+    to fall back to.
     """
     try:
         return _orjson_dumps(obj, **kwargs)
@@ -73,7 +80,11 @@ def orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
         try:
             return _orjson_dumps(obj, option=option, **kwargs)
         except TypeError:
-            return _stdlib_json_dumps(obj).encode("utf-8")
+            return json.dumps(
+                obj,
+                separators=(",", ":"),
+                default=kwargs.get("default", _log_json_default),
+            ).encode("utf-8")
 
 
 def orjson_record_dumps_str(obj: object, **kwargs: Any) -> str:  # noqa: ANN401
@@ -408,8 +419,9 @@ def resolve_serializer(
 ) -> LogSerializerType:
     """Resolve AUTO to orjson when it is installed, else to the stdlib.
 
-    Neither one can lose a record, which is what makes AUTO safe to
-    default. They do not render every value the same way: orjson writes a
+    AUTO never writes less than the standard library would, which is what
+    makes it safe to default: anything orjson declines falls back. They do
+    not render every value the same way: orjson writes a
     `UUID`, an `Enum`, and a dataclass natively, writes non-ASCII as UTF-8,
     and writes a non-finite float as `null`, where the standard library
     falls back to `repr`, escapes, and writes `NaN`. Name a serializer to

@@ -351,7 +351,7 @@ They do not write every value the same way:
 | `UUID(...)` | `"UUID('0d8e...')"` | `"0d8e..."` |
 | `Enum`, dataclass | `repr` of the object | the value, the fields |
 
-orjson renders more types natively and writes UTF-8. The standard library escapes non-ASCII and falls back to `repr`. Both stay valid JSON, and every reader decodes either form, but the text of a field can change when a deployment gains orjson.
+orjson renders more types natively and writes UTF-8. The standard library escapes non-ASCII and falls back to `repr`. The text of a field can change when a deployment gains orjson. Note the first row goes the other way: bare `NaN` is not valid JSON, so a strict reader rejects the standard library's line where it accepts orjson's `null`.
 
 So pin the serializer when the exact bytes matter, for example when a downstream parser matches on a field:
 
@@ -359,7 +359,7 @@ So pin the serializer when the exact bytes matter, for example when a downstream
 export GREL_LOG_JSON_SERIALIZER=stdlib   # or orjson
 ```
 
-`orjson` raises `DependencyNotFoundError` at startup when it is not installed, so a deployment that depends on it fails loudly rather than quietly getting the slower serializer. `auto` never raises.
+`orjson` raises `DependencyNotFoundError` at startup when it is not installed, so a deployment that depends on it fails loudly rather than quietly getting the slower serializer. `auto` never raises for a missing dependency, it just takes what is there.
 
 ## JSON Record Structure
 
