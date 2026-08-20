@@ -20,7 +20,12 @@ _OVER_THE_BOUND = 5
 
 
 class _HostileRepr:
-    """A predicate that cannot be weakly held and refuses to be repr'd."""
+    """A predicate that cannot be weakly held and refuses to be repr'd.
+
+    `__slots__` without `__weakref__` blocks the weak reference, so it
+    takes the untrackable path, and then naming it for the warning runs
+    the `__repr__` that raises.
+    """
 
     __slots__ = ()
 
@@ -36,7 +41,12 @@ class _HostileRepr:
 
 @dataclass
 class _UnhashablePredicate:
-    """A predicate a `WeakSet` can neither hash nor weakly reference."""
+    """A predicate a `WeakSet` cannot look up, because it is unhashable.
+
+    Weak-referenceable like any ordinary instance. `@dataclass` sets
+    `__hash__` to None once it defines `__eq__`, and that alone is enough
+    to make the membership test raise.
+    """
 
     n: int = 1
 
