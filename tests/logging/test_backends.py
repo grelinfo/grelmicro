@@ -10,7 +10,7 @@ import sys
 from datetime import UTC, datetime
 from enum import Enum
 from unittest.mock import MagicMock
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import orjson
 import pytest
@@ -583,6 +583,18 @@ class TestConfigureLoggingJSONSerializer:
         log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "awkward value"
         assert field in log_record
+
+    def test_orjson_falls_back_to_the_stdlib(self) -> None:
+        """Orjson never writes less than the standard library would.
+
+        `orjson.JSONEncodeError` subclasses `TypeError`, so the retry sees
+        every way orjson declines a record, not only a non-string key. An
+        integer wider than 64 bits is one the standard library writes and
+        orjson refuses, and `uuid4().int` in `extra=` is enough to hit it.
+        """
+        record = {"msg": "hi", "request": uuid4().int}
+
+        assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
 
     def test_orjson_retry_keeps_a_caller_option(self) -> None:
         """The retry merges the caller's `option` rather than replacing it.

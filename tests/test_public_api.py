@@ -340,19 +340,36 @@ def _public_members(obj: object) -> list[tuple[str, Callable[..., Any]]]:
                 if attr_name.startswith("_") or attr_name in seen:
                     continue
                 seen.add(attr_name)
-                target = attr.fget if isinstance(attr, property) else attr
+                # Read the attribute off the class rather than the mapping:
+                # a `classmethod` descriptor is not callable in `vars`, so
+                # every public factory would be skipped.
+                target = (
+                    attr.fget
+                    if isinstance(attr, property)
+                    else getattr(klass, attr_name, None)
+                )
                 if callable(target):
                     members.append((f".{attr_name}", target))
     return members
 
 
-_LOOP_BOUND_TEXT = re.compile(r"\basyncio\.[\w.]*\b")
+_LOOP_BOUND_TEXT = re.compile(
+    r"\basyncio\.(?:\w+\.)?(?:"
+    + "|".join(k.__name__ for k in _LOOP_BOUND_TYPES)
+    + r")\b"
+)
 """Fallback matcher for a member whose annotations cannot be resolved.
 
 `from __future__ import annotations` plus a `TYPE_CHECKING`-only import
 makes `get_type_hints` raise `NameError`, which covers a fifth of the
 public surface. Reading the rendered signature keeps those members
 checked instead of silently skipped.
+
+Names the loop-bound classes rather than matching `asyncio.` broadly, so
+an `asyncio.TimeoutError` in a signature is not a false positive. It
+matches the qualified form only: an unresolvable module that writes
+`from asyncio import Lock` renders as a bare `Lock`, which is
+indistinguishable from grelmicro's own `Lock` in text.
 """
 
 
@@ -460,6 +477,14 @@ def test_loop_bound_guard_catches_a_planted_offender() -> None:
         def accepted(self, lock: asyncio.Lock) -> str:
             raise NotImplementedError
 
+        @classmethod
+        def built(cls) -> asyncio.Lock:
+            raise NotImplementedError
+
+        @staticmethod
+        def made() -> asyncio.Event:
+            raise NotImplementedError
+
         @property
         def clean(self) -> str:
             raise NotImplementedError
@@ -475,6 +500,8 @@ def test_loop_bound_guard_catches_a_planted_offender() -> None:
         ".wrapped",
         ".parameterized",
         ".accepted",
+        ".built",
+        ".made",
     }
 
 
@@ -493,11 +520,20 @@ def test_loop_bound_guard_catches_an_unresolvable_annotation() -> None:
     def unresolvable_clean(value: NeverDefined) -> None:  # noqa: F821  # ty: ignore[unresolved-reference]
         raise NotImplementedError
 
+    def unresolvable_timeout(
+        exc: asyncio.TimeoutError,
+        other: NeverDefined,  # noqa: F821  # ty: ignore[unresolved-reference]
+    ) -> None:
+        raise NotImplementedError
+
     with pytest.raises(NameError):
         typing.get_type_hints(unresolvable)
 
     assert _hands_out_loop_bound(unresolvable)
     assert not _hands_out_loop_bound(unresolvable_clean)
+    # `asyncio.TimeoutError` is not loop-bound, so a broad `asyncio.` match
+    # would report it and train the reader to ignore this guard.
+    assert not _hands_out_loop_bound(unresolvable_timeout)
 
 
 def test_interpreter_derived_defaults_are_still_current() -> None:

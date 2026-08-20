@@ -141,8 +141,9 @@ class _Block(Generic[T]):
             replay = await self._idempotency._replay(  # noqa: SLF001
                 self._key, self._fingerprint
             )
-        # `_replay` already converts a resolution miss, so a bare
-        # `LookupError` here is the backend read or the deserializer failing.
+        # Only this: `_replay` resolves through `TTLCache._get_backend`,
+        # which already converts a miss. A `LookupError` reaching here comes
+        # from the backend read or the deserializer, not from the wiring.
         except OutOfContextError:
             msg = (
                 f"Idempotency({self._idempotency.name!r}) resolved no "
@@ -466,8 +467,6 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         serializer: CacheSerializer[T] | type[T] | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
-        import asyncio  # noqa: PLC0415
-
         from grelmicro.cache.serializers import (  # noqa: PLC0415
             _resolve_serializer,
         )

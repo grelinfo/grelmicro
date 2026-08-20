@@ -338,7 +338,9 @@ timestamps on UTC under a service that schedules on local time.
 
 The default is `auto`: orjson when it is installed, the standard library when it is not. Install [`grelmicro[standard]`](../installation.md) and your logs get faster with no further setting. See the [benchmarks](../benchmarks.md#logging) for what that buys.
 
-Neither one loses a record over a value it cannot represent. An object JSON has no encoding for is rendered as text rather than raising, and a dict keyed by numbers is written with string keys. That is what makes `auto` safe to switch on. A dict key that is not a string, number, or boolean still raises out of the log call, under either serializer.
+`auto` never writes less than the standard library would. An object JSON has no encoding for is rendered as text rather than raising, a dict keyed by numbers is written with string keys, and anything orjson declines falls back to the standard library, so switching orjson on cannot cost you a record.
+
+Going the other way is not symmetric. `stdlib` refuses a dict key that is not a string, number, or boolean, where orjson writes a `datetime`, `UUID`, or `Enum` key. Pinning `stdlib` is the narrower choice.
 
 They do not write every value the same way:
 

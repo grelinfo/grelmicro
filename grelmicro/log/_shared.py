@@ -60,12 +60,20 @@ def orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
     `kwargs` reaches `orjson.dumps`, so a caller keeps its own `default`.
     An `option` a caller passed is merged rather than replaced, since
     overwriting it would raise a second, more confusing `TypeError`.
+
+    Anything orjson still refuses goes to the standard library, which
+    writes values orjson has no encoding for, an integer wider than 64 bits
+    among them. `orjson.JSONEncodeError` subclasses `TypeError`, so both
+    arms of this catch every way orjson can decline a record.
     """
     try:
         return _orjson_dumps(obj, **kwargs)
     except TypeError:
         option = kwargs.pop("option", 0) | _OPT_NON_STR_KEYS
-        return _orjson_dumps(obj, option=option, **kwargs)
+        try:
+            return _orjson_dumps(obj, option=option, **kwargs)
+        except TypeError:
+            return _stdlib_json_dumps(obj).encode("utf-8")
 
 
 def orjson_record_dumps_str(obj: object, **kwargs: Any) -> str:  # noqa: ANN401
@@ -78,7 +86,7 @@ def _orjson_log_dumps(obj: Mapping[str, Any]) -> str:
     return orjson_record_dumps_str(obj, default=repr)
 
 
-def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
+def _stdlib_json_dumps(obj: object) -> str:
     """Serialize object to JSON string using stdlib json.
 
     Always uses the standard library ``json`` module regardless of
