@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from threading import Thread, current_thread
 from time import monotonic
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 from weakref import WeakKeyDictionary
@@ -24,6 +23,8 @@ from grelmicro.coordination._base import (
 )
 from grelmicro.coordination._guards import ReadGuard, WriteGuard
 from grelmicro.coordination._tokens import (
+    HolderIdentity,
+    current_thread_identity,
     generate_task_token,
     generate_thread_token,
 )
@@ -387,7 +388,7 @@ class ReadMode(_Mode):
         self._task_guards: WeakKeyDictionary[
             asyncio.Task[object], ReadGuard
         ] = WeakKeyDictionary()
-        self._thread_guards: WeakKeyDictionary[Thread, ReadGuard] = (
+        self._thread_guards: WeakKeyDictionary[HolderIdentity, ReadGuard] = (
             WeakKeyDictionary()
         )
         self._thread_adapter: ThreadReadAdapter | None = None
@@ -612,7 +613,7 @@ class ReadMode(_Mode):
 
     async def do_thread_acquire(
         self,
-        owner: Thread,
+        owner: HolderIdentity,
         *,
         timeout: Seconds | None = None,  # noqa: ASYNC109
     ) -> ReadGuard:
@@ -629,7 +630,7 @@ class ReadMode(_Mode):
         ):
             raise LockReentrantError(name=self.name)
         config = self._lock._config  # noqa: SLF001
-        token = generate_thread_token(config.worker, owner=owner)
+        token = generate_thread_token(config.worker, identity=owner)
         duration = config.lease_duration
         generation = await self._retry_until(
             lambda: self.do_acquire(token, duration=duration),
@@ -639,7 +640,7 @@ class ReadMode(_Mode):
         self._thread_guards[owner] = guard
         return guard
 
-    async def do_thread_release(self, owner: Thread) -> None:
+    async def do_thread_release(self, owner: HolderIdentity) -> None:
         """Release the read lease held by a worker thread.
 
         Raises:
@@ -654,7 +655,7 @@ class ReadMode(_Mode):
         if not released:
             raise LockNotOwnedError(name=self.name)
 
-    async def do_thread_extend(self, owner: Thread) -> None:
+    async def do_thread_extend(self, owner: HolderIdentity) -> None:
         """Renew the read lease held by a worker thread.
 
         Raises:
@@ -682,7 +683,7 @@ class WriteMode(_Mode):
         self._task_guards: WeakKeyDictionary[
             asyncio.Task[object], WriteGuard
         ] = WeakKeyDictionary()
-        self._thread_guards: WeakKeyDictionary[Thread, WriteGuard] = (
+        self._thread_guards: WeakKeyDictionary[HolderIdentity, WriteGuard] = (
             WeakKeyDictionary()
         )
         self._thread_adapter: ThreadWriteAdapter | None = None
@@ -978,7 +979,7 @@ class WriteMode(_Mode):
 
     async def do_thread_acquire(
         self,
-        owner: Thread,
+        owner: HolderIdentity,
         *,
         timeout: Seconds | None = None,  # noqa: ASYNC109
     ) -> WriteGuard:
@@ -995,7 +996,7 @@ class WriteMode(_Mode):
         if owner in self._thread_guards:
             raise LockReentrantError(name=self.name)
         config = self._lock._config  # noqa: SLF001
-        token = generate_thread_token(config.worker, owner=owner)
+        token = generate_thread_token(config.worker, identity=owner)
         duration = config.lease_duration
         grant = await self._acquire_with_intent(
             token, duration=duration, timeout=timeout
@@ -1004,7 +1005,7 @@ class WriteMode(_Mode):
         self._thread_guards[owner] = guard
         return guard
 
-    async def do_thread_release(self, owner: Thread) -> None:
+    async def do_thread_release(self, owner: HolderIdentity) -> None:
         """Release the write lease held by a worker thread.
 
         Raises:
@@ -1019,7 +1020,7 @@ class WriteMode(_Mode):
         if not released:
             raise LockNotOwnedError(name=self.name)
 
-    async def do_thread_extend(self, owner: Thread) -> None:
+    async def do_thread_extend(self, owner: HolderIdentity) -> None:
         """Renew the write lease held by a worker thread.
 
         Raises:
@@ -1071,21 +1072,23 @@ class ThreadReadAdapter(_ThreadAdapter[ReadMode]):
     def acquire(self, *, timeout: Seconds | None = None) -> ReadGuard:
         """Acquire the read lock, blocking this thread."""
         return asyncio.run_coroutine_threadsafe(
-            self._mode.do_thread_acquire(current_thread(), timeout=timeout),
+            self._mode.do_thread_acquire(
+                current_thread_identity(), timeout=timeout
+            ),
             self._backend_loop,
         ).result()
 
     def extend(self) -> None:
         """Renew this thread's read lease."""
         asyncio.run_coroutine_threadsafe(
-            self._mode.do_thread_extend(current_thread()),
+            self._mode.do_thread_extend(current_thread_identity()),
             self._backend_loop,
         ).result()
 
     def release(self) -> None:
         """Release this thread's read lease."""
         asyncio.run_coroutine_threadsafe(
-            self._mode.do_thread_release(current_thread()),
+            self._mode.do_thread_release(current_thread_identity()),
             self._backend_loop,
         ).result()
 
@@ -1111,20 +1114,22 @@ class ThreadWriteAdapter(_ThreadAdapter[WriteMode]):
     def acquire(self, *, timeout: Seconds | None = None) -> WriteGuard:
         """Acquire the write lock, blocking this thread."""
         return asyncio.run_coroutine_threadsafe(
-            self._mode.do_thread_acquire(current_thread(), timeout=timeout),
+            self._mode.do_thread_acquire(
+                current_thread_identity(), timeout=timeout
+            ),
             self._backend_loop,
         ).result()
 
     def extend(self) -> None:
         """Renew this thread's write lease."""
         asyncio.run_coroutine_threadsafe(
-            self._mode.do_thread_extend(current_thread()),
+            self._mode.do_thread_extend(current_thread_identity()),
             self._backend_loop,
         ).result()
 
     def release(self) -> None:
         """Release this thread's write lease."""
         asyncio.run_coroutine_threadsafe(
-            self._mode.do_thread_release(current_thread()),
+            self._mode.do_thread_release(current_thread_identity()),
             self._backend_loop,
         ).result()

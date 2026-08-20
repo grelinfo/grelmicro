@@ -5,7 +5,6 @@ import json
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
-from threading import current_thread
 
 import pytest
 from pytest_mock import MockerFixture
@@ -15,6 +14,7 @@ import grelmicro.coordination._base as base_module
 import grelmicro.coordination.lock as lock_module
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._protocol import LockBackend
+from grelmicro.coordination._tokens import current_thread_identity
 from grelmicro.coordination.errors import (
     LockAcquireError,
     LockLockedCheckError,
@@ -1360,7 +1360,7 @@ async def test_thread_acquire_jitter_formula_exact_sleep(
     )
 
     # Act
-    await waiter.do_thread_acquire(current_thread())
+    await waiter.do_thread_acquire(current_thread_identity())
 
     # Assert
     expected = retry_interval * (1.0 + jitter * (2.0 * random_value - 1.0))

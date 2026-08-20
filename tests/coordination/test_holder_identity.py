@@ -6,17 +6,18 @@ other's lock. CPython recycles both a thread ident and an object `id()`
 as soon as the previous owner is gone, so neither is an identity.
 """
 
+import _thread
 import asyncio
 import gc
 import threading
-from typing import Self
-from weakref import WeakKeyDictionary
+import time
+import weakref
 
 import pytest
 
 from grelmicro.coordination import Lock, ReadWriteLock
-from grelmicro.coordination import _tokens as tokens
 from grelmicro.coordination._tokens import (
+    current_thread_identity,
     generate_task_token,
     generate_thread_token,
 )
@@ -29,6 +30,8 @@ from grelmicro.errors import WouldBlockError
 
 _ROUNDS = 6
 _LEASE = 60
+_FOREIGN_TIMEOUT = 5.0
+_FOREIGN_SETTLE = 0.01
 
 
 def test_threads_never_share_a_token() -> None:
@@ -179,29 +182,39 @@ async def test_read_write_lock_refuses_a_recycled_ident(mode: str) -> None:
     assert outcome != [None], "the next thread released a lease it never took"
 
 
-def test_a_caller_that_loses_the_first_mint_uses_the_winner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Two callers racing the first mint end up with one identity.
+def test_foreign_threads_never_share_an_identity() -> None:
+    """A thread the `threading` module did not create still gets its own.
 
-    Building two would be worse than building none: the token stamped with
-    the first would not match the ownership check built with the second,
-    and the holder could not release its own lock. The lock is entered
-    here by a stand-in that mints first, which is the losing caller's view
-    of the race.
+    `current_thread()` hands every such thread one cached `_DummyThread`,
+    so an identity keyed on that object would be shared by all of them and
+    would never be released. The identity lives in a `threading.local`
+    instead, which the interpreter clears when the real thread ends.
     """
-    registry: WeakKeyDictionary[threading.Thread, str] = WeakKeyDictionary()
-    holder = threading.Thread()
-    winner = "0.thewinner"
+    values: list[str] = []
+    refs: list[weakref.ref[object]] = []
+    done = threading.Event()
 
-    class _MintsWhileWeWait:
-        def __enter__(self) -> Self:
-            registry[holder] = winner
-            return self
+    def foreign() -> None:
+        identity = current_thread_identity()
+        values.append(identity.value)
+        refs.append(weakref.ref(identity))
+        done.set()
 
-        def __exit__(self, *exc: object) -> bool:
-            return False
+    for _ in range(_ROUNDS):
+        done.clear()
+        _thread.start_new_thread(foreign, ())
+        assert done.wait(_FOREIGN_TIMEOUT)
+        time.sleep(_FOREIGN_SETTLE)
 
-    monkeypatch.setattr(tokens, "_mint_lock", _MintsWhileWeWait())
+    assert len(set(values)) == _ROUNDS
 
-    assert tokens._identity(registry, holder) == winner
+    time.sleep(_FOREIGN_SETTLE)
+    gc.collect()
+    assert [ref for ref in refs if ref() is not None] == []
+
+
+def test_an_identity_shows_its_value() -> None:
+    """Ownership bookkeeping is readable when a lock is inspected."""
+    identity = current_thread_identity()
+
+    assert repr(identity) == f"HolderIdentity({identity.value!r})"

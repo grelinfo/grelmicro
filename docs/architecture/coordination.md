@@ -40,11 +40,11 @@ Lock tokens identify **who** holds a lock. They join the worker identity to an i
 
 This design provides the following guarantees:
 
-- **Mutual exclusion**: Different async tasks or threads produce different tokens for the same lock, ensuring only one caller holds the lock at a time.
-- **Idempotent**: The same async task (or thread) always produces the same deterministic token, so the backend accepts a re-acquire and extends the lease.
+- **Mutual exclusion**: Different async tasks or threads produce different tokens for the same lock, ensuring only one caller holds the lock at a time. This is why the identity is minted rather than read off the holder: a task or thread that exits without releasing frees its ident and its `id()` for the next one, which would then present the departed holder's token.
+- **Idempotent**: The same async task (or thread) produces the same token for as long as it lives, so the backend accepts a re-acquire and extends the lease.
 - **Isolation**: Different lock instances have different worker identities, so their tokens never collide even when used from the same task or thread.
 
-`TaskLock` appends a per-handle nonce to its token (for example `{worker}:task:{task_id}:0.a1b2c3d4`). The nonce joins a process-local counter with random bytes, so it is unique across handles and unguessable. This keeps an untrusted in-process caller from forging another handle's ownership token, which matters when the same process loads untrusted plugins.
+`TaskLock` appends a per-handle nonce to its token (for example `{worker}:task:{identity}:0.a1b2c3d4`). The nonce joins a process-local counter with random bytes, so it is unique across handles and unguessable. This keeps an untrusted in-process caller from forging another handle's ownership token, which matters when the same process loads untrusted plugins.
 
 ## Lock Name and Backend Key
 
