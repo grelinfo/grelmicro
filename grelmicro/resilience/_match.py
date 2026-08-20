@@ -37,20 +37,24 @@ _warned_untrackable: dict[int, Any] = {}
 """Predicates a `WeakSet` cannot hold, kept by address and by reference.
 
 The reference is what makes the address usable as a key: the predicate
-cannot be collected, so nothing else is handed its address. Bounded, so a
-program minting these endlessly reports again rather than growing.
+cannot be collected, so nothing else is handed its address. Oldest first
+out, so a program minting these endlessly stays bounded.
 """
 
 _UNTRACKABLE_LIMIT = 128
-"""How many untrackable predicates are remembered before repeats resume."""
+"""How many untrackable predicates are remembered before the oldest is dropped."""
 
 
 def _describe(predicate: Any) -> str:  # noqa: ANN401
-    """Return a readable name for a predicate, whatever it is."""
-    name = getattr(predicate, "__name__", None)
-    if name is not None:
-        return str(name)
+    """Return a readable name for a predicate, whatever it is.
+
+    Every step is guarded: a lazy proxy can raise from `__getattr__`, a
+    `__name__` property can raise, and `__repr__` can raise.
+    """
     try:
+        name = getattr(predicate, "__name__", None)
+        if name is not None:
+            return str(name)
         return repr(predicate)
     except Exception:  # noqa: BLE001
         return type(predicate).__name__
@@ -60,20 +64,28 @@ def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
     """Return whether this predicate was warned about, recording it if not.
 
     Held weakly, so a collected predicate stops speaking for the next one
-    allocated at its address. One that cannot be held weakly, an
-    `operator.attrgetter` or an unhashable instance among them, is kept by
-    address alongside a reference, up to `_UNTRACKABLE_LIMIT`.
+    allocated at its address. One that cannot be held that way is kept by
+    address alongside a reference, and the oldest is dropped once
+    `_UNTRACKABLE_LIMIT` is reached, so the warning stays once per
+    predicate without the registry growing.
+
+    Nothing here raises. A matcher runs inside `Retry`'s `except` block,
+    where an error would replace the one the caller is handling, and a
+    predicate is free to raise from `__hash__` or `__eq__`.
     """
     try:
         if predicate in _warned_predicates:
             return True
         _warned_predicates.add(predicate)
-    except TypeError:
+    except Exception:  # noqa: BLE001
         key = id(predicate)
         if key in _warned_untrackable:
             return True
-        if len(_warned_untrackable) < _UNTRACKABLE_LIMIT:
-            _warned_untrackable[key] = predicate
+        if len(_warned_untrackable) >= _UNTRACKABLE_LIMIT:
+            # Key and referent go together, so the address cannot be
+            # handed to another predicate while it is still remembered.
+            _warned_untrackable.pop(next(iter(_warned_untrackable)))
+        _warned_untrackable[key] = predicate
     return False
 
 

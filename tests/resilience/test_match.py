@@ -7,10 +7,14 @@ import logging
 import operator
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pytest
 
 from grelmicro.resilience import Match, Outcome
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # --- Match.exception -------------------------------------------------------
 
@@ -36,6 +40,32 @@ class _HostileRepr:
     def __repr__(self) -> str:
         """Raise, as a badly behaved object can."""
         msg = "repr exploded"
+        raise RuntimeError(msg)
+
+
+class _RaisingHash:
+    """A predicate whose `__hash__` raises, so the lookup itself fails."""
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to trigger the warning."""
+        return 1
+
+    def __hash__(self) -> int:
+        """Raise, as a badly behaved object can."""
+        msg = "no hash for you"
+        raise ValueError(msg)
+
+
+class _RaisingGetattr:
+    """A predicate whose attribute lookup raises, like an unbound proxy."""
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to trigger the warning."""
+        return 1
+
+    def __getattr__(self, name: str) -> object:
+        """Raise, as a proxy outside its context does."""
+        msg = "working outside of application context"
         raise RuntimeError(msg)
 
 
@@ -450,24 +480,32 @@ def test_the_warning_registry_forgets_a_collected_predicate() -> None:
 
 
 @pytest.mark.parametrize(
-    "predicate",
+    "factory",
     [
-        pytest.param(operator.attrgetter("errno"), id="not-weak-referenceable"),
-        pytest.param(_UnhashablePredicate(), id="unhashable"),
+        pytest.param(
+            lambda: operator.attrgetter("errno"), id="not-weak-referenceable"
+        ),
+        pytest.param(_UnhashablePredicate, id="unhashable"),
+        pytest.param(_RaisingHash, id="raising-hash"),
+        pytest.param(_RaisingGetattr, id="raising-getattr"),
     ],
 )
 def test_a_predicate_that_cannot_be_tracked_warns_instead_of_raising(
-    predicate: object,
+    factory: Callable[[], object],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Tracking a predicate must never raise out of the matcher.
 
     A matcher runs inside the resilience machinery, and `Retry` calls it
     from an `except` block, so an exception raised here would replace the
-    error the caller was already handling. An `operator.attrgetter` cannot
-    be weak-referenced and an unhashable instance cannot be looked up, so
-    both report every time rather than failing.
+    error the caller was already handling. Each of these refuses tracking
+    a different way: no weak reference, no hash, a `__hash__` that raises,
+    an attribute lookup that raises.
+
+    Built per call, so a repeated run does not find the predicate already
+    registered from the previous pass.
     """
+    predicate = factory()
     outcome = Outcome.from_exception(OSError(2, "boom"))
 
     with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
@@ -524,7 +562,6 @@ def test_the_untrackable_registry_stops_growing_at_its_bound() -> None:
     import grelmicro.resilience._match as match_mod  # noqa: PLC0415
 
     saved = dict(match_mod._warned_untrackable)
-    match_mod._warned_untrackable.clear()
     outcome = Outcome.from_exception(ValueError("x"))
     # Held in a list so every address stays distinct.
     predicates = [
@@ -533,6 +570,7 @@ def test_the_untrackable_registry_stops_growing_at_its_bound() -> None:
     ]
 
     try:
+        match_mod._warned_untrackable.clear()
         for predicate in predicates:
             Match.exception(predicate)(outcome)
 

@@ -13,7 +13,7 @@
 
 ### Fixed
 
-* 🐛 A `Match` predicate that returns a non-bool is warned about once per predicate, not once per address. The registry held `id(predicate)` with nothing keeping the predicate alive, so a collected one silenced the next predicate that landed on its address and the entries piled up. A predicate a `WeakSet` cannot hold, an `operator.attrgetter` or an unhashable instance among them, is kept by address alongside a reference so it is still reported once, and naming a predicate no longer runs its `__repr__` eagerly, which could raise out of the matcher. ([#782](https://github.com/grelinfo/grelmicro/pull/782))
+* 🐛 A `Match` predicate that returns a non-bool is warned about once per predicate, not once per address, so a collected predicate no longer silences the next one. Naming a predicate for the warning no longer runs its `__repr__`. ([#782](https://github.com/grelinfo/grelmicro/pull/782))
 * 🐛 A lock token identifies the holder, not the thread ident or the object id it sat at. CPython hands both to the next holder, so a thread or task that died holding a lease left a token the next one reproduced exactly and could release, extend, or take a lock it never acquired. ([#781](https://github.com/grelinfo/grelmicro/pull/781))
 * 🐛 A log record carrying a non-string dict key is written instead of raising. `extra={"counts": {1: "a"}}` raised `TypeError` under orjson where the standard library wrote it, so which one was installed decided whether the log call survived. ([#780](https://github.com/grelinfo/grelmicro/pull/780))
 
