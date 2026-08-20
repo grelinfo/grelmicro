@@ -6,13 +6,18 @@ import gc
 import logging
 import operator
 import re
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
 
 from grelmicro.resilience import Match, Outcome
-from grelmicro.resilience._match import _describe
+from grelmicro.resilience._match import (
+    _already_warned,
+    _coerce_bool,
+    _describe,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,6 +26,8 @@ if TYPE_CHECKING:
 
 
 _REPEAT_CALLS = 5
+_HAMMER_THREADS = 8
+_HAMMER_ROUNDS = 200
 _OVER_THE_BOUND = 5
 
 
@@ -646,3 +653,240 @@ def test_a_predicate_that_refuses_every_name_still_gets_one() -> None:
     property can hijack and raise from, so even that is guarded.
     """
     assert _describe(_Unnameable()) == "<predicate>"
+
+
+class _ClassBomb:
+    """A lazy-proxy shape: `__class__` raises while the proxy is unbound."""
+
+    def __call__(self, _exc: Exception) -> bool:
+        """Match everything."""
+        return True
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, as an unbound proxy does."""
+        msg = "__class__ property"
+        raise RuntimeError(msg)
+
+
+class _ClassLiar:
+    """An object whose `__class__` claims to be `type`, reaching issubclass."""
+
+    def __call__(self, _exc: Exception) -> bool:
+        """Match everything."""
+        return True
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Report `type`, so the class check passes and `issubclass` runs."""
+        return type
+
+
+class _RaisingStrError(Exception):
+    """An exception that raises while being rendered, like a lazy driver error."""
+
+    def __str__(self) -> str:
+        """Raise, as a message built from a closed connection can."""
+        msg = "exception __str__"
+        raise RuntimeError(msg)
+
+
+class _RaisingEq:
+    """A value that raises while being compared."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __eq__(self, _other: object) -> bool:
+        """Raise, as caller code can."""
+        msg = "result __eq__"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda: Match.exception(_ClassBomb()), id="exception-proxy"
+        ),
+        pytest.param(lambda: Match.result(_ClassBomb()), id="result-proxy"),
+        pytest.param(
+            lambda: Match.exception_cause(_ClassBomb()),  # ty: ignore[invalid-argument-type]
+            id="cause-proxy",
+        ),
+        pytest.param(lambda: Match.result(_HostileRepr()), id="literal-repr"),
+        pytest.param(
+            lambda: Match.not_result(_HostileRepr()), id="not-literal-repr"
+        ),
+    ],
+)
+def test_building_a_match_survives_a_hostile_argument(
+    build: Callable[[], Match],
+) -> None:
+    """Classifying and naming an argument must not raise an arbitrary error.
+
+    A lazy proxy forwards `__class__` to an object that raises while
+    unbound, and `isinstance` reads `__class__`, so the classification
+    branch used to propagate whatever the proxy raised.
+    """
+    assert build() is not None
+
+
+def test_an_argument_posing_as_a_class_is_refused_with_a_value_error() -> None:
+    """An object claiming to be `type` gets the documented argument error.
+
+    It slips past the class check and reaches `issubclass`, which raised
+    `TypeError`. Pydantic converts only `ValueError`, so that escaped
+    every documented `except`.
+    """
+    with pytest.raises(ValueError, match="must all be exception classes"):
+        Match.exception(_ClassLiar())
+
+
+@pytest.mark.parametrize(
+    ("matcher", "outcome"),
+    [
+        pytest.param(
+            Match.exception_message(contains="x"),
+            Outcome.from_exception(_RaisingStrError()),
+            id="message-contains",
+        ),
+        pytest.param(
+            Match.exception_message(regex="x"),
+            Outcome.from_exception(_RaisingStrError()),
+            id="message-regex",
+        ),
+        pytest.param(
+            Match.result(0),
+            Outcome.from_result(_RaisingEq()),
+            id="literal-equality",
+        ),
+    ],
+)
+def test_matching_survives_a_hostile_outcome(
+    matcher: Match, outcome: Outcome[object]
+) -> None:
+    """Reading a message or comparing a result must not raise.
+
+    `Retry` calls the matcher from an `except` block, so anything raised
+    here replaces the error the caller is handling.
+    """
+    result = matcher(outcome)
+
+    assert result is False
+
+
+class _BaseBoom(BaseException):
+    """A `BaseException`, which `except Exception` would let through."""
+
+
+class _ResultMeta(type):
+    """A metaclass that raises from `__name__`, so naming the result fails."""
+
+    @property
+    def __name__(cls) -> str:
+        """Raise, blocking the last resort used to name a result."""
+        msg = "metaclass __name__"
+        raise RuntimeError(msg)
+
+
+class _UndecidableResult(metaclass=_ResultMeta):
+    """A predicate return whose truth value and whose type name both raise."""
+
+    def __bool__(self) -> bool:
+        """Raise, as a badly behaved value can."""
+        msg = "truthiness undecidable"
+        raise RuntimeError(msg)
+
+
+class _ReprRecurses:
+    """A predicate return whose `repr` recurses until the stack gives out."""
+
+    def __repr__(self) -> str:
+        """Recurse, which logging re-raises rather than swallowing."""
+        return repr(self)
+
+
+class _BoolBaseException:
+    """A predicate return whose truth value raises a `BaseException`."""
+
+    def __bool__(self) -> bool:
+        """Raise below `Exception`, which a narrow guard would miss."""
+        raise _BaseBoom
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        pytest.param(
+            _UndecidableResult(), False, id="unnameable-and-undecidable"
+        ),
+        # Truthy on its own terms: only naming it for the warning fails.
+        pytest.param(_ReprRecurses(), True, id="repr-recurses"),
+        pytest.param(
+            _BoolBaseException(), False, id="bool-raises-base-exception"
+        ),
+    ],
+)
+def test_coercing_a_hostile_result_never_raises(
+    result: object,
+    *,
+    expected: bool,
+) -> None:
+    """No predicate return may raise out of the matcher.
+
+    `Retry` calls the matcher from an `except` block, so anything raised
+    replaces the error the caller is handling. Naming the result, writing
+    the warning, and coercing the value are all caller-controlled code. A
+    value whose truth cannot be read counts as no match.
+    """
+    assert _coerce_bool(result, len) is expected
+
+
+def test_bookkeeping_survives_a_base_exception_from_hashing() -> None:
+    """A predicate that raises below `Exception` while being tracked is fine."""
+
+    class HashBoom:
+        def __hash__(self) -> int:
+            raise _BaseBoom
+
+    assert _already_warned(HashBoom()) is False
+
+
+def test_the_untrackable_registry_survives_concurrent_eviction() -> None:
+    """Threads racing the same eviction must not escape the matcher.
+
+    The eviction reads the oldest key and pops it in separate steps, so
+    two threads can select the same one, and a third can resize the
+    registry mid-iteration.
+    """
+
+    class SlotPredicate:
+        __slots__ = ("threshold",)
+
+        def __init__(self, threshold: int) -> None:
+            self.threshold = threshold
+
+        def __call__(self, result: object) -> object:
+            return result
+
+    escapes: list[str] = []
+
+    def hammer(base: int) -> None:
+        for index in range(_HAMMER_ROUNDS):
+            try:
+                Match.result(SlotPredicate(base + index))(
+                    Outcome.from_result(1)
+                )
+            except BaseException as exc:  # noqa: BLE001
+                escapes.append(type(exc).__name__)
+
+    threads = [
+        threading.Thread(target=hammer, args=(worker * 10_000,))
+        for worker in range(_HAMMER_THREADS)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert escapes == []

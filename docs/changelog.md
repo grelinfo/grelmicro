@@ -13,7 +13,8 @@
 
 ### Fixed
 
-* 🐛 A `Match` predicate that returns a non-bool is warned about once per predicate, not once per address, so a collected predicate no longer silences the next one. Naming a predicate and coercing its return no longer raise out of the matcher, where `Retry` calls it from an `except` block and an error there replaced the one being handled. ([#782](https://github.com/grelinfo/grelmicro/pull/782))
+* 🐛 A `Match` predicate that returns a non-bool is warned about once per predicate, not once per address, so a collected predicate no longer silences the next one. ([#782](https://github.com/grelinfo/grelmicro/pull/782))
+* 🐛 Building a `Match` or calling a matcher no longer raises over a hostile argument, predicate or result. Classifying, naming, comparing and coercing all read caller code, and `Retry` calls a matcher from an `except` block, so an error there replaced the one being handled. A lazy proxy that raises from `__class__`, an exception whose `__str__` raises, and a value whose truth cannot be read are each handled instead. ([#782](https://github.com/grelinfo/grelmicro/pull/782))
 * 🐛 A lock token identifies the holder, not the thread ident or the object id it sat at. CPython hands both to the next holder, so a thread or task that died holding a lease left a token the next one reproduced exactly and could release, extend, or take a lock it never acquired. ([#781](https://github.com/grelinfo/grelmicro/pull/781))
 * 🐛 A log record carrying a non-string dict key is written instead of raising. `extra={"counts": {1: "a"}}` raised `TypeError` under orjson where the standard library wrote it, so which one was installed decided whether the log call survived. ([#780](https://github.com/grelinfo/grelmicro/pull/780))
 
