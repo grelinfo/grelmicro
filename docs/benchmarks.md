@@ -59,8 +59,8 @@ The logging backends are measured separately, over 50,000 iterations:
 For a high-throughput service, run the `structlog` or `stdlib` backend with
 orjson installed. The serializer defaults to `auto`, so
 [`grelmicro[standard]`](installation.md) is all it takes.
-[Logging](logging/index.md#which-serializer-you-get) covers the one value the
-two serializers write differently.
+[Logging](logging/index.md#which-serializer-you-get) covers the values the two
+serializers write differently.
 
 ## Reading the numbers
 

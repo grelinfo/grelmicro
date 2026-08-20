@@ -345,7 +345,7 @@ They do not write every value the same way:
 | Value in `extra={...}` | `stdlib` | `orjson` |
 |---|---|---|
 | `float("nan")`, `float("inf")` | `NaN`, `Infinity` | `null` |
-| `"Zürich"` | `"Zürich"` | `"Zürich"` |
+| `"Zürich"` | `"Z\u00fcrich"` | `"Zürich"` |
 | `UUID(...)` | `"UUID('0d8e...')"` | `"0d8e..."` |
 | `Enum`, dataclass | `repr` of the object | the value, the fields |
 

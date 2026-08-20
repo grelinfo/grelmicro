@@ -539,6 +539,47 @@ class TestConfigureLoggingJSONSerializer:
         """
         assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
 
+    @pytest.mark.parametrize("backend", BACKENDS)
+    @pytest.mark.parametrize("serializer", ["auto", "orjson", "stdlib"])
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            pytest.param("counts", {1: "a"}, id="non-string-key"),
+            pytest.param("obj", object(), id="unserializable-object"),
+        ],
+    )
+    def test_no_backend_loses_a_record(
+        self,
+        backend: str,
+        serializer: str,
+        field: str,
+        value: object,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """No backend and serializer pair raises on an awkward value.
+
+        Every combination has to write the line. structlog builds its own
+        renderer rather than going through `_shared`, so it needs its own
+        coverage: it raised on a non-string key under orjson and on an
+        unserializable object under the stdlib.
+        """
+        # Arrange
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", serializer)
+
+        # Act
+        configure()
+        log_message(backend, "awkward value", **{field: value})
+
+        # Assert
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["msg"] == "awkward value"
+        assert field in log_record
+
     @pytest.mark.parametrize(
         "record",
         [

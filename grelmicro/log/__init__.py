@@ -48,7 +48,10 @@ def configure(
     ] = None,
     json_serializer: Annotated[
         LogSerializerType | None,
-        Doc("JSON serializer. Default: `stdlib`."),
+        Doc(
+            "JSON serializer. Default: `auto`, which uses orjson when it "
+            "is installed and the standard library otherwise."
+        ),
     ] = None,
     caller_enabled: Annotated[
         bool | None,

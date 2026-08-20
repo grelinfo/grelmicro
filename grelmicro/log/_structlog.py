@@ -4,10 +4,11 @@ import logging
 import sys
 import traceback
 from datetime import UTC, datetime, tzinfo
+from typing import Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
-from grelmicro._json import json_default
 from grelmicro.log._shared import (
+    _log_json_default,
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
@@ -156,6 +157,21 @@ def _build_flat_record(
     return flat_record
 
 
+def _orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
+    """Serialize a structlog record with orjson, keeping the line.
+
+    orjson refuses a non-string dict key, where the standard library writes
+    it as a string. The retry writes the record the same way rather than
+    losing it, and only a record that carries such a key pays for it.
+    """
+    import orjson  # noqa: PLC0415
+
+    try:
+        return orjson.dumps(obj, **kwargs)
+    except TypeError:
+        return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS, **kwargs)
+
+
 def _render_logfmt(
     _logger: WrappedLogger,
     _method_name: str,
@@ -244,17 +260,17 @@ def configure(config: LogConfig | None = None) -> None:
             resolve_serializer(settings.json_serializer)
             == LogSerializerType.ORJSON
         ):
-            import orjson  # noqa: PLC0415
-
             processors.append(
-                structlog.processors.JSONRenderer(serializer=orjson.dumps)
+                structlog.processors.JSONRenderer(
+                    serializer=_orjson_record_dumps, default=repr
+                )
             )
             logger_factory: (
                 structlog.BytesLoggerFactory | structlog.PrintLoggerFactory
             ) = structlog.BytesLoggerFactory(file=sys.stdout.buffer)
         else:
             processors.append(
-                structlog.processors.JSONRenderer(default=json_default)
+                structlog.processors.JSONRenderer(default=_log_json_default)
             )
             logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
     elif resolved_format == LogFormatType.LOGFMT:

@@ -387,9 +387,12 @@ def resolve_serializer(
 ) -> LogSerializerType:
     """Resolve AUTO to orjson when it is installed, else to the stdlib.
 
-    Both write the same JSON for every value a log record carries, apart
-    from `float("nan")` and `float("inf")`, which orjson writes as `null`
-    and the standard library writes as `NaN` and `Infinity`.
+    Neither one can lose a record, which is what makes AUTO safe to
+    default. They do not render every value the same way: orjson writes a
+    `UUID`, an `Enum`, and a dataclass natively, writes non-ASCII as UTF-8,
+    and writes a non-finite float as `null`, where the standard library
+    falls back to `repr`, escapes, and writes `NaN`. Name a serializer to
+    pin the exact bytes.
 
     Raises:
         DependencyNotFoundError: `orjson` was asked for and is not installed.
