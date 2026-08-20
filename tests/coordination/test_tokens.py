@@ -1,7 +1,5 @@
 """Tests for Coordination Tokens."""
 
-import asyncio
-from threading import get_ident
 from uuid import uuid1
 
 from grelmicro.coordination._tokens import (
@@ -44,8 +42,7 @@ async def test_generate_task_token_with_uuid() -> None:
     token = generate_task_token(worker)
 
     # Assert
-    task_id = id(asyncio.current_task())
-    assert token == f"{worker}:task:{task_id}"
+    assert token.startswith(f"{worker}:task:")
 
 
 async def test_generate_task_token_with_string() -> None:
@@ -54,8 +51,7 @@ async def test_generate_task_token_with_string() -> None:
     token = generate_task_token("my-worker")
 
     # Assert
-    task_id = id(asyncio.current_task())
-    assert token == f"my-worker:task:{task_id}"
+    assert token.startswith("my-worker:task:")
 
 
 async def test_generate_task_token_with_nonce() -> None:
@@ -67,8 +63,8 @@ async def test_generate_task_token_with_nonce() -> None:
     token = generate_task_token("my-worker", nonce)
 
     # Assert
-    task_id = id(asyncio.current_task())
-    assert token == f"my-worker:task:{task_id}:42"
+    assert token.startswith("my-worker:task:")
+    assert token.endswith(":42")
 
 
 async def test_generate_task_token_deterministic() -> None:
@@ -106,8 +102,7 @@ def test_generate_thread_token_with_uuid() -> None:
     token = generate_thread_token(worker)
 
     # Assert
-    thread_id = get_ident()
-    assert token == f"{worker}:thread:{thread_id}"
+    assert token.startswith(f"{worker}:thread:")
 
 
 def test_generate_thread_token_with_string() -> None:
@@ -116,8 +111,7 @@ def test_generate_thread_token_with_string() -> None:
     token = generate_thread_token("my-worker")
 
     # Assert
-    thread_id = get_ident()
-    assert token == f"my-worker:thread:{thread_id}"
+    assert token.startswith("my-worker:thread:")
 
 
 def test_generate_thread_token_with_nonce() -> None:
@@ -129,8 +123,8 @@ def test_generate_thread_token_with_nonce() -> None:
     token = generate_thread_token("my-worker", nonce)
 
     # Assert
-    thread_id = get_ident()
-    assert token == f"my-worker:thread:{thread_id}:42"
+    assert token.startswith("my-worker:thread:")
+    assert token.endswith(":42")
 
 
 def test_generate_thread_token_deterministic() -> None:

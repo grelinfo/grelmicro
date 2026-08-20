@@ -4,7 +4,7 @@ import os
 from asyncio import current_task
 from itertools import count
 from secrets import token_hex
-from threading import get_ident
+from threading import local
 from uuid import UUID
 
 _guard_counter = count()
@@ -52,13 +52,68 @@ def generate_worker_id() -> str:
     return token_hex(8)
 
 
-def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
-    """Generate a task token from the worker identity and the async task ID."""
+class HolderIdentity:
+    """A holder's own identity, minted once and living exactly as long as it.
+
+    Unique for the life of the holder and never handed to another one.
+    Weak-referenceable, so bookkeeping keyed on it drops a holder that
+    exits without releasing.
+    """
+
+    __slots__ = ("__weakref__", "value")
+
+    def __init__(self) -> None:
+        """Mint the identity."""
+        self.value = f"{next(_guard_counter)}.{token_hex(8)}"
+
+    def __repr__(self) -> str:
+        """Return the minted value."""
+        return f"HolderIdentity({self.value!r})"
+
+
+_TASK_SLOT = "_grelmicro_identity"
+"""Attribute the task carries its identity on, released with the task."""
+
+_thread_identity = local()
+"""Each thread's own identity, released by the interpreter with the thread.
+
+Covers a thread the `threading` module did not create, which shares one
+cached `_DummyThread` with every later thread on the same recycled ident.
+Each thread reads and writes only its own slot, so the first mint takes no
+lock.
+"""
+
+
+def current_thread_identity() -> HolderIdentity:
+    """Return the calling thread's identity, minting it on first use."""
+    identity: HolderIdentity | None = getattr(_thread_identity, "value", None)
+    if identity is None:
+        identity = HolderIdentity()
+        _thread_identity.value = identity
+    return identity
+
+
+def _task_identity() -> HolderIdentity:
+    """Return the running task's identity, minting it on first use.
+
+    Held on the task, so it is released with it. A task only ever mints its
+    own identity, and it does so on the loop, so the first mint needs no
+    lock either.
+    """
     task = current_task()
     if task is None:  # pragma: no cover
-        msg = "generate_task_token must be called from a running asyncio task"
+        msg = "a task token must be built from a running asyncio task"
         raise RuntimeError(msg)
-    return f"{resolve_worker(worker)}:task:{id(task)}{nonce}"
+    identity: HolderIdentity | None = getattr(task, _TASK_SLOT, None)
+    if identity is None:
+        identity = HolderIdentity()
+        setattr(task, _TASK_SLOT, identity)
+    return identity
+
+
+def generate_task_token(worker: UUID | str, nonce: str = "") -> str:
+    """Generate a task token from the worker and the task's own identity."""
+    return f"{resolve_worker(worker)}:task:{_task_identity().value}{nonce}"
 
 
 def generate_token_nonce() -> str:
@@ -75,12 +130,17 @@ def generate_token_nonce() -> str:
 
 
 def generate_thread_token(
-    worker: UUID | str, nonce: str = "", *, thread_id: int | None = None
+    worker: UUID | str,
+    nonce: str = "",
+    *,
+    identity: HolderIdentity | None = None,
 ) -> str:
-    """Generate a thread token from the worker identity and a thread ID.
+    """Generate a thread token from the worker and the thread's own identity.
 
-    The thread ID defaults to the current thread when not given.
+    `identity` defaults to the calling thread's. A method that runs on the
+    event loop on behalf of a worker thread has to carry that thread's
+    identity in, because the calling thread there is the loop.
     """
-    if thread_id is None:
-        thread_id = get_ident()
-    return f"{resolve_worker(worker)}:thread:{thread_id}{nonce}"
+    if identity is None:
+        identity = current_thread_identity()
+    return f"{resolve_worker(worker)}:thread:{identity.value}{nonce}"
