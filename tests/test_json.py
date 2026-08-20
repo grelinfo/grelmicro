@@ -44,6 +44,17 @@ class TestOrjsonPath:
         """Test that has_orjson returns True when orjson is installed."""
         assert has_orjson() is True
 
+    def test_non_string_key_is_refused(self) -> None:
+        """A value that cannot round-trip raises rather than changing shape.
+
+        `OPT_NON_STR_KEYS` would write `{1: "a"}` as `{"1": "a"}`, and this
+        module backs the cache and the outbox, where a payload that reads
+        back with a different key type is a silent data loss. The log module
+        makes the opposite call, because a log line must not be lost.
+        """
+        with pytest.raises(TypeError):
+            json_dumps_bytes({"counts": {1: "a"}})
+
     @pytest.mark.parametrize(
         ("obj", "expected_fragment"),
         [
@@ -104,6 +115,22 @@ class TestStdlibFallback:
     def test_has_orjson_false(self, stdlib_json_module: ModuleType) -> None:
         """Test has_orjson returns False without orjson."""
         assert stdlib_json_module.has_orjson() is False
+
+    def test_non_string_key_is_coerced(
+        self, stdlib_json_module: ModuleType
+    ) -> None:
+        """Without orjson a non-string key is coerced instead of refused.
+
+        The counterpart to `test_non_string_key_is_refused`. The standard
+        library offers no way to reject the key, so an install without
+        orjson writes `{"1": "a"}` where one with orjson raises. Pinned
+        here so the difference is visible rather than discovered in a
+        cached payload.
+        """
+        assert (
+            stdlib_json_module.json_dumps_bytes({"counts": {1: "a"}})
+            == b'{"counts":{"1":"a"}}'
+        )
 
     def test_dumps_bytes(self, stdlib_json_module: ModuleType) -> None:
         """Test json_dumps_bytes with stdlib json."""

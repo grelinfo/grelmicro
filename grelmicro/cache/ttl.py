@@ -15,7 +15,7 @@ from pydantic import (
 )
 from typing_extensions import Doc, TypeVar
 
-from grelmicro._app import Grelmicro
+from grelmicro._app import resolve_ambient
 from grelmicro.cache._stampede import (
     _SENTINEL,
     AsyncStampedeGuard,
@@ -26,7 +26,7 @@ from grelmicro.cache.serializers import (
     _infer_serializer_from_instance,
     _resolve_serializer,
 )
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -246,7 +246,7 @@ class TTLCache(Generic[T]):
 
         When a backend instance was passed at construction it is
         always returned. Otherwise the active `Grelmicro` app is
-        consulted via `Grelmicro.current()` so that
+        consulted on every access so that
         `micro.override(Cache(...))` blocks take effect.
 
         Raises:
@@ -258,15 +258,9 @@ class TTLCache(Generic[T]):
         """
         if self._backend is not None:
             return self._backend
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            NoActiveAppError,
-        )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
-            cache = Grelmicro.current().get("cache", "default")
-        except (NoActiveAppError, ComponentNotRegisteredError):
+            cache = resolve_ambient(("cache", "default"))
+        except LookupError:
             msg = (
                 "TTLCache resolved no backend. Pass backend= "
                 "(MemoryCacheAdapter() for a per-process cache), register "

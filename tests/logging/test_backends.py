@@ -4,10 +4,15 @@ These tests verify that loguru, structlog, and stdlib backends behave
 identically for the public API.
 """
 
+import io
 import logging
+import sys
 from datetime import UTC, datetime
+from enum import Enum
 from unittest.mock import MagicMock
+from uuid import UUID, uuid4
 
+import orjson
 import pytest
 import pytest_mock
 import structlog
@@ -18,20 +23,32 @@ from grelmicro.errors import DependencyNotFoundError, SettingsValidationError
 from grelmicro.log import configure
 from grelmicro.log._shared import (
     _logfmt_format_value,
+    _orjson_log_dumps,
+    _stdlib_json_dumps,
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
+    orjson_record_dumps,
     render_pretty_lines,
     render_text_line,
+    resolve_serializer,
     should_colorize,
 )
 from grelmicro.log._structlog import _add_caller_info
+from grelmicro.log.config import LogSerializerType
 from tests.logging.conftest import BACKENDS, log_message, parse_json_log
 
 _USER_ID = 123
 _USER_ID_2 = 456
 _USER_ID_3 = 789
 _COUNT = 42
+_AWARE_MOMENT = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+
+
+class _Colour(Enum):
+    """Stand-in for a value orjson renders and the stdlib reprs."""
+
+    RED = "red"
 
 
 class TestConfigureLoggingJSON:
@@ -402,19 +419,23 @@ class TestConfigureLoggingJSONSerializer:
     """Test JSON serializer configuration across backends."""
 
     @pytest.mark.parametrize("backend", BACKENDS)
-    def test_default_stdlib_serializer(
+    def test_stdlib_serializer(
         self,
         backend: str,
         capsys: pytest.CaptureFixture[str],
         monkeypatch: pytest.MonkeyPatch,
         reset_backend: None,  # noqa: ARG002
     ) -> None:
-        """Test default stdlib JSON serializer works."""
+        """Test the stdlib JSON serializer works when it is asked for.
+
+        Set explicitly rather than left to the default, which resolves to
+        orjson wherever orjson is installed.
+        """
         # Arrange
         monkeypatch.setenv("GREL_LOG_BACKEND", backend)
         monkeypatch.setenv("GREL_LOG_FORMAT", "json")
         monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-        monkeypatch.delenv("GREL_LOG_JSON_SERIALIZER", raising=False)
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", "stdlib")
 
         # Act
         configure()
@@ -473,6 +494,188 @@ class TestConfigureLoggingJSONSerializer:
         # Act / Assert
         with pytest.raises(DependencyNotFoundError, match="orjson"):
             configure()
+
+    def test_auto_picks_orjson_when_installed(self) -> None:
+        """`auto` resolves to orjson when it is importable."""
+        assert (
+            resolve_serializer(LogSerializerType.AUTO)
+            is LogSerializerType.ORJSON
+        )
+
+    def test_auto_falls_back_to_stdlib(
+        self, mocker: pytest_mock.MockerFixture
+    ) -> None:
+        """`auto` resolves to the stdlib when orjson is missing, never raises."""
+        mocker.patch("grelmicro.log._shared.has_orjson", return_value=False)
+
+        assert (
+            resolve_serializer(LogSerializerType.AUTO)
+            is LogSerializerType.STDLIB
+        )
+
+    def test_explicit_choice_is_left_alone(self) -> None:
+        """An explicit choice resolves to itself."""
+        assert (
+            resolve_serializer(LogSerializerType.STDLIB)
+            is LogSerializerType.STDLIB
+        )
+        assert (
+            resolve_serializer(LogSerializerType.ORJSON)
+            is LogSerializerType.ORJSON
+        )
+
+    @pytest.mark.parametrize(
+        "record",
+        [
+            pytest.param(
+                {"msg": "hit", "counts": {1: "a", 2: "b"}}, id="non-string-key"
+            ),
+            pytest.param({"msg": "hit", "n": 3, "ok": True}, id="plain"),
+            pytest.param({"msg": "hit", "at": _AWARE_MOMENT}, id="datetime"),
+        ],
+    )
+    def test_serializers_agree(self, record: dict[str, object]) -> None:
+        """Neither serializer refuses a record the other one writes.
+
+        orjson rejects a non-string dict key by default, where the stdlib
+        writes it as a string. `_orjson_log_dumps` retries with
+        `OPT_NON_STR_KEYS` so the record survives either way.
+        """
+        assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    @pytest.mark.parametrize("serializer", ["auto", "orjson", "stdlib"])
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            pytest.param("counts", {1: "a"}, id="non-string-key"),
+            pytest.param("obj", object(), id="unserializable-object"),
+        ],
+    )
+    def test_no_backend_loses_a_record(
+        self,
+        backend: str,
+        serializer: str,
+        field: str,
+        value: object,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """No backend and serializer pair raises on an awkward value.
+
+        Every combination has to write the line. structlog builds its own
+        renderer rather than going through `_shared`, so it needs its own
+        coverage: it raised on a non-string key under orjson and on an
+        unserializable object under the stdlib.
+        """
+        # Arrange
+        monkeypatch.setenv("GREL_LOG_BACKEND", backend)
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", serializer)
+
+        # Act
+        configure()
+        log_message(backend, "awkward value", **{field: value})
+
+        # Assert
+        log_record = parse_json_log(capsys.readouterr().out)
+        assert log_record["msg"] == "awkward value"
+        assert field in log_record
+
+    def test_orjson_falls_back_to_the_stdlib(self) -> None:
+        """Orjson never writes less than the standard library would.
+
+        `orjson.JSONEncodeError` subclasses `TypeError`, so the retry sees
+        every way orjson declines a record, not only a non-string key. An
+        integer wider than 64 bits is one the standard library writes and
+        orjson refuses, and `uuid4().int` in `extra=` is enough to hit it.
+        """
+        record = {"msg": "hi", "request": uuid4().int}
+
+        assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
+
+    def test_orjson_fallback_keeps_the_caller_default(self) -> None:
+        """One field taking the fallback does not re-render the others.
+
+        The fallback hands the record to the standard library, which uses
+        whatever `default` it is given. Dropping the caller's would change
+        how every other field in that record renders, so a single wide
+        integer would quietly restyle the whole line.
+        """
+
+        def render(obj: object) -> object:
+            return {"rendered": type(obj).__name__}
+
+        record = {"msg": "hi", "payload": object(), "size": uuid4().int}
+
+        written = orjson_record_dumps(record, default=render).decode()
+
+        assert '"payload":{"rendered":"object"}' in written
+
+    def test_orjson_retry_keeps_a_caller_option(self) -> None:
+        """The retry merges the caller's `option` rather than replacing it.
+
+        Passing a fresh `option` on retry would raise a second `TypeError`
+        about a duplicate keyword, hiding the one the retry exists to fix.
+        """
+        record = {"m": {2: "b", 1: "a"}}
+
+        assert (
+            orjson_record_dumps(record, option=orjson.OPT_SORT_KEYS)
+            == b'{"m":{"1":"a","2":"b"}}'
+        )
+
+    def test_structlog_orjson_without_a_stdout_buffer(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Structlog with orjson configures on a stdout that has no buffer.
+
+        orjson writes bytes, so the byte stream under stdout is the direct
+        route. A replaced stdout has no `buffer`, and reaching for it there
+        used to fail the whole `configure()` call.
+        """
+        # Arrange
+        replaced = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", replaced)
+        monkeypatch.setenv("GREL_LOG_BACKEND", "structlog")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", "orjson")
+
+        # Act
+        configure()
+        structlog.get_logger().info("no buffer here", count=_COUNT)
+
+        # Assert
+        log_record = parse_json_log(replaced.getvalue())
+        assert log_record["msg"] == "no buffer here"
+        assert log_record["count"] == _COUNT
+
+    @pytest.mark.parametrize(
+        "record",
+        [
+            pytest.param({"v": UUID(int=5)}, id="uuid"),
+            pytest.param({"v": _Colour.RED}, id="enum"),
+            pytest.param({"msg": "Zürich"}, id="non-ascii"),
+            pytest.param({"v": float("inf")}, id="non-finite-float"),
+        ],
+    )
+    def test_serializers_differ_on_documented_values(
+        self, record: dict[str, object]
+    ) -> None:
+        """These are the values the two write differently, and the docs say so.
+
+        orjson renders a `UUID` and an `Enum` natively and writes non-ASCII
+        as UTF-8. The stdlib falls back to `repr` and escapes. Both stay
+        valid JSON, and neither loses the record, which is what makes `auto`
+        safe to default. Pin `stdlib` or `orjson` when the exact bytes
+        matter.
+        """
+        assert _orjson_log_dumps(record) != _stdlib_json_dumps(record)
 
 
 class TestLoadSettings:

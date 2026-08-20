@@ -6,13 +6,15 @@ import traceback
 from datetime import UTC, datetime, tzinfo
 
 from grelmicro._context import merge_context_into as _merge_context_into
-from grelmicro._json import json_default
 from grelmicro.log._shared import (
+    _log_json_default,
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
+    orjson_record_dumps_str,
     render_pretty_lines,
     render_text_line,
+    resolve_serializer,
 )
 from grelmicro.log.config import (
     LogConfig,
@@ -239,20 +241,26 @@ def configure(config: LogConfig | None = None) -> None:
 
     if resolved_format == LogFormatType.JSON:
         processors.append(_build_flat_record)
-        if settings.json_serializer == LogSerializerType.ORJSON:
-            import orjson  # noqa: PLC0415
-
+        if (
+            resolve_serializer(settings.json_serializer)
+            == LogSerializerType.ORJSON
+        ):
+            # Decoded and written as text, not to the byte stream under
+            # stdout. Writing bytes there skips the text buffer, so a log
+            # line lands out of order against anything else on stdout, and
+            # a replaced stdout stops capturing entirely.
             processors.append(
-                structlog.processors.JSONRenderer(serializer=orjson.dumps)
+                structlog.processors.JSONRenderer(
+                    serializer=orjson_record_dumps_str
+                )
             )
-            logger_factory: (
-                structlog.BytesLoggerFactory | structlog.PrintLoggerFactory
-            ) = structlog.BytesLoggerFactory(file=sys.stdout.buffer)
         else:
             processors.append(
-                structlog.processors.JSONRenderer(default=json_default)
+                structlog.processors.JSONRenderer(default=_log_json_default)
             )
-            logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
+        logger_factory: structlog.PrintLoggerFactory = (
+            structlog.PrintLoggerFactory(file=sys.stdout)
+        )
     elif resolved_format == LogFormatType.LOGFMT:
         processors.append(_render_logfmt)
         logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)

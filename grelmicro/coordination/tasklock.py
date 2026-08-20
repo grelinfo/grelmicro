@@ -15,7 +15,7 @@ from uuid import UUID
 from pydantic import model_validator
 from typing_extensions import Doc
 
-from grelmicro._app import Grelmicro
+from grelmicro._app import resolve_ambient
 from grelmicro._async import raise_backend_not_open
 from grelmicro._config import (
     Reconfigurable,
@@ -39,7 +39,7 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.errors import WouldBlockError
+from grelmicro.errors import OutOfContextError, WouldBlockError
 
 logger = getLogger("grelmicro.coordination")
 
@@ -306,7 +306,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
         When a backend instance was passed at construction it is
         always returned. Otherwise the active `Grelmicro` app is
-        consulted via `Grelmicro.current()` on every access so that
+        consulted on every access so that
         `micro.override(Coordination(...))` blocks take effect.
 
         Raises:
@@ -318,17 +318,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         """
         if self._backend is not None:
             return self._backend
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            NoActiveAppError,
-        )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
-            coordination = Grelmicro.current().get(
-                "coordination", self._backend_name or "default"
+            coordination = resolve_ambient(
+                ("coordination", self._backend_name or "default")
             )
-        except (NoActiveAppError, ComponentNotRegisteredError):
+        except LookupError:
             msg = (
                 f"TaskLock({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryLockAdapter() for a per-process lock), "

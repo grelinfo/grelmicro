@@ -11,7 +11,7 @@ from grelmicro import (
     Grelmicro,
     NoActiveAppError,
 )
-from grelmicro.coordination import Coordination
+from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
 
@@ -418,3 +418,67 @@ async def test_uses_opens_once_under_concurrent_first_entry() -> None:
     async with micro:
         await asyncio.gather(worker(), worker())
         assert track.entered == 1
+
+
+async def test_scope_resolves_per_task_not_per_app() -> None:
+    """Two tasks running at the same instant resolve the same key differently.
+
+    The in-scope task sees the bulkhead's component while its sibling sees
+    the app's. This is why an ambient resolution can never be cached on the
+    pattern object.
+    """
+    default = MemoryLockAdapter()
+    dedicated = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead("checkout", uses=[Coordination(lock=dedicated)])
+    shared = Lock("cart")
+    barrier = asyncio.Barrier(2)
+
+    async def in_scope() -> object:
+        async with bulkhead:
+            await barrier.wait()
+            return shared.backend
+
+    async def sibling() -> object:
+        await barrier.wait()
+        return shared.backend
+
+    async with micro:
+        inside, outside = await asyncio.gather(in_scope(), sibling())
+
+    assert inside is dedicated
+    assert outside is default
+
+
+def test_scope_resolves_per_event_loop() -> None:
+    """Each event loop resolves its own app and its own bulkhead components.
+
+    One module-level pattern object is shared by both loops, which is the
+    documented idiom, so the resolution has to stay per context.
+    """
+    shared = Lock("cart")
+    seen: dict[str, tuple[bool, bool]] = {}
+
+    def run(tag: str) -> None:
+        async def main() -> None:
+            default = MemoryLockAdapter()
+            dedicated = MemoryLockAdapter()
+            micro = Grelmicro(uses=[Coordination(lock=default)])
+            bulkhead = Bulkhead(tag, uses=[Coordination(lock=dedicated)])
+            async with micro:
+                app_ok = shared.backend is default
+                async with bulkhead:
+                    scope_ok = shared.backend is dedicated
+            seen[tag] = (app_ok, scope_ok)
+
+        asyncio.run(main())
+
+    threads = [
+        threading.Thread(target=run, args=(tag,)) for tag in ("left", "right")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert seen == {"left": (True, True), "right": (True, True)}

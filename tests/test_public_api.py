@@ -45,14 +45,20 @@ A new public module is itself a deliberate API change, so add it to
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import re
+import typing
+from asyncio import Lock
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from syrupy.extensions.json import JSONSnapshotExtension
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 PUBLIC_MODULES = [
     "grelmicro",
@@ -279,6 +285,255 @@ def build_public_api() -> dict[str, dict[str, Any]]:
 def test_public_api_matches_snapshot(snapshot_json) -> None:  # noqa: ANN001
     """The live public surface equals the committed snapshot."""
     assert build_public_api() == snapshot_json
+
+
+_LOOP_BOUND_TYPES = (
+    asyncio.Lock,
+    asyncio.Event,
+    asyncio.Condition,
+    asyncio.Semaphore,
+    asyncio.Barrier,
+    asyncio.Queue,
+    asyncio.Future,
+    asyncio.AbstractEventLoop,
+)
+"""Objects that bind to the event loop that first awaits them.
+
+Matched by resolving the annotation to a class rather than by reading the
+rendered signature. `inspect.signature` writes an un-stringized annotation
+as `asyncio.locks.Lock` and a `from asyncio import Lock` one as `Lock`, so
+a pattern over the rendered text misses most of the codebase.
+"""
+
+_LOOP_BOUND_ALLOWED = {
+    "grelmicro.providers.sqlite.SQLiteProvider.connection_lock",
+}
+"""Members that hand out a loop-bound object on purpose.
+
+An adapter serializes its `execute` and its `fetch` against every other
+adapter borrowing the same connection, so the lock belongs to the provider
+and an adapter author has to reach it.
+"""
+
+
+def _public_members(obj: object) -> list[tuple[str, Callable[..., Any]]]:
+    """Return every public callable reachable on a class, plus the class.
+
+    Walks the MRO, so a member a base class defines is checked on every
+    subclass that exports it. A property is represented by its getter,
+    which carries the return annotation the guard reads.
+    """
+    members: list[tuple[str, Callable[..., Any]]] = []
+    if isinstance(obj, type):
+        # The constructor, not the class: `get_type_hints` on a class reads
+        # its attribute annotations, private ones included, which says
+        # nothing about what the class hands a caller.
+        members.append(("()", obj.__init__))
+    elif callable(obj):
+        members.append(("()", obj))
+    if isinstance(obj, type):
+        seen: set[str] = set()
+        for klass in obj.__mro__:
+            if klass is object:
+                continue
+            for attr_name, attr in vars(klass).items():
+                if attr_name.startswith("_") or attr_name in seen:
+                    continue
+                seen.add(attr_name)
+                # Read the attribute off the class rather than the mapping:
+                # a `classmethod` descriptor is not callable in `vars`, so
+                # every public factory would be skipped.
+                target = (
+                    attr.fget
+                    if isinstance(attr, property)
+                    else getattr(klass, attr_name, None)
+                )
+                if callable(target):
+                    members.append((f".{attr_name}", target))
+    return members
+
+
+_LOOP_BOUND_TEXT = re.compile(
+    r"\basyncio\.(?:\w+\.)?(?:"
+    + "|".join(k.__name__ for k in _LOOP_BOUND_TYPES)
+    + r")\b"
+)
+"""Fallback matcher for a member whose annotations cannot be resolved.
+
+`from __future__ import annotations` plus a `TYPE_CHECKING`-only import
+makes `get_type_hints` raise `NameError`, which covers a fifth of the
+public surface. Reading the rendered signature keeps those members
+checked instead of silently skipped.
+
+Names the loop-bound classes rather than matching `asyncio.` broadly, so
+an `asyncio.TimeoutError` in a signature is not a false positive. It
+matches the qualified form only: an unresolvable module that writes
+`from asyncio import Lock` renders as a bare `Lock`, which is
+indistinguishable from grelmicro's own `Lock` in text.
+"""
+
+
+def _hands_out_loop_bound(member: Callable[..., Any]) -> bool:
+    """Return whether any annotation on `member` names a loop-bound type."""
+    try:
+        hints = typing.get_type_hints(member)
+    except Exception:  # noqa: BLE001  # unresolvable forward reference
+        try:
+            rendered = str(inspect.signature(member))
+        except (TypeError, ValueError):
+            return False
+        return bool(_LOOP_BOUND_TEXT.search(rendered))
+    pending = list(hints.values())
+    while pending:
+        hint = pending.pop()
+        if isinstance(hint, type) and issubclass(hint, _LOOP_BOUND_TYPES):
+            return True
+        # `asyncio.Queue[bytes]` carries the class on the origin, not in
+        # the arguments, so both have to be walked.
+        pending.extend(typing.get_args(hint))
+        origin = typing.get_origin(hint)
+        if origin is not None:
+            pending.append(origin)
+    return False
+
+
+def test_public_api_hands_out_no_loop_bound_object() -> None:
+    """No public signature accepts or returns an object bound to an event loop.
+
+    Supporting several event loops means making the primitives a component
+    holds per loop. That stays an internal change for as long as none of
+    them reaches the public surface, so this guard is what keeps
+    [#693](https://github.com/grelinfo/grelmicro/issues/693) from turning
+    into a breaking change. Keep the primitives on private attributes.
+
+    `SQLiteProvider.connection_lock` is the deliberate exception, and it is
+    not a counterexample. An adapter has to serialize its `execute` and its
+    `fetch` against every other adapter borrowing the same connection, so
+    the lock belongs to the provider and an adapter author needs to reach
+    it. A per-loop lock would be the wrong answer there anyway: aiosqlite
+    drives one connection from one worker thread and resolves each call on
+    the loop that made it, so a provider already belongs to a single loop.
+    """
+    offenders: list[str] = []
+    for module_name in PUBLIC_MODULES:
+        module = importlib.import_module(module_name)
+        for symbol in sorted(getattr(module, "__all__", ())):
+            obj = getattr(module, symbol)
+            for label, member in _public_members(obj):
+                qualified = f"{module_name}.{symbol}{label}"
+                if qualified in _LOOP_BOUND_ALLOWED:
+                    continue
+                if _hands_out_loop_bound(member):
+                    offenders.append(qualified)
+    assert not offenders, (
+        "loop-bound objects on the public surface:\n" + "\n".join(offenders)
+    )
+
+
+def test_loop_bound_allowlist_still_describes_something_real() -> None:
+    """Every allowlisted member exists and still hands out a loop-bound object.
+
+    An exemption that stopped applying is one a later change inherits by
+    accident, so it has to be earned on every run.
+    """
+    for qualified in sorted(_LOOP_BOUND_ALLOWED):
+        module_name, symbol, attr = qualified.rsplit(".", 2)
+        module = importlib.import_module(module_name)
+        owner = getattr(module, symbol)
+        member = getattr(owner, attr)
+        target = member.fget if isinstance(member, property) else member
+        assert _hands_out_loop_bound(target), (
+            f"{qualified} no longer hands out a loop-bound object, "
+            f"so drop it from the allowlist"
+        )
+
+
+def test_loop_bound_guard_catches_a_planted_offender() -> None:
+    """The guard flags a loop-bound member, however the annotation is written.
+
+    `inspect.signature` renders the same return type three different ways
+    depending on the import form and whether the module stringizes its
+    annotations, so a guard that reads the rendered text passes on most of
+    this codebase. These are the forms it has to catch.
+    """
+
+    class Planted:
+        @property
+        def qualified(self) -> asyncio.Lock:  # asyncio.locks.Lock
+            raise NotImplementedError
+
+        @property
+        def bare(self) -> Lock:  # from asyncio import Lock
+            raise NotImplementedError
+
+        @property
+        def wrapped(self) -> asyncio.Event | None:
+            raise NotImplementedError
+
+        @property
+        def parameterized(self) -> asyncio.Queue[bytes]:
+            raise NotImplementedError
+
+        def accepted(self, lock: asyncio.Lock) -> str:
+            raise NotImplementedError
+
+        @classmethod
+        def built(cls) -> asyncio.Lock:
+            raise NotImplementedError
+
+        @staticmethod
+        def made() -> asyncio.Event:
+            raise NotImplementedError
+
+        @property
+        def clean(self) -> str:
+            raise NotImplementedError
+
+    caught = {
+        name
+        for name, member in _public_members(Planted)
+        if name != "()" and _hands_out_loop_bound(member)
+    }
+    assert caught == {
+        ".qualified",
+        ".bare",
+        ".wrapped",
+        ".parameterized",
+        ".accepted",
+        ".built",
+        ".made",
+    }
+
+
+def test_loop_bound_guard_catches_an_unresolvable_annotation() -> None:
+    """A member whose annotations cannot be resolved is still checked.
+
+    `from __future__ import annotations` plus a `TYPE_CHECKING`-only import
+    makes `get_type_hints` raise, which is a fifth of the public surface.
+    Those members fall back to reading the rendered signature rather than
+    being skipped, because a skipped member is a hole in the guard.
+    """
+
+    def unresolvable(lock: asyncio.Lock, other: NeverDefined) -> None:  # noqa: F821  # ty: ignore[unresolved-reference]
+        raise NotImplementedError
+
+    def unresolvable_clean(value: NeverDefined) -> None:  # noqa: F821  # ty: ignore[unresolved-reference]
+        raise NotImplementedError
+
+    def unresolvable_timeout(
+        exc: asyncio.TimeoutError,
+        other: NeverDefined,  # noqa: F821  # ty: ignore[unresolved-reference]
+    ) -> None:
+        raise NotImplementedError
+
+    with pytest.raises(NameError):
+        typing.get_type_hints(unresolvable)
+
+    assert _hands_out_loop_bound(unresolvable)
+    assert not _hands_out_loop_bound(unresolvable_clean)
+    # `asyncio.TimeoutError` is not loop-bound, so a broad `asyncio.` match
+    # would report it and train the reader to ignore this guard.
+    assert not _hands_out_loop_bound(unresolvable_timeout)
 
 
 def test_interpreter_derived_defaults_are_still_current() -> None:

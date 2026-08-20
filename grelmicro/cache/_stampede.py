@@ -15,7 +15,7 @@ import hashlib
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
-from grelmicro._app import Grelmicro
+from grelmicro._app import resolve_ambient
 from grelmicro.coordination.lock import Lock
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ def _has_lock_backend() -> bool:
     when a backend is present and folds in-process otherwise.
     """
     try:
-        coordination = Grelmicro.current().get("coordination")
+        coordination = resolve_ambient(("coordination", "default"))
     except LookupError:
         return False
     return coordination._lock_backend is not None  # noqa: SLF001

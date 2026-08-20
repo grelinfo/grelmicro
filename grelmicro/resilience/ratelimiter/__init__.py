@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Self, assert_never
 
 from typing_extensions import Doc
 
-from grelmicro._app import Grelmicro
+from grelmicro._app import resolve_ambient
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
@@ -18,6 +18,7 @@ from grelmicro._config import (
 )
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
+from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -188,8 +189,8 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
 
         Resolution order:
         1. An explicit `backend=` passed at construction wins.
-        2. The active `Grelmicro` app is consulted via
-           `Grelmicro.current()` so that `micro.override(...)` blocks
+        2. The active `Grelmicro` app is consulted on every access
+           so that `micro.override(...)` blocks
            take effect.
 
         Raises:
@@ -201,17 +202,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         """
         if self._backend is not None:
             return self._backend
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            NoActiveAppError,
-        )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
-            component = Grelmicro.current().get(
-                "ratelimiter", self._backend_name or "default"
+            component = resolve_ambient(
+                ("ratelimiter", self._backend_name or "default")
             )
-        except (NoActiveAppError, ComponentNotRegisteredError):
+        except LookupError:
             msg = (
                 f"RateLimiter({self._name!r}) resolved no backend. Pass "
                 f"backend= (MemoryRateLimiterAdapter() for a per-process "

@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
+from grelmicro._app import resolve_ambient
 from grelmicro._component import instantiate_if_class
 from grelmicro._config import env_prefixes, resolve_config
+from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
 from grelmicro.outbox._config import OutboxConfig
@@ -277,16 +279,9 @@ class Outbox:
                 `name`. Run inside `async with micro:` or after
                 `micro.install(app)`, with an `Outbox` in `uses=[...]`.
         """
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            Grelmicro,
-            NoActiveAppError,
-        )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
-
         try:
-            return Grelmicro.current().get(cls.kind, name)
-        except (NoActiveAppError, ComponentNotRegisteredError):
+            return resolve_ambient((cls.kind, name))
+        except LookupError:
             msg = (
                 f"Outbox({name!r}) is not available: no active app, or no "
                 f"Outbox registered under {name!r}. Run inside "

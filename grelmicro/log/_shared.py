@@ -24,6 +24,13 @@ except ImportError:  # pragma: no cover
 
 from grelmicro._json import has_orjson
 
+try:
+    from orjson import OPT_NON_STR_KEYS as _OPT_NON_STR_KEYS
+    from orjson import dumps as _orjson_dumps
+except ImportError:  # pragma: no cover
+    _orjson_dumps: Any = None  # type: ignore[no-redef]
+    _OPT_NON_STR_KEYS = 0
+
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
 """Shared key strategy vocabulary for the log filters."""
 
@@ -42,14 +49,55 @@ def _log_json_default(obj: object) -> str:
     return repr(obj)
 
 
+def orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
+    """Serialize a log record with orjson, keeping the line on odd values.
+
+    orjson refuses a non-string dict key, where the standard library writes
+    it as a string. The retry writes the record the same way rather than
+    losing it, and only a record that carries such a key pays for it:
+    `OPT_NON_STR_KEYS` costs about 80% on every call when it is always on.
+
+    `kwargs` reaches `orjson.dumps`, so a caller keeps its own `default`.
+    An `option` a caller passed is merged rather than replaced, since
+    overwriting it would raise a second, more confusing `TypeError`.
+
+    Anything orjson still refuses goes to the standard library, which
+    writes values orjson has no encoding for, an integer wider than 64 bits
+    among them. `orjson.JSONEncodeError` subclasses `TypeError`, so both
+    arms of this catch every way orjson can decline a record. The fallback
+    keeps the caller's `default`, so one field taking this route does not
+    change how the rest of the record renders. Non-ASCII text still comes
+    back escaped, because that is what the standard library writes.
+
+    A dict key the standard library also refuses, a tuple among them,
+    raises from here. Both libraries decline it, so there is nothing left
+    to fall back to.
+    """
+    try:
+        return _orjson_dumps(obj, **kwargs)
+    except TypeError:
+        option = kwargs.pop("option", 0) | _OPT_NON_STR_KEYS
+        try:
+            return _orjson_dumps(obj, option=option, **kwargs)
+        except TypeError:
+            return json.dumps(
+                obj,
+                separators=(",", ":"),
+                default=kwargs.get("default", _log_json_default),
+            ).encode("utf-8")
+
+
+def orjson_record_dumps_str(obj: object, **kwargs: Any) -> str:  # noqa: ANN401
+    """Return `orjson_record_dumps` as text, for a writer that takes `str`."""
+    return orjson_record_dumps(obj, **kwargs).decode("utf-8")
+
+
 def _orjson_log_dumps(obj: Mapping[str, Any]) -> str:
-    """Serialize a log record with orjson, keeping the line on odd values."""
-    import orjson  # noqa: PLC0415
-
-    return orjson.dumps(obj, default=repr).decode("utf-8")
+    """Serialize a log record with orjson, rendering odd values as text."""
+    return orjson_record_dumps_str(obj, default=repr)
 
 
-def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
+def _stdlib_json_dumps(obj: object) -> str:
     """Serialize object to JSON string using stdlib json.
 
     Always uses the standard library ``json`` module regardless of
@@ -366,6 +414,33 @@ def _resolve_format(
     return log_format
 
 
+def resolve_serializer(
+    json_serializer: LogSerializerType,
+) -> LogSerializerType:
+    """Resolve AUTO to orjson when it is installed, else to the stdlib.
+
+    AUTO never writes less than the standard library would, which is what
+    makes it safe to default: anything orjson declines falls back. They do
+    not render every value the same way: orjson writes a
+    `UUID`, an `Enum`, and a dataclass natively, writes non-ASCII as UTF-8,
+    and writes a non-finite float as `null`, where the standard library
+    falls back to `repr`, escapes, and writes `NaN`. Name a serializer to
+    pin the exact bytes.
+
+    Raises:
+        DependencyNotFoundError: `orjson` was asked for and is not installed.
+    """
+    if json_serializer == LogSerializerType.ORJSON and not has_orjson():
+        raise DependencyNotFoundError(module="orjson")
+    if json_serializer == LogSerializerType.AUTO:
+        return (
+            LogSerializerType.ORJSON
+            if has_orjson()
+            else LogSerializerType.STDLIB
+        )
+    return json_serializer
+
+
 class LoadedSettings(NamedTuple):
     """Validated logging settings."""
 
@@ -396,9 +471,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]
-    if settings.json_serializer == LogSerializerType.ORJSON:
-        if not has_orjson():
-            raise DependencyNotFoundError(module="orjson")
+    if resolve_serializer(settings.json_serializer) == LogSerializerType.ORJSON:
         json_dumps = _orjson_log_dumps
     else:
         json_dumps = _stdlib_json_dumps
