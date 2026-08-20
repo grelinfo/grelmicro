@@ -498,9 +498,10 @@ def test_a_predicate_that_cannot_be_tracked_warns_instead_of_raising(
 
     A matcher runs inside the resilience machinery, and `Retry` calls it
     from an `except` block, so an exception raised here would replace the
-    error the caller was already handling. Each of these refuses tracking
-    a different way: no weak reference, no hash, a `__hash__` that raises,
-    an attribute lookup that raises.
+    error the caller was already handling. Three of these refuse to be
+    tracked, each a different way: no weak reference, no hash, a
+    `__hash__` that raises. The fourth tracks fine and refuses to be
+    named, because its attribute lookup raises.
 
     Built per call, so a repeated run does not find the predicate already
     registered from the previous pass.

@@ -66,8 +66,8 @@ def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
     Held weakly, so a collected predicate stops speaking for the next one
     allocated at its address. One that cannot be held that way is kept by
     address alongside a reference, and the oldest is dropped once
-    `_UNTRACKABLE_LIMIT` is reached, so the warning stays once per
-    predicate without the registry growing.
+    `_UNTRACKABLE_LIMIT` is reached, so a long-lived predicate past the
+    bound is reported again rather than the registry growing.
 
     Nothing here raises. A matcher runs inside `Retry`'s `except` block,
     where an error would replace the one the caller is handling, and a
