@@ -4,7 +4,7 @@ import os
 from asyncio import Task, current_task
 from itertools import count
 from secrets import token_hex
-from threading import Thread, current_thread
+from threading import Lock, Thread, current_thread
 from typing import Any
 from uuid import UUID
 from weakref import WeakKeyDictionary
@@ -54,6 +54,9 @@ def generate_worker_id() -> str:
     return token_hex(8)
 
 
+_mint_lock = Lock()
+"""Serializes the first mint for a holder, so it never gets two identities."""
+
 _task_identities: WeakKeyDictionary[Task[Any], str] = WeakKeyDictionary()
 """One minted identity per task, dropped when the task is collected."""
 
@@ -70,14 +73,20 @@ def _identity(registry: WeakKeyDictionary[Any, str], holder: Any) -> str:  # noq
     take a lease it never acquired. A minted identity is unique for the
     life of the holder and disappears with it.
 
-    `setdefault` on a `WeakKeyDictionary` is not atomic, so two threads
-    racing the first mint for one holder could build two. Only the holder
-    itself mints its own identity, so there is no such race.
+    Minting is serialized. A thread's identity is minted by whichever
+    thread names it, and the event loop names a worker thread on its
+    behalf, so two callers can race the first mint for one holder.
+    Building two would be worse than building none: the token stamped with
+    the first would no longer match the ownership check built with the
+    second, and the holder could not release its own lock.
     """
     identity = registry.get(holder)
     if identity is None:
-        identity = f"{next(_guard_counter)}.{token_hex(8)}"
-        registry[holder] = identity
+        with _mint_lock:
+            identity = registry.get(holder)
+            if identity is None:
+                identity = f"{next(_guard_counter)}.{token_hex(8)}"
+                registry[holder] = identity
     return identity
 
 

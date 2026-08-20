@@ -96,18 +96,18 @@ async def test_thread_release_keeps_state_on_backend_error(
     mocker: MockerFixture,
 ) -> None:
     """A backend error during thread release keeps the held-by-thread marker intact."""
-    thread_id = current_thread()
-    await lock.do_thread_acquire(thread_id)
-    assert thread_id in lock._held_by_threads
+    owner = current_thread()
+    await lock.do_thread_acquire(owner)
+    assert owner in lock._held_by_threads
 
     mocker.patch.object(
         backend, "release", side_effect=Exception("Backend Unreachable")
     )
 
     with pytest.raises(LockReleaseError):
-        await lock.do_thread_release(thread_id)
+        await lock.do_thread_release(owner)
 
-    assert thread_id in lock._held_by_threads
+    assert owner in lock._held_by_threads
 
 
 async def test_thread_release_clears_state_when_not_owned(
@@ -116,11 +116,11 @@ async def test_thread_release_clears_state_when_not_owned(
     mocker: MockerFixture,
 ) -> None:
     """A "not owned" answer from the backend clears the held-by-thread marker."""
-    thread_id = current_thread()
-    await lock.do_thread_acquire(thread_id)
+    owner = current_thread()
+    await lock.do_thread_acquire(owner)
     mocker.patch.object(backend, "release", return_value=False)
 
     with pytest.raises(LockNotOwnedError):
-        await lock.do_thread_release(thread_id)
+        await lock.do_thread_release(owner)
 
-    assert thread_id not in lock._held_by_threads
+    assert owner not in lock._held_by_threads

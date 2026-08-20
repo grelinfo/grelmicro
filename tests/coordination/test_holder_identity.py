@@ -9,10 +9,13 @@ as soon as the previous owner is gone, so neither is an identity.
 import asyncio
 import gc
 import threading
+from typing import Self
+from weakref import WeakKeyDictionary
 
 import pytest
 
 from grelmicro.coordination import Lock, ReadWriteLock
+from grelmicro.coordination import _tokens as tokens
 from grelmicro.coordination._tokens import (
     generate_task_token,
     generate_thread_token,
@@ -42,10 +45,12 @@ def test_threads_never_share_a_token() -> None:
         thread.start()
         thread.join()
 
-    assert len(idents) < _ROUNDS, (
-        "idents were not recycled, test proves nothing"
-    )
     assert len(set(tokens)) == _ROUNDS
+    if len(idents) == _ROUNDS:
+        pytest.skip(
+            "this runtime did not recycle a thread ident, so the assertion "
+            "above held without being put under the pressure it exists for"
+        )
 
 
 async def test_tasks_never_share_a_token() -> None:
@@ -172,3 +177,31 @@ async def test_read_write_lock_refuses_a_recycled_ident(mode: str) -> None:
         await loop.run_in_executor(None, second.join)
 
     assert outcome != [None], "the next thread released a lease it never took"
+
+
+def test_a_caller_that_loses_the_first_mint_uses_the_winner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two callers racing the first mint end up with one identity.
+
+    Building two would be worse than building none: the token stamped with
+    the first would not match the ownership check built with the second,
+    and the holder could not release its own lock. The lock is entered
+    here by a stand-in that mints first, which is the losing caller's view
+    of the race.
+    """
+    registry: WeakKeyDictionary[threading.Thread, str] = WeakKeyDictionary()
+    holder = threading.Thread()
+    winner = "0.thewinner"
+
+    class _MintsWhileWeWait:
+        def __enter__(self) -> Self:
+            registry[holder] = winner
+            return self
+
+        def __exit__(self, *exc: object) -> bool:
+            return False
+
+    monkeypatch.setattr(tokens, "_mint_lock", _MintsWhileWeWait())
+
+    assert tokens._identity(registry, holder) == winner

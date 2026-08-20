@@ -23,15 +23,20 @@ The pid is compared on every token build rather than hooked with `os.register_at
 
 ## Token Generation
 
-Lock tokens identify **who** holds a lock. They are derived deterministically from the worker identity and the current execution context using simple string concatenation:
+Lock tokens identify **who** holds a lock. They join the worker identity to an identity minted for the holder on first use:
 
 | Primitive | Token | Scope |
 |---|---|---|
-| `Lock` | `{worker}:task:{task_id}` | Per async task |
-| `Lock.from_thread` | `{worker}:thread:{thread_id}` | Per thread |
-| `TaskLock` | `{worker}:task:{task_id}` | Per async task |
-| `TaskLock.from_thread` | `{worker}:thread:{thread_id}` | Per thread |
+| `Lock` | `{worker}:task:{identity}` | Per async task |
+| `Lock.from_thread` | `{worker}:thread:{identity}` | Per thread |
+| `TaskLock` | `{worker}:task:{identity}` | Per async task |
+| `TaskLock.from_thread` | `{worker}:thread:{identity}` | Per thread |
 | `LeaderElection` | `worker` directly | Per process |
+
+`identity` is minted once per holder and kept for as long as that holder lives. It is deliberately not the thread ident or the object `id()`: CPython hands both to the next holder as soon as the previous one is gone, so a token built from one would let a new thread or task release, extend, or take a lease it never acquired.
+
+!!! warning "Treat a token as opaque"
+    The shape above is what grelmicro writes today, not a promise. Match on `record.holder` as a whole rather than parsing an identity out of it.
 
 This design provides the following guarantees:
 
