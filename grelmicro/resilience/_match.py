@@ -30,6 +30,9 @@ from weakref import WeakSet
 from grelmicro.resilience._outcome import Outcome
 
 _log = logging.getLogger("grelmicro.resilience")
+
+_UNNAMEABLE = "<predicate>"
+"""Stands in for a predicate that refuses every attempt to name it."""
 _warned_predicates: WeakSet[Any] = WeakSet()
 """Predicates already warned about, dropped when the predicate is."""
 
@@ -46,18 +49,22 @@ _UNTRACKABLE_LIMIT = 128
 
 
 def _describe(predicate: Any) -> str:  # noqa: ANN401
-    """Return a readable name for a predicate, whatever it is.
+    """Return a readable name for a predicate, and never raise doing it.
 
-    Every step is guarded: a lazy proxy can raise from `__getattr__`, a
-    `__name__` property can raise, and `__repr__` can raise.
+    Every step is guarded, including the last resort: a lazy proxy raises
+    from `__getattr__`, a `__name__` property raises, `__repr__` raises,
+    and a metaclass `__name__` property raises even from `type(x)`.
     """
     try:
         name = getattr(predicate, "__name__", None)
         if name is not None:
             return str(name)
         return repr(predicate)
-    except Exception:  # noqa: BLE001
-        return type(predicate).__name__
+    except Exception:  # noqa: BLE001  # naming must not raise
+        try:
+            return str(type(predicate).__name__)
+        except Exception:  # noqa: BLE001
+            return _UNNAMEABLE
 
 
 def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
@@ -94,6 +101,10 @@ def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
 
     The warning fires once per predicate, so a tight retry loop reports it
     once rather than on every attempt.
+
+    A value whose `__bool__` raises reads as no match. Coercing is the
+    whole job here, and a matcher runs inside `Retry`'s `except` block,
+    where raising would replace the error the caller is handling.
     """
     if type(result) is not bool and not _already_warned(predicate):
         _log.warning(
@@ -102,7 +113,16 @@ def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
             _describe(predicate),
             result,
         )
-    return bool(result)
+    try:
+        return bool(result)
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "Match predicate %s returned %s, whose truth value raised; "
+            "reading it as no match.",
+            _describe(predicate),
+            type(result).__name__,
+        )
+        return False
 
 
 Matcher = Callable[[Outcome[Any]], bool]

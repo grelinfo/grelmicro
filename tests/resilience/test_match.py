@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from grelmicro.resilience import Match, Outcome
+from grelmicro.resilience._match import _describe
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,6 +41,43 @@ class _HostileRepr:
     def __repr__(self) -> str:
         """Raise, as a badly behaved object can."""
         msg = "repr exploded"
+        raise RuntimeError(msg)
+
+
+class _BoolBomb:
+    """A predicate return value whose truth value raises."""
+
+    def __bool__(self) -> bool:
+        """Raise, as a badly behaved value can."""
+        msg = "truth value exploded"
+        raise RuntimeError(msg)
+
+
+class _UnnameableMeta(type):
+    """A metaclass that raises from `__name__`, blocking the last resort."""
+
+    @property
+    def __name__(cls) -> str:
+        """Raise, so `type(predicate).__name__` cannot be read either."""
+        msg = "metaclass __name__"
+        raise RuntimeError(msg)
+
+
+class _Unnameable(metaclass=_UnnameableMeta):
+    """A predicate that refuses every way of naming it."""
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to trigger the warning."""
+        return 1
+
+    def __getattr__(self, name: str) -> object:
+        """Raise, so `__name__` cannot be read."""
+        msg = "getattr"
+        raise RuntimeError(msg)
+
+    def __repr__(self) -> str:
+        """Raise, so the repr fallback cannot be used."""
+        msg = "repr"
         raise RuntimeError(msg)
 
 
@@ -581,3 +619,30 @@ def test_the_untrackable_registry_stops_growing_at_its_bound() -> None:
     finally:
         match_mod._warned_untrackable.clear()
         match_mod._warned_untrackable.update(saved)
+
+
+def test_a_result_whose_truth_value_raises_reads_as_no_match(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Coercing the predicate's return must not raise out of the matcher.
+
+    Coercion is the whole job of `_coerce_bool`, and `Retry` calls the
+    matcher from an `except` block, so raising here would replace the
+    error the caller is handling with one from the matcher itself.
+    """
+    outcome = Outcome.from_exception(ValueError("original"))
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        matched = Match.exception(lambda _exc: _BoolBomb())(outcome)  # ty: ignore[invalid-argument-type]
+
+    assert matched is False
+    assert any("no match" in record.message for record in caplog.records)
+
+
+def test_a_predicate_that_refuses_every_name_still_gets_one() -> None:
+    """Naming falls back past `__getattr__`, `__repr__` and the metaclass.
+
+    The last resort reads `type(predicate).__name__`, which a metaclass
+    property can hijack and raise from, so even that is guarded.
+    """
+    assert _describe(_Unnameable()) == "<predicate>"
