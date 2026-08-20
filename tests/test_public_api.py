@@ -346,18 +346,37 @@ def _public_members(obj: object) -> list[tuple[str, Callable[..., Any]]]:
     return members
 
 
+_LOOP_BOUND_TEXT = re.compile(r"\basyncio\.[\w.]*\b")
+"""Fallback matcher for a member whose annotations cannot be resolved.
+
+`from __future__ import annotations` plus a `TYPE_CHECKING`-only import
+makes `get_type_hints` raise `NameError`, which covers a fifth of the
+public surface. Reading the rendered signature keeps those members
+checked instead of silently skipped.
+"""
+
+
 def _hands_out_loop_bound(member: Callable[..., Any]) -> bool:
-    """Return whether any annotation on `member` resolves to a loop-bound type."""
+    """Return whether any annotation on `member` names a loop-bound type."""
     try:
         hints = typing.get_type_hints(member)
     except Exception:  # noqa: BLE001  # unresolvable forward reference
-        return False
+        try:
+            rendered = str(inspect.signature(member))
+        except (TypeError, ValueError):
+            return False
+        return bool(_LOOP_BOUND_TEXT.search(rendered))
     pending = list(hints.values())
     while pending:
         hint = pending.pop()
         if isinstance(hint, type) and issubclass(hint, _LOOP_BOUND_TYPES):
             return True
+        # `asyncio.Queue[bytes]` carries the class on the origin, not in
+        # the arguments, so both have to be walked.
         pending.extend(typing.get_args(hint))
+        origin = typing.get_origin(hint)
+        if origin is not None:
+            pending.append(origin)
     return False
 
 
@@ -435,6 +454,13 @@ def test_loop_bound_guard_catches_a_planted_offender() -> None:
             raise NotImplementedError
 
         @property
+        def parameterized(self) -> asyncio.Queue[bytes]:
+            raise NotImplementedError
+
+        def accepted(self, lock: asyncio.Lock) -> str:
+            raise NotImplementedError
+
+        @property
         def clean(self) -> str:
             raise NotImplementedError
 
@@ -443,7 +469,35 @@ def test_loop_bound_guard_catches_a_planted_offender() -> None:
         for name, member in _public_members(Planted)
         if name != "()" and _hands_out_loop_bound(member)
     }
-    assert caught == {".qualified", ".bare", ".wrapped"}
+    assert caught == {
+        ".qualified",
+        ".bare",
+        ".wrapped",
+        ".parameterized",
+        ".accepted",
+    }
+
+
+def test_loop_bound_guard_catches_an_unresolvable_annotation() -> None:
+    """A member whose annotations cannot be resolved is still checked.
+
+    `from __future__ import annotations` plus a `TYPE_CHECKING`-only import
+    makes `get_type_hints` raise, which is a fifth of the public surface.
+    Those members fall back to reading the rendered signature rather than
+    being skipped, because a skipped member is a hole in the guard.
+    """
+
+    def unresolvable(lock: asyncio.Lock, other: NeverDefined) -> None:  # noqa: F821  # ty: ignore[unresolved-reference]
+        raise NotImplementedError
+
+    def unresolvable_clean(value: NeverDefined) -> None:  # noqa: F821  # ty: ignore[unresolved-reference]
+        raise NotImplementedError
+
+    with pytest.raises(NameError):
+        typing.get_type_hints(unresolvable)
+
+    assert _hands_out_loop_bound(unresolvable)
+    assert not _hands_out_loop_bound(unresolvable_clean)
 
 
 def test_interpreter_derived_defaults_are_still_current() -> None:

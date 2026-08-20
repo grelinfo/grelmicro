@@ -116,14 +116,17 @@ def resolve_ambient(key: tuple[str, str]) -> Any:  # noqa: ANN401
         LookupError: No app is bound in this scope, or it registers no such
             component.
     """
-    # Resolves the same way `Grelmicro.get` does. Change one and change the
-    # other, or a component reachable by name stops being reachable ambiently.
+    # The app is read first, so a scope that outlives the app it was opened
+    # under raises rather than answering from a closed component. Past that
+    # this resolves the same way `Grelmicro.get` does, so change one and
+    # change the other.
+    micro = _current_micro.get()
     overrides = _active_bulkhead.get(None)
     if overrides is not None:
         override = overrides.get(key)
         if override is not None:
             return override
-    return _current_micro.get()._by_key[key]  # noqa: SLF001
+    return micro._by_key[key]  # noqa: SLF001
 
 
 def _item_owns_global_state(item: object) -> bool:

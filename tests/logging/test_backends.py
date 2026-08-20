@@ -4,7 +4,9 @@ These tests verify that loguru, structlog, and stdlib backends behave
 identically for the public API.
 """
 
+import io
 import logging
+import sys
 from datetime import UTC, datetime
 from enum import Enum
 from unittest.mock import MagicMock
@@ -579,6 +581,34 @@ class TestConfigureLoggingJSONSerializer:
         log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["msg"] == "awkward value"
         assert field in log_record
+
+    def test_structlog_orjson_without_a_stdout_buffer(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        reset_backend: None,  # noqa: ARG002
+    ) -> None:
+        """Structlog with orjson configures on a stdout that has no buffer.
+
+        orjson writes bytes, so the byte stream under stdout is the direct
+        route. A replaced stdout has no `buffer`, and reaching for it there
+        used to fail the whole `configure()` call.
+        """
+        # Arrange
+        replaced = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", replaced)
+        monkeypatch.setenv("GREL_LOG_BACKEND", "structlog")
+        monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+        monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+        monkeypatch.setenv("GREL_LOG_JSON_SERIALIZER", "orjson")
+
+        # Act
+        configure()
+        structlog.get_logger().info("no buffer here", count=_COUNT)
+
+        # Assert
+        log_record = parse_json_log(replaced.getvalue())
+        assert log_record["msg"] == "no buffer here"
+        assert log_record["count"] == _COUNT
 
     @pytest.mark.parametrize(
         "record",

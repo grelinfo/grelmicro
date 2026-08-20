@@ -49,20 +49,30 @@ def _log_json_default(obj: object) -> str:
     return repr(obj)
 
 
-def _orjson_log_dumps(obj: Mapping[str, Any]) -> str:
+def orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
     """Serialize a log record with orjson, keeping the line on odd values.
 
     orjson refuses a non-string dict key, where the standard library writes
     it as a string. The retry writes the record the same way rather than
     losing it, and only a record that carries such a key pays for it:
     `OPT_NON_STR_KEYS` costs about 80% on every call when it is always on.
+
+    `kwargs` reaches `orjson.dumps`, so a caller keeps its own `default`.
     """
     try:
-        return _orjson_dumps(obj, default=repr).decode("utf-8")
+        return _orjson_dumps(obj, **kwargs)
     except TypeError:
-        return _orjson_dumps(
-            obj, default=repr, option=_OPT_NON_STR_KEYS
-        ).decode("utf-8")
+        return _orjson_dumps(obj, option=_OPT_NON_STR_KEYS, **kwargs)
+
+
+def orjson_record_dumps_str(obj: object, **kwargs: Any) -> str:  # noqa: ANN401
+    """Return `orjson_record_dumps` as text, for a writer that takes `str`."""
+    return orjson_record_dumps(obj, **kwargs).decode("utf-8")
+
+
+def _orjson_log_dumps(obj: Mapping[str, Any]) -> str:
+    """Serialize a log record with orjson, rendering odd values as text."""
+    return orjson_record_dumps_str(obj, default=repr)
 
 
 def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:

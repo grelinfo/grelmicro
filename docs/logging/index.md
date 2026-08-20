@@ -338,7 +338,7 @@ timestamps on UTC under a service that schedules on local time.
 
 The default is `auto`: orjson when it is installed, the standard library when it is not. Install [`grelmicro[standard]`](../installation.md) and your logs get faster with no further setting. See the [benchmarks](../benchmarks.md#logging) for what that buys.
 
-Neither one can lose a record. Whatever you put in `extra={...}` gets written, and a value JSON has no representation for is rendered as text rather than raising. That is what makes `auto` safe to switch on.
+Neither one loses a record over a value it cannot represent. An object JSON has no encoding for is rendered as text rather than raising, and a dict keyed by numbers is written with string keys. That is what makes `auto` safe to switch on. A dict key that is not a string, number, or boolean still raises out of the log call, under either serializer.
 
 They do not write every value the same way:
 

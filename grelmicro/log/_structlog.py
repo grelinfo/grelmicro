@@ -4,7 +4,6 @@ import logging
 import sys
 import traceback
 from datetime import UTC, datetime, tzinfo
-from typing import Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
 from grelmicro.log._shared import (
@@ -12,6 +11,8 @@ from grelmicro.log._shared import (
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
+    orjson_record_dumps,
+    orjson_record_dumps_str,
     render_pretty_lines,
     render_text_line,
     resolve_serializer,
@@ -157,21 +158,6 @@ def _build_flat_record(
     return flat_record
 
 
-def _orjson_record_dumps(obj: object, **kwargs: Any) -> bytes:  # noqa: ANN401
-    """Serialize a structlog record with orjson, keeping the line.
-
-    orjson refuses a non-string dict key, where the standard library writes
-    it as a string. The retry writes the record the same way rather than
-    losing it, and only a record that carries such a key pays for it.
-    """
-    import orjson  # noqa: PLC0415
-
-    try:
-        return orjson.dumps(obj, **kwargs)
-    except TypeError:
-        return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS, **kwargs)
-
-
 def _render_logfmt(
     _logger: WrappedLogger,
     _method_name: str,
@@ -260,14 +246,28 @@ def configure(config: LogConfig | None = None) -> None:
             resolve_serializer(settings.json_serializer)
             == LogSerializerType.ORJSON
         ):
-            processors.append(
-                structlog.processors.JSONRenderer(
-                    serializer=_orjson_record_dumps, default=repr
-                )
-            )
+            # orjson writes bytes, so the byte stream under stdout is the
+            # direct route. A stdout that has no `buffer`, such as a test
+            # harness or a notebook, takes the text writer instead of
+            # failing to configure at all.
+            buffer = getattr(sys.stdout, "buffer", None)
             logger_factory: (
                 structlog.BytesLoggerFactory | structlog.PrintLoggerFactory
-            ) = structlog.BytesLoggerFactory(file=sys.stdout.buffer)
+            )
+            if buffer is not None:
+                processors.append(
+                    structlog.processors.JSONRenderer(
+                        serializer=orjson_record_dumps
+                    )
+                )
+                logger_factory = structlog.BytesLoggerFactory(file=buffer)
+            else:
+                processors.append(
+                    structlog.processors.JSONRenderer(
+                        serializer=orjson_record_dumps_str
+                    )
+                )
+                logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
         else:
             processors.append(
                 structlog.processors.JSONRenderer(default=_log_json_default)

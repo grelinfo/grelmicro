@@ -34,10 +34,10 @@ That brings two things:
 
 The serializer runs on every cache read and write, so it is the single biggest lever on a cache-heavy service.
 
-| Serializer | Use it for | Relative cost |
+| Serializer | Use it for | Relative speed |
 |---|---|---|
-| `PydanticSerializer` | `BaseModel`, dataclasses, `TypedDict` | Fastest, roughly 2x pickle |
-| `JsonSerializer` | dicts, lists, JSON-native types | Fast with orjson, roughly 7x stdlib json |
+| `PydanticSerializer` | `BaseModel`, dataclasses, `TypedDict` | Fastest, roughly 2x faster than pickle |
+| `JsonSerializer` | dicts, lists, JSON-native types | Fast, roughly 7x faster than stdlib json when orjson is installed |
 | `PickleSerializer` | arbitrary Python objects | Slowest, and the least portable |
 
 Annotate the type and grelmicro picks the matching serializer for you:
