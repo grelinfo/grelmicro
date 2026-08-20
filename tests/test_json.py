@@ -44,13 +44,16 @@ class TestOrjsonPath:
         """Test that has_orjson returns True when orjson is installed."""
         assert has_orjson() is True
 
-    def test_non_string_key_matches_the_stdlib(self) -> None:
-        """A non-string dict key is rendered as a string, as the stdlib does.
+    def test_non_string_key_is_refused(self) -> None:
+        """A value that cannot round-trip raises rather than changing shape.
 
-        Without `OPT_NON_STR_KEYS` orjson raises here, so whether the value
-        serializes would depend on which library happens to be installed.
+        `OPT_NON_STR_KEYS` would write `{1: "a"}` as `{"1": "a"}`, and this
+        module backs the cache and the outbox, where a payload that reads
+        back with a different key type is a silent data loss. The log module
+        makes the opposite call, because a log line must not be lost.
         """
-        assert json_dumps_bytes({"counts": {1: "a"}}) == b'{"counts":{"1":"a"}}'
+        with pytest.raises(TypeError):
+            json_dumps_bytes({"counts": {1: "a"}})
 
     @pytest.mark.parametrize(
         ("obj", "expected_fragment"),

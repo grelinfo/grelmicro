@@ -246,21 +246,15 @@ def configure(config: LogConfig | None = None) -> None:
         ):
             import orjson  # noqa: PLC0415
 
-            from grelmicro._json import ORJSON_OPTIONS  # noqa: PLC0415
-
             processors.append(
-                structlog.processors.JSONRenderer(
-                    serializer=orjson.dumps, option=ORJSON_OPTIONS
-                )
+                structlog.processors.JSONRenderer(serializer=orjson.dumps)
             )
             logger_factory: (
                 structlog.BytesLoggerFactory | structlog.PrintLoggerFactory
             ) = structlog.BytesLoggerFactory(file=sys.stdout.buffer)
         else:
             processors.append(
-                structlog.processors.JSONRenderer(
-                    default=json_default, ensure_ascii=False
-                )
+                structlog.processors.JSONRenderer(default=json_default)
             )
             logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
     elif resolved_format == LogFormatType.LOGFMT:

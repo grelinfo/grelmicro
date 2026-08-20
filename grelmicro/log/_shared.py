@@ -25,12 +25,11 @@ except ImportError:  # pragma: no cover
 from grelmicro._json import has_orjson
 
 try:
+    from orjson import OPT_NON_STR_KEYS as _OPT_NON_STR_KEYS
     from orjson import dumps as _orjson_dumps
-
-    from grelmicro._json import ORJSON_OPTIONS as _ORJSON_OPTIONS
 except ImportError:  # pragma: no cover
     _orjson_dumps: Any = None  # type: ignore[no-redef]
-    _ORJSON_OPTIONS = 0
+    _OPT_NON_STR_KEYS = 0
 
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
 """Shared key strategy vocabulary for the log filters."""
@@ -51,10 +50,19 @@ def _log_json_default(obj: object) -> str:
 
 
 def _orjson_log_dumps(obj: Mapping[str, Any]) -> str:
-    """Serialize a log record with orjson, keeping the line on odd values."""
-    return _orjson_dumps(obj, default=repr, option=_ORJSON_OPTIONS).decode(
-        "utf-8"
-    )
+    """Serialize a log record with orjson, keeping the line on odd values.
+
+    orjson refuses a non-string dict key, where the standard library writes
+    it as a string. The retry writes the record the same way rather than
+    losing it, and only a record that carries such a key pays for it:
+    `OPT_NON_STR_KEYS` costs about 80% on every call when it is always on.
+    """
+    try:
+        return _orjson_dumps(obj, default=repr).decode("utf-8")
+    except TypeError:
+        return _orjson_dumps(
+            obj, default=repr, option=_OPT_NON_STR_KEYS
+        ).decode("utf-8")
 
 
 def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
@@ -64,12 +72,7 @@ def _stdlib_json_dumps(obj: Mapping[str, Any]) -> str:
     whether ``orjson`` is installed. Used when the user explicitly
     selects ``LOG_JSON_SERIALIZER=stdlib``.
     """
-    return json.dumps(
-        obj,
-        separators=(",", ":"),
-        default=_log_json_default,
-        ensure_ascii=False,
-    )
+    return json.dumps(obj, separators=(",", ":"), default=_log_json_default)
 
 
 def has_opentelemetry() -> bool:

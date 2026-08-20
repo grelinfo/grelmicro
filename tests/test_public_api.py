@@ -45,9 +45,12 @@ A new public module is itself a deliberate API change, so add it to
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 import re
+import typing
+from asyncio import Lock
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -284,13 +287,23 @@ def test_public_api_matches_snapshot(snapshot_json) -> None:  # noqa: ANN001
     assert build_public_api() == snapshot_json
 
 
-_LOOP_BOUND = re.compile(
-    r"asyncio\.(?:Lock|Event|Condition|Semaphore|BoundedSemaphore|Barrier"
-    r"|Queue|LifoQueue|PriorityQueue|Future|AbstractEventLoop"
-    r"|AbstractEventLoopPolicy)\b"
-    r"|\bAbstractEventLoop\b"
+_LOOP_BOUND_TYPES = (
+    asyncio.Lock,
+    asyncio.Event,
+    asyncio.Condition,
+    asyncio.Semaphore,
+    asyncio.Barrier,
+    asyncio.Queue,
+    asyncio.Future,
+    asyncio.AbstractEventLoop,
 )
-"""Objects that bind to the event loop that first awaits them."""
+"""Objects that bind to the event loop that first awaits them.
+
+Matched by resolving the annotation to a class rather than by reading the
+rendered signature. `inspect.signature` writes an un-stringized annotation
+as `asyncio.locks.Lock` and a `from asyncio import Lock` one as `Lock`, so
+a pattern over the rendered text misses most of the codebase.
+"""
 
 _LOOP_BOUND_ALLOWED = {
     "grelmicro.providers.sqlite.SQLiteProvider.connection_lock",
@@ -304,22 +317,48 @@ and an adapter author has to reach it.
 
 
 def _public_members(obj: object) -> list[tuple[str, Callable[..., Any]]]:
-    """Return every public callable a class defines itself, plus the class.
+    """Return every public callable reachable on a class, plus the class.
 
-    A property is represented by its getter, which carries the return
-    annotation the guard reads.
+    Walks the MRO, so a member a base class defines is checked on every
+    subclass that exports it. A property is represented by its getter,
+    which carries the return annotation the guard reads.
     """
     members: list[tuple[str, Callable[..., Any]]] = []
-    if callable(obj):
+    if isinstance(obj, type):
+        # The constructor, not the class: `get_type_hints` on a class reads
+        # its attribute annotations, private ones included, which says
+        # nothing about what the class hands a caller.
+        members.append(("()", obj.__init__))
+    elif callable(obj):
         members.append(("()", obj))
     if isinstance(obj, type):
-        for attr_name, attr in vars(obj).items():
-            if attr_name.startswith("_"):
+        seen: set[str] = set()
+        for klass in obj.__mro__:
+            if klass is object:
                 continue
-            target = attr.fget if isinstance(attr, property) else attr
-            if callable(target):
-                members.append((f".{attr_name}", target))
+            for attr_name, attr in vars(klass).items():
+                if attr_name.startswith("_") or attr_name in seen:
+                    continue
+                seen.add(attr_name)
+                target = attr.fget if isinstance(attr, property) else attr
+                if callable(target):
+                    members.append((f".{attr_name}", target))
     return members
+
+
+def _hands_out_loop_bound(member: Callable[..., Any]) -> bool:
+    """Return whether any annotation on `member` resolves to a loop-bound type."""
+    try:
+        hints = typing.get_type_hints(member)
+    except Exception:  # noqa: BLE001  # unresolvable forward reference
+        return False
+    pending = list(hints.values())
+    while pending:
+        hint = pending.pop()
+        if isinstance(hint, type) and issubclass(hint, _LOOP_BOUND_TYPES):
+            return True
+        pending.extend(typing.get_args(hint))
+    return False
 
 
 def test_public_api_hands_out_no_loop_bound_object() -> None:
@@ -348,12 +387,8 @@ def test_public_api_hands_out_no_loop_bound_object() -> None:
                 qualified = f"{module_name}.{symbol}{label}"
                 if qualified in _LOOP_BOUND_ALLOWED:
                     continue
-                try:
-                    rendered = str(inspect.signature(member))
-                except (TypeError, ValueError):
-                    continue
-                if _LOOP_BOUND.search(rendered):
-                    offenders.append(f"{qualified}: {rendered}")
+                if _hands_out_loop_bound(member):
+                    offenders.append(qualified)
     assert not offenders, (
         "loop-bound objects on the public surface:\n" + "\n".join(offenders)
     )
@@ -368,15 +403,47 @@ def test_loop_bound_allowlist_still_describes_something_real() -> None:
     for qualified in sorted(_LOOP_BOUND_ALLOWED):
         module_name, symbol, attr = qualified.rsplit(".", 2)
         module = importlib.import_module(module_name)
-        member = getattr(type(getattr(module, symbol)), attr, None) or getattr(
-            getattr(module, symbol), attr
-        )
+        owner = getattr(module, symbol)
+        member = getattr(owner, attr)
         target = member.fget if isinstance(member, property) else member
-        rendered = str(inspect.signature(target))
-        assert _LOOP_BOUND.search(rendered), (
-            f"{qualified} no longer hands out a loop-bound object "
-            f"({rendered}), so drop it from the allowlist"
+        assert _hands_out_loop_bound(target), (
+            f"{qualified} no longer hands out a loop-bound object, "
+            f"so drop it from the allowlist"
         )
+
+
+def test_loop_bound_guard_catches_a_planted_offender() -> None:
+    """The guard flags a loop-bound member, however the annotation is written.
+
+    `inspect.signature` renders the same return type three different ways
+    depending on the import form and whether the module stringizes its
+    annotations, so a guard that reads the rendered text passes on most of
+    this codebase. These are the forms it has to catch.
+    """
+
+    class Planted:
+        @property
+        def qualified(self) -> asyncio.Lock:  # asyncio.locks.Lock
+            raise NotImplementedError
+
+        @property
+        def bare(self) -> Lock:  # from asyncio import Lock
+            raise NotImplementedError
+
+        @property
+        def wrapped(self) -> asyncio.Event | None:
+            raise NotImplementedError
+
+        @property
+        def clean(self) -> str:
+            raise NotImplementedError
+
+    caught = {
+        name
+        for name, member in _public_members(Planted)
+        if name != "()" and _hands_out_loop_bound(member)
+    }
+    assert caught == {".qualified", ".bare", ".wrapped"}
 
 
 def test_interpreter_derived_defaults_are_still_current() -> None:

@@ -338,23 +338,26 @@ timestamps on UTC under a service that schedules on local time.
 
 The default is `auto`: orjson when it is installed, the standard library when it is not. Install [`grelmicro[standard]`](../installation.md) and your logs get faster with no further setting. See the [benchmarks](../benchmarks.md#logging) for what that buys.
 
-Both write the same JSON for every value a log record can carry, with one exception:
+Neither one can lose a record. Whatever you put in `extra={...}` gets written, and a value JSON has no representation for is rendered as text rather than raising. That is what makes `auto` safe to switch on.
+
+They do not write every value the same way:
 
 | Value in `extra={...}` | `stdlib` | `orjson` |
 |---|---|---|
 | `float("nan")`, `float("inf")` | `NaN`, `Infinity` | `null` |
+| `"Zürich"` | `"Zürich"` | `"Zürich"` |
+| `UUID(...)` | `"UUID('0d8e...')"` | `"0d8e..."` |
+| `Enum`, dataclass | `repr` of the object | the value, the fields |
 
-Note which way that goes. `NaN` is not valid JSON, so the standard library writes a line a strict log reader cannot parse. orjson writes `null` instead.
+orjson renders more types natively and writes UTF-8. The standard library escapes non-ASCII and falls back to `repr`. Both stay valid JSON, and every reader decodes either form, but the text of a field can change when a deployment gains orjson.
 
-Everything else matches, including the two places the libraries disagree out of the box. A non-string dict key is written as a string rather than raising, and non-ASCII text is written as UTF-8 rather than `\uXXXX` escapes. orjson has no option to escape, so the standard library follows it, which is also what [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259.html#section-8.1) asks for.
-
-Pin the choice when you need the output to be identical everywhere, whatever is installed:
+So pin the serializer when the exact bytes matter, for example when a downstream parser matches on a field:
 
 ```bash
 export GREL_LOG_JSON_SERIALIZER=stdlib   # or orjson
 ```
 
-`orjson` raises `DependencyNotFoundError` at startup when it is not installed, so a deployment that depends on it fails loudly rather than getting the slower serializer. `auto` never raises.
+`orjson` raises `DependencyNotFoundError` at startup when it is not installed, so a deployment that depends on it fails loudly rather than quietly getting the slower serializer. `auto` never raises.
 
 ## JSON Record Structure
 

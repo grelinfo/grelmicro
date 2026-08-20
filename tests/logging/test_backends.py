@@ -6,7 +6,9 @@ identically for the public API.
 
 import logging
 from datetime import UTC, datetime
+from enum import Enum
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 import pytest_mock
@@ -37,6 +39,12 @@ _USER_ID_2 = 456
 _USER_ID_3 = 789
 _COUNT = 42
 _AWARE_MOMENT = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+
+
+class _Colour(Enum):
+    """Stand-in for a value orjson renders and the stdlib reprs."""
+
+    RED = "red"
 
 
 class TestConfigureLoggingJSON:
@@ -518,22 +526,40 @@ class TestConfigureLoggingJSONSerializer:
             pytest.param(
                 {"msg": "hit", "counts": {1: "a", 2: "b"}}, id="non-string-key"
             ),
-            pytest.param(
-                {"msg": "Zürich café 東京", "user": "José"}, id="non-ascii"
-            ),
             pytest.param({"msg": "hit", "n": 3, "ok": True}, id="plain"),
             pytest.param({"msg": "hit", "at": _AWARE_MOMENT}, id="datetime"),
         ],
     )
     def test_serializers_agree(self, record: dict[str, object]) -> None:
-        """Both serializers write the same JSON, so `auto` changes nothing.
+        """Neither serializer refuses a record the other one writes.
 
-        Without `OPT_NON_STR_KEYS` orjson raises on a non-string key, and
-        without `ensure_ascii=False` the stdlib escapes non-ASCII that
-        orjson writes as UTF-8. Either one would make the installed library
-        decide what a log line says.
+        orjson rejects a non-string dict key by default, where the stdlib
+        writes it as a string. `_orjson_log_dumps` retries with
+        `OPT_NON_STR_KEYS` so the record survives either way.
         """
         assert _orjson_log_dumps(record) == _stdlib_json_dumps(record)
+
+    @pytest.mark.parametrize(
+        "record",
+        [
+            pytest.param({"v": UUID(int=5)}, id="uuid"),
+            pytest.param({"v": _Colour.RED}, id="enum"),
+            pytest.param({"msg": "Zürich"}, id="non-ascii"),
+            pytest.param({"v": float("inf")}, id="non-finite-float"),
+        ],
+    )
+    def test_serializers_differ_on_documented_values(
+        self, record: dict[str, object]
+    ) -> None:
+        """These are the values the two write differently, and the docs say so.
+
+        orjson renders a `UUID` and an `Enum` natively and writes non-ASCII
+        as UTF-8. The stdlib falls back to `repr` and escapes. Both stay
+        valid JSON, and neither loses the record, which is what makes `auto`
+        safe to default. Pin `stdlib` or `orjson` when the exact bytes
+        matter.
+        """
+        assert _orjson_log_dumps(record) != _stdlib_json_dumps(record)
 
 
 class TestLoadSettings:
