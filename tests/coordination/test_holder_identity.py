@@ -210,6 +210,7 @@ def test_foreign_threads_never_share_an_identity() -> None:
 
     # Poll rather than sleep a fixed margin: `done.set()` runs before the
     # thread returns, so a loaded runner can still be tearing it down.
+    alive: list[weakref.ref[object]] = list(refs)
     deadline = time.monotonic() + _FOREIGN_TIMEOUT
     while time.monotonic() < deadline:
         gc.collect()
