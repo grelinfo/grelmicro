@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import re
 
@@ -10,6 +11,10 @@ import pytest
 from grelmicro.resilience import Match, Outcome
 
 # --- Match.exception -------------------------------------------------------
+
+
+_RECYCLE_ATTEMPTS = 200
+_THROWAWAY_PREDICATES = 50
 
 
 def test_exception_single_class() -> None:
@@ -314,7 +319,7 @@ def test_predicate_non_bool_warns(caplog: pytest.LogCaptureFixture) -> None:
     def truthy_int(_exc: Exception) -> int:
         return 1
 
-    match_mod._warned_predicates.discard(id(truthy_int))
+    match_mod._warned_predicates.discard(truthy_int)
 
     f = Match.exception(truthy_int)  # ty: ignore[invalid-argument-type]
     with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
@@ -332,7 +337,7 @@ def test_predicate_non_bool_warns_only_once(
     def truthy_int(_exc: Exception) -> int:
         return 1
 
-    match_mod._warned_predicates.discard(id(truthy_int))
+    match_mod._warned_predicates.discard(truthy_int)
 
     f = Match.exception(truthy_int)  # ty: ignore[invalid-argument-type]
     with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
@@ -370,3 +375,36 @@ def test_repr_round_trip() -> None:
     text = repr(f)
     assert "exception(ValueError)" in text
     assert "result(None)" in text
+
+
+def _truthy_predicate() -> object:
+    """Return a fresh predicate that returns a non-bool."""
+
+    def truthy(_exc: Exception) -> int:
+        return 1
+
+    return truthy
+
+
+def test_the_warning_registry_forgets_a_collected_predicate() -> None:
+    """A predicate that is gone must not stay remembered.
+
+    The registry held `id(predicate)` and nothing else, so an entry
+    outlived its predicate. CPython then handed that address to the next
+    one, whose warning was silently suppressed, and the caller never
+    learned their predicate returns a non-bool. The entries also piled up
+    for every predicate ever built.
+    """
+    import grelmicro.resilience._match as match_mod  # noqa: PLC0415
+
+    outcome = Outcome.from_exception(ValueError("x"))
+    before = len(match_mod._warned_predicates)
+
+    predicate = _truthy_predicate()
+    Match.exception(predicate)(outcome)  # ty: ignore[invalid-argument-type]
+    assert len(match_mod._warned_predicates) == before + 1
+
+    del predicate
+    gc.collect()
+
+    assert len(match_mod._warned_predicates) == before

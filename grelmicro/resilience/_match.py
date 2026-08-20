@@ -25,29 +25,30 @@ import logging
 import re
 from collections.abc import Callable
 from typing import Any, cast
+from weakref import WeakSet
 
 from grelmicro.resilience._outcome import Outcome
 
 _log = logging.getLogger("grelmicro.resilience")
-_warned_predicates: set[int] = set()
+_warned_predicates: WeakSet[Any] = WeakSet()
+"""Predicates already warned about, dropped when the predicate is."""
 
 
 def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
     """Return ``bool(result)``, warning once if ``result`` was not already ``bool``.
 
-    The warning fires at most once per unique predicate object to avoid log
-    spam in tight retry loops.
+    The warning fires at most once per predicate, so a tight retry loop
+    reports it once rather than on every attempt. A predicate that is
+    collected is forgotten, so the next one is reported on its own terms.
     """
-    if type(result) is not bool:
-        pred_id = id(predicate)
-        if pred_id not in _warned_predicates:
-            _warned_predicates.add(pred_id)
-            _log.warning(
-                "Match predicate %r returned non-bool %r; coercing to bool. "
-                "Return an explicit bool to suppress this warning.",
-                getattr(predicate, "__name__", repr(predicate)),
-                result,
-            )
+    if type(result) is not bool and predicate not in _warned_predicates:
+        _warned_predicates.add(predicate)
+        _log.warning(
+            "Match predicate %r returned non-bool %r; coercing to bool. "
+            "Return an explicit bool to suppress this warning.",
+            getattr(predicate, "__name__", repr(predicate)),
+            result,
+        )
     return bool(result)
 
 
