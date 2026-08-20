@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from grelmicro._guards import is_class, is_subclass
 from grelmicro.resilience import Match, Outcome
 from grelmicro.resilience._match import (
     _UNTRACKABLE_LIMIT,
@@ -19,8 +20,6 @@ from grelmicro.resilience._match import (
     _coerce_bool,
     _describe,
     _describe_value,
-    _is_class,
-    _is_subclass,
     _message_of,
     _warn,
 )
@@ -1171,9 +1170,9 @@ class _MessageInterruptsError(Exception):
 @pytest.mark.parametrize(
     "call",
     [
-        pytest.param(lambda: _is_class(_ClassInterrupts()), id="is-class"),
+        pytest.param(lambda: is_class(_ClassInterrupts()), id="is-class"),
         pytest.param(
-            lambda: _is_subclass(_BasesInterrupt(), Exception),
+            lambda: is_subclass(_BasesInterrupt(), Exception),
             id="is-subclass",
         ),
         pytest.param(

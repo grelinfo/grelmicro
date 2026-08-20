@@ -35,6 +35,7 @@ from grelmicro._config import (
     env_prefixes,
     parse_csv_or_json,
 )
+from grelmicro._guards import is_class, is_instance, is_subclass
 from grelmicro._json import json_loads
 from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience._match import Match, Matcher
@@ -62,11 +63,17 @@ _UNSET: Any = object()
 
 
 def _coerce_to_match(value: Any) -> Match:  # noqa: ANN401
-    """Coerce a non-Match shorthand into a ``Match`` instance."""
-    if isinstance(value, type) and issubclass(value, Exception):
+    """Coerce a non-Match shorthand into a ``Match`` instance.
+
+    Every shape test goes through the same total helpers the matcher
+    uses. `isinstance` reads `__class__`, which a lazy proxy raises from,
+    and this runs inside a validator, where an arbitrary error escapes the
+    conversion pydantic performs for `ValueError` alone.
+    """
+    if is_class(value) and is_subclass(value, Exception):
         return Match.exception(value)
-    if isinstance(value, tuple) and all(
-        isinstance(t, type) and issubclass(t, Exception) for t in value
+    if is_instance(value, tuple) and all(
+        is_class(item) and is_subclass(item, Exception) for item in value
     ):
         return Match.exception(*value)
     if callable(value):
@@ -99,12 +106,12 @@ def _resolve_fqn(fqn: str) -> type[Exception]:
     except AttributeError as exc:
         msg = "when= env entry names an attribute its module does not define"
         raise ValueError(msg) from exc
-    if not (isinstance(cls, type) and issubclass(cls, Exception)):
+    if not (is_class(cls) and is_subclass(cls, Exception)):
         # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
         # and `AssertionError` into a `ValidationError`, so a `TypeError` here
         # escaped `except SettingsValidationError` and `except ValueError` both.
         msg = "when= env entry does not name an Exception subclass"
-        raise ValueError(msg)  # noqa: TRY004
+        raise ValueError(msg)
     return cls
 
 
@@ -151,19 +158,19 @@ class FallbackConfig(
     @classmethod
     def _coerce_when(cls, value: Any) -> Any:  # noqa: ANN401
         """Coerce shorthand shapes (and the env string) to a ``Match``."""
-        if isinstance(value, Match):
+        if is_instance(value, Match):
             return value
-        if isinstance(value, str):
+        if is_instance(value, str):
             value = parse_csv_or_json(value)
-        if isinstance(value, list | tuple) and not (
-            isinstance(value, tuple)
+        if is_instance(value, list | tuple) and not (
+            is_instance(value, tuple)
             and all(
-                isinstance(item, type) and issubclass(item, Exception)
+                is_class(item) and is_subclass(item, Exception)
                 for item in value
             )
         ):
             resolved: tuple[type[Exception], ...] = tuple(
-                _resolve_fqn(item) if isinstance(item, str) else item
+                _resolve_fqn(item) if is_instance(item, str) else item
                 for item in value
             )
             if not resolved:

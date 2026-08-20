@@ -110,3 +110,31 @@ def test_model_dump_roundtrip() -> None:
     data = config.model_dump()
     rebuilt = ApiShieldConfig.model_validate(data)
     assert rebuilt == config
+
+
+class _LazyProxy:
+    """Forwards `__class__` to a target that is not bound yet."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, the way an unbound proxy does."""
+        msg = "proxy is not bound"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_LazyProxy(), id="lazy-proxy"),
+        pytest.param((ValueError, _LazyProxy()), id="proxy-inside-a-tuple"),
+    ],
+)
+def test_timeout_errors_rejects_an_unreadable_value(value: object) -> None:
+    """A value that cannot be classified is refused, not a crash.
+
+    `isinstance` reads `__class__`, and a lazy proxy raises from it while
+    unbound. A validator converts only `ValueError`, so whatever the proxy
+    raised escaped the documented error entirely.
+    """
+    with pytest.raises(ValidationError):
+        ApiShieldConfig(timeout_errors=value)

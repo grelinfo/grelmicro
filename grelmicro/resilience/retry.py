@@ -39,6 +39,7 @@ from grelmicro._config import (
     parse_csv_or_json,
     resolve_config,
 )
+from grelmicro._guards import is_class, is_instance, is_subclass
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
@@ -85,10 +86,10 @@ def _coerce_to_match(value: Any) -> Match:  # noqa: ANN401
     instances before calling this helper, so the input here is one
     of the shorthand forms (class, tuple, callable, FQN env list).
     """
-    if isinstance(value, type) and issubclass(value, Exception):
+    if is_class(value) and is_subclass(value, Exception):
         return Match.exception(value)
-    if isinstance(value, tuple) and all(
-        isinstance(t, type) and issubclass(t, Exception) for t in value
+    if is_instance(value, tuple) and all(
+        is_class(item) and is_subclass(item, Exception) for item in value
     ):
         return Match.exception(*value)
     if callable(value):
@@ -121,12 +122,12 @@ def _resolve_fqn(fqn: str) -> type[Exception]:
     except AttributeError as exc:
         msg = "when= env entry names an attribute its module does not define"
         raise ValueError(msg) from exc
-    if not (isinstance(cls, type) and issubclass(cls, Exception)):
+    if not (is_class(cls) and is_subclass(cls, Exception)):
         # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
         # and `AssertionError` into a `ValidationError`, so a `TypeError` here
         # escaped `except SettingsValidationError` and `except ValueError` both.
         msg = "when= env entry does not name an Exception subclass"
-        raise ValueError(msg)  # noqa: TRY004
+        raise ValueError(msg)
     return cls
 
 
@@ -195,22 +196,27 @@ class RetryConfig(
         Accepts a ``Match`` directly, an exception class, a tuple of
         classes, a callable predicate on the exception, or a
         CSV/JSON env string of FQNs (e.g. ``"httpx.HTTPError"``).
+
+        Every shape test goes through the same total helpers the matcher
+        uses. `isinstance` reads `__class__`, which a lazy proxy raises
+        from, and a validator runs where an arbitrary error escapes the
+        conversion pydantic performs for `ValueError` alone.
         """
-        if isinstance(value, Match):
+        if is_instance(value, Match):
             return value
         # Env path: a CSV or JSON string of FQNs.
-        if isinstance(value, str):
+        if is_instance(value, str):
             value = parse_csv_or_json(value)
         # List/tuple of items (FQN strings or resolved classes).
-        if isinstance(value, list | tuple) and not (
-            isinstance(value, tuple)
+        if is_instance(value, list | tuple) and not (
+            is_instance(value, tuple)
             and all(
-                isinstance(item, type) and issubclass(item, Exception)
+                is_class(item) and is_subclass(item, Exception)
                 for item in value
             )
         ):
             resolved: tuple[type[Exception], ...] = tuple(
-                _resolve_fqn(item) if isinstance(item, str) else item
+                _resolve_fqn(item) if is_instance(item, str) else item
                 for item in value
             )
             if not resolved:

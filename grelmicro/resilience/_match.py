@@ -27,6 +27,7 @@ from collections.abc import Callable
 from typing import Any, cast
 from weakref import WeakSet
 
+from grelmicro._guards import is_class, is_instance, is_subclass
 from grelmicro.resilience._outcome import Outcome
 
 _log = logging.getLogger("grelmicro.resilience")
@@ -107,41 +108,6 @@ def _warn(message: str, *args: Any) -> None:  # noqa: ANN401
         return
 
 
-def _is_instance(value: Any, parent: type) -> bool:  # noqa: ANN401
-    """Return whether `value` is a `parent`, and never raise deciding it.
-
-    `isinstance` reads `__class__` when the fast check fails, and a lazy
-    proxy forwards that to an object which raises while unbound. A hostile
-    `__instancecheck__` raises outright.
-    """
-    try:
-        return isinstance(value, parent)
-    except (KeyboardInterrupt, SystemExit):
-        raise
-    except BaseException:  # noqa: BLE001
-        return False
-
-
-def _is_class(candidate: Any) -> bool:  # noqa: ANN401
-    """Return whether `candidate` is a class, and never raise deciding it."""
-    return _is_instance(candidate, type)
-
-
-def _is_subclass(candidate: Any, parent: type) -> bool:  # noqa: ANN401
-    """Return whether `candidate` subclasses `parent`, and never raise.
-
-    An object whose `__class__` reports `type` reaches `issubclass`, which
-    refuses it. Answering False sends it to the argument error the caller
-    is meant to see.
-    """
-    try:
-        return issubclass(candidate, parent)
-    except (KeyboardInterrupt, SystemExit):
-        raise
-    except BaseException:  # noqa: BLE001
-        return False
-
-
 def _message_of(exc: BaseException) -> str | None:
     """Return an exception's message, or None when it cannot be read.
 
@@ -177,13 +143,13 @@ def _name_of_argument(value: Any) -> str:  # noqa: ANN401
     A validator message is rendered verbatim, so echoing the value would
     put caller data into the error.
     """
-    return _describe(value) if _is_class(value) else _describe(type(value))
+    return _describe(value) if is_class(value) else _describe(type(value))
 
 
 def _is_exact_str(value: Any) -> bool:  # noqa: ANN401
     """Return whether `value` is a string, without trusting `__class__`."""
     return type(value) is str or (
-        _is_class(type(value)) and _is_subclass(type(value), str)
+        is_class(type(value)) and is_subclass(type(value), str)
     )
 
 
@@ -204,7 +170,7 @@ def _compile_pattern(regex: Any) -> re.Pattern[str]:  # noqa: ANN401
                 f"Match.exception_message() regex= is not a valid regex: {exc}"
             )
             raise ValueError(msg) from None
-    if _is_instance(regex, re.Pattern):
+    if is_instance(regex, re.Pattern):
         pattern = cast("re.Pattern[Any]", regex)
         if not _is_exact_str(pattern.pattern):
             msg = (
@@ -357,7 +323,7 @@ class Match:
 
     def __or__(self, other: Match) -> Match:
         """Return a Match that engages when either side engages."""
-        if not _is_instance(other, Match):
+        if not is_instance(other, Match):
             return NotImplemented
         return Match(
             lambda outcome: self(outcome) or other(outcome),
@@ -366,7 +332,7 @@ class Match:
 
     def __and__(self, other: Match) -> Match:
         """Return a Match that engages when both sides engage."""
-        if not _is_instance(other, Match):
+        if not is_instance(other, Match):
             return NotImplemented
         return Match(
             lambda outcome: self(outcome) and other(outcome),
@@ -396,7 +362,7 @@ class Match:
         if (
             len(exception_types_or_predicate) == 1
             and callable(exception_types_or_predicate[0])
-            and not _is_class(exception_types_or_predicate[0])
+            and not is_class(exception_types_or_predicate[0])
         ):
             predicate = exception_types_or_predicate[0]
 
@@ -413,7 +379,7 @@ class Match:
 
         # All arguments must be exception classes.
         for type_ in exception_types_or_predicate:
-            if not (_is_class(type_) and _is_subclass(type_, Exception)):
+            if not (is_class(type_) and is_subclass(type_, Exception)):
                 got = _name_of_argument(type_)
                 msg = (
                     f"Match.exception() arguments must all be exception "
@@ -446,7 +412,7 @@ class Match:
         as predicates: to match a function literal, wrap it in a
         predicate (``lambda r: r is my_fn``).
         """
-        if callable(value_or_predicate) and not _is_class(value_or_predicate):
+        if callable(value_or_predicate) and not is_class(value_or_predicate):
             predicate = value_or_predicate
 
             def _check_predicate(outcome: Outcome[Any]) -> bool:
@@ -545,7 +511,7 @@ class Match:
         if (
             len(exception_types_or_predicate) == 1
             and callable(exception_types_or_predicate[0])
-            and not _is_class(exception_types_or_predicate[0])
+            and not is_class(exception_types_or_predicate[0])
         ):
             predicate = exception_types_or_predicate[0]
 
@@ -561,7 +527,7 @@ class Match:
             )
 
         for type_ in exception_types_or_predicate:
-            if not (_is_class(type_) and _is_subclass(type_, BaseException)):
+            if not (is_class(type_) and is_subclass(type_, BaseException)):
                 got = _name_of_argument(type_)
                 msg = (
                     f"Match.exception_cause() arguments must all be exception "

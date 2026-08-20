@@ -1,10 +1,12 @@
 """Errors."""
 
 import re
-from typing import ClassVar, get_args
+from typing import Any, ClassVar, cast, get_args
 
 from pydantic import ValidationError
 from pydantic_core import ErrorType
+
+from grelmicro._guards import is_instance
 
 
 class GrelmicroError(Exception):
@@ -325,6 +327,22 @@ def _is_echoing(error_type: str) -> bool:
     return bool(_KNOWN_ERROR_TYPES) and error_type not in _KNOWN_ERROR_TYPES
 
 
+def _text_of(value: object) -> str:
+    """Render a rejected value, and never raise doing it.
+
+    A `str` subclass runs caller code from `__str__`, and this is the
+    backstop that keeps a credential out of an error message, so it
+    cannot be the thing that fails. An unrenderable value is one no
+    message could have quoted.
+    """
+    try:
+        return str(value)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return ""
+
+
 def _candidates(value: object) -> set[str]:
     """Return every string inside `value`, whole and unsplit.
 
@@ -340,22 +358,26 @@ def _candidates(value: object) -> set[str]:
     thorough and was the bug: a piece of the rejected value matches the
     correct value that shares it, so `Europe/Zurichh` redacted the `Europe`
     of the `did you mean 'Europe/Zurich'` written to replace it.
+
+    Every shape test is total. This runs while an error is already being
+    reported, and a lazy proxy raising from `__class__` used to replace
+    the `SettingsValidationError` a component owes its caller.
     """
-    if isinstance(value, bool):
+    if is_instance(value, bool):
         # `True` and `False` carry nothing, and removing those words would
         # garble a message that legitimately uses them.
         return set()
-    if isinstance(value, (str, int, float)):
-        text = str(value)
+    if is_instance(value, (str, int, float)):
+        text = _text_of(value)
         return {text} if len(text) >= _MIN_REDACTED_LENGTH else set()
-    if isinstance(value, dict):
+    if is_instance(value, dict):
         found: set[str] = set()
-        for item in value.values():
+        for item in cast("dict[Any, Any]", value).values():
             found |= _candidates(item)
         return found
-    if isinstance(value, (list, tuple, set)):
+    if is_instance(value, (list, tuple, set)):
         found = set()
-        for item in value:
+        for item in cast("tuple[Any, ...]", value):
             found |= _candidates(item)
         return found
     return set()

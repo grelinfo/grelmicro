@@ -746,6 +746,46 @@ def test_when_rejects_invalid_value(fast_constant: ConstantBackoff) -> None:
         Retry("api", fast_constant, when=42)  # ty: ignore[invalid-argument-type]
 
 
+class _LazyProxy:
+    """Forwards `__class__` to a target that is not bound yet."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, the way an unbound proxy does."""
+        msg = "proxy is not bound"
+        raise RuntimeError(msg)
+
+
+class _ClaimsToBeAClass:
+    """Reports `type` as its class without being one."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Report `type`, so `isinstance(x, type)` says yes."""
+        return type
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_LazyProxy(), id="lazy-proxy"),
+        pytest.param(_ClaimsToBeAClass(), id="claims-to-be-a-class"),
+        pytest.param((ValueError, _LazyProxy()), id="proxy-inside-a-tuple"),
+    ],
+)
+def test_when_rejects_an_unreadable_value(
+    fast_constant: ConstantBackoff, value: object
+) -> None:
+    """A `when=` that cannot be classified is an argument error, not a crash.
+
+    `isinstance` reads `__class__`, and a lazy proxy raises from it while
+    unbound. A validator converts only `ValueError`, so whatever the proxy
+    raised escaped `except SettingsValidationError` entirely.
+    """
+    with pytest.raises(SettingsValidationError):
+        Retry("api", fast_constant, when=value)  # ty: ignore[invalid-argument-type]
+
+
 async def test_env_when_rejects_non_dotted_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

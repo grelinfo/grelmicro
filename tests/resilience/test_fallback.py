@@ -480,3 +480,41 @@ def test_class_form_decorator_reraises_unmatched_sync() -> None:
 
     with pytest.raises(KeyError, match="nope"):
         fn()
+
+
+class _LazyProxy:
+    """Forwards `__class__` to a target that is not bound yet."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, the way an unbound proxy does."""
+        msg = "proxy is not bound"
+        raise RuntimeError(msg)
+
+
+class _ClaimsToBeAClass:
+    """Reports `type` as its class without being one."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Report `type`, so `isinstance(x, type)` says yes."""
+        return type
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_LazyProxy(), id="lazy-proxy"),
+        pytest.param(_ClaimsToBeAClass(), id="claims-to-be-a-class"),
+        pytest.param((ValueError, _LazyProxy()), id="proxy-inside-a-tuple"),
+    ],
+)
+def test_when_rejects_an_unreadable_value(value: object) -> None:
+    """A `when=` that cannot be classified is an argument error, not a crash.
+
+    `isinstance` reads `__class__`, and a lazy proxy raises from it while
+    unbound. A validator converts only `ValueError`, so whatever the proxy
+    raised escaped `except SettingsValidationError` entirely.
+    """
+    with pytest.raises(SettingsValidationError):
+        Fallback("api", when=value, default=0)  # ty: ignore[invalid-argument-type]

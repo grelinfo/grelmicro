@@ -19,6 +19,7 @@ from unittest import mock
 
 import anyio
 import pytest
+from pydantic import BaseModel, ValidationError, field_validator
 
 import grelmicro
 import grelmicro._config
@@ -569,3 +570,87 @@ def test_a_rejected_name_is_repeated_in_the_message() -> None:
     with pytest.raises(SettingsValidationError) as exc_info:
         Lock("bad name with spaces")
     assert "bad name with spaces" in str(exc_info.value)
+
+
+class _LazyProxy:
+    """Forwards `__class__` to a target that is not bound yet.
+
+    `werkzeug.local.LocalProxy` and `django.utils.functional.SimpleLazyObject`
+    both behave this way while unbound.
+    """
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, the way an unbound proxy does."""
+        msg = "proxy is not bound"
+        raise RuntimeError(msg)
+
+
+class _HostileText(str):
+    """A string that raises while it is rendered."""
+
+    __slots__ = ()
+
+    def __str__(self) -> str:
+        """Raise, so the scrubber cannot read what it must redact."""
+        msg = "text is unreadable"
+        raise RuntimeError(msg)
+
+
+class _InterruptingText(str):
+    """A string that raises an interrupt while it is rendered."""
+
+    __slots__ = ()
+
+    def __str__(self) -> str:
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+
+class _RejectingConfig(BaseModel, arbitrary_types_allowed=True):
+    """Rejects whatever it is given, the way a strict validator does."""
+
+    field: object
+
+    @field_validator("field")
+    @classmethod
+    def _reject(cls, value: object) -> object:  # noqa: ARG003
+        """Refuse every value, without naming it."""
+        msg = "field is not acceptable"
+        raise ValueError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_LazyProxy(), id="lazy-proxy"),
+        pytest.param(_HostileText("secret"), id="unreadable-text"),
+        pytest.param({"nested": _LazyProxy()}, id="proxy-in-a-mapping"),
+        pytest.param([_LazyProxy()], id="proxy-in-a-list"),
+    ],
+)
+def test_an_unreadable_value_still_raises_the_settings_error(
+    value: object,
+) -> None:
+    """The scrubber runs while an error is reported, so it cannot fail.
+
+    Deciding what to redact reads `__class__` and renders the value, both
+    caller code. A lazy proxy raising from `__class__` replaced the
+    `SettingsValidationError` a component owes its caller with whatever
+    the proxy raised, which no documented `except` catches.
+    """
+    with pytest.raises(ValidationError) as exc_info:
+        _RejectingConfig(field=value)
+
+    wrapped = SettingsValidationError(exc_info.value)
+
+    assert "field is not acceptable" in str(wrapped)
+
+
+def test_a_real_interrupt_is_never_swallowed_by_the_scrubber() -> None:
+    """The scrubber absorbs an unreadable value, not a genuine Ctrl-C."""
+    with pytest.raises(ValidationError) as exc_info:
+        _RejectingConfig(field=_InterruptingText("secret"))
+
+    with pytest.raises(KeyboardInterrupt):
+        SettingsValidationError(exc_info.value)
