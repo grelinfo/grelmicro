@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import gc
 import logging
+import operator
 import re
+from dataclasses import dataclass
 
 import pytest
 
@@ -13,8 +15,15 @@ from grelmicro.resilience import Match, Outcome
 # --- Match.exception -------------------------------------------------------
 
 
-_RECYCLE_ATTEMPTS = 200
-_THROWAWAY_PREDICATES = 50
+@dataclass
+class _UnhashablePredicate:
+    """A predicate a `WeakSet` can neither hash nor weakly reference."""
+
+    n: int = 1
+
+    def __call__(self, _exc: Exception) -> int:
+        """Return a non-bool, to trigger the warning."""
+        return 1
 
 
 def test_exception_single_class() -> None:
@@ -398,6 +407,7 @@ def test_the_warning_registry_forgets_a_collected_predicate() -> None:
     import grelmicro.resilience._match as match_mod  # noqa: PLC0415
 
     outcome = Outcome.from_exception(ValueError("x"))
+    gc.collect()
     before = len(match_mod._warned_predicates)
 
     predicate = _truthy_predicate()
@@ -408,3 +418,31 @@ def test_the_warning_registry_forgets_a_collected_predicate() -> None:
     gc.collect()
 
     assert len(match_mod._warned_predicates) == before
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        pytest.param(operator.attrgetter("errno"), id="not-weak-referenceable"),
+        pytest.param(_UnhashablePredicate(), id="unhashable"),
+    ],
+)
+def test_a_predicate_that_cannot_be_tracked_warns_instead_of_raising(
+    predicate: object,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Tracking a predicate must never raise out of the matcher.
+
+    A matcher runs inside the resilience machinery, and `Retry` calls it
+    from an `except` block, so an exception raised here would replace the
+    error the caller was already handling. An `operator.attrgetter` cannot
+    be weak-referenced and an unhashable instance cannot be looked up, so
+    both report every time rather than failing.
+    """
+    outcome = Outcome.from_exception(OSError(2, "boom"))
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro.resilience"):
+        result = Match.exception(predicate)(outcome)  # ty: ignore[invalid-argument-type]
+
+    assert result is True
+    assert any("non-bool" in record.message for record in caplog.records)

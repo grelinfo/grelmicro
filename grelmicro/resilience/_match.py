@@ -34,15 +34,32 @@ _warned_predicates: WeakSet[Any] = WeakSet()
 """Predicates already warned about, dropped when the predicate is."""
 
 
-def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
-    """Return ``bool(result)``, warning once if ``result`` was not already ``bool``.
+def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
+    """Return whether this predicate has been warned about, and record it.
 
-    The warning fires at most once per predicate, so a tight retry loop
-    reports it once rather than on every attempt. A predicate that is
-    collected is forgotten, so the next one is reported on its own terms.
+    Tracked weakly, so a predicate that is collected stops speaking for
+    the next one allocated at its address. A predicate that cannot be
+    tracked, an `operator.attrgetter` or an unhashable instance among
+    them, reports every time rather than raising: this runs inside the
+    resilience machinery, where an exception here would replace the error
+    the caller was already handling.
     """
-    if type(result) is not bool and predicate not in _warned_predicates:
+    try:
+        if predicate in _warned_predicates:
+            return True
         _warned_predicates.add(predicate)
+    except TypeError:
+        return False
+    return False
+
+
+def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
+    """Return ``bool(result)``, warning if ``result`` was not already ``bool``.
+
+    The warning fires once per predicate, so a tight retry loop reports it
+    once rather than on every attempt.
+    """
+    if type(result) is not bool and not _already_warned(predicate):
         _log.warning(
             "Match predicate %r returned non-bool %r; coercing to bool. "
             "Return an explicit bool to suppress this warning.",
