@@ -60,9 +60,9 @@
         - RetryStrategy
         - Shield
         - ShieldConfig
-        - Stack
         - SlidingWindowConfig
         - SlowShieldConfig
+        - Stack
         - Timeout
         - TimeoutConfig
         - TokenBucketConfig

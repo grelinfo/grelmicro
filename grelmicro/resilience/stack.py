@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import functools
-from inspect import iscoroutinefunction
+from inspect import iscoroutinefunction, ismethod
 from typing import TYPE_CHECKING, Annotated, Any, NoReturn, overload
+from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import (
@@ -153,6 +155,23 @@ def _unwrap(control: _Control) -> NoReturn:
     raise error from error.__cause__
 
 
+def _as_coroutine_function[**P, R](
+    fn: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[R]]:
+    """Return `fn` as a coroutine function, adapting a callable object.
+
+    Every pattern below picks its wrapper with `iscoroutinefunction`,
+    which reads `False` for an object whose `__call__` is async.
+    """
+    if iscoroutinefunction(fn):
+        return fn
+
+    async def target(*args: P.args, **kwargs: P.kwargs) -> R:
+        return await fn(*args, **kwargs)
+
+    return target
+
+
 def _named(fn: object) -> str:
     """Return the name of a decorated function, for a message."""
     return getattr(fn, "__qualname__", None) or repr(fn)
@@ -216,11 +235,15 @@ class Stack:
     Every other error reaches each pattern exactly as its own `when=`
     or `ignore_exceptions` decides.
 
+    A stack whose patterns all take sync functions decorates one. A
+    sync stack holding a `CircuitBreaker` runs from a worker thread,
+    because the breaker reaches its backend through the event loop.
+
     Read more in the [Composing patterns](../resilience/composition.md)
     docs.
     """
 
-    __slots__ = ("_guard", "_members", "_name")
+    __slots__ = ("_chains", "_guard", "_members", "_name")
 
     def __init__(
         self,
@@ -273,6 +296,9 @@ class Stack:
             raise ValueError(msg)
         self._name = name
         self._members = members
+        self._chains: WeakKeyDictionary[
+            Callable[..., Any], Callable[..., Awaitable[Any]]
+        ] = WeakKeyDictionary()
         self._guard = (
             _CIRCUIT_BREAKER in members
             and (_RATE_LIMITER in members or _BULKHEAD in members),
@@ -323,7 +349,7 @@ class Stack:
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
-        if iscoroutinefunction(fn):
+        if is_async_callable(fn):
             return functools.wraps(fn)(self._build_async(fn))
         blocking = [
             _LABELS[slot] for slot in _ASYNC_ONLY if slot in self._members
@@ -357,13 +383,19 @@ class Stack:
         Raises:
             TypeError: If `fn` is not async.
         """
-        if not iscoroutinefunction(fn):
+        if not is_async_callable(fn):
             msg = (
                 f"Stack.run only calls async functions, got {fn!r}. Use "
                 "the decorator for a sync function."
             )
             raise TypeError(msg)
-        return await self._build_async(fn)(*args, **kwargs)
+        if ismethod(fn):
+            return await self._build_async(fn)(*args, **kwargs)
+        chain = self._chains.get(fn)
+        if chain is None:
+            chain = self._build_async(fn)
+            self._chains[fn] = chain
+        return await chain(*args, **kwargs)
 
     def _build_async[**P, R](
         self, fn: Callable[P, Awaitable[R]]
@@ -371,7 +403,7 @@ class Stack:
         """Wrap `fn` in every pattern, innermost first."""
         guard_refusal, guard_breaker = self._guard
         members = self._members
-        call = fn
+        call = _as_coroutine_function(fn)
         timeout = members.get(_TIMEOUT)
         if isinstance(timeout, Timeout):
             call = timeout(call)

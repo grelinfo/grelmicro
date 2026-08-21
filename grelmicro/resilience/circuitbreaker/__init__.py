@@ -1014,6 +1014,7 @@ class _ThreadAdapter:
         loop = backend._loop  # noqa: SLF001
         if loop is None:
             raise_backend_not_open(f"CircuitBreaker {cb.name!r}")
+        _refuse_on_event_loop(cb.name)
         config = cb._state.config  # noqa: SLF001
         snapshot = asyncio.run_coroutine_threadsafe(
             _async_admit(cb), loop
@@ -1050,6 +1051,29 @@ class _ThreadAdapter:
             _async_handle_exit(cb, config, exc_type, exc_value), loop
         ).result()
         return None
+
+
+def _refuse_on_event_loop(name: str) -> None:
+    """Refuse a worker-thread entry made from the event loop thread.
+
+    `from_thread` hands the work to the loop and blocks on the result,
+    which never arrives when the caller is the loop itself.
+
+    Raises:
+        RuntimeError: If the calling thread runs an event loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    msg = (
+        f"CircuitBreaker {name!r} was entered through `from_thread` on "
+        "a thread that runs an event loop, which would wait on the "
+        "loop that has to do the work. Use `async with breaker:` from "
+        "async code, or run the sync call through "
+        "`asyncio.to_thread(...)`."
+    )
+    raise RuntimeError(msg)
 
 
 async def _async_admit(cb: CircuitBreaker) -> CircuitBreakerSnapshot | None:

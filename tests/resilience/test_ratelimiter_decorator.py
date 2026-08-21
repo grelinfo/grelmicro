@@ -218,3 +218,44 @@ def test_a_sync_function_is_refused() -> None:
         @limiter  # ty: ignore[no-matching-overload]
         def work() -> str:  # type: ignore[arg-type]
             return "never"
+
+
+async def test_decorates_a_callable_object_with_an_async_call() -> None:
+    """An object whose `__call__` is async is metered like a function."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
+        )
+
+        class Client:
+            """A callable that is async without being a coroutine function."""
+
+            async def __call__(self) -> str:
+                return "ok"
+
+        work = limiter(Client())
+
+        assert await work() == "ok"
+        with pytest.raises(RateLimitExceededError):
+            await work()
+
+
+def test_a_none_wait_budget_is_refused() -> None:
+    """`None` means wait forever on `wait`, and never a decorator budget."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    with pytest.raises(TypeError, match="never None"):
+        limiter(max_wait=None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize(
+    "template", ["user:{}", "user:{0}"], ids=["auto", "index"]
+)
+def test_a_positional_template_field_is_refused(template: str) -> None:
+    """A positional field names no parameter, so it is refused early."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+
+    with pytest.raises(ValueError, match="positional field"):
+
+        @limiter(key=template)
+        async def work(user_id: int) -> int:
+            return user_id

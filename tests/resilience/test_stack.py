@@ -616,3 +616,113 @@ async def test_a_bound_limiter_meters_by_its_key() -> None:
         assert await work(2) == 2  # noqa: PLR2004
         with pytest.raises(RateLimitExceededError):
             await work(1)
+
+
+# --- Callable objects and reuse ---
+
+
+async def test_decorates_a_callable_object_with_an_async_call() -> None:
+    """An object whose `__call__` is async is an async function here."""
+
+    class Client:
+        """A callable that is async without being a coroutine function."""
+
+        async def __call__(self, value: int) -> int:
+            return value * 2
+
+    stack = Stack(
+        "recs", patterns=[a_retry(), Timeout("recs", seconds=TIMEOUT)]
+    )
+    wrapped = stack(Client())
+
+    assert await wrapped(DOUBLE) == DOUBLED
+
+
+async def test_every_pattern_sees_a_callable_object_as_async() -> None:
+    """The patterns below wrap the call, they do not skip it."""
+
+    class Client:
+        """A callable object that fails until its last attempt."""
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self) -> str:
+            self.calls += 1
+            if self.calls < ATTEMPTS:
+                raise RuntimeError
+            return "ok"
+
+    client = Client()
+    stack = Stack("recs", patterns=[a_retry()])
+
+    assert await stack(client)() == "ok"
+    assert client.calls == ATTEMPTS
+
+
+async def test_run_calls_a_callable_object() -> None:
+    """`run` accepts what the decorator accepts."""
+
+    class Client:
+        """A callable that is async without being a coroutine function."""
+
+        async def __call__(self, value: int) -> int:
+            return value * 2
+
+    stack = Stack("recs", patterns=[a_retry()])
+
+    assert await stack.run(Client(), DOUBLE) == DOUBLED
+
+
+async def test_run_builds_one_chain_per_function() -> None:
+    """Repeating `run` on one function reuses the chain it built."""
+    stack = Stack("recs", patterns=[a_retry()])
+
+    async def work(value: int) -> int:
+        return value * 2
+
+    assert await stack.run(work, DOUBLE) == DOUBLED
+    assert await stack.run(work, DOUBLE) == DOUBLED
+    assert len(stack._chains) == 1
+
+
+async def test_run_does_not_cache_a_bound_method() -> None:
+    """A bound method is a fresh object per lookup, so caching it leaks."""
+
+    class Client:
+        """A client whose method is called through the stack."""
+
+        async def fetch(self, value: int) -> int:
+            return value * 2
+
+    stack = Stack("recs", patterns=[a_retry()])
+    client = Client()
+
+    assert await stack.run(client.fetch, DOUBLE) == DOUBLED
+    assert await stack.run(client.fetch, DOUBLE) == DOUBLED
+    assert len(stack._chains) == 0
+
+
+def test_a_sync_breaker_entered_from_the_event_loop_is_refused() -> None:
+    """A sync stack with a breaker cannot run on the loop thread."""
+
+    async def scenario() -> None:
+        async with MemoryCircuitBreakerAdapter() as backend:
+            stack = Stack(
+                "recs",
+                patterns=[
+                    a_retry(),
+                    CircuitBreaker.consecutive_count(
+                        "recs", error_threshold=1, backend=backend
+                    ),
+                ],
+            )
+
+            @stack
+            def work() -> str:
+                return "never"
+
+            with pytest.raises(RuntimeError, match="runs an event loop"):
+                work()
+
+    asyncio.run(scenario())

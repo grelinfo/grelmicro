@@ -7,13 +7,13 @@ import functools
 import inspect
 import logging
 from dataclasses import dataclass
-from inspect import iscoroutinefunction
 from string import Formatter
 from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never, overload
 
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
+from grelmicro._async import is_async_callable
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
@@ -817,12 +817,25 @@ def _named(fn: object) -> str:
 
 
 def _template_fields(template: str) -> list[str]:
-    """Return the parameter names a key template reads."""
-    return [
+    """Return the parameter names a key template reads.
+
+    Raises:
+        ValueError: If the template reads a positional field, which
+            names no parameter.
+    """
+    fields = [
         field.split(".")[0].split("[")[0]
         for _, field, _, _ in Formatter().parse(template)
-        if field
+        if field is not None
     ]
+    if any(name == "" or name.isdigit() for name in fields):
+        msg = (
+            f"Rate limiter key template {template!r} reads a "
+            "positional field. Name the parameter instead, as in "
+            '"user:{user_id}".'
+        )
+        raise ValueError(msg)
+    return fields
 
 
 class RateLimiterBinding:
@@ -856,7 +869,8 @@ class RateLimiterBinding:
         """Bind a limiter to one key, cost, and wait budget.
 
         Raises:
-            TypeError: If both `key` and `key_maker` are passed.
+            TypeError: If both `key` and `key_maker` are passed, or
+                `max_wait` is `None`.
             ValueError: If `max_wait` is negative.
         """
         if key is not None and key_maker is not None:
@@ -864,6 +878,15 @@ class RateLimiterBinding:
                 "Pass key or key_maker, not both. `key` renders a "
                 "template from the call's arguments, `key_maker` "
                 "computes the key itself."
+            )
+            raise TypeError(msg)
+        if max_wait is None:
+            msg = (
+                "max_wait is a number of seconds here, never None. "
+                "`limiter.wait(max_wait=None)` waits forever, and a "
+                "wait with no bound has nothing above it to stop it "
+                "inside a stack. Use 0.0 to raise as soon as the "
+                "budget is spent, or a positive number of seconds."
             )
             raise TypeError(msg)
         if max_wait < 0:
@@ -962,7 +985,7 @@ class RateLimiterBinding:
             ValueError: If a `key` template names a parameter `fn` has
                 not.
         """
-        if not iscoroutinefunction(fn):
+        if not is_async_callable(fn):
             msg = (
                 "RateLimiter only decorates async functions. Consuming "
                 "tokens reaches the backend, and waiting for them "

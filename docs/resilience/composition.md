@@ -69,6 +69,10 @@ Stack 'recs' only decorates async functions, because Timeout does.
 Make refresh_prices async, or drop that pattern from the stack.
 ```
 
+A sync stack that holds a `CircuitBreaker` runs from a worker thread, not from the event loop thread. The breaker keeps its state on the backend and reaches it through the loop, so calling one from the loop thread would wait on the loop that has to do the work. That is refused with a message rather than left to hang. Reach it with `asyncio.to_thread(...)`, the same way [`CircuitBreaker`](circuit-breaker.md) is reached from sync code on its own.
+
+An object whose `__call__` is `async def` counts as an async function everywhere a `Stack` looks, in the decorator and in `run`.
+
 ## Building the list conditionally
 
 A `None` entry is skipped, the way it is in `Grelmicro(uses=[...])`, so a pattern that applies to one deployment stays a plain expression: `patterns=[retrier, breaker if shared else None]`.

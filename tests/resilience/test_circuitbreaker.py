@@ -1369,3 +1369,12 @@ async def test_a_probe_cancelled_from_a_thread_gives_its_slot_back() -> None:
 
         await asyncio.to_thread(probe)
         assert cb.state is not CircuitBreakerState.OPEN
+
+
+async def test_from_thread_on_the_event_loop_thread_is_refused() -> None:
+    """Entering from the loop thread would wait on the loop itself."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker("loop-thread", backend=backend)
+
+        with pytest.raises(RuntimeError, match="runs an event loop"):
+            cb.from_thread.__enter__()
