@@ -1,5 +1,7 @@
 """Tests for the RateLimiter decorator and its binding."""
 
+import gc
+import weakref
 from typing import Any
 
 import pytest
@@ -310,3 +312,41 @@ async def test_a_template_with_a_trailing_literal_renders() -> None:
         assert await work(USER) == USER
         with pytest.raises(RateLimitExceededError):
             await work(USER)
+
+
+async def test_a_resolver_is_reused_without_holding_the_target() -> None:
+    """The template resolver is shared, and it pins nothing."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    binding = limiter(key="user:{user_id}")
+    assert isinstance(binding, RateLimiterBinding)
+
+    async def work(user_id: int) -> int:
+        return user_id
+
+    first = binding._resolver(work)
+    assert binding._resolver(work) is first
+
+    reference = weakref.ref(work)
+    del work, first
+    gc.collect()
+    assert reference() is None
+
+
+def test_a_resolver_is_built_for_a_target_that_takes_no_weak_reference() -> (
+    None
+):
+    """A `__slots__` client cannot be a weak key, and still resolves."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    binding = limiter(key="user:{user_id}")
+    assert isinstance(binding, RateLimiterBinding)
+
+    class Client:
+        """A callable that cannot be weakly referenced."""
+
+        __slots__ = ()
+
+        async def __call__(self, user_id: int) -> int:
+            return user_id
+
+    resolver = binding._resolver(Client())
+    assert resolver((USER,), {}) == f"user:{USER}"

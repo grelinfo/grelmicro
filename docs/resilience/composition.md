@@ -44,11 +44,32 @@ A refusal by the stack's own rate limiter, bulkhead, or circuit breaker is not a
 | `RateLimitExceededError` | its `CircuitBreaker` records no outcome |
 | `BulkheadFullError` | its `CircuitBreaker` records no outcome |
 
+Nothing that happens while the stack is admitting a call counts against its breaker either. A `key_maker` that raises, a `cost` above the limiter's capacity, and a limiter backend that is down are all refused without recording a dependency outcome, so a mistake in one tenant's key cannot open the circuit for every caller.
+
 Everything else reaches every pattern exactly as that pattern's own `when=` or `ignore_exceptions` decides. The stack changes no configuration.
 
 The refusal itself is unchanged. A `Fallback` at the top still catches the `CircuitBreakerError`, and a caller still reads `retry_after` off the `RateLimitExceededError`.
 
 This is the one place a `Stack` is more than the hand-written layers below. Stacking the same patterns by hand gives you the raw composition, where a broad `when=` retries through an open breaker and a quota refusal counts as a dependency failure.
+
+## Budgets add up
+
+Each layer holds its own budget, and one attempt can spend all of them in turn. The worst case for a single attempt is the sum:
+
+```text
+rate limiter max_wait + bulkhead max_wait + timeout seconds
+```
+
+The `Timeout` is innermost, so it bounds the call and nothing above it. A `Bulkhead(max_wait=30.0)` queues for a permit *outside* that deadline, and a limiter with a wait budget queues outside both. To bound one attempt end to end, budget the parts. To bound a whole logical call including its retries, put a deadline above the stack:
+
+```python
+async with asyncio.timeout(5.0):
+    await get_recommendations(user_id)
+```
+
+Both wait budgets default to no waiting at all, so a stack refuses rather than queues until you ask otherwise.
+
+A retry spends the budgets again. Every attempt re-enters the limiter and takes a fresh token, including an attempt the bulkhead then refuses, so a broad `Retry(when=Exception)` above a saturated bulkhead drains the quota on calls that never leave the process. This is the case the [narrow `when=`](#picking-when) advice exists for: the usual `when=httpx.HTTPError` never matches a `BulkheadFullError`, so the default is already right.
 
 ## The imperative form
 

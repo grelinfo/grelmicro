@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 from inspect import iscoroutinefunction
-from typing import TYPE_CHECKING, Annotated, Any, NoReturn, overload
+from typing import TYPE_CHECKING, Annotated, Any, overload
 
 from typing_extensions import Doc
 
@@ -12,9 +12,7 @@ from grelmicro._async import is_async_callable
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import (
-    BulkheadFullError,
     CircuitBreakerError,
-    RateLimitExceededError,
 )
 from grelmicro.resilience.fallback import Fallback
 from grelmicro.resilience.ratelimiter import RateLimiter, RateLimiterBinding
@@ -144,14 +142,16 @@ class _Control(BaseException):
         """The refusal, re-raised once the pattern above has passed."""
 
 
-def _unwrap(control: _Control) -> NoReturn:
-    """Re-raise the carried refusal, leaving no trace of the carrier.
+def _carried(control: _Control) -> Exception:
+    """Return the refusal the carrier held, and detach the carrier.
 
-    Raises:
-        Exception: The refusal the carrier held.
+    The caller raises the result after its `except` block, so the
+    carrier is no longer the exception being handled and the
+    interpreter does not attach it as `__context__`.
     """
     error = control.error
-    raise error from error.__cause__
+    control.error = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    return error
 
 
 def _as_coroutine_function[**P, R](
@@ -478,7 +478,7 @@ def _bulkhead_layer[**P, R](
             async with bulkhead:
                 admitted = True
                 return await inner(*args, **kwargs)
-        except BulkheadFullError as error:
+        except Exception as error:
             if admitted:
                 raise
             raise _Control(error) from None
@@ -497,7 +497,7 @@ def _limiter_layer[**P, R](
     async def layer(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
             await admit(args, kwargs)
-        except RateLimitExceededError as error:
+        except Exception as error:
             if not guard:
                 raise
             raise _Control(error) from None
@@ -535,7 +535,8 @@ def _breaker_layer[**P, R](
                 raise
             raise _Control(error) from None
         except _Control as control:
-            _unwrap(control)
+            refusal = _carried(control)
+        raise refusal
 
     return layer
 
@@ -549,7 +550,8 @@ def _unwrap_layer[**P, R](
         try:
             return await inner(*args, **kwargs)
         except _Control as control:
-            _unwrap(control)
+            refusal = _carried(control)
+        raise refusal
 
     return layer
 
@@ -585,6 +587,7 @@ def _sync_unwrap_layer[**P, R](inner: Callable[P, R]) -> Callable[P, R]:
         try:
             return inner(*args, **kwargs)
         except _Control as control:
-            _unwrap(control)
+            refusal = _carried(control)
+        raise refusal
 
     return layer

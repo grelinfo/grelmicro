@@ -14,6 +14,7 @@ from grelmicro.resilience import (
     BulkheadFullError,
     CircuitBreaker,
     CircuitBreakerError,
+    CircuitBreakerState,
     Fallback,
     MemoryCircuitBreakerAdapter,
     MemoryRateLimiterAdapter,
@@ -786,3 +787,89 @@ async def test_run_does_not_advise_a_decorator_that_would_refuse_too() -> None:
     sync_capable = Stack("recs", patterns=[a_retry()])
     with pytest.raises(TypeError, match="Use the decorator"):
         await sync_capable.run(lambda: None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+async def test_a_key_error_is_not_a_dependency_failure() -> None:
+    """A mistake resolving the key must not open the circuit."""
+    async with (
+        MemoryCircuitBreakerAdapter() as cb_backend,
+        MemoryRateLimiterAdapter() as rl_backend,
+    ):
+        breaker = CircuitBreaker.consecutive_count(
+            "recs", error_threshold=1, backend=cb_backend
+        )
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=CAPACITY, refill_rate=1, backend=rl_backend
+        )
+
+        def explode(_fn: object, _args: object, _kwargs: object) -> str:
+            msg = "tenant"
+            raise KeyError(msg)
+
+        stack = Stack("recs", patterns=[breaker, limiter(key_maker=explode)])
+
+        @stack
+        async def work() -> str:
+            return "ok"
+
+        for _ in range(ATTEMPTS):
+            with pytest.raises(KeyError):
+                await work()
+
+        assert breaker.metrics().total_error_count == 0
+        assert breaker.state is CircuitBreakerState.CLOSED
+
+
+async def test_a_cost_above_capacity_is_not_a_dependency_failure() -> None:
+    """The limiter refuses the call before the backend sees it."""
+    async with (
+        MemoryCircuitBreakerAdapter() as cb_backend,
+        MemoryRateLimiterAdapter() as rl_backend,
+    ):
+        breaker = CircuitBreaker.consecutive_count(
+            "recs", error_threshold=1, backend=cb_backend
+        )
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=1, refill_rate=1, backend=rl_backend
+        )
+        stack = Stack("recs", patterns=[breaker, limiter(cost=2)])
+
+        @stack
+        async def work() -> str:
+            return "ok"
+
+        with pytest.raises(ValueError, match="cost"):
+            await work()
+        assert breaker.metrics().total_error_count == 0
+
+
+async def test_a_refusal_carries_no_trace_of_the_carrier() -> None:
+    """The private carrier never reaches the caller, not even as context."""
+    async with (
+        MemoryCircuitBreakerAdapter() as cb_backend,
+        MemoryRateLimiterAdapter() as rl_backend,
+    ):
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=1, refill_rate=SLOW_REFILL, backend=rl_backend
+        )
+        stack = Stack(
+            "recs",
+            patterns=[
+                a_retry(),
+                CircuitBreaker.consecutive_count(
+                    "recs", error_threshold=ERROR_THRESHOLD, backend=cb_backend
+                ),
+                limiter,
+            ],
+        )
+
+        @stack
+        async def work() -> str:
+            return "ok"
+
+        assert await work() == "ok"
+        with pytest.raises(RateLimitExceededError) as caught:
+            await work()
+
+        assert caught.value.__context__ is None
+        assert caught.value.__cause__ is None

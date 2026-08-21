@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass
 from string import Formatter
 from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never, overload
+from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
 
@@ -856,6 +857,7 @@ class RateLimiterBinding:
         "_key_maker",
         "_limiter",
         "_max_wait",
+        "_resolvers",
     )
 
     def __init__(
@@ -919,6 +921,10 @@ class RateLimiterBinding:
         self._key_maker = key_maker
         self._cost = cost
         self._max_wait = max_wait
+        self._resolvers: WeakKeyDictionary[
+            Callable[..., Any],
+            Callable[[tuple[Any, ...], dict[str, Any]], str],
+        ] = WeakKeyDictionary()
 
     @property
     def limiter(self) -> RateLimiter:
@@ -936,6 +942,29 @@ class RateLimiterBinding:
         self, fn: Callable[..., Any]
     ) -> Callable[[tuple[Any, ...], dict[str, Any]], str]:
         """Return the key resolver for one decorated function.
+
+        A template resolver reads the signature and nothing else, so
+        two callables that compare equal share one safely, and the
+        resolver holds no reference back to the callable it was built
+        for. A callable that cannot be a weak key is resolved fresh.
+
+        Raises:
+            ValueError: If the template names a parameter `fn` has not.
+        """
+        try:
+            cached = self._resolvers.get(fn)
+        except TypeError:
+            return self._build_resolver(fn)
+        if cached is not None:
+            return cached
+        resolver = self._build_resolver(fn)
+        self._resolvers[fn] = resolver
+        return resolver
+
+    def _build_resolver(
+        self, fn: Callable[..., Any]
+    ) -> Callable[[tuple[Any, ...], dict[str, Any]], str]:
+        """Build the key resolver for one decorated function.
 
         Raises:
             ValueError: If the template names a parameter `fn` has not.
