@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Self, assert_never
+from inspect import iscoroutinefunction
+from string import Formatter
+from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never, overload
 
 from typing_extensions import Doc
 
@@ -30,6 +34,8 @@ from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from pydantic import Discriminator, PositiveFloat, PositiveInt
 
     RateLimiterConfig = Annotated[
@@ -39,6 +45,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "RateLimiter",
+    "RateLimiterBinding",
     "RateLimiterConfig",
     "SlidingWindowConfig",
     "TokenBucketConfig",
@@ -664,6 +671,100 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
                     )
             await clock_sleep(max(delay, _MIN_POLL_INTERVAL))
 
+    @overload
+    def __call__[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]: ...
+
+    @overload
+    def __call__(
+        self,
+        fn: None = None,
+        /,
+        *,
+        key: str | None = None,
+        key_maker: Callable[
+            [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
+        ]
+        | None = None,
+        cost: int = 1,
+        max_wait: float = 0.0,
+    ) -> RateLimiterBinding: ...
+
+    def __call__(
+        self,
+        fn: Callable[..., Any] | None = None,
+        /,
+        *,
+        key: Annotated[
+            str | None,
+            Doc(
+                """
+                Bucket key, rendered from the call's arguments when it
+                carries a placeholder, so `key="user:{user_id}"` meters
+                a call with `user_id=42` under `user:42`. A template
+                names only parameters the decorated function has. A
+                literal with no placeholder meters every call under the
+                same key. `None` (the default) uses the limiter's
+                `default` bucket. Passing both `key` and `key_maker`
+                raises `TypeError`.
+                """
+            ),
+        ] = None,
+        key_maker: Annotated[
+            Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], str]
+            | None,
+            Doc(
+                """
+                Key function receiving `(func, args, kwargs)` and
+                returning the bucket key, for the fully dynamic case.
+                Pass `key` instead for a template. Passing both raises
+                `TypeError`.
+                """
+            ),
+        ] = None,
+        cost: Annotated[
+            int,
+            Doc("Tokens one call consumes."),
+        ] = 1,
+        max_wait: Annotated[
+            float,
+            Doc(
+                """
+                Seconds a throttled call waits for tokens before
+                `RateLimitExceededError`. `0.0` (the default) raises as
+                soon as the budget is spent. A positive value waits up
+                to that long, then raises. The decorator never waits
+                without a budget: call `limiter.wait()` directly for
+                that.
+                """
+            ),
+        ] = 0.0,
+    ) -> Callable[..., Any] | RateLimiterBinding:
+        """Decorate a function so each call consumes tokens first.
+
+        `@limiter` meters the whole function under the limiter's
+        `default` bucket. `@limiter(key=...)` returns a
+        `RateLimiterBinding`, which decorates and which
+        `Stack(patterns=[...])` accepts.
+
+        Raises:
+            TypeError: If both `key` and `key_maker` are passed, or the
+                decorated function is not async.
+            ValueError: If `max_wait` is negative, or a `key` template
+                names a parameter the function does not have.
+        """
+        binding = RateLimiterBinding(
+            self,
+            key=key,
+            key_maker=key_maker,
+            cost=cost,
+            max_wait=max_wait,
+        )
+        if fn is None:
+            return binding
+        return binding(fn)
+
     async def _apply_reconfigure(
         self,
         new_config: RateLimiterConfig,
@@ -704,3 +805,175 @@ def _validate_cost(cost: int, limit: int) -> None:
     if cost < 1 or cost > limit:
         msg = f"cost must be between 1 and {limit}, got {cost}"
         raise ValueError(msg)
+
+
+_DEFAULT_KEY = "default"
+"""Bucket a call is metered under when no key is given."""
+
+
+def _named(fn: object) -> str:
+    """Return the name of a decorated function, for a message."""
+    return getattr(fn, "__qualname__", None) or repr(fn)
+
+
+def _template_fields(template: str) -> list[str]:
+    """Return the parameter names a key template reads."""
+    return [
+        field.split(".")[0].split("[")[0]
+        for _, field, _, _ in Formatter().parse(template)
+        if field
+    ]
+
+
+class RateLimiterBinding:
+    """A rate limiter bound to a key, a cost, and a wait budget.
+
+    `limiter(key="user:{user_id}")` returns one. It decorates an async
+    function, and `Stack(patterns=[...])` accepts it wherever it accepts
+    a bare `RateLimiter`.
+
+    Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
+    """
+
+    __slots__ = ("_cost", "_key", "_key_maker", "_limiter", "_max_wait")
+
+    def __init__(
+        self,
+        limiter: Annotated[
+            RateLimiter,
+            Doc("The limiter that meters the call."),
+        ],
+        /,
+        *,
+        key: str | None = None,
+        key_maker: Callable[
+            [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
+        ]
+        | None = None,
+        cost: int = 1,
+        max_wait: float = 0.0,
+    ) -> None:
+        """Bind a limiter to one key, cost, and wait budget.
+
+        Raises:
+            TypeError: If both `key` and `key_maker` are passed.
+            ValueError: If `max_wait` is negative.
+        """
+        if key is not None and key_maker is not None:
+            msg = (
+                "Pass key or key_maker, not both. `key` renders a "
+                "template from the call's arguments, `key_maker` "
+                "computes the key itself."
+            )
+            raise TypeError(msg)
+        if max_wait < 0:
+            msg = (
+                "max_wait is a number of seconds, so it cannot be "
+                f"negative, got {max_wait!r}. Use 0.0 to raise as soon "
+                "as the budget is spent."
+            )
+            raise ValueError(msg)
+        self._limiter = limiter
+        self._key = key
+        self._key_maker = key_maker
+        self._cost = cost
+        self._max_wait = max_wait
+
+    @property
+    def limiter(self) -> RateLimiter:
+        """The bound rate limiter."""
+        return self._limiter
+
+    def __repr__(self) -> str:
+        """Return the binding with the key it meters under."""
+        key = self._key if self._key is not None else _DEFAULT_KEY
+        if self._key_maker is not None:
+            key = getattr(self._key_maker, "__qualname__", "key_maker")
+        return f"<RateLimiterBinding {self._limiter.name!r} key={key!r}>"
+
+    def _resolver(
+        self, fn: Callable[..., Any]
+    ) -> Callable[[tuple[Any, ...], dict[str, Any]], str]:
+        """Return the key resolver for one decorated function.
+
+        Raises:
+            ValueError: If the template names a parameter `fn` has not.
+        """
+        key_maker = self._key_maker
+        if key_maker is not None:
+            return lambda args, kwargs: key_maker(fn, args, kwargs)
+        key = self._key
+        if key is None:
+            return lambda _args, _kwargs: _DEFAULT_KEY
+        if "{" not in key:
+            return lambda _args, _kwargs: key
+        signature = inspect.signature(fn)
+        unknown = sorted(set(_template_fields(key)) - set(signature.parameters))
+        if unknown:
+            names = ", ".join(unknown)
+            msg = (
+                f"Rate limiter key template {key!r} names "
+                f"{names}, which {_named(fn)} does not take."
+            )
+            raise ValueError(msg)
+
+        def render(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+            bound = signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            return key.format_map(bound.arguments)
+
+        return render
+
+    def _admitter(
+        self, fn: Callable[..., Any]
+    ) -> Callable[[tuple[Any, ...], dict[str, Any]], Awaitable[object]]:
+        """Return the coroutine function admitting one call of `fn`."""
+        resolve = self._resolver(fn)
+        limiter = self._limiter
+        cost = self._cost
+        max_wait = self._max_wait
+        if max_wait:
+
+            async def wait_for_tokens(
+                args: tuple[Any, ...], kwargs: dict[str, Any]
+            ) -> object:
+                return await limiter.wait(
+                    key=resolve(args, kwargs), cost=cost, max_wait=max_wait
+                )
+
+            return wait_for_tokens
+
+        async def take_tokens(
+            args: tuple[Any, ...], kwargs: dict[str, Any]
+        ) -> object:
+            return await limiter.acquire_or_raise(
+                key=resolve(args, kwargs), cost=cost
+            )
+
+        return take_tokens
+
+    def __call__[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]:
+        """Decorate `fn` so each call consumes tokens first.
+
+        Raises:
+            TypeError: If `fn` is not async.
+            ValueError: If a `key` template names a parameter `fn` has
+                not.
+        """
+        if not iscoroutinefunction(fn):
+            msg = (
+                "RateLimiter only decorates async functions. Consuming "
+                "tokens reaches the backend, and waiting for them "
+                f"needs the event loop, got {fn!r}."
+            )
+            raise TypeError(msg)
+        admit = self._admitter(fn)
+
+        @functools.wraps(fn)
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            await admit(args, kwargs)
+            return await fn(*args, **kwargs)
+
+        return async_wrapper

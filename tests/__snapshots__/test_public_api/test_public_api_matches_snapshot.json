@@ -619,6 +619,7 @@
       ".from_exception": "(exception) -> 'Outcome[T]'",
       ".from_result": "(result) -> 'Outcome[T]'"
     },
+    "Pattern": null,
     "PostgresCircuitBreakerAdapter": {
       "()": "(*, provider=None, env_prefix='POSTGRES_', prefix='', table_name='grelmicro_circuit_breaker', auto_migrate=True, cleanup_interval=3600.0) -> 'None'"
     },
@@ -642,6 +643,9 @@
     },
     "RateLimiterBackend": {
       "()": "(*args, **kwargs)"
+    },
+    "RateLimiterBinding": {
+      "()": "(limiter, /, *, key=None, key_maker=None, cost=1, max_wait=0.0) -> 'None'"
     },
     "RateLimiterComponent": {
       "()": "(source, *, requires=None, name='default') -> 'None'"
@@ -698,6 +702,9 @@
     },
     "SlowShieldConfig": {
       "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
+    },
+    "Stack": {
+      "()": "(name, *, patterns) -> 'None'"
     },
     "Timeout": {
       "()": "(name, *, seconds=None, env_load=None) -> 'None'",
@@ -776,6 +783,9 @@
       ".from_config": "(name, config, *, backend=None) -> 'Self'",
       ".sliding_window": "(name, *, limit=None, window=None, fail_open=None, backend=None, env_load=None) -> 'Self'",
       ".token_bucket": "(name, *, capacity=None, refill_rate=None, fail_open=None, backend=None, env_load=None) -> 'Self'"
+    },
+    "RateLimiterBinding": {
+      "()": "(limiter, /, *, key=None, key_maker=None, cost=1, max_wait=0.0) -> 'None'"
     },
     "RateLimiterConfig": {
       "()": "(*args, **kwargs)"

@@ -59,6 +59,22 @@ Use `acquire_or_raise` when a surrounding layer should turn the rejection into a
 
 It polls `acquire` on the clock seam, sleeping `retry_after` between attempts, so a denied call never consumes tokens. By default it waits as long as needed. Pass `max_wait` to bound the wait: it raises `RateLimitExceededError` once the budget would be exceeded. A `cost` larger than the limit raises `ValueError` instead of waiting forever.
 
+### Metering a function
+
+Decorate a function and every call consumes tokens before it runs:
+
+```python
+--8<-- "resilience/ratelimiter_decorator.py"
+```
+
+`@limiter` on its own meters the whole function under the `default` bucket. Call it to meter per argument instead, with the same key vocabulary [`@cached`](../cache/cached.md) uses: `key="user:{user_id}"` renders the bucket key from the call's arguments, and `key_maker=(func, args, kwargs)` computes it however you need. A `key` with no placeholder is used as it is written.
+
+A throttled call raises `RateLimitExceededError` as soon as the budget is spent. Pass `max_wait` to wait for tokens instead, up to that many seconds. The decorator never waits without a budget, because a wait with no bound sits above the deadline of everything below it. Call `wait` yourself when that is what you want.
+
+The decorator is async only, and a `key` template that names a parameter the function does not take is refused where it is written.
+
+Calling `limiter(...)` returns a `RateLimiterBinding`, which decorates and which [`Stack(patterns=[...])`](composition.md#stack) accepts.
+
 ### One fleet-wide limit
 
 When the limiter protects a service with one shared budget (no per-user or per-IP split), omit `key`. It defaults to `"default"`, and the limiter's own `name` already namespaces the bucket on the backend:

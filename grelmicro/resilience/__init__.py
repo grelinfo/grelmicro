@@ -5,7 +5,8 @@ Pick the front door first, the algorithm second, the backend third.
 **Front doors** (start here):
 
 * `RateLimiter.token_bucket(...)` or
-  `RateLimiter.sliding_window(...)` for rate limiting.
+  `RateLimiter.sliding_window(...)` for rate limiting, plus the
+  `@limiter` decorator to meter a function.
 * `CircuitBreaker("name")` or
   `CircuitBreaker.consecutive_count(...)` for circuit breaking.
 * `Retry("name", backoff, when=...)` or the `@retry(...)` /
@@ -17,6 +18,8 @@ Pick the front door first, the algorithm second, the backend third.
   decorator to cap concurrent in-flight calls.
 * `Shield("name")` or the `@shield(...)` decorator for the bundled
   timeout + retry + adaptive rate-limit + cache + fallback profile.
+* `Stack("name", patterns=[...])` to apply several of the above to
+  one call in the safe order, whatever order you list them in.
 
 **Components** (wire the front doors into `Grelmicro(uses=[...])`):
 
@@ -137,6 +140,7 @@ if TYPE_CHECKING:
     )
     from grelmicro.resilience.ratelimiter import (
         RateLimiter,
+        RateLimiterBinding,
         RateLimiterConfig,
         SlidingWindowConfig,
         TokenBucketConfig,
@@ -167,6 +171,7 @@ if TYPE_CHECKING:
         SlowShieldConfig,
         shield,
     )
+    from grelmicro.resilience.stack import Pattern, Stack
     from grelmicro.resilience.timeout import Timeout, TimeoutConfig
 
 __all__ = [
@@ -200,6 +205,7 @@ __all__ = [
     "MemoryRateLimiterAdapter",
     "MemoryTokenBucket",
     "Outcome",
+    "Pattern",
     "PostgresCircuitBreakerAdapter",
     "PostgresRateLimiterAdapter",
     "RandomBackoff",
@@ -207,6 +213,7 @@ __all__ = [
     "RateLimitResult",
     "RateLimiter",
     "RateLimiterBackend",
+    "RateLimiterBinding",
     "RateLimiterComponent",
     "RateLimiterConfig",
     "RateLimiterStrategy",
@@ -224,6 +231,7 @@ __all__ = [
     "ShieldConfig",
     "SlidingWindowConfig",
     "SlowShieldConfig",
+    "Stack",
     "Timeout",
     "TimeoutConfig",
     "TokenBucketConfig",
@@ -277,6 +285,10 @@ _LAZY: dict[str, tuple[str, str]] = {
     ),
     # Rate limiter
     "RateLimiter": ("grelmicro.resilience.ratelimiter", "RateLimiter"),
+    "RateLimiterBinding": (
+        "grelmicro.resilience.ratelimiter",
+        "RateLimiterBinding",
+    ),
     "RateLimiterConfig": (
         "grelmicro.resilience.ratelimiter",
         "RateLimiterConfig",
@@ -326,6 +338,9 @@ _LAZY: dict[str, tuple[str, str]] = {
         "InternalShieldConfig",
     ),
     "SlowShieldConfig": ("grelmicro.resilience.shield", "SlowShieldConfig"),
+    # Stack
+    "Pattern": ("grelmicro.resilience.stack", "Pattern"),
+    "Stack": ("grelmicro.resilience.stack", "Stack"),
     # Timeout
     "Timeout": ("grelmicro.resilience.timeout", "Timeout"),
     "TimeoutConfig": ("grelmicro.resilience.timeout", "TimeoutConfig"),
