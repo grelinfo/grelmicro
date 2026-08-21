@@ -2,6 +2,7 @@
 
 import asyncio as _asyncio
 import time as _time
+from collections.abc import Iterator
 from itertools import count
 
 import pytest
@@ -746,6 +747,46 @@ def test_when_rejects_invalid_value(fast_constant: ConstantBackoff) -> None:
         Retry("api", fast_constant, when=42)  # ty: ignore[invalid-argument-type]
 
 
+class _LazyProxy:
+    """Forwards `__class__` to a target that is not bound yet."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, the way an unbound proxy does."""
+        msg = "proxy is not bound"
+        raise RuntimeError(msg)
+
+
+class _ClaimsToBeAClass:
+    """Reports `type` as its class without being one."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Report `type`, so `isinstance(x, type)` says yes."""
+        return type
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_LazyProxy(), id="lazy-proxy"),
+        pytest.param(_ClaimsToBeAClass(), id="claims-to-be-a-class"),
+        pytest.param((ValueError, _LazyProxy()), id="proxy-inside-a-tuple"),
+    ],
+)
+def test_when_rejects_an_unreadable_value(
+    fast_constant: ConstantBackoff, value: object
+) -> None:
+    """A `when=` that cannot be classified is an argument error, not a crash.
+
+    `isinstance` reads `__class__`, and a lazy proxy raises from it while
+    unbound. A validator converts only `ValueError`, so whatever the proxy
+    raised escaped `except SettingsValidationError` entirely.
+    """
+    with pytest.raises(SettingsValidationError):
+        Retry("api", fast_constant, when=value)  # ty: ignore[invalid-argument-type]
+
+
 async def test_env_when_rejects_non_dotted_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -878,3 +919,43 @@ async def test_block_form_budget_elapsed_note(mocker: MockerFixture) -> None:
                 msg = "persistent"
                 raise ValueError(msg)
     assert any("budget elapsed" in note for note in excinfo.value.__notes__)
+
+
+class _UnwalkableTuple(tuple):  # type: ignore[type-arg]  # noqa: SLOT001
+    """A tuple subclass that refuses to be walked."""
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a lazily-populated container does when detached."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+class _UnwalkableList(list):  # type: ignore[type-arg]
+    """A list subclass that refuses to be walked."""
+
+    __slots__ = ()
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a detached cursor does."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_UnwalkableTuple((ValueError,)), id="tuple"),
+        pytest.param(_UnwalkableList([ValueError]), id="list"),
+    ],
+)
+def test_when_rejects_a_container_that_refuses_to_be_walked(
+    fast_constant: ConstantBackoff, value: object
+) -> None:
+    """Classifying a container walks it, and `__iter__` is caller code.
+
+    A lazily-populated container raises once it is detached from what
+    filled it, and a validator converts only `ValueError`, so that
+    escaped `except SettingsValidationError`.
+    """
+    with pytest.raises(SettingsValidationError):
+        Retry("api", fast_constant, when=value)  # ty: ignore[invalid-argument-type]

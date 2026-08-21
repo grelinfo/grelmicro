@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from importlib import import_module
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any, ClassVar, cast
 
 from pydantic import (
     BaseModel,
@@ -23,8 +23,42 @@ from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
 from grelmicro._config import parse_csv_or_json
+from grelmicro._guards import (
+    is_class,
+    is_instance,
+    is_subclass,
+    items_of,
+    name_of,
+    type_name,
+)
 
 __all__ = ["_BaseShieldConfig"]
+
+
+def _normalize_entry(item: Any) -> type[BaseException]:  # noqa: ANN401
+    """Return one entry as an exception class, refusing anything else.
+
+    An entry that is neither a class nor a name is refused here rather
+    than passed on, because the type check pydantic would run next reads
+    `__class__`, which a lazy proxy raises from.
+    """
+    if is_instance(item, str):
+        return _resolve_fqn(item)
+    if not is_class(item):
+        msg = (
+            f"timeout_errors entry must be an exception class or a "
+            f"fully-qualified name, got {type_name(item)}"
+        )
+        # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
+        # and `AssertionError`.
+        raise ValueError(msg)
+    if not is_subclass(item, Exception):
+        msg = (
+            f"timeout_errors entry {name_of(item)} is not an Exception "
+            f"subclass. BaseException-only types are never retried."
+        )
+        raise ValueError(msg)
+    return cast("type[BaseException]", item)
 
 
 def _resolve_fqn(fqn: str) -> type[BaseException]:
@@ -48,12 +82,12 @@ def _resolve_fqn(fqn: str) -> type[BaseException]:
             "timeout_errors entry names an attribute its module does not define"
         )
         raise ValueError(msg) from exc
-    if not (isinstance(cls, type) and issubclass(cls, Exception)):
+    if not (is_class(cls) and is_subclass(cls, Exception)):
         # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
         # and `AssertionError` into a `ValidationError`, so a `TypeError` here
         # escaped `except SettingsValidationError` and `except ValueError` both.
         msg = "timeout_errors entry does not name an Exception subclass"
-        raise ValueError(msg)  # noqa: TRY004
+        raise ValueError(msg)
     return cls
 
 
@@ -143,34 +177,43 @@ class _BaseShieldConfig(
     @field_validator("timeout_errors", mode="before")
     @classmethod
     def _normalize_timeout_errors(cls, value: Any) -> Any:  # noqa: ANN401
-        """Accept a class, a tuple, or env CSV/JSON of FQNs."""
+        """Accept a class, a tuple or list of them, or env CSV/JSON of FQNs.
+
+        Every shape test goes through the total helpers the matcher uses.
+        `isinstance` reads `__class__`, which a lazy proxy raises from,
+        and a validator runs where an arbitrary error escapes the
+        conversion pydantic performs for `ValueError` alone.
+        """
         if value is None:
             return value
-        if isinstance(value, type):
-            if not issubclass(value, Exception):
+        if is_class(value):
+            if not is_subclass(value, Exception):
                 msg = (
-                    f"timeout_errors entry {value.__name__} is not an "
+                    f"timeout_errors entry {name_of(value)} is not an "
                     f"Exception subclass. BaseException-only types are "
                     f"never retried."
                 )
                 # `ValueError`, not `TypeError`: pydantic converts only
                 # `ValueError` and `AssertionError`.
-                raise ValueError(msg)  # noqa: TRY004
+                raise ValueError(msg)
             return (value,)
-        if isinstance(value, str):
+        if is_instance(value, str):
             parsed = parse_csv_or_json(value)
-            if isinstance(parsed, list):
-                return tuple(
-                    _resolve_fqn(item) if isinstance(item, str) else item
-                    for item in parsed
-                )
+            if is_instance(parsed, list):
+                return tuple(_normalize_entry(item) for item in parsed)
             return parsed  # pragma: no cover  # defensive: always a list here
-        if isinstance(value, list | tuple):
-            return tuple(
-                _resolve_fqn(item) if isinstance(item, str) else item
-                for item in value
-            )
-        return value
+        if is_instance(value, list | tuple):
+            items = items_of(value)
+            if items is not None:
+                return tuple(_normalize_entry(item) for item in items)
+        msg = (
+            f"timeout_errors must be an exception class, a tuple or list of "
+            f"them, or a fully-qualified name, got {type_name(value)}"
+        )
+        # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
+        # and `AssertionError`. Refused here rather than passed on, because
+        # the type check pydantic would run next reads `__class__` too.
+        raise ValueError(msg)
 
     def effective_timeout_errors(self) -> tuple[type[BaseException], ...]:
         """Return the `timeout_errors` tuple with `TimeoutError` appended.
@@ -179,7 +222,7 @@ class _BaseShieldConfig(
         per-attempt timeout surfaces as a `TimeoutError`.
         """
         if any(
-            isinstance(exc, type) and issubclass(TimeoutError, exc)
+            is_class(exc) and is_subclass(TimeoutError, exc)
             for exc in self.timeout_errors
         ):
             return tuple(self.timeout_errors)

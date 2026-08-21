@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,6 +12,9 @@ from grelmicro.resilience.shield import (
     InternalShieldConfig,
     SlowShieldConfig,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def test_internal_profile_constants() -> None:
@@ -110,3 +115,88 @@ def test_model_dump_roundtrip() -> None:
     data = config.model_dump()
     rebuilt = ApiShieldConfig.model_validate(data)
     assert rebuilt == config
+
+
+class _LazyProxy:
+    """Forwards `__class__` to a target that is not bound yet."""
+
+    @property
+    def __class__(self) -> type:  # type: ignore[override]
+        """Raise, the way an unbound proxy does."""
+        msg = "proxy is not bound"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_LazyProxy(), id="lazy-proxy"),
+        pytest.param((ValueError, _LazyProxy()), id="proxy-inside-a-tuple"),
+    ],
+)
+def test_timeout_errors_rejects_an_unreadable_value(value: object) -> None:
+    """A value that cannot be classified is refused, not a crash.
+
+    `isinstance` reads `__class__`, and a lazy proxy raises from it while
+    unbound. A validator converts only `ValueError`, so whatever the proxy
+    raised escaped the documented error entirely.
+    """
+    with pytest.raises(ValidationError):
+        ApiShieldConfig(timeout_errors=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(KeyboardInterrupt, id="alone"),
+        pytest.param((KeyboardInterrupt,), id="in-a-tuple"),
+        pytest.param([KeyboardInterrupt], id="in-a-list"),
+        pytest.param((ValueError, KeyboardInterrupt), id="beside-a-good-one"),
+        pytest.param("builtins.KeyboardInterrupt", id="by-name"),
+    ],
+)
+def test_timeout_errors_refuses_a_base_exception_by_every_route(
+    value: object,
+) -> None:
+    """A `BaseException`-only type is never retried, so it is never accepted.
+
+    Passed alone or by name it was refused, passed inside a tuple it was
+    accepted, and the entry then sat in the config doing nothing.
+    """
+    with pytest.raises(ValidationError, match="Exception subclass"):
+        ApiShieldConfig(timeout_errors=value)
+
+
+class _UnwalkableTuple(tuple):  # type: ignore[type-arg]  # noqa: SLOT001
+    """A tuple subclass that refuses to be walked."""
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a lazily-populated container does when detached."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+class _UnwalkableList(list):  # type: ignore[type-arg]
+    """A list subclass that refuses to be walked."""
+
+    __slots__ = ()
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a detached cursor does."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_UnwalkableTuple((ValueError,)), id="tuple"),
+        pytest.param(_UnwalkableList([ValueError]), id="list"),
+    ],
+)
+def test_timeout_errors_rejects_a_container_that_refuses_to_be_walked(
+    value: object,
+) -> None:
+    """Normalizing the entries walks the container, which is caller code."""
+    with pytest.raises(ValidationError):
+        ApiShieldConfig(timeout_errors=value)

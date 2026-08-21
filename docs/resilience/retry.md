@@ -123,6 +123,12 @@ Here is the common case: retry on an exception type, or a tuple, or a predicate.
 
     Use `|` for OR and `&` for AND. Each primitive (`exception`, `result`, `exception_message`, `exception_cause`) has a `not_*` twin for the negated form.
 
+### When a predicate misbehaves
+
+A matcher is called from inside the `except` block that is handling your error, so it never raises. A predicate that raises reads as no match. A predicate that returns something other than a bool is read for its truth value. Either way grelmicro logs one warning naming the matcher, once per predicate rather than once per attempt, and the error you were handling reaches you unchanged.
+
+A bad argument is a different case: `Match` raises `ValueError` when you build it, not when it runs.
+
 ### What never retries
 
 `asyncio.CancelledError`, `KeyboardInterrupt`, and `SystemExit` are `BaseException` subclasses outside `Exception`. They always propagate, regardless of the `Match` you pass. This is required for correct asyncio shutdown.

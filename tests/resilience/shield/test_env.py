@@ -159,18 +159,22 @@ def test_config_normalizer_accepts_none() -> None:
     assert _BaseShieldConfig._normalize_timeout_errors(None) is None
 
 
-def test_config_normalizer_passes_through_unknown_shapes() -> None:
-    """The validator preserves shapes pydantic can validate downstream."""
+def test_config_normalizer_refuses_unknown_shapes() -> None:
+    """A shape the validator cannot classify is refused here, not passed on.
+
+    Handing it to pydantic meant the type check ran `isinstance` on it,
+    which reads `__class__`, so a lazy proxy raised from inside pydantic
+    instead of producing the documented argument error.
+    """
     from grelmicro.resilience.shield._profile import (  # noqa: PLC0415
         _BaseShieldConfig,
     )
 
-    # The "before" validator returns the value unchanged if it is not a
-    # str, list, tuple, or class. Pydantic will then reject it. Use a
-    # raw dict to exercise the passthrough branch.
-    cls = _BaseShieldConfig._normalize_timeout_errors
+    normalize = _BaseShieldConfig._normalize_timeout_errors
     raw: Any = {"not": "valid"}
-    assert cls(raw) == raw
+
+    with pytest.raises(ValueError, match="timeout_errors must be"):
+        normalize(raw)
 
 
 def test_factory_reads_values_with_the_preset_pinned(
