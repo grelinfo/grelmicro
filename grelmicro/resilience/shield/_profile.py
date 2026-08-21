@@ -177,7 +177,7 @@ class _BaseShieldConfig(
     @field_validator("timeout_errors", mode="before")
     @classmethod
     def _normalize_timeout_errors(cls, value: Any) -> Any:  # noqa: ANN401
-        """Accept a class, a tuple, or env CSV/JSON of FQNs.
+        """Accept a class, a tuple or list of them, or env CSV/JSON of FQNs.
 
         Every shape test goes through the total helpers the matcher uses.
         `isinstance` reads `__class__`, which a lazy proxy raises from,
@@ -207,8 +207,8 @@ class _BaseShieldConfig(
             if items is not None:
                 return tuple(_normalize_entry(item) for item in items)
         msg = (
-            f"timeout_errors must be an exception class, a tuple of them, or "
-            f"a fully-qualified name, got {type_name(value)}"
+            f"timeout_errors must be an exception class, a tuple or list of "
+            f"them, or a fully-qualified name, got {type_name(value)}"
         )
         # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
         # and `AssertionError`. Refused here rather than passed on, because

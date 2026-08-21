@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
+    "UNNAMEABLE",
     "is_class",
     "is_instance",
     "is_subclass",
