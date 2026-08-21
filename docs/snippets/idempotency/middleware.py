@@ -2,18 +2,14 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from grelmicro import Grelmicro
-from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import IdempotencyMiddleware
+from grelmicro.http import IdempotentRequests
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis])
+micro = Grelmicro(uses=[redis, IdempotentRequests(ttl=3600)])
 app = FastAPI()
 
 micro.install(app)
-app.add_middleware(
-    IdempotencyMiddleware, idempotency=Idempotency("http", ttl=3600)
-)
 
 
 class Charge(BaseModel):

@@ -49,6 +49,7 @@ It is built for any Python application that coordinates work across processes, w
 - **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any asyncio-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
+- **Framework-agnostic**: every pattern behaves the same on FastAPI, Starlette, Litestar, and FastStream. `micro.install(app)` handles the difference, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim.
 - **Railguarded**: fully tested, type-checked, and validated. Pre-1.0 the API may change on a minor release. `1.x` follows standard semver.
 
 grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq), **not** a message broker client (reach for FastStream to publish and subscribe over Kafka, RabbitMQ, NATS, or Redis), and **not** a web framework (it plugs into FastAPI, Starlette, Litestar, and FastStream). It fills the gap between the web framework you picked and the infrastructure you run.

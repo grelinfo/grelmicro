@@ -112,6 +112,12 @@ when your handlers always pass an explicit `backend=` and do not need it:
 micro.install(app, ambient=False)
 ```
 
+`install` also wires what you registered. `ErrorResponses()` has grelmicro's
+rejections answered as problem details, and `IdempotentRequests()` adds the
+idempotency middleware and describes it in the OpenAPI schema. Each happens
+only because the component is in `uses=[...]`. The
+[Frameworks](frameworks.md) page lists what every framework gets.
+
 !!! warning "Always call `install`, never hand-wire the lifespan alone"
     A request handler runs in its own task, so it only resolves ambient backends
     when `install` adds the middleware. If you open `async with micro:` in a

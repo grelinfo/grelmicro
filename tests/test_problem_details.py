@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -711,3 +712,39 @@ async def test_send_problem_omits_the_header_when_there_is_no_wait() -> None:
     # Assert
     headers = dict(sent[0]["headers"])
     assert b"retry-after" not in headers
+
+
+def test_every_kind_dereferences_to_its_own_section() -> None:
+    """A `type` URI points at documentation, so the anchor has to exist.
+
+    The identifier is the one thing a client branches on, and the URI is
+    the one thing a developer follows when it does. A kind added without a
+    section publishes a link to nothing, which the reader discovers and
+    nobody else does.
+    """
+    # Arrange
+    from grelmicro.http import _kinds  # noqa: PLC0415
+
+    page = (
+        Path(__file__).parent.parent / "docs" / "http" / "errors.md"
+    ).read_text(encoding="utf-8")
+    kinds = [
+        value
+        for value in vars(_kinds).values()
+        if isinstance(value, _kinds.Kind) and value.slug
+    ]
+
+    # Assert
+    assert len(kinds) >= _MIN_KINDS, (
+        f"expected the sweep to find kinds: {kinds}"
+    )
+    missing = sorted(
+        kind.slug for kind in kinds if f"{{ #{kind.slug} }}" not in page
+    )
+    assert not missing, (
+        f"these kinds have no section in docs/http/errors.md: {missing}"
+    )
+
+
+_MIN_KINDS = 12
+"""Floor for the sweep, so an empty scan cannot pass silently."""

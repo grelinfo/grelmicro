@@ -28,6 +28,11 @@ error unless you ask. Leave `ErrorResponses()` out and a rejection reaches
 your framework's own error handling exactly as any other exception does,
 which is a `500` unless you handle it yourself.
 
+An HTTP component answers its own. `ConditionalRequests()` answers `412` and
+`428`, and `IdempotentRequests()` answers what its middleware refuses, because
+registering them is already the opt-in for those statuses. `ErrorResponses`
+chooses the format they render in, for them and for everything else.
+
 A handler you registered wins. Whether you register it before or after
 `micro.install(app)`, grelmicro adds its own only for the classes you left
 alone.
@@ -74,6 +79,8 @@ client that honours the header without reading the body.
 | `DeadlineExceededError` | 504 | [`deadline-exceeded`](#deadline-exceeded) | `timeout` |
 | `IdempotencyConflictError` | 422 | [`idempotency-key-reused`](#idempotency-key-reused) | nothing |
 | `IdempotencyWaitTimeoutError` | 409 | [`idempotency-in-flight`](#idempotency-in-flight) | `retry_after` |
+| `PreconditionFailedError` | 412 | [`precondition-failed`](#precondition-failed) | nothing |
+| `PreconditionRequiredError` | 428 | [`precondition-required`](#precondition-required) | nothing |
 | a request that failed validation | the framework's | [`validation-failed`](#validation-failed) | `errors` |
 
 The handler is registered on the base classes, so a rejection a later release
@@ -392,9 +399,22 @@ read the stored response or are told to wait again.
 ### Idempotency key invalid { #idempotency-key-invalid }
 
 `400`. The `Idempotency-Key` header is missing on a route that requires one,
-or longer than 255 characters.
+longer than 255 characters, or holds a byte outside printable ASCII. Send a
+fresh key the service can carry, such as a UUID.
 
 ### Request body too large { #request-body-too-large }
 
 `413`. `IdempotencyMiddleware` fingerprints the request body and this one is
 over `max_body_size`.
+
+### Precondition failed { #precondition-failed }
+
+`412`. The resource changed since the entity tag in `If-Match` was issued, so
+the write would erase what landed in between. Read it again and retry with the
+new tag. See [Conditional Requests](conditional.md).
+
+### Precondition required { #precondition-required }
+
+`428`. The write must be conditional and carried no precondition. Read the
+resource, then send its entity tag in `If-Match`. See
+[Conditional Requests](conditional.md).

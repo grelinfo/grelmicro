@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -13,9 +12,8 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.status import HTTP_200_OK
 
-from grelmicro import AmbientBindingError, Grelmicro
+from grelmicro import AmbientBindingError, Grelmicro, GrelmicroMiddleware
 from grelmicro.errors import OutOfContextError
-from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
@@ -208,15 +206,10 @@ def test_install_ambient_false_leaves_the_stack_order_alone() -> None:
 
 def test_install_ambient_false_raises_when_hand_wiring_is_wrapped() -> None:
     """`ambient=False` leaves placement to the reader, and reports it wrong."""
-    # A sibling test reimports the integration module, so resolve the class
-    # through the live module rather than the one bound at import time.
-    binding = importlib.import_module(
-        "grelmicro.integrations.fastapi"
-    ).GrelmicroMiddleware
     micro = Grelmicro()
     app = FastAPI()
     micro.install(app, ambient=False)
-    app.add_middleware(binding, micro=micro)
+    app.add_middleware(GrelmicroMiddleware, micro=micro)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
     with (

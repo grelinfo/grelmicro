@@ -14,8 +14,8 @@ from litestar.status_codes import (
 )
 from litestar.testing import AsyncTestClient
 
-from grelmicro import Grelmicro
-from grelmicro.integrations.litestar import GrelmicroMiddleware, is_bound
+from grelmicro import Grelmicro, GrelmicroMiddleware
+from grelmicro.integrations.litestar import is_bound
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 

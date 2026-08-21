@@ -1,43 +1,25 @@
-"""Starlette integration: binding, error responses, and idempotency.
+"""Starlette integration: the lifespan, the binding, and the error responses.
 
 Everything here is pure ASGI, so it works on a plain Starlette app and on
 anything built from one. `grelmicro.integrations.fastapi` builds on it and
 adds what only FastAPI has, an OpenAPI schema and a health router.
 """
 
-import hashlib
-import logging
-import re
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Annotated, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from typing_extensions import Doc
 
 from grelmicro._app import AmbientBindingError
-from grelmicro.errors import OutOfContextError
-from grelmicro.http import ErrorResponses, merge_headers, send_error
-from grelmicro.http._kinds import (
-    _IN_FLIGHT_RETRY_AFTER,
-    HANDLED,
-    IDEMPOTENCY_IN_FLIGHT,
-    IDEMPOTENCY_KEY_INVALID,
-    IDEMPOTENCY_KEY_REUSED,
-    REQUEST_BODY_TOO_LARGE,
-    Kind,
-    Occurrence,
-)
-from grelmicro.idempotency.errors import (
-    IdempotencyConflictError,
-    IdempotencyKeyMakerError,
-    IdempotencyWaitTimeoutError,
-)
+from grelmicro._asgi import GrelmicroMiddleware
+from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 
 if TYPE_CHECKING:
     from collections.abc import (
         AsyncIterator,
         Awaitable,
         Callable,
-        Collection,
         MutableMapping,
         Sequence,
     )
@@ -48,7 +30,6 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
-    from grelmicro.idempotency import Idempotency
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -57,12 +38,10 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 __all__ = [
-    "GrelmicroMiddleware",
-    "IdempotencyMiddleware",
-    "StoredResponse",
     "error_response",
     "install",
     "install_error_responses",
+    "install_middleware",
     "is_bound",
 ]
 
@@ -111,11 +90,13 @@ def install(
             yield state
 
     app.router.lifespan_context = lifespan
-    if ambient:
+    if not ambient:
+        micro._on_ambient_disabled()  # noqa: SLF001
+    elif not is_bound(app):
+        # Once. Installing twice is a wiring mistake, and a second binding
+        # would set the same context variable again on every request.
         app.add_middleware(GrelmicroMiddleware, micro=micro)
         _keep_binding_outermost(app)
-    else:
-        micro._on_ambient_disabled()  # noqa: SLF001
 
 
 def install_error_responses(
@@ -167,7 +148,7 @@ def install_error_responses(
 
         http_exc = cast("HTTPException", exc)
         headers = http_exc.headers or {}
-        if http_exc.status_code in _BODYLESS_STATUSES:
+        if http_exc.status_code in BODYLESS_STATUSES:
             # A `204` or a `304` carries no body by the protocol, whatever
             # format the app answers in. Starlette guards this in its own
             # handler and so must this one.
@@ -216,79 +197,71 @@ def install_error_responses(
             app.add_exception_handler(klass, handler)
 
 
-_logger = logging.getLogger(__name__)
+def install_middleware(
+    app: Annotated[
+        "Starlette",
+        Doc("The Starlette application to wire."),
+    ],
+    components: Annotated[
+        "Sequence[Any]",
+        Doc("The registered components that carry an ASGI middleware."),
+    ],
+) -> None:
+    """Add the ASGI middleware each registered component asks for.
+
+    A component that carries `asgi_middleware()` returns the middleware
+    class and the arguments to build it with, and this adds it to the app.
+    Registration order is wrapping order among them, so the first one
+    registered answers first.
+
+    All of them go innermost, behind whatever the app added itself, so
+    authentication, CORS and the rest run before one of ours can answer a
+    request on its own. They still run inside `GrelmicroMiddleware`, which
+    stays outermost, so one that resolves a backend ambiently finds the app
+    bound.
+
+    `micro.install(app)` calls this with the components it found, so a
+    direct call is only for an app that never goes through `install`.
+    """
+    from starlette.middleware import Middleware  # noqa: PLC0415
+
+    if getattr(app, "middleware_stack", None) is not None:
+        # The framework built its stack, so the list this edits is no
+        # longer what serves requests. `add_middleware` refuses the same
+        # call for the same reason, and silence here would look installed
+        # and answer nothing.
+        msg = (
+            "Cannot add middleware after an application has started. Call "
+            "micro.install(app) before the app serves its first request."
+        )
+        raise RuntimeError(msg)
+
+    wired = {
+        entry.cls
+        for entry in app.user_middleware
+        if isinstance(entry.cls, type)
+    }
+    added = [
+        Middleware(middleware, **options)
+        for middleware, options in (
+            component.asgi_middleware() for component in components
+        )
+        # One is enough. An app that added it by hand placed it where it
+        # wanted, and a second would store, tag and answer twice.
+        if middleware not in wired
+    ]
+    # Innermost, behind every middleware the app added itself. One of ours
+    # that answers a request without calling the app, such as an idempotent
+    # replay, must never be the reason a request skipped the authentication
+    # the app put in front of its handlers. `add_middleware` prepends,
+    # which would do exactly that.
+    app.user_middleware = _binding_first([*app.user_middleware, *added])
+    for component in components:
+        _answer_for(app, component)
 
 
 HTTP_422_UNPROCESSABLE_CONTENT = 422
 """Status FastAPI answers a request that failed validation with."""
-
-
-class GrelmicroMiddleware:
-    """Bind the active `Grelmicro` app for the duration of each request.
-
-    A request handler runs in its own task, outside the `async with micro:`
-    block, so `Grelmicro.current()` and the ambient `backend=` resolution it
-    powers do not see the app there. This middleware sets the active app for
-    the request task, so `Lock("cart")`, `RateLimiter.sliding_window(...)`,
-    and `@cached` resolve ambiently inside the handler exactly as they do in
-    a task.
-
-    ```python
-    from contextlib import asynccontextmanager
-
-    from fastapi import FastAPI
-
-    from grelmicro import Grelmicro
-    from grelmicro.integrations.fastapi import GrelmicroMiddleware
-
-    micro = Grelmicro(uses=[...])
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        async with micro:
-            yield
-
-    app = FastAPI(lifespan=lifespan)
-    app.add_middleware(GrelmicroMiddleware, micro=micro)
-    ```
-
-    Open the app in the framework lifespan so its components are registered
-    before any request arrives. The middleware is pure ASGI and works with
-    any ASGI framework (Starlette, Litestar, ...). It binds on `http` and
-    `websocket` scopes and passes the `lifespan` scope through untouched.
-    """
-
-    def __init__(
-        self,
-        app: Annotated[
-            "ASGIApp",
-            Doc("The next ASGI application in the middleware chain."),
-        ],
-        *,
-        micro: Annotated[
-            "Grelmicro",
-            Doc(
-                "The `Grelmicro` app to bind for each request. Open it in "
-                "the framework lifespan so its components are ready."
-            ),
-        ],
-    ) -> None:
-        """Initialize the middleware with the app to bind."""
-        self.app = app
-        self.micro = micro
-
-    async def __call__(
-        self, scope: "Scope", receive: "Receive", send: "Send"
-    ) -> None:
-        """Bind the app on request scopes, pass other scopes through."""
-        if scope["type"] not in ("http", "websocket"):
-            await self.app(scope, receive, send)
-            return
-        token = self.micro._bind_current()  # noqa: SLF001
-        try:
-            await self.app(scope, receive, send)
-        finally:
-            self.micro._reset_current(token)  # noqa: SLF001
 
 
 def _is_binding(middleware: object) -> bool:
@@ -324,6 +297,60 @@ def _check_binding_outermost(app: "Starlette") -> None:
         raise AmbientBindingError(msg)
 
 
+def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
+    """Register a handler for what this component answers itself.
+
+    A component that carries `handled_exceptions()` names the rejections
+    its registration is the opt-in for, so a service that asked for them
+    gets the status on the wire rather than a `500`. The format is read
+    per request from whichever `ErrorResponses` the app registered, and is
+    RFC 9457 when it registered none.
+
+    A handler the app registered first wins, and so does the one
+    `install_error_responses` registered, which renders the same way.
+    """
+    handled = getattr(component, "handled_exceptions", None)
+    if handled is None:
+        return
+
+    async def handler(request: "Request", exc: Exception) -> "Response":
+        """Render one rejection in the format the app answers in."""
+        from starlette.responses import Response  # noqa: PLC0415
+
+        errors = (
+            getattr(request.app.state, "grelmicro_error_responses", None)
+            or ErrorResponses()
+        )
+        rendered = errors.render(exc, instance=request.url.path)
+        if rendered is None:  # pragma: no cover
+            raise exc
+        return Response(
+            content=rendered.body,
+            status_code=rendered.status,
+            media_type=rendered.media_type,
+            headers=rendered.headers,
+        )
+
+    for klass in handled():
+        if klass not in app.exception_handlers:
+            app.add_exception_handler(klass, handler)
+
+
+def _binding_first(
+    entries: "Sequence[Any]",
+) -> "list[Any]":
+    """Return the middleware entries with the binding in front.
+
+    Everything else keeps its order, so the only thing this decides is that
+    a middleware resolving a backend ambiently runs inside the request
+    scope.
+    """
+    return [
+        *(entry for entry in entries if _is_binding(entry)),
+        *(entry for entry in entries if not _is_binding(entry)),
+    ]
+
+
 def _keep_binding_outermost(app: "Starlette") -> None:
     """Move `GrelmicroMiddleware` to the front of the stack as it is built.
 
@@ -335,340 +362,10 @@ def _keep_binding_outermost(app: "Starlette") -> None:
     build = app.build_middleware_stack
 
     def build_middleware_stack() -> "ASGIApp":
-        current = app.user_middleware
-        app.user_middleware = [
-            *(m for m in current if _is_binding(m)),
-            *(m for m in current if not _is_binding(m)),
-        ]
+        app.user_middleware = _binding_first(app.user_middleware)
         return build()
 
     app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
-
-
-_MAX_KEY_LENGTH = 255
-"""Longest accepted idempotency key, in characters.
-
-A longer key is answered with `400`.
-"""
-
-
-_REPLAY_HEADER = b"idempotent-replayed"
-"""Response header marking a replayed response."""
-
-
-_MIN_CONTENT_STATUS = 200
-"""Lowest status that may carry content."""
-
-
-_BODYLESS_STATUSES = frozenset({204, 304})
-"""Statuses that carry no content, so a replay sends no Content-Length."""
-
-
-_KEY_SEPARATOR = "\x1f"
-"""Separator joining the parts of a stored key."""
-
-
-class StoredResponse(TypedDict):
-    """The response `IdempotencyMiddleware` is about to store.
-
-    Handed to `skip` so a handler's own rule decides whether a response
-    replays. `headers` maps lowercased names to their value, keeping the
-    last of a repeated name.
-    """
-
-    status: int
-    headers: dict[str, str]
-    body: bytes
-
-
-class _Entry(TypedDict):
-    """A stored response as it rides the cache.
-
-    Header values and the body are `latin-1` strings, which round-trip
-    any byte sequence through the cache serializers without loss.
-    """
-
-    status: int
-    headers: "Sequence[Sequence[str]]"
-    body: str
-
-
-class IdempotencyMiddleware:
-    """Replay a stored HTTP response when a request repeats its idempotency key.
-
-    A request whose method is listed in `methods` and which carries the
-    `header` runs once. A retry with the same key replays the stored
-    status, headers, and body without reaching the handler, and carries
-    `idempotent-replayed: true`. A request without the header passes
-    straight through, so adding the middleware changes nothing until a
-    client opts in.
-
-    ```python
-    from fastapi import FastAPI
-
-    from grelmicro import Grelmicro
-    from grelmicro.idempotency import Idempotency
-    from grelmicro.integrations.fastapi import IdempotencyMiddleware
-
-    micro = Grelmicro(uses=[...])
-    app = FastAPI()
-    micro.install(app)
-
-    app.add_middleware(
-        IdempotencyMiddleware, idempotency=Idempotency("http", ttl=3600)
-    )
-    ```
-
-    Add it before or after `micro.install(app)`. It resolves its `Cache`
-    through the grelmicro request scope, which `install` keeps outside
-    every other middleware.
-
-    A duplicate that arrives while the first execution is in flight waits
-    for it and replays its response. The wait folds across replicas when
-    a `Coordination` lock backend is configured, and in-process
-    otherwise. It is bounded by `wait_timeout`.
-
-    Every response the app returns is stored, errors included. A handler
-    that raises an unhandled exception stores nothing, so the framework's
-    `500` never replays.
-
-    Four kinds of response are not stored, and each one lets a retry
-    re-run the handler: one carrying `Set-Cookie`, one carrying
-    `Content-Encoding`, one declaring trailers, and one whose body is
-    over `max_body_size`. All four are logged. Pass `skip` to add a rule
-    of your own.
-
-    Background tasks run after the response is sent, so a replay can be
-    served while the original request's background work is still in
-    flight.
-
-    The middleware is pure ASGI and works with any ASGI framework
-    (Starlette, Litestar, ...). It acts on `http` scopes and passes every
-    other scope through untouched.
-    """
-
-    def __init__(
-        self,
-        app: Annotated[
-            "ASGIApp",
-            Doc("The next ASGI application in the middleware chain."),
-        ],
-        *,
-        idempotency: Annotated[
-            "Idempotency[Any]",
-            Doc(
-                "The `Idempotency` that stores responses. Its `ttl` sets "
-                "how long a key replays."
-            ),
-        ],
-        header: Annotated[
-            str,
-            Doc("Request header carrying the idempotency key."),
-        ] = "Idempotency-Key",
-        methods: Annotated[
-            "Collection[str]",
-            Doc(
-                "Methods that take an idempotency key. Every other method "
-                "passes through."
-            ),
-        ] = ("POST",),
-        key_maker: Annotated[
-            "Callable[[Scope, str], str] | None",
-            Doc(
-                """
-                Build the stored key from the ASGI scope and the client key.
-
-                Defaults to the method, the path, the query string, and
-                the client key, so two routes never replay each other.
-                **Set this in any multi-tenant app**, folding in the
-                caller identity. Without it a client that learns another
-                client's key replays their response.
-                """
-            ),
-        ] = None,
-        skip: Annotated[
-            "Callable[[StoredResponse], bool] | None",
-            Doc(
-                """
-                Predicate receiving the response. Return `True` to not store it.
-
-                Mirrors `skip` on `@cached`. Use it for a response that
-                is technically replayable but should not be, such as one
-                whose body embeds a timestamp the caller must not see
-                twice. Responses that are never safe to replay are
-                dropped before this runs.
-                """
-            ),
-        ] = None,
-        require_key: Annotated[
-            bool,
-            Doc(
-                "Answer `400` when a method in `methods` arrives without "
-                "the header, instead of passing it through."
-            ),
-        ] = False,
-        fingerprint_body: Annotated[
-            bool,
-            Doc(
-                """
-                Hash the request body and store the hash with the response.
-
-                A key reused with a different body then gets `422` instead
-                of a wrong replay. Buffers the request body before the
-                handler runs, and answers `413` when it is over
-                `max_body_size`.
-                """
-            ),
-        ] = False,
-        max_body_size: Annotated[
-            int,
-            Doc(
-                "Largest body held in memory, in bytes. A larger response "
-                "is sent to the client and not stored. With "
-                "`fingerprint_body`, a larger request body is answered "
-                "with `413`."
-            ),
-        ] = 1024 * 1024,
-        wait_timeout: Annotated[
-            float,
-            Doc(
-                """
-                Seconds a duplicate waits for an execution already in flight.
-
-                Past it the duplicate is answered with `409` and a
-                `Retry-After` header.
-                """
-            ),
-        ] = 10.0,
-    ) -> None:
-        """Initialize the middleware with the idempotency store and policy."""
-        self.app = app
-        self._idempotency = idempotency
-        self._header = header.lower().encode("latin-1")
-        self._header_name = header
-        self._methods = frozenset(method.upper() for method in methods)
-        self._key_maker = key_maker
-        self._skip = skip
-        self._require_key = require_key
-        self._fingerprint_body = fingerprint_body
-        self._max_body_size = max_body_size
-        self._wait_timeout = wait_timeout
-
-    async def __call__(
-        self, scope: "Scope", receive: "Receive", send: "Send"
-    ) -> None:
-        """Replay, execute, or pass the request through."""
-        if scope["type"] != "http" or scope["method"] not in self._methods:
-            await self.app(scope, receive, send)
-            return
-
-        key = _header_value(scope["headers"], self._header)
-        if not key:
-            if self._require_key:
-                await _refuse(
-                    send,
-                    scope,
-                    IDEMPOTENCY_KEY_INVALID,
-                    f"The {self._header_name} header is required on this "
-                    f"request and was not sent.",
-                )
-                return
-            await self.app(scope, receive, send)
-            return
-
-        if len(key) > _MAX_KEY_LENGTH:
-            await _refuse(
-                send,
-                scope,
-                IDEMPOTENCY_KEY_INVALID,
-                f"The {self._header_name} header is longer than "
-                f"{_MAX_KEY_LENGTH} characters.",
-            )
-            return
-
-        fingerprint = None
-        if self._fingerprint_body:
-            body, too_large, receive = await _buffer_request(
-                receive, self._max_body_size
-            )
-            if too_large:
-                await _refuse(send, scope, REQUEST_BODY_TOO_LARGE)
-                return
-            if body is not None:
-                fingerprint = hashlib.sha256(body).hexdigest()
-
-        await self._execute(
-            scope, receive, send, self._storage_key(scope, key), fingerprint
-        )
-
-    async def _execute(
-        self,
-        scope: "Scope",
-        receive: "Receive",
-        send: "Send",
-        storage_key: str,
-        fingerprint: str | None,
-    ) -> None:
-        """Run the request under the idempotency block, or replay it."""
-        block = self._idempotency(
-            storage_key,
-            fingerprint=fingerprint,
-            wait_timeout=self._wait_timeout,
-        )
-        try:
-            operation = await block.__aenter__()
-        except IdempotencyConflictError:
-            await _refuse(
-                send,
-                scope,
-                IDEMPOTENCY_KEY_REUSED,
-                f"The {self._header_name} header was already used with a "
-                f"different request payload. Use a fresh key, or resend the "
-                f"original payload.",
-            )
-            return
-        except IdempotencyWaitTimeoutError:
-            await _refuse(
-                send,
-                scope,
-                IDEMPOTENCY_IN_FLIGHT,
-                f"A request with this {self._header_name} is still running. "
-                f"Retry after the delay in the Retry-After header to read "
-                f"its response.",
-                retry_after=_IN_FLIGHT_RETRY_AFTER,
-            )
-            return
-        except OutOfContextError as exc:
-            raise OutOfContextError(_OUT_OF_CONTEXT_HINT) from exc
-
-        try:
-            if operation.replayed:
-                await _send_stored(
-                    send, operation.result(), head=scope["method"] == "HEAD"
-                )
-            else:
-                capture = _ResponseCapture(
-                    send, self._max_body_size, self._skip
-                )
-                await self.app(scope, receive, capture)
-                if capture.stored is not None:
-                    operation.store(capture.stored)
-        except BaseException as exc:
-            await block.__aexit__(type(exc), exc, exc.__traceback__)
-            raise
-        else:
-            await block.__aexit__(None, None, None)
-
-    def _storage_key(self, scope: "Scope", key: str) -> str:
-        """Build the stored key, scoped by route unless `key_maker` says otherwise."""
-        if self._key_maker is not None:
-            return _checked_key(self._key_maker(scope, key), key)
-        parts = [scope["method"], scope["path"]]
-        query = scope.get("query_string", b"")
-        if query:
-            parts.append(query.decode("latin-1"))
-        parts.append(key)
-        return _KEY_SEPARATOR.join(parts)
 
 
 def error_response(
@@ -800,254 +497,6 @@ _FIELD_KEYS = frozenset({"loc", "msg", "type"})
 """Members of a field error that help a client fix its request."""
 
 
-_UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")
-"""A formatted `None` sitting on its own between separators in a key."""
-
-
-def _checked_key(built: object, client_key: str) -> str:
-    """Return `built`, or raise when it cannot separate one caller from another.
-
-    A key that is partly missing does not fail, it merges. Every caller whose
-    key lost the same component lands in one entry, and the request still
-    answers normally, so the widening is invisible. That is a confidentiality
-    boundary quietly removed, which is worth refusing over.
-
-    Raises:
-        IdempotencyKeyMakerError: If the key is not a non-empty string, drops
-            the client's key, or carries an unresolved `None`.
-    """
-    if not isinstance(built, str) or not built:
-        msg = f"key_maker returned {built!r}, expected a non-empty string."
-        raise IdempotencyKeyMakerError(msg)
-    if client_key not in built:
-        msg = (
-            f"key_maker returned {built!r}, which drops the client's "
-            f"idempotency key. Every request to this route would then share "
-            f"one entry. Include the key it was given."
-        )
-        raise IdempotencyKeyMakerError(msg)
-    if _UNRESOLVED_TOKEN.search(built):
-        msg = (
-            f"key_maker returned {built!r}, which carries an unresolved None. "
-            f"Something the key reads was not set yet, so that component is "
-            f"the same for every caller and they share one entry. A middleware "
-            f"the key depends on must run outside IdempotencyMiddleware, which "
-            f"means adding it after."
-        )
-        raise IdempotencyKeyMakerError(msg)
-    return built
-
-
-_OUT_OF_CONTEXT_HINT = (
-    "IdempotencyMiddleware resolved no cache backend. Call micro.install(app) "
-    "so the grelmicro request scope wraps it, register a Cache component, or "
-    "pass an explicit cache= to Idempotency."
-)
-
-
-class _ResponseCapture:
-    """Forward an ASGI response downstream while copying it for storage.
-
-    Each chunk reaches the client as the handler produces it, so storing
-    a response adds no latency. `stored` stays None until the final body
-    message arrives, so a response torn off midway is never replayed.
-    """
-
-    def __init__(
-        self,
-        send: "Send",
-        max_body_size: int,
-        skip: "Callable[[StoredResponse], bool] | None" = None,
-    ) -> None:
-        """Initialize the capture around the downstream `send`."""
-        self._send = send
-        self._max_body_size = max_body_size
-        self._skip = skip
-        self._status = 0
-        self._headers: list[tuple[str, str]] = []
-        self._chunks: list[bytes] = []
-        self._size = 0
-        self._storable = False
-        self.stored: _Entry | None = None
-
-    async def __call__(self, message: "Message") -> None:
-        """Capture the message, then forward it downstream."""
-        if message["type"] == "http.response.start":
-            self._start(message)
-        elif message["type"] == "http.response.body":
-            self._body(message)
-        await self._send(message)
-
-    def _start(self, message: "Message") -> None:
-        """Record the status and headers, and decide whether to store."""
-        blockers: list[str] = []
-        for name, _value in message["headers"]:
-            lowered = name.lower()
-            if lowered == b"set-cookie":
-                blockers.append("Set-Cookie")
-            elif lowered == b"content-encoding":
-                blockers.append("Content-Encoding")
-        if message.get("trailers"):
-            blockers.append("trailers")
-        self._status = message["status"]
-        # Content-Length is recomputed on replay, so a stored value that
-        # drifts from the stored body can never reach a client.
-        self._headers = [
-            (name.decode("latin-1"), value.decode("latin-1"))
-            for name, value in message["headers"]
-            if name.lower() != b"content-length"
-        ]
-        self._storable = not blockers
-        if blockers:
-            _logger.warning(
-                "Idempotent response not stored: it carries %s. A retry with "
-                "the same key will run the handler again.",
-                " and ".join(blockers),
-            )
-
-    def _body(self, message: "Message") -> None:
-        """Accumulate the body, or give up once it outgrows the limit."""
-        if not self._storable:
-            return
-        chunk = message.get("body", b"")
-        self._size += len(chunk)
-        if self._size > self._max_body_size:
-            self._storable = False
-            self._chunks.clear()
-            _logger.warning(
-                "Idempotent response not stored: body exceeds max_body_size "
-                "(%d bytes). A retry with the same key will run the handler "
-                "again.",
-                self._max_body_size,
-            )
-            return
-        self._chunks.append(chunk)
-        if message.get("more_body", False):
-            return
-        body = b"".join(self._chunks)
-        if self._skip is not None and self._skip(
-            StoredResponse(
-                status=self._status,
-                headers=dict(self._headers),
-                body=body,
-            )
-        ):
-            return
-        self.stored = _Entry(
-            status=self._status,
-            headers=self._headers,
-            body=body.decode("latin-1"),
-        )
-
-
-def _header_value(
-    headers: "Sequence[tuple[bytes, bytes]]", name: bytes
-) -> str | None:
-    """Return the first value of `name`, or None when it is absent."""
-    for raw_name, raw_value in headers:
-        if raw_name.lower() == name:
-            return raw_value.decode("latin-1").strip()
-    return None
-
-
-async def _buffer_request(
-    receive: "Receive", max_body_size: int
-) -> "tuple[bytes | None, bool, Receive]":
-    """Read the request body, and return it with a receive that replays it.
-
-    Returns `(body, too_large, receive)`. `body` is None when the client
-    disconnected before the last chunk, so the caller fingerprints
-    nothing rather than hashing a truncated payload as if it were whole.
-    `too_large` reports a body over `max_body_size`, which the caller
-    answers with `413` instead of buffering without bound.
-
-    The returned receive replays the consumed messages one for one,
-    trailing disconnect included, so the app downstream reads exactly
-    what the client sent.
-    """
-    consumed: list[Message] = []
-    chunks: list[bytes] = []
-    size = 0
-    complete = False
-    while True:
-        message = await receive()
-        consumed.append(message)
-        if message["type"] != "http.request":
-            break
-        chunk = message.get("body", b"")
-        size += len(chunk)
-        if size > max_body_size:
-            return None, True, receive
-        chunks.append(chunk)
-        if not message.get("more_body", False):
-            complete = True
-            break
-    pending = iter(consumed)
-
-    async def replay_receive() -> "Message":
-        message = next(pending, None)
-        if message is None:
-            return await receive()
-        return message
-
-    return (b"".join(chunks) if complete else None), False, replay_receive
-
-
-async def _send_stored(send: "Send", stored: _Entry, *, head: bool) -> None:
-    """Send a stored response, marked as a replay.
-
-    Content-Length is recomputed from the stored body, and left off the
-    statuses that carry no content, so a replay stays a valid response.
-    """
-    body = stored["body"].encode("latin-1")
-    status = stored["status"]
-    headers = [
-        (name.encode("latin-1"), value.encode("latin-1"))
-        for name, value in stored["headers"]
-    ]
-    if status >= _MIN_CONTENT_STATUS and status not in _BODYLESS_STATUSES:
-        headers.append((b"content-length", str(len(body)).encode("latin-1")))
-    headers.append((_REPLAY_HEADER, b"true"))
-    await send(
-        {
-            "type": "http.response.start",
-            "status": stored["status"],
-            "headers": headers,
-        }
-    )
-    await send({"type": "http.response.body", "body": b"" if head else body})
-
-
-async def _refuse(
-    send: "Send",
-    scope: "Scope",
-    kind: Kind,
-    detail: str | None = None,
-    *,
-    retry_after: float | None = None,
-) -> None:
-    """Answer a request the middleware refuses itself, before the app runs.
-
-    A middleware sits outside the routing layer, so no exception handler
-    sees what it decides. It renders through whichever `ErrorResponses` the
-    app registered, read from the app the ASGI scope carries, so what the
-    schema publishes for these responses is what the wire returns. An app
-    that registered none gets RFC 9457, which an error body always needs.
-    """
-    errors = _registered_errors(scope)
-    rendered = errors._render_occurrence(  # noqa: SLF001
-        Occurrence(
-            kind,
-            detail=detail,
-            extensions=(
-                {} if retry_after is None else {"retry_after": retry_after}
-            ),
-        ),
-        instance=scope["path"],
-    )
-    await send_error(send, rendered)
-
-
 def _install_framework_handlers(
     app: "Starlette",
     http_error: "Callable[..., Any]",
@@ -1085,15 +534,6 @@ def _structured_detail(detail: Any) -> "dict[str, Any] | None":  # noqa: ANN401
     if isinstance(detail, dict):
         return dict(detail)
     return {"errors": detail}
-
-
-def _registered_errors(scope: "Scope") -> ErrorResponses:
-    """Return the app's `ErrorResponses`, or the default when none is set."""
-    app = scope.get("app")
-    registered = getattr(
-        getattr(app, "state", None), "grelmicro_error_responses", None
-    )
-    return registered if registered is not None else ErrorResponses()
 
 
 def is_bound(

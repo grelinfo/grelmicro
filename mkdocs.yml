@@ -70,9 +70,7 @@ nav:
     - Cache:
         - cache/index.md
         - cache/cached.md
-    - Idempotency:
-        - idempotency/index.md
-        - idempotency/middleware.md
+    - Idempotency: idempotency/index.md
     - Coordination:
         - coordination/index.md
         - coordination/lock.md
@@ -97,7 +95,11 @@ nav:
         - resilience/timeout.md
         - resilience/composition.md
     - health.md
-    - http/errors.md
+    - HTTP:
+        - http/index.md
+        - http/errors.md
+        - http/conditional.md
+        - http/idempotency.md
     - Security:
         - security/index.md
         - security/clientip.md
@@ -122,6 +124,7 @@ nav:
     - performance.md
     - benchmarks.md
 - API Reference:
+    - reference/app.md
     - reference/cache.md
     - reference/clock.md
     - reference/config.md

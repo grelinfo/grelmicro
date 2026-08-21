@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from typing_extensions import Doc
 
+from grelmicro._asgi import GrelmicroMiddleware
+from grelmicro.errors import MiddlewarePlacementWarning
 from grelmicro.http import ErrorResponses, merge_headers
-from grelmicro.http._kinds import HANDLED
+from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._openapi import add_error_schema
-from grelmicro.integrations.starlette import GrelmicroMiddleware
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping
+    from collections.abc import Awaitable, Callable, MutableMapping, Sequence
 
     from litestar import Litestar, Request
     from litestar.response import Response
@@ -26,10 +28,10 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 __all__ = [
-    "GrelmicroMiddleware",
     "error_response",
     "install",
     "install_error_responses",
+    "install_middleware",
     "is_bound",
 ]
 
@@ -104,6 +106,214 @@ def install(
         )
 
 
+def install_middleware(
+    app: Annotated[
+        Litestar,
+        Doc("The Litestar application to wire."),
+    ],
+    components: Annotated[
+        Sequence[Any],
+        Doc("The registered components that carry an ASGI middleware."),
+    ],
+) -> None:
+    """Add the ASGI middleware each registered component asks for.
+
+    A component that carries `asgi_middleware()` returns the middleware
+    class and the arguments to build it with, and this wraps the app's ASGI
+    handler with it. Registration order is wrapping order, so the first one
+    registered is the outermost and answers first.
+
+    Each one is wrapped inside the binding, so a middleware that resolves a
+    backend ambiently finds the app bound.
+
+    Call it after the app is built, since Litestar builds its middleware
+    stack at construction time. `micro.install(app)` calls this with the
+    components it found, so a direct call is only for an app that never goes
+    through `install`.
+    """
+    for component in components:
+        _answer_for(app, component)
+    for component in reversed(components):
+        middleware, options = component.asgi_middleware()
+        if _already_wired(app, middleware):
+            # The app passed it to `Litestar(middleware=...)`, which puts it
+            # inside its own stack, which is the better place. Wrapping a
+            # second one would run it twice.
+            continue
+        _warn_if_wrapping_app_middleware(app, middleware)
+        binding = app.asgi_handler
+        if isinstance(binding, GrelmicroMiddleware):
+            # Inside the binding, which `install` put outermost so a
+            # middleware resolving a backend runs in the request scope.
+            _wrap_inside(binding, middleware, options, app)
+        else:
+            app.asgi_handler = cast(
+                "Any",
+                _wrapped(
+                    cast("ASGIApp", app.asgi_handler),
+                    middleware,
+                    options,
+                    app,
+                ),
+            )
+
+
+def _wrap_inside(
+    binding: GrelmicroMiddleware,
+    middleware: type[Any],
+    options: dict[str, Any],
+    app: Litestar,
+) -> None:
+    """Put the middleware under the binding, inside what handles errors."""
+    binding.app = cast("Any", _wrapped(binding.app, middleware, options, app))
+
+
+def _wrapped(
+    handler: ASGIApp,
+    middleware: type[Any],
+    options: dict[str, Any],
+    app: Litestar,
+) -> ASGIApp:
+    """Return `handler` wrapped, under whatever turns errors into responses.
+
+    Litestar renders an unhandled exception into a response in the
+    outermost layer of its own handler. Wrapping around that would hand a
+    middleware of ours the framework's `500` as though the app had
+    produced it, and an idempotent replay would serve that `500` for the
+    whole window. Slipping underneath it means the exception reaches our
+    middleware as an exception, exactly as it does on Starlette.
+
+    Feature-detected rather than named: a layer that exposes the next ASGI
+    app under `app` is one this can go under, and a release that stops
+    doing so falls back to wrapping the whole thing.
+    """
+    host = _innermost_layer(handler, app)
+    if host is None:  # pragma: no cover
+        return middleware(handler, **options)
+    host.app = middleware(cast("ASGIApp", host.app), **options)
+    return handler
+
+
+def _innermost_layer(handler: ASGIApp, app: Litestar) -> Any | None:  # noqa: ANN401
+    """Return the layer that wraps the router, or None if there is none.
+
+    Every layer the app built sits above the router: the one that renders
+    an exception, and whatever else was configured, such as CORS. Taking
+    one hop lands under the first of them and above the rest, which is
+    only the same thing when there is exactly one.
+
+    The walk stops at the router rather than going through it. The router
+    holds the app itself, and reads the lifespan from that reference.
+    """
+    host = None
+    seen = 0
+    while seen < _MAX_CHAIN:
+        inner = getattr(handler, "app", None)
+        if inner is None or not callable(inner) or inner is app:
+            return host
+        host = handler
+        handler = cast("ASGIApp", inner)
+        seen += 1
+    return host  # pragma: no cover
+
+
+def _already_wired(app: Litestar, middleware: type[Any]) -> bool:
+    """Return whether this middleware is already in front of the app.
+
+    Either because the app passed it to `Litestar(middleware=[...])`, or
+    because `install` ran before and wrapped it. One layer answers, stores
+    and tags. Two would do all three twice.
+    """
+    declared = any(
+        getattr(entry, "middleware", None) is middleware or entry is middleware
+        for entry in getattr(app, "middleware", ())
+    )
+    return declared or _wrapped_already(app.asgi_handler, middleware)
+
+
+def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
+    """Return whether the handler chain already holds one of these."""
+    seen = 0
+    while handler is not None and seen < _MAX_CHAIN:
+        if isinstance(handler, middleware):
+            return True
+        handler = getattr(handler, "app", None)
+        seen += 1
+    return False
+
+
+_MAX_CHAIN = 32
+"""How far to walk a handler chain before calling it a cycle."""
+
+
+def _warn_if_wrapping_app_middleware(
+    app: Litestar, middleware: type[Any]
+) -> None:
+    """Warn when this wrap would sit outside the app's own middleware.
+
+    Litestar builds its middleware stack when the app is constructed, so
+    `install` can only wrap the whole thing. A middleware of ours that
+    answers a request itself would then answer before the app's own
+    middleware runs, authentication included. Passing it to
+    `Litestar(middleware=[...])` puts it inside, which is where it belongs.
+    """
+    if not getattr(app, "middleware", ()):
+        return
+    warnings.warn(
+        f"{middleware.__name__} wraps the Litestar app, so it runs outside "
+        f"the middleware the app declares, authentication included. A "
+        f"request it answers itself, such as an idempotent replay, would "
+        f"not reach them. Pass DefineMiddleware({middleware.__name__}, "
+        f"...) to Litestar(middleware=[...]) instead, which puts it inside "
+        f"the stack. [middleware-placement] "
+        f"https://grelmicro.grel.info/diagnostics/#middleware-placement",
+        MiddlewarePlacementWarning,
+        stacklevel=3,
+    )
+
+
+def _answer_for(app: Litestar, component: object) -> None:
+    """Register a handler for what this component answers itself.
+
+    A component that carries `handled_exceptions()` names the rejections
+    its registration is the opt-in for, so a service that asked for them
+    gets the status on the wire rather than a `500`. The format is read
+    per request from whichever `ErrorResponses` the app registered, and is
+    RFC 9457 when it registered none.
+
+    A handler passed to `Litestar(exception_handlers=...)` wins, and so
+    does the one `install_error_responses` registered, which renders the
+    same way.
+    """
+    handled = getattr(component, "handled_exceptions", None)
+    if handled is None:
+        return
+
+    def handler(request: Request, exc: Exception) -> Response:
+        """Render one rejection in the format the app answers in."""
+        from litestar.response import (  # noqa: PLC0415
+            Response as LitestarResponse,
+        )
+
+        errors = (
+            getattr(request.app.state, "grelmicro_error_responses", None)
+            or ErrorResponses()
+        )
+        rendered = errors.render(exc, instance=request.url.path)
+        if rendered is None:  # pragma: no cover
+            raise exc
+        return LitestarResponse(
+            content=rendered.body,
+            status_code=rendered.status,
+            media_type=rendered.media_type,
+            headers=rendered.headers,
+        )
+
+    for klass in handled():
+        if klass not in app.exception_handlers:
+            app.exception_handlers[klass] = handler
+
+
 def install_error_responses(
     app: Annotated[
         Litestar,
@@ -168,7 +378,7 @@ def install_error_responses(
 
         http_exc = cast("HTTPException", exc)
         headers = http_exc.headers or {}
-        if http_exc.status_code in _BODYLESS_STATUSES:
+        if http_exc.status_code in BODYLESS_STATUSES:
             # A `204` or a `304` carries no body by the protocol, whatever
             # format the app answers in.
             return LitestarResponse(
@@ -292,10 +502,6 @@ def _is_generated(response: dict[str, Any]) -> bool:
         .get("schema", {})
     )
     return set(generated.get("required", ())) >= _LITESTAR_ERROR_MEMBERS
-
-
-_BODYLESS_STATUSES = frozenset({204, 304})
-"""Statuses the protocol says carry no body, whatever the format."""
 
 
 def error_response(

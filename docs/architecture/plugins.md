@@ -40,6 +40,23 @@ per-handler binding. `is_bound` reports whether that binding is present, which
 is what `micro.check_ambient_binding(app)` and `micro.describe(app)` read to
 catch a forgotten `install`.
 
+Two more are optional, and `install` feature-detects each with `getattr`:
+
+```python
+def install_error_responses(app, errors) -> None: ...
+def install_middleware(app, components) -> None: ...
+```
+
+`install_error_responses` answers every rejection in the format the registered
+`ErrorResponses` carries. `install_middleware` receives the registered
+components that carry `asgi_middleware()`, which returns the middleware class
+and the arguments to build it with, and adds each one the way your framework
+takes a middleware. Keep the binding outermost, so a middleware that resolves
+a backend ambiently runs inside the request scope.
+
+Leave both out for a framework that serves no HTTP. Nothing anywhere reads a
+framework's name to decide, so an absent attribute is the whole answer.
+
 Declare it the same way as a Provider:
 
 ```toml
@@ -96,7 +113,8 @@ whole tuple, or a new field breaks your call site.
 **Integration signatures are frozen.** grelmicro never adds an argument to
 `install(app, micro, *, ambient=True)` or `is_bound(app)`. A new capability
 arrives as a new optional module attribute that grelmicro feature-detects, so
-an older integration keeps loading.
+an older integration keeps loading. `install_error_responses` and
+`install_middleware` are the two that arrived that way.
 
 **`ClockBackend` is complete.** It stays at `monotonic` and `sleep`.
 Wall-clock time is out of scope, which is why a cron schedule reads the system

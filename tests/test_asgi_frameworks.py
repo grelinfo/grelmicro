@@ -17,9 +17,8 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.status import HTTP_200_OK, HTTP_500_INTERNAL_SERVER_ERROR
 from starlette.testclient import TestClient
 
-from grelmicro import Grelmicro, NoActiveAppError
+from grelmicro import Grelmicro, GrelmicroMiddleware, NoActiveAppError
 from grelmicro.errors import OutOfContextError
-from grelmicro.integrations.fastapi import GrelmicroMiddleware
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 

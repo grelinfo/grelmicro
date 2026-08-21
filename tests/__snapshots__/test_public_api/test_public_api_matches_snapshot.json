@@ -28,7 +28,11 @@
     },
     "GrelmicroConfigWarning": null,
     "GrelmicroError": null,
+    "GrelmicroMiddleware": {
+      "()": "(app, *, micro) -> 'None'"
+    },
     "LifecycleOrderError": null,
+    "MiddlewarePlacementWarning": null,
     "MultipleActiveAppsError": {
       "()": "() -> None"
     },
@@ -246,21 +250,50 @@
     }
   },
   "grelmicro.http": {
+    "ConditionalRequests": {
+      "()": "(*, etag_responses=True, require_precondition=(), include=(), exclude=(), max_body_size=1048576, openapi=True, name='default') -> 'None'"
+    },
+    "ConditionalRequestsMiddleware": {
+      "()": "(app, *, etag_responses=True, require_precondition=(), include=(), exclude=(), max_body_size=1048576) -> 'None'"
+    },
     "ERROR_DOCS_BASE": null,
     "ErrorResponses": {
       "()": "(*, name='default') -> 'None'",
       ".problem_details": "(*, name='default') -> 'Self'",
       ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/errors/', name='default') -> 'Self'"
     },
+    "IdempotencyMiddleware": {
+      "()": "(app, *, idempotency, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422) -> 'None'"
+    },
+    "IdempotentRequests": {
+      "()": "(*, ttl=None, namespace='http', cache=None, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, openapi=True, name='default') -> 'None'"
+    },
     "PROBLEM_MEDIA_TYPE": null,
+    "PreconditionError": null,
+    "PreconditionFailedError": {
+      "()": "() -> None"
+    },
+    "PreconditionRequiredError": {
+      "()": "() -> None"
+    },
     "ProblemDetail": {
       "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
     },
     "RenderedError": {
       "()": "(status, media_type, headers, body) -> None"
     },
+    "StoredResponse": null,
     "TMFError": {
       "()": "(*, code, reason, message=None, referenceError=None, type_='Error', **extra_data) -> None"
+    },
+    "check_freshness": {
+      "()": "(version=<object object at 0x...>, *, etag=None) -> 'bool'"
+    },
+    "check_precondition": {
+      "()": "(version=<object object at 0x...>, *, etag=None, require=True) -> 'None'"
+    },
+    "etag_of": {
+      "()": "(value, *, weak=False) -> 'str'"
     },
     "merge_headers": {
       "()": "(rendered, theirs) -> 'dict[str, str]'"
@@ -298,16 +331,21 @@
     "CheckResultResponse": {
       "()": "(*, status, critical=True, error=None, details=None) -> None"
     },
-    "GrelmicroMiddleware": {
-      "()": "(app, *, micro) -> None"
+    "Conditional": {
+      "()": "(*args, **kwargs)"
+    },
+    "ConditionalRequest": {
+      "()": "(if_match=None, if_none_match=None) -> None"
+    },
+    "ConditionalRequired": {
+      "()": "(*args, **kwargs)"
     },
     "HealthzResponse": {
       "()": "(*, status, checks) -> None"
     },
-    "IdempotencyMiddleware": {
-      "()": "(app, *, idempotency, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0) -> None"
+    "document_conditional_requests": {
+      "()": "(app) -> None"
     },
-    "StoredResponse": null,
     "document_idempotency": {
       "()": "(app) -> None"
     },
@@ -323,6 +361,9 @@
     "install_error_responses": {
       "()": "(app, errors) -> None"
     },
+    "install_middleware": {
+      "()": "(app, components) -> None"
+    },
     "is_bound": {
       "()": "(app) -> bool"
     }
@@ -336,9 +377,6 @@
     }
   },
   "grelmicro.integrations.litestar": {
-    "GrelmicroMiddleware": {
-      "()": "(app, *, micro) -> None"
-    },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
@@ -348,18 +386,14 @@
     "install_error_responses": {
       "()": "(app, errors) -> 'None'"
     },
+    "install_middleware": {
+      "()": "(app, components) -> 'None'"
+    },
     "is_bound": {
       "()": "(app) -> 'bool'"
     }
   },
   "grelmicro.integrations.starlette": {
-    "GrelmicroMiddleware": {
-      "()": "(app, *, micro) -> None"
-    },
-    "IdempotencyMiddleware": {
-      "()": "(app, *, idempotency, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0) -> None"
-    },
-    "StoredResponse": null,
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
@@ -368,6 +402,9 @@
     },
     "install_error_responses": {
       "()": "(app, errors) -> None"
+    },
+    "install_middleware": {
+      "()": "(app, components) -> None"
     },
     "is_bound": {
       "()": "(app) -> bool"

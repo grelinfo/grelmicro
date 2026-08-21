@@ -204,7 +204,7 @@ class Grelmicro:
     Inside the `async with micro:` block, primitives that omit an explicit
     `micro=` argument resolve through `Grelmicro.current()` (per asyncio task).
 
-    Read more in the [Grelmicro app](architecture/grelmicro.md) docs.
+    Read more in the [Wiring an App](../wiring.md) docs.
     """
 
     def __init__(
@@ -248,7 +248,7 @@ class Grelmicro:
                 silence it, and an undeclared tier reports it once as a
                 warning. The declared value also becomes the OpenTelemetry
                 `deployment.environment.name` resource attribute. See
-                [the backend check](deployment.md#the-backend-check).
+                [the backend check](../deployment.md#the-backend-check).
                 """,
             ),
         ] = None,
@@ -783,7 +783,7 @@ class Grelmicro:
         ```
 
         `python -m grelmicro check` renders the same report and turns its
-        checks into an exit code. Read more in the [wiring](wiring.md) docs.
+        checks into an exit code. Read more in the [Wiring an App](../wiring.md) docs.
         """
         from grelmicro._describe import build_report  # noqa: PLC0415
 
@@ -991,9 +991,9 @@ class Grelmicro:
 
         Nothing else about how the framework answers a request changes.
         Register `ErrorResponses()` to have grelmicro's rejections rendered
-        as RFC 9457 responses, and `Trace()` to have requests
-        auto-instrumented. Both are wired here, and only because they were
-        registered.
+        as RFC 9457 responses, `IdempotentRequests()` to have repeated
+        requests replayed, and `Trace()` to have requests auto-instrumented.
+        All three are wired here, and only because they were registered.
 
         ```python
         from fastapi import FastAPI
@@ -1035,6 +1035,19 @@ class Grelmicro:
             wire = getattr(integration, "install_error_responses", None)
             if wire is not None:
                 wire(app, errors)
+        middleware = [
+            component
+            for component in self.components
+            if hasattr(component, "asgi_middleware")
+        ]
+        if middleware:
+            # A component that carries `asgi_middleware()` asks for one, and
+            # the integration adds it the way its framework takes one. Also
+            # feature-detected, so a framework serving no HTTP, which carries
+            # no `install_middleware`, is skipped rather than named.
+            wire_middleware = getattr(integration, "install_middleware", None)
+            if wire_middleware is not None:
+                wire_middleware(app, middleware)
 
     def _ambient_component_labels(self) -> list[str]:
         """Return sorted `kind:name` labels of registered ambient components."""

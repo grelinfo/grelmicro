@@ -17,6 +17,11 @@ from grelmicro.errors import (
     LockTimeoutError,
     WouldBlockError,
 )
+from grelmicro.http.errors import (
+    PreconditionError,
+    PreconditionFailedError,
+    PreconditionRequiredError,
+)
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyWaitTimeoutError,
@@ -52,6 +57,15 @@ dependency recovered.
 `nosniff` because the body reflects the request path back in `instance`.
 The media type already says it is data, and this stops a client that
 guesses otherwise from ever treating it as markup.
+"""
+
+
+BODYLESS_STATUSES = frozenset({204, 304})
+"""Statuses that carry no body by the protocol.
+
+A `204` or a `304` answers with headers alone, whatever format the app
+renders errors in, so nothing that writes a response may give one a body
+or a `Content-Length`.
 """
 
 
@@ -171,6 +185,26 @@ VALIDATION_FAILED = Kind(
     detail="The request did not match the shape this endpoint accepts.",
 )
 
+PRECONDITION_FAILED = Kind(
+    slug="precondition-failed",
+    status=412,
+    title="Precondition failed",
+    detail=(
+        "The resource changed since the entity tag in If-Match was issued. "
+        "Read it again and retry with the new one."
+    ),
+)
+
+PRECONDITION_REQUIRED = Kind(
+    slug="precondition-required",
+    status=428,
+    title="Precondition required",
+    detail=(
+        "This request must carry an If-Match header with the entity tag of "
+        "the version being updated."
+    ),
+)
+
 REQUEST_BODY_TOO_LARGE = Kind(
     slug="request-body-too-large",
     status=413,
@@ -248,6 +282,14 @@ def _from_conflict(exc: IdempotencyConflictError) -> Occurrence:  # noqa: ARG001
     return Occurrence(IDEMPOTENCY_KEY_REUSED)
 
 
+def _from_precondition_failed(exc: PreconditionFailedError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(PRECONDITION_FAILED)
+
+
+def _from_precondition_required(exc: PreconditionRequiredError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(PRECONDITION_REQUIRED)
+
+
 def _from_in_flight(exc: IdempotencyWaitTimeoutError) -> Occurrence:  # noqa: ARG001
     return Occurrence(
         IDEMPOTENCY_IN_FLIGHT,
@@ -265,6 +307,8 @@ _RULES: dict[type[BaseException], Callable[[Any], Occurrence]] = {
     DeadlineExceededError: _from_deadline,
     IdempotencyConflictError: _from_conflict,
     IdempotencyWaitTimeoutError: _from_in_flight,
+    PreconditionFailedError: _from_precondition_failed,
+    PreconditionRequiredError: _from_precondition_required,
 }
 """Builder per rejection, read through the raised exception's MRO.
 
@@ -277,6 +321,7 @@ HANDLED = (
     DeadlineExceededError,
     IdempotencyConflictError,
     IdempotencyWaitTimeoutError,
+    PreconditionError,
 )
 """Exception classes a framework handler is registered for.
 

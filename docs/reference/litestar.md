@@ -8,6 +8,6 @@
       members:
         - install
         - install_error_responses
+        - install_middleware
         - is_bound
-        - GrelmicroMiddleware
         - error_response

@@ -1,30 +1,49 @@
 """FastAPI integration: the Starlette wiring plus what only FastAPI has.
 
-The binding, the error responses, and the idempotency middleware are pure
-ASGI and live in `grelmicro.integrations.starlette`. This module adds the
-OpenAPI schema and the health router, and re-exports what a FastAPI app
-uses so one import covers it.
+The lifespan, the binding, and the error responses are pure ASGI and live in
+`grelmicro.integrations.starlette`. This module adds what only FastAPI has,
+the OpenAPI schema and the health router.
 """
 
 import logging
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
+try:
+    # The dependency declares its headers, so these are needed where the
+    # class is defined rather than where it is called. Every other door
+    # into this module imports FastAPI when it runs, because the module
+    # has to import without it.
+    from fastapi import Depends as _Depends
+    from fastapi import Header as _Header
+
+    HAS_FASTAPI = True
+except ImportError:  # pragma: no cover - the reimport test walks this
+    HAS_FASTAPI = False
+
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Doc
 
+from grelmicro._guards import is_class, is_subclass
 from grelmicro._json import json_dumps_bytes
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._models import CheckResult, HealthStatus
-from grelmicro.http import ErrorResponses, ProblemDetail
+from grelmicro.http import (
+    ConditionalRequestsMiddleware,
+    ErrorResponses,
+    IdempotencyMiddleware,
+    PreconditionRequiredError,
+    ProblemDetail,
+    check_freshness,
+)
+from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
+from grelmicro.http._conditional import _check_sent_precondition
+from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
+from grelmicro.http._paths import selects
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
 from grelmicro.integrations.starlette import (
-    _MAX_KEY_LENGTH,
     HTTP_422_UNPROCESSABLE_CONTENT,
-    GrelmicroMiddleware,
-    IdempotencyMiddleware,
-    StoredResponse,
     error_response,
     is_bound,
 )
@@ -32,9 +51,12 @@ from grelmicro.integrations.starlette import install as _install_starlette
 from grelmicro.integrations.starlette import (
     install_error_responses as _install_error_responses_starlette,
 )
+from grelmicro.integrations.starlette import (
+    install_middleware as _install_middleware_starlette,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection
+    from collections.abc import Callable, Collection, Sequence
 
     from fastapi import APIRouter, FastAPI
     from fastapi.params import Depends
@@ -44,15 +66,17 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CheckResultResponse",
-    "GrelmicroMiddleware",
+    "Conditional",
+    "ConditionalRequest",
+    "ConditionalRequired",
     "HealthzResponse",
-    "IdempotencyMiddleware",
-    "StoredResponse",
+    "document_conditional_requests",
     "document_idempotency",
     "error_response",
     "health_router",
     "install",
     "install_error_responses",
+    "install_middleware",
     "is_bound",
 ]
 
@@ -111,6 +135,31 @@ def install_error_responses(
     """
     _install_error_responses_starlette(app, errors)
     _document_error_responses(app, errors)
+
+
+def install_middleware(
+    app: Annotated[
+        "FastAPI",
+        Doc("The FastAPI application to wire."),
+    ],
+    components: Annotated[
+        "Sequence[Any]",
+        Doc("The registered components that carry an ASGI middleware."),
+    ],
+) -> None:
+    """Add each component's ASGI middleware and describe it in the schema.
+
+    The Starlette wiring, plus the OpenAPI part: a middleware runs outside
+    the routing layer, so nothing it does reaches the generated schema
+    unless something writes it there. A component that carries
+    `document_openapi(app)` is asked to, and one that does not is added
+    silently.
+    """
+    _install_middleware_starlette(app, components)
+    for component in components:
+        document = getattr(component, "document_openapi", None)
+        if document is not None:
+            document(app)
 
 
 def _instrument_app(app: "FastAPI", micro: "Grelmicro") -> None:
@@ -172,15 +221,16 @@ def document_idempotency(
     the middleware itself can return.
 
     ```python
-    from grelmicro.integrations.fastapi import (
-        IdempotencyMiddleware,
-        document_idempotency,
-    )
+    from grelmicro.http import IdempotencyMiddleware
+    from grelmicro.integrations.fastapi import document_idempotency
 
     app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
     micro.install(app)
     document_idempotency(app)
     ```
+
+    Registering `IdempotentRequests()` calls this for you, so a direct call
+    is for a middleware added by hand.
 
     Call it any time after `add_middleware`. The schema is annotated the
     next time it is built, so routes added afterwards are covered too, and
@@ -199,22 +249,7 @@ def document_idempotency(
         TypeError: If `app` is not a `FastAPI` app, or carries no
             `IdempotencyMiddleware`.
     """
-    try:
-        from fastapi import FastAPI as _FastAPI  # noqa: PLC0415
-    except ImportError:
-        from grelmicro.errors import (  # noqa: PLC0415
-            DependencyNotFoundError,
-        )
-
-        raise DependencyNotFoundError(module="fastapi") from None
-
-    if not isinstance(app, _FastAPI):
-        msg = (
-            f"document_idempotency() needs a FastAPI app, got "
-            f"{type(app).__name__}. Only FastAPI builds an OpenAPI schema."
-        )
-        raise TypeError(msg)
-
+    _require_fastapi(app, "document_idempotency")
     options = _idempotency_options(app)
     original = app.openapi
 
@@ -238,27 +273,397 @@ def document_idempotency(
     app.openapi_schema = None
 
 
-def _idempotency_options(app: "FastAPI") -> dict[str, Any]:
-    """Return the installed middleware's arguments, defaults filled in."""
+class ConditionalRequest:
+    """The conditional guards, as a dependency FastAPI injects.
+
+    The same two calls as `check_freshness` and `check_precondition`, for a
+    handler that would rather have them injected than imported:
+
+    ```python
+    from grelmicro.integrations.fastapi import Conditional
+
+
+    @app.patch("/carts/{cart_id}")
+    async def update(cart_id: int, conditional: Conditional) -> Cart:
+        cart = await load(cart_id)
+        conditional.check(cart.version)
+        return await save(cart)
+    ```
+
+    It is the same implementation underneath, so a service can use
+    whichever reads better. The plain functions work on Starlette and
+    Litestar too, where there is no dependency injection to hang this on.
+
+    `check` reads the headers this was handed, so a route that injects it
+    is guarded whether or not `ConditionalRequests()` is registered.
+    `fresh` needs the component: recording a version is how the middleware
+    knows what tag to put on the response, and without one there is
+    nothing to record it in, so it raises `OutOfContextError`.
+
+    Declaring it puts `If-Match` and `If-None-Match` in the schema for
+    that operation alone, so Swagger offers the fields exactly where a
+    handler reads them, whatever the path-based rules say.
+    """
+
+    def __init__(
+        self,
+        if_match: Annotated[
+            "str | None",
+            Doc("What the client sent in `If-Match`, if anything."),
+        ] = None,
+        if_none_match: Annotated[
+            "str | None",
+            Doc("What the client sent in `If-None-Match`, if anything."),
+        ] = None,
+    ) -> None:
+        """Take what the client sent, so a handler can read it raw too."""
+        self.if_match = if_match
+        self.if_none_match = if_none_match
+
+    def check(
+        self,
+        version: Annotated[
+            object,
+            Doc("What identifies the version the resource carries now."),
+        ] = _UNSET_VERSION,
+        *,
+        etag: Annotated[
+            str | None,
+            Doc("An entity tag that is already one, quotes included."),
+        ] = None,
+        require: Annotated[
+            bool,
+            Doc("Answer `428` when the request carries no precondition."),
+        ] = True,
+    ) -> None:
+        """Refuse a write whose precondition no longer holds.
+
+        Raises:
+            PreconditionFailedError: If the entity tag is not current.
+            PreconditionRequiredError: If `require` and none was sent.
+        """
+        # From the headers this was handed, not from the request scope, so
+        # a route that injects it answers the same whether or not
+        # `ConditionalRequests()` is registered.
+        _check_sent_precondition(
+            self.if_match,
+            self.if_none_match,
+            version,
+            etag=etag,
+            require=require,
+        )
+
+    def fresh(
+        self,
+        version: Annotated[
+            object,
+            Doc("What identifies the version the resource carries now."),
+        ] = _UNSET_VERSION,
+        *,
+        etag: Annotated[
+            str | None,
+            Doc("An entity tag that is already one, quotes included."),
+        ] = None,
+    ) -> bool:
+        """Answer this read with an entity tag, and say whether it changed."""
+        return check_freshness(version, etag=etag)
+
+
+def document_conditional_requests(
+    app: Annotated[
+        "FastAPI",
+        Doc("The app carrying a `ConditionalRequestsMiddleware` to document."),
+    ],
+) -> None:
+    """Describe the conditional headers in the OpenAPI schema.
+
+    A middleware runs outside the routing layer, so nothing it does reaches
+    the generated schema, and Swagger shows no field for the header a
+    client has to send. This annotates every operation the middleware
+    covers:
+
+    - A read gains `If-None-Match` and the `304` it can answer.
+    - A write gains `If-Match`, the `412` a stale one gets, and the `428` a
+      missing one gets. The header is marked required on a method named in
+      `require_precondition`.
+
+    ```python
+    from grelmicro.integrations.fastapi import document_conditional_requests
+
+    app.add_middleware(ConditionalRequestsMiddleware)
+    document_conditional_requests(app)
+    ```
+
+    Registering `ConditionalRequests()` calls this for you, so a direct
+    call is for a middleware added by hand. Pass `openapi=False` to the
+    component to leave the schema alone.
+
+    Raises:
+        DependencyNotFoundError: If `fastapi` is not installed.
+        TypeError: If `app` is not a `FastAPI` app, or carries no
+            `ConditionalRequestsMiddleware`.
+    """
+    _require_fastapi(app, "document_conditional_requests")
+    options = _middleware_options(
+        app,
+        ConditionalRequestsMiddleware,
+        "document_conditional_requests() found no "
+        "ConditionalRequestsMiddleware on the app. Add it with "
+        "app.add_middleware(ConditionalRequestsMiddleware) first.",
+    )
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        errors = getattr(app.state, "grelmicro_error_responses", None)
+        schema = original()
+        _annotate_conditional(
+            schema,
+            options,
+            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
+            ProblemDetail if errors is None else errors.model,
+            _required_routes(app),
+        )
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.openapi_schema = None
+
+
+_CREATE_CASE = "Required, unless the request creates with `If-None-Match: *`."
+"""What `required` alone cannot say: either header satisfies the rule."""
+
+_IF_MATCH = "If-Match"
+"""Header a client sends to say which version it is updating."""
+
+_IF_NONE_MATCH = "If-None-Match"
+"""Header a client sends to say which version it already holds."""
+
+_READ_METHODS = ("get", "head")
+"""Methods a `304` may answer."""
+
+_WRITE_METHODS = ("put", "patch", "delete")
+"""Methods a precondition guards. `POST` creates, so it has none to hold."""
+
+
+def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
+    """Return the `(path, method)` pairs that declared a precondition.
+
+    A guard called inside a handler body is invisible from here, which is
+    why requiring one is something a route declares rather than calls.
+    """
+    found: set[tuple[str, str]] = set()
+    for route in app.routes:
+        # The resolved dependency tree, under FastAPI's own spelling of it.
+        # `path` is only on the routes that have one.
+        declared = getattr(route, "dependant", None)  # codespell:ignore
+        path = getattr(route, "path", None)
+        if declared is None or path is None:
+            continue
+        if not any(
+            getattr(dependency.call, "__name__", "") == "_required_conditional"
+            for dependency in declared.dependencies
+        ):
+            continue
+        for method in getattr(route, "methods", ()):
+            found.add((path, method.lower()))
+    return found
+
+
+def _annotate_conditional(
+    schema: dict[str, Any],
+    options: dict[str, Any],
+    media_type: str,
+    model: type[BaseModel],
+    required_routes: set[tuple[str, str]],
+) -> None:
+    """Add the conditional headers and responses to covered operations."""
+    include = tuple(options["include"])
+    exclude = tuple(options["exclude"])
+    required = {method.lower() for method in options["require_precondition"]}
+    reads = [
+        (path, path_item, operation)
+        for path, path_item, operation in _paths(schema, _READ_METHODS)
+        if selects(path, include=include, exclude=exclude)
+    ]
+    writes = [
+        (path, path_item, operation, method)
+        for path, path_item, operation, method in _paths_with_method(
+            schema, _WRITE_METHODS
+        )
+        if selects(path, include=include, exclude=exclude)
+    ]
+    if not reads and not writes:
+        return
+    ref = add_error_schema(schema, model)
+
+    for _path, path_item, operation in reads:
+        _add_parameter(
+            operation,
+            path_item,
+            {
+                "name": _IF_NONE_MATCH,
+                "in": "header",
+                "required": False,
+                "schema": {"type": "string"},
+                "description": (
+                    "Entity tag the client already holds, from the `ETag` "
+                    "of an earlier read. The service answers `304 Not "
+                    "Modified` while it still matches."
+                ),
+            },
+        )
+        _merge_response(
+            operation,
+            "304",
+            "The entity tag still matches, so the body is not sent again.",
+            "",
+            media_type,
+        )
+
+    for path, path_item, operation, method in writes:
+        needed = method in required or (path, method) in required_routes
+        if needed:
+            _mark_required(operation, _IF_MATCH)
+        _add_parameter(
+            operation,
+            path_item,
+            {
+                "name": _IF_MATCH,
+                "in": "header",
+                "required": needed,
+                "schema": {"type": "string"},
+                "description": (
+                    "Entity tag of the version being updated, from the "
+                    "`ETag` of an earlier read. The write is refused if "
+                    "the resource changed since."
+                    + (f" {_CREATE_CASE}" if needed else "")
+                ),
+            },
+        )
+        _merge_response(
+            operation,
+            "412",
+            "The entity tag in `If-Match` is not the one the resource "
+            "carries now.",
+            ref,
+            media_type,
+        )
+        _merge_response(
+            operation,
+            "428",
+            "This request must carry a precondition.",
+            ref,
+            media_type,
+        )
+
+
+def _mark_required(operation: dict[str, Any], name: str) -> None:
+    """Mark a header the operation already declares as required.
+
+    The dependency puts it there, so the annotation cannot add a second
+    one, and OpenAPI forbids a duplicate anyway. The description gains
+    what `required` cannot say: a schema has no way to express that one
+    header or the other will do.
+    """
+    lowered = name.lower()
+    for parameter in operation.get("parameters", ()):
+        if (
+            parameter.get("in") == "header"
+            and str(parameter.get("name", "")).lower() == lowered
+        ):
+            parameter["required"] = True
+            description = str(parameter.get("description", ""))
+            if _CREATE_CASE not in description:
+                parameter["description"] = (
+                    f"{description} {_CREATE_CASE}".strip()
+                )
+
+
+def _paths(
+    schema: dict[str, Any],
+    methods: "Collection[str]",
+) -> "list[tuple[str, dict[str, Any], dict[str, Any]]]":
+    """Return each operation of these methods, with the path it sits on."""
+    return [
+        (path, path_item, operation)
+        for path, path_item, operation, _method in _paths_with_method(
+            schema, methods
+        )
+    ]
+
+
+def _paths_with_method(
+    schema: dict[str, Any],
+    methods: "Collection[str]",
+) -> "list[tuple[str, dict[str, Any], dict[str, Any], str]]":
+    """Return each operation of these methods, with its path and method.
+
+    Only `paths`: a webhook is a request the app sends, and no conditional
+    header of ours reaches it.
+    """
+    return [
+        (path, path_item, operation, method.lower())
+        for path, path_item in schema.get("paths", {}).items()
+        for method, operation in path_item.items()
+        if isinstance(operation, dict) and method.lower() in methods
+    ]
+
+
+def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
+    """Refuse anything but a FastAPI app, which is what builds a schema.
+
+    Raises:
+        DependencyNotFoundError: If `fastapi` is not installed.
+        TypeError: If `app` is not a `FastAPI` app.
+    """
+    try:
+        from fastapi import FastAPI as _FastAPI  # noqa: PLC0415
+    except ImportError:
+        from grelmicro.errors import (  # noqa: PLC0415
+            DependencyNotFoundError,
+        )
+
+        raise DependencyNotFoundError(module="fastapi") from None
+
+    if not isinstance(app, _FastAPI):
+        msg = (
+            f"{caller}() needs a FastAPI app, got {type(app).__name__}. "
+            f"Only FastAPI builds an OpenAPI schema."
+        )
+        raise TypeError(msg)
+
+
+def _middleware_options(
+    app: "FastAPI", middleware: type[Any], missing: str
+) -> dict[str, Any]:
+    """Return one installed middleware's arguments, defaults filled in.
+
+    Raises:
+        TypeError: If the app carries no such middleware.
+    """
     import inspect  # noqa: PLC0415
 
-    for middleware in app.user_middleware:
+    for entry in app.user_middleware:
         # `add_middleware` prepends, so the first match is the last added,
         # which is the outermost at runtime and answers first on the wire.
-        cls = middleware.cls
-        if isinstance(cls, type) and issubclass(cls, IdempotencyMiddleware):
-            # Every parameter after `app` is keyword-only, so `add_middleware`
-            # can only have passed them by keyword.
-            bound = inspect.signature(IdempotencyMiddleware).bind_partial(
-                **middleware.kwargs
-            )
+        cls = entry.cls
+        if is_class(cls) and is_subclass(cls, middleware):
+            # Every parameter after `app` is keyword-only, so
+            # `add_middleware` can only have passed them by keyword.
+            bound = inspect.signature(middleware).bind_partial(**entry.kwargs)
             bound.apply_defaults()
             return dict(bound.arguments)
-    msg = (
+    raise TypeError(missing)
+
+
+def _idempotency_options(app: "FastAPI") -> dict[str, Any]:
+    """Return the installed middleware's arguments, defaults filled in."""
+    return _middleware_options(
+        app,
+        IdempotencyMiddleware,
         "document_idempotency() found no IdempotencyMiddleware on the app. "
-        "Add it with app.add_middleware(IdempotencyMiddleware, ...) first."
+        "Add it with app.add_middleware(IdempotencyMiddleware, ...) first.",
     )
-    raise TypeError(msg)
 
 
 def _annotate_schema(
@@ -275,11 +680,16 @@ def _annotate_schema(
         "name": header,
         "in": "header",
         "required": options["require_key"],
-        "schema": {"type": "string", "maxLength": _MAX_KEY_LENGTH},
+        "schema": {
+            "type": "string",
+            "maxLength": _MAX_KEY_LENGTH,
+            "pattern": _KEY_PATTERN,
+        },
         "description": (
             "Key that makes this request safe to retry. A repeat within the "
             "replay window returns the first response instead of running the "
-            f"operation again. Up to {_MAX_KEY_LENGTH} ASCII characters."
+            f"operation again. Up to {_MAX_KEY_LENGTH} printable ASCII "
+            f"characters, such as a UUID."
         ),
     }
     responses = {
@@ -293,9 +703,17 @@ def _annotate_schema(
     }
     if fingerprint_body:
         responses["413"] = "Request body too large to fingerprint."
-        responses["422"] = (
+        reused = str(options["reused_status"])
+        description = (
             f"This `{header}` was already used with a different request "
             f"payload."
+        )
+        # A service answering the reuse case with `400` shares the status
+        # with the missing-key case, so both descriptions have to survive.
+        responses[reused] = (
+            f"{responses[reused]} {description}"
+            if reused in responses
+            else description
         )
 
     covered = [
@@ -810,3 +1228,83 @@ def _parse_exclude(raw: str | None) -> frozenset[str]:
     if not raw:
         return frozenset()
     return frozenset(name.strip() for name in raw.split(",") if name.strip())
+
+
+if TYPE_CHECKING:
+    # The runtime values are `Annotated` markers FastAPI reads. A checker
+    # only needs to know what the handler receives.
+    Conditional = ConditionalRequest
+    ConditionalRequired = ConditionalRequest
+elif HAS_FASTAPI:
+
+    def _conditional(
+        if_match: Annotated[
+            str | None,
+            _Header(
+                alias="If-Match",
+                description=(
+                    "Entity tag of the version being updated, from the "
+                    "`ETag` of an earlier read. The write is refused if "
+                    "the resource changed since."
+                ),
+            ),
+        ] = None,
+        if_none_match: Annotated[
+            str | None,
+            _Header(
+                alias="If-None-Match",
+                description=(
+                    "Entity tag the client already holds. The service "
+                    "answers `304 Not Modified` while it still matches."
+                ),
+            ),
+        ] = None,
+    ) -> ConditionalRequest:
+        """Bind the guards to what this request carries.
+
+        The headers are declared here rather than read from the scope, so
+        the operation that injects this documents them, and Swagger offers
+        the fields exactly where a handler reads them.
+        """
+        return ConditionalRequest(if_match, if_none_match)
+
+    def _required_conditional(
+        conditional: Annotated[ConditionalRequest, _Depends(_conditional)],
+    ) -> ConditionalRequest:
+        """Refuse a request that carries no precondition at all.
+
+        Declared rather than called, so the schema marks `If-Match`
+        required on this operation, and the client is answered `428`
+        rather than a validation error.
+
+        Raises:
+            PreconditionRequiredError: If neither precondition header
+                arrived. Answers `428`.
+        """
+        if conditional.if_match is None and conditional.if_none_match is None:
+            raise PreconditionRequiredError
+        return conditional
+
+    Conditional = Annotated[ConditionalRequest, _Depends(_conditional)]
+    ConditionalRequired = Annotated[
+        ConditionalRequest, _Depends(_required_conditional)
+    ]
+else:  # pragma: no cover - the reimport test walks this
+    Conditional = ConditionalRequest
+    ConditionalRequired = ConditionalRequest
+"""The conditional guards, injected.
+
+```python
+from grelmicro.integrations.fastapi import Conditional
+
+
+@app.patch("/carts/{cart_id}")
+async def update(cart_id: int, conditional: Conditional) -> Cart:
+    cart = await load(cart_id)
+    conditional.check(cart.version)
+    return await save(cart)
+```
+
+A ready-made annotation, so a handler declares one word rather than
+`Annotated[ConditionalRequest, _Depends(ConditionalRequest)]`.
+"""
