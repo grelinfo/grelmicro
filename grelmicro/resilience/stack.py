@@ -347,15 +347,16 @@ class Stack:
         """
         if is_async_callable(fn):
             return functools.wraps(fn)(self._build_async(fn))
-        blocking = [
-            _LABELS[slot] for slot in _ASYNC_ONLY if slot in self._members
-        ]
+        blocking = self._async_only()
         if blocking:
             names = ", ".join(blocking)
+            plural = len(blocking) > 1
             msg = (
                 f"Stack {self._name!r} only decorates async functions, "
-                f"because {names} does. Make {_named(fn)} async, or "
-                "drop that pattern from the stack."
+                f"because {names} {'do' if plural else 'does'}. Make "
+                f"{_named(fn)} async, or drop "
+                f"{'those patterns' if plural else 'that pattern'} "
+                "from the stack."
             )
             raise TypeError(msg)
         return functools.wraps(fn)(self._build_sync(fn))
@@ -382,12 +383,21 @@ class Stack:
                 parameter `fn` does not take.
         """
         if not is_async_callable(fn):
-            msg = (
-                f"Stack.run only calls async functions, got {fn!r}. Use "
-                "the decorator for a sync function."
+            blocking = self._async_only()
+            makes = "make" if len(blocking) > 1 else "makes"
+            advice = (
+                f"{', '.join(blocking)} {makes} this stack async only, "
+                "so make the call async."
+                if blocking
+                else "Use the decorator for a sync function."
             )
+            msg = f"Stack.run only calls async functions, got {fn!r}. {advice}"
             raise TypeError(msg)
         return await self._build_async(fn)(*args, **kwargs)
+
+    def _async_only(self) -> list[str]:
+        """Return the patterns in this stack that refuse a sync function."""
+        return [_LABELS[slot] for slot in _ASYNC_ONLY if slot in self._members]
 
     def _build_async[**P, R](
         self, fn: Callable[P, Awaitable[R]]

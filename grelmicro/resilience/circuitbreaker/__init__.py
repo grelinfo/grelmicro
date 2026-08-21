@@ -1014,7 +1014,7 @@ class _ThreadAdapter:
         loop = backend._loop  # noqa: SLF001
         if loop is None:
             raise_backend_not_open(f"CircuitBreaker {cb.name!r}")
-        _refuse_on_event_loop(cb.name)
+        _refuse_on_backend_loop(cb.name, loop)
         config = cb._state.config  # noqa: SLF001
         snapshot = asyncio.run_coroutine_threadsafe(
             _async_admit(cb), loop
@@ -1053,22 +1053,25 @@ class _ThreadAdapter:
         return None
 
 
-def _refuse_on_event_loop(name: str) -> None:
-    """Refuse a worker-thread entry made from the event loop thread.
+def _refuse_on_backend_loop(name: str, loop: asyncio.AbstractEventLoop) -> None:
+    """Refuse a worker-thread entry made from the backend's own loop.
 
-    `from_thread` hands the work to the loop and blocks on the result,
-    which never arrives when the caller is the loop itself.
+    `from_thread` hands the work to the backend's loop and blocks on
+    the result, which never arrives when the caller is that loop. A
+    caller on a different loop is served by the backend's own.
 
     Raises:
-        RuntimeError: If the calling thread runs an event loop.
+        RuntimeError: If the calling thread runs the backend's loop.
     """
     try:
-        asyncio.get_running_loop()
+        running = asyncio.get_running_loop()
     except RuntimeError:
+        return
+    if running is not loop:
         return
     msg = (
         f"CircuitBreaker {name!r} was entered through `from_thread` on "
-        "a thread that runs an event loop, which would wait on the "
+        "the event loop its backend runs on, which would wait on the "
         "loop that has to do the work. Use `async with breaker:` from "
         "async code, or run the sync call through "
         "`asyncio.to_thread(...)`."

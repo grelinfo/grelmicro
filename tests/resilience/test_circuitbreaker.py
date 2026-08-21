@@ -1376,5 +1376,22 @@ async def test_from_thread_on_the_event_loop_thread_is_refused() -> None:
     async with MemoryCircuitBreakerAdapter() as backend:
         cb = CircuitBreaker("loop-thread", backend=backend)
 
-        with pytest.raises(RuntimeError, match="runs an event loop"):
+        with pytest.raises(
+            RuntimeError, match="the event loop its backend runs on"
+        ):
             cb.from_thread.__enter__()
+
+
+async def test_from_thread_on_another_loop_is_served() -> None:
+    """Only the backend's own loop would wait on itself."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker("other-loop", backend=backend)
+
+        def enter_on_a_second_loop() -> str:
+            async def inner() -> str:
+                with cb.from_thread:
+                    return "admitted"
+
+            return asyncio.run(inner())
+
+        assert await asyncio.to_thread(enter_on_a_second_loop) == "admitted"

@@ -267,3 +267,46 @@ def test_a_cost_below_one_is_refused(cost: int) -> None:
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
     with pytest.raises(ValueError, match="at least 1"):
         limiter(cost=cost)
+
+
+def test_a_nested_template_field_is_validated_too() -> None:
+    """A field inside a format spec names a parameter like any other."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+
+    with pytest.raises(ValueError, match=r"which .* does not take"):
+
+        @limiter(key="user:{user_id:{width}}")
+        async def work(user_id: int) -> int:
+            return user_id
+
+
+async def test_a_nested_template_field_renders() -> None:
+    """A format spec that names a real parameter still renders."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
+        )
+
+        @limiter(key="user:{user_id:{width}}")
+        async def work(user_id: int, width: int) -> int:  # noqa: ARG001
+            return user_id
+
+        assert await work(USER, 3) == USER
+        with pytest.raises(RateLimitExceededError):
+            await work(USER, 3)
+
+
+async def test_a_template_with_a_trailing_literal_renders() -> None:
+    """Text after the last field is part of the key."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
+        )
+
+        @limiter(key="user:{user_id}-v1")
+        async def work(user_id: int) -> int:
+            return user_id
+
+        assert await work(USER) == USER
+        with pytest.raises(RateLimitExceededError):
+            await work(USER)

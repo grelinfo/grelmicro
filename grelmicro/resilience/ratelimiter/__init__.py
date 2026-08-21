@@ -823,11 +823,12 @@ def _template_fields(template: str) -> list[str]:
         ValueError: If the template reads a positional field, which
             names no parameter.
     """
-    fields = [
-        field.split(".")[0].split("[")[0]
-        for _, field, _, _ in Formatter().parse(template)
-        if field is not None
-    ]
+    fields = []
+    for _, field, spec, _ in Formatter().parse(template):
+        if field is not None:
+            fields.append(field.split(".")[0].split("[")[0])
+        if spec:
+            fields.extend(_template_fields(spec))
     if any(name == "" or name.isdigit() for name in fields):
         msg = (
             f"Rate limiter key template {template!r} reads a "
@@ -848,7 +849,14 @@ class RateLimiterBinding:
     Read more in the [Rate Limiter](../resilience/rate-limiter.md) docs.
     """
 
-    __slots__ = ("_cost", "_key", "_key_maker", "_limiter", "_max_wait")
+    __slots__ = (
+        "_cost",
+        "_fields",
+        "_key",
+        "_key_maker",
+        "_limiter",
+        "_max_wait",
+    )
 
     def __init__(
         self,
@@ -871,8 +879,8 @@ class RateLimiterBinding:
         Raises:
             TypeError: If both `key` and `key_maker` are passed, or
                 `max_wait` is `None`.
-            ValueError: If `cost` is below 1, or `max_wait` is
-                negative.
+            ValueError: If `cost` is below 1, `max_wait` is negative,
+                or `key` reads a positional field.
         """
         if key is not None and key_maker is not None:
             msg = (
@@ -905,6 +913,9 @@ class RateLimiterBinding:
             raise ValueError(msg)
         self._limiter = limiter
         self._key = key
+        self._fields = (
+            _template_fields(key) if key is not None and "{" in key else ()
+        )
         self._key_maker = key_maker
         self._cost = cost
         self._max_wait = max_wait
@@ -938,7 +949,7 @@ class RateLimiterBinding:
         if "{" not in key:
             return lambda _args, _kwargs: key
         signature = inspect.signature(fn)
-        unknown = sorted(set(_template_fields(key)) - set(signature.parameters))
+        unknown = sorted(set(self._fields) - set(signature.parameters))
         if unknown:
             names = ", ".join(unknown)
             msg = (

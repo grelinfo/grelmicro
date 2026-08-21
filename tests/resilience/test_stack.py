@@ -750,7 +750,39 @@ def test_a_sync_breaker_entered_from_the_event_loop_is_refused() -> None:
             def work() -> str:
                 return "never"
 
-            with pytest.raises(RuntimeError, match="runs an event loop"):
+            with pytest.raises(
+                RuntimeError, match="the event loop its backend runs on"
+            ):
                 work()
 
     asyncio.run(scenario())
+
+
+def test_the_sync_refusal_counts_the_patterns_it_names() -> None:
+    """One pattern reads as one, several read as several."""
+    one = Stack("recs", patterns=[Timeout("recs", seconds=TIMEOUT)])
+    with pytest.raises(TypeError, match=r"Timeout does\. .* that pattern"):
+        one(lambda: None)
+
+    several = Stack(
+        "recs",
+        patterns=[
+            Bulkhead("recs", max_concurrent=1),
+            Timeout("recs", seconds=TIMEOUT),
+        ],
+    )
+    with pytest.raises(
+        TypeError, match=r"Bulkhead, Timeout do\. .* those patterns"
+    ):
+        several(lambda: None)
+
+
+async def test_run_does_not_advise_a_decorator_that_would_refuse_too() -> None:
+    """The advice holds for the stack it is given."""
+    async_only = Stack("recs", patterns=[Timeout("recs", seconds=TIMEOUT)])
+    with pytest.raises(TypeError, match="make the call async"):
+        await async_only.run(lambda: None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    sync_capable = Stack("recs", patterns=[a_retry()])
+    with pytest.raises(TypeError, match="Use the decorator"):
+        await sync_capable.run(lambda: None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
