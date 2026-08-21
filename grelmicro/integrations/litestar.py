@@ -145,12 +145,15 @@ def install_middleware(
         if isinstance(binding, GrelmicroMiddleware):
             # Inside the binding, which `install` put outermost so a
             # middleware resolving a backend runs in the request scope.
-            _wrap_inside(binding, middleware, options)
+            _wrap_inside(binding, middleware, options, app)
         else:
             app.asgi_handler = cast(
                 "Any",
                 _wrapped(
-                    cast("ASGIApp", app.asgi_handler), middleware, options
+                    cast("ASGIApp", app.asgi_handler),
+                    middleware,
+                    options,
+                    app,
                 ),
             )
 
@@ -159,13 +162,17 @@ def _wrap_inside(
     binding: GrelmicroMiddleware,
     middleware: type[Any],
     options: dict[str, Any],
+    app: Litestar,
 ) -> None:
     """Put the middleware under the binding, inside what handles errors."""
-    binding.app = cast("Any", _wrapped(binding.app, middleware, options))
+    binding.app = cast("Any", _wrapped(binding.app, middleware, options, app))
 
 
 def _wrapped(
-    handler: ASGIApp, middleware: type[Any], options: dict[str, Any]
+    handler: ASGIApp,
+    middleware: type[Any],
+    options: dict[str, Any],
+    app: Litestar,
 ) -> ASGIApp:
     """Return `handler` wrapped, under whatever turns errors into responses.
 
@@ -180,20 +187,63 @@ def _wrapped(
     app under `app` is one this can go under, and a release that stops
     doing so falls back to wrapping the whole thing.
     """
-    inner = getattr(handler, "app", None)
-    if inner is None or not callable(inner):  # pragma: no cover
+    host = _innermost_layer(handler, app)
+    if host is None:  # pragma: no cover
         return middleware(handler, **options)
-    handler.app = middleware(cast("ASGIApp", inner), **options)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    host.app = middleware(cast("ASGIApp", host.app), **options)
     return handler
 
 
+def _innermost_layer(handler: ASGIApp, app: Litestar) -> Any | None:  # noqa: ANN401
+    """Return the layer that wraps the router, or None if there is none.
+
+    Every layer the app built sits above the router: the one that renders
+    an exception, and whatever else was configured, such as CORS. Taking
+    one hop lands under the first of them and above the rest, which is
+    only the same thing when there is exactly one.
+
+    The walk stops at the router rather than going through it. The router
+    holds the app itself, and reads the lifespan from that reference.
+    """
+    host = None
+    seen = 0
+    while seen < _MAX_CHAIN:
+        inner = getattr(handler, "app", None)
+        if inner is None or not callable(inner) or inner is app:
+            return host
+        host = handler
+        handler = cast("ASGIApp", inner)
+        seen += 1
+    return host  # pragma: no cover
+
+
 def _already_wired(app: Litestar, middleware: type[Any]) -> bool:
-    """Return whether the app passed this middleware at construction."""
-    return any(
-        getattr(declared, "middleware", None) is middleware
-        or declared is middleware
-        for declared in getattr(app, "middleware", ())
+    """Return whether this middleware is already in front of the app.
+
+    Either because the app passed it to `Litestar(middleware=[...])`, or
+    because `install` ran before and wrapped it. One layer answers, stores
+    and tags. Two would do all three twice.
+    """
+    declared = any(
+        getattr(entry, "middleware", None) is middleware or entry is middleware
+        for entry in getattr(app, "middleware", ())
     )
+    return declared or _wrapped_already(app.asgi_handler, middleware)
+
+
+def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
+    """Return whether the handler chain already holds one of these."""
+    seen = 0
+    while handler is not None and seen < _MAX_CHAIN:
+        if isinstance(handler, middleware):
+            return True
+        handler = getattr(handler, "app", None)
+        seen += 1
+    return False
+
+
+_MAX_CHAIN = 32
+"""How far to walk a handler chain before calling it a cycle."""
 
 
 def _warn_if_wrapping_app_middleware(

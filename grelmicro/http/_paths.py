@@ -32,12 +32,20 @@ def matches(
     `"/payments/*"`, which is how FastAPI, Starlette and Litestar apps
     group endpoints in the first place.
     """
-    return any(
-        path.startswith(pattern[:-1])
-        if pattern.endswith(_PREFIX)
-        else path == pattern
-        for pattern in patterns
-    )
+    return any(_matches_one(path, pattern) for pattern in patterns)
+
+
+def _matches_one(path: str, pattern: str) -> bool:
+    """Return whether one pattern matches this path.
+
+    A prefix pattern matches the prefix itself as well as what sits under
+    it, so `"/payments/*"` covers `POST /payments`, the create route of
+    the very router it names.
+    """
+    if not pattern.endswith(_PREFIX):
+        return path == pattern
+    prefix = pattern[: -len(_PREFIX)]
+    return path.startswith(prefix) or path == prefix.rstrip("/")
 
 
 def selects(

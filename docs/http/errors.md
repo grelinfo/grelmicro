@@ -399,7 +399,8 @@ read the stored response or are told to wait again.
 ### Idempotency key invalid { #idempotency-key-invalid }
 
 `400`. The `Idempotency-Key` header is missing on a route that requires one,
-or longer than 255 characters.
+longer than 255 characters, or holds a byte outside printable ASCII. Send a
+fresh key the service can carry, such as a UUID.
 
 ### Request body too large { #request-body-too-large }
 

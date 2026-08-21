@@ -33,8 +33,10 @@ pytestmark = [pytest.mark.timeout(5)]
 
 HEADER = "Idempotency-Key"
 MAX_BODY_SIZE = 2048
+MAX_CHAIN = 8
 HTTP_400_BAD_REQUEST = 400
 HTTP_422_UNPROCESSABLE_CONTENT = 422
+MAX_CHAIN = 8
 HTTP_400_BAD_REQUEST = 400
 HTTP_401_UNAUTHORIZED = 401
 HTTP_500_INTERNAL_SERVER_ERROR = 500
@@ -763,3 +765,89 @@ def test_installing_after_the_app_started_says_so() -> None:
         install_middleware(app, [IdempotentRequests()])
     with pytest.raises(RuntimeError, match="after an application has started"):
         Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+
+def test_installing_twice_wires_one_of_each() -> None:
+    """A second `install` is a wiring mistake, not a second middleware.
+
+    Two bindings set the same context variable twice per request, and two
+    idempotency layers store, capture and answer twice.
+    """
+    # Arrange
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    app = FastAPI()
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}  # pragma: no cover
+
+    # Act
+    micro.install(app)
+    micro.install(app)
+
+    # Assert
+    assert [middleware.cls for middleware in app.user_middleware] == [
+        GrelmicroMiddleware,
+        IdempotencyMiddleware,
+    ]
+
+
+def test_installing_twice_on_litestar_wires_one_of_each() -> None:
+    """The same, where the wiring is a chain rather than a list."""
+
+    # Arrange
+    @post("/charge", status_code=200)
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}  # pragma: no cover
+
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    app = Litestar(route_handlers=[charge])
+
+    # Act
+    micro.install(app)
+    micro.install(app)
+
+    # Assert
+    layers: list[str] = []
+    handler: object = app.asgi_handler
+    while handler is not None and len(layers) < MAX_CHAIN:
+        layers.append(type(handler).__name__)
+        handler = getattr(handler, "app", None)
+    assert layers.count("IdempotencyMiddleware") == 1
+    assert layers.count("GrelmicroMiddleware") == 1
+
+
+def test_litestar_stays_under_the_error_layer_with_cors_configured() -> None:
+    """One hop is not enough when the app configured its own outer layers.
+
+    With CORS in front, taking a single hop lands above the layer that
+    renders exceptions, and the framework's `500` becomes a stored
+    response that replays for the whole window.
+    """
+    # Arrange
+    from litestar.config.cors import CORSConfig  # noqa: PLC0415
+
+    calls: list[int] = []
+
+    @post("/boom", status_code=200)
+    async def boom() -> dict[str, int]:
+        calls.append(1)
+        msg = "kaboom"
+        raise RuntimeError(msg)
+
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    app = Litestar(
+        route_handlers=[boom],
+        cors_config=CORSConfig(allow_origins=["*"]),
+    )
+    micro.install(app)
+
+    # Act
+    with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
+        client.post("/boom", headers={HEADER: "abc"})
+        second = client.post("/boom", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert "idempotent-replayed" not in second.headers
+    assert calls == [1, 1]

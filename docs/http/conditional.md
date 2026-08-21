@@ -125,8 +125,10 @@ async def read(cart_id: int) -> Cart:
 ```
 
 Ignoring the return value is correct too. The client gets the same `304`, it
-just costs the work of building a body nobody reads. Either way the `304`
-carries the entity tag you recorded, which is what
+just costs the work of building a body nobody reads, and that holds for a
+streamed response as well: the tag is known before the first byte, so the
+stream is swapped for a `304` and what the handler goes on producing reaches
+nobody. Either way the `304` carries the entity tag you recorded, which is what
 [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) asks of one.
 
 ### What never gets a generated tag
@@ -140,7 +142,7 @@ Three responses, and none of them is held up waiting to be hashed:
 | A `204` | It carries no representation, and hashing its empty body would give every empty resource in the app the same tag. |
 
 A handler that recorded a version with `check_freshness` still gets that tag on
-the response, since nothing had to be hashed to know it.
+the response in all three cases, since nothing had to be hashed to know it.
 
 Register the component and call nothing, and responses still get an `ETag`,
 hashed from the body. That covers a route you have not touched. A recorded

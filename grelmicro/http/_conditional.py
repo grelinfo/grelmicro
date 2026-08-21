@@ -730,12 +730,16 @@ class ConditionalRequestsMiddleware:
 
 
 class _ResponseShaper:
-    """Hold a response back long enough to tag it, or to drop its body.
+    """Shape one response: tag it, or answer `304` in place of it.
 
-    The status cannot change once it is on the wire, so a `304` is only
-    possible while the whole response is still here. It is held until the
-    body completes or outgrows `max_body_size`, whichever comes first, and
-    a response that outgrows it streams on with no entity tag.
+    A status cannot change once it is on the wire, so the decision has to
+    be made while the response is still here. It is held only as long as
+    that can pay off, which is while the body arrives in one piece and
+    stays under `max_body_size`. A streamed response goes out as it comes.
+
+    A handler that recorded a version needs none of that: its entity tag
+    is known before the first byte, so even a stream carries it, and even
+    a stream is swapped for a `304` when the client already holds it.
     """
 
     def __init__(
@@ -757,10 +761,14 @@ class _ResponseShaper:
         self._chunks: list[bytes] = []
         self._size = 0
         self._released = False
-        self._complete = False
+        self._answered = False
 
     async def __call__(self, message: Message) -> None:
-        """Buffer the response, or forward it once buffering is over."""
+        """Shape the response, or forward what is no longer shapeable."""
+        if self._answered:
+            # A `304` went out in place of this response, so what the app
+            # is still producing has nowhere to go.
+            return
         if self._released:
             await self._send(message)
             return
@@ -768,71 +776,81 @@ class _ResponseShaper:
             self._start = message
             if message.get("trailers"):
                 # Trailers follow the body, so a response that declares
-                # them cannot be held back and reordered. It streams, and
-                # carries no entity tag of ours.
+                # them cannot be held back and reordered.
                 await self._release()
             return
         if message["type"] != "http.response.body":
             # A message this does not shape. Whatever is held goes first,
             # so nothing reaches the client out of order.
             await self._release()
-            await self._send(message)
+            await self._forward(message)
             return
         if message.get("more_body", False):
-            # A response that arrives in pieces is one the app is streaming.
-            # Holding it back to hash it would turn an event stream into one
-            # message at the end, so it goes out as it comes and carries no
-            # entity tag of ours.
+            # A body arriving in pieces is one the app is streaming.
+            # Holding it to hash it would turn an event stream into one
+            # message at the end.
             await self._release()
-            await self._send(message)
+            await self._forward(message)
             return
         chunk = message.get("body", b"")
         self._size += len(chunk)
         if self._size > self._max_body_size:
             await self._release()
-            await self._send(message)
+            await self._forward(message)
             return
         self._chunks.append(chunk)
-        self._complete = True
+        # Decided here rather than after the app returns: a framework runs
+        # background tasks inside that call, and a response held until they
+        # finish is a response the client waits for.
+        await self._decide()
 
     async def flush(self) -> None:
-        """Answer with the entity tag, a `304`, or what the handler sent."""
-        if self._released or self._start is None:
+        """Send whatever is still held once the app has returned.
+
+        Only an app that stopped without finishing its body reaches this,
+        since a complete response is decided the moment it completes.
+        """
+        if self._released or self._answered or self._start is None:
             return
-        if not self._complete:
-            # The app stopped mid-body, so there is no representation to
-            # tag and nothing to compare.
-            await self._release()
+        await self._release()
+
+    async def _decide(self) -> None:
+        """Answer with the entity tag, a `304`, or what the handler sent."""
+        start = self._start
+        if start is None:  # pragma: no cover
             return
         body = b"".join(self._chunks)
         etag = self._tag(body)
         if etag is not None and self._not_modified(etag):
             await self._send_not_modified(etag)
             self._released = True
+            self._answered = True
             return
-        if etag is not None:
-            self._start["headers"] = [
-                *self._start["headers"],
+        if etag is not None and _own_etag(start) is None:
+            start["headers"] = [
+                *start["headers"],
                 (b"etag", etag.encode("latin-1")),
             ]
-        await self._release()
+        await self._release(complete=True)
 
     def _tag(self, body: bytes) -> str | None:
-        """Return the entity tag this response should carry, if any.
+        """Return the entity tag this response is identified by, if any.
 
-        A handler that answers `304` itself carries the tag it recorded,
-        which is what RFC 9110 asks of a `304`. Otherwise the response has
-        to be one that can carry a representation, and the handler's own
-        tag wins over a hash of the bytes.
+        The handler's own wins, then the version it recorded, then a hash
+        of the body. A `304` the handler answered itself is tagged too,
+        which is what RFC 9110 asks of one.
         """
         start = self._start
         if start is None:  # pragma: no cover
             return None
+        own = _own_etag(start)
         recorded = self._conditional.etag
         if start["status"] == _HTTP_304_NOT_MODIFIED:
-            return recorded
-        if not _describes_a_representation(start):
+            return own or recorded
+        if not _carries_a_representation(start["status"]):
             return None
+        if own is not None:
+            return own
         if recorded is not None:
             return recorded
         return etag_of(body) if self._hash_body else None
@@ -840,7 +858,13 @@ class _ResponseShaper:
     def _not_modified(self, etag: str) -> bool:
         """Return whether the client already holds this representation."""
         tags = self._conditional.preconditions.if_none_match
-        return self._readable and tags is not None and _matches_weak(tags, etag)
+        status = self._start["status"] if self._start else 0
+        return (
+            self._readable
+            and _carries_a_representation(status)
+            and tags is not None
+            and _matches_weak(tags, etag)
+        )
 
     async def _send_not_modified(self, etag: str) -> None:
         """Answer `304` with the headers a bodyless response may carry."""
@@ -850,7 +874,7 @@ class _ResponseShaper:
         headers = [
             (name, value)
             for name, value in start["headers"]
-            if name.lower() in _KEPT_ON_304
+            if name.lower() in _KEPT_ON_304 and name.lower() != b"etag"
         ]
         headers.append((b"etag", etag.encode("latin-1")))
         await self._send(
@@ -862,38 +886,72 @@ class _ResponseShaper:
         )
         await self._send({"type": "http.response.body", "body": b""})
 
-    async def _release(self) -> None:
-        """Send what is held and stop buffering."""
+    async def _forward(self, message: Message) -> None:
+        """Send a message unless a `304` already answered this request."""
+        if self._answered:
+            return
+        await self._send(message)
+
+    async def _release(self, *, complete: bool = False) -> None:
+        """Send what is held and stop shaping.
+
+        `complete` says the held chunks are the whole body, which is the
+        one case where this closes the response rather than leaving it
+        open for what the app is still sending.
+
+        A recorded version tags the response and can still answer `304`
+        here, because neither needs the body.
+        """
         if self._released:  # pragma: no cover
             return
-        self._released = True
         start = self._start
+        recorded = self._conditional.etag
+        if start is not None and recorded is not None:
+            if self._not_modified(recorded):
+                await self._send_not_modified(recorded)
+                self._released = True
+                self._answered = True
+                return
+            if (
+                _carries_a_representation(start["status"])
+                and _own_etag(start) is None
+            ):
+                start["headers"] = [
+                    *start["headers"],
+                    (b"etag", recorded.encode("latin-1")),
+                ]
+        self._released = True
         if start is not None:  # pragma: no branch
             await self._send(start)
-        if self._chunks or self._complete:
+        if self._chunks or complete:
             await self._send(
                 {
                     "type": "http.response.body",
                     "body": b"".join(self._chunks),
-                    "more_body": not self._complete,
+                    "more_body": not complete,
                 }
             )
 
 
-def _describes_a_representation(start: Message) -> bool:
-    """Return whether this response is one a generated tag can describe.
+def _own_etag(start: Message) -> str | None:
+    """Return the entity tag the handler set itself, if it set one."""
+    for name, value in start["headers"]:
+        if name.lower() == b"etag":
+            return value.decode("latin-1")
+    return None
 
-    A failure describes nothing to tag. A `204` carries no representation,
-    so hashing its empty body would give every empty resource in the app
-    one entity tag. And a handler that set its own knows the resource
-    better than its bytes do.
+
+def _carries_a_representation(status: int) -> bool:
+    """Return whether a response with this status has one to tag.
+
+    A failure describes nothing to tag, and a `204` carries no
+    representation, so hashing its empty body would give every empty
+    resource in the app the same entity tag.
     """
-    status = start["status"]
-    if not (_MIN_SUCCESS <= status <= _MAX_SUCCESS):
-        return False
-    if status in BODYLESS_STATUSES:
-        return False
-    return not any(name.lower() == b"etag" for name, _ in start["headers"])
+    return (
+        _MIN_SUCCESS <= status <= _MAX_SUCCESS
+        and status not in BODYLESS_STATUSES
+    )
 
 
 def _tags(

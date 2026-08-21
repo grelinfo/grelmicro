@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import anyio
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -24,6 +25,7 @@ from grelmicro.http import (
     check_precondition,
     etag_of,
 )
+from grelmicro.http._paths import selects
 from grelmicro.integrations.fastapi import (
     Conditional,
     ConditionalRequired,
@@ -36,7 +38,9 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.timeout(5)]
 
 HTTP_200_OK = 200
+BACKGROUND_WORK = 0.2
 HTTP_204_NO_CONTENT = 204
+HTTP_404_NOT_FOUND = 404
 HTTP_304_NOT_MODIFIED = 304
 HTTP_412_PRECONDITION_FAILED = 412
 HTTP_428_PRECONDITION_REQUIRED = 428
@@ -1564,3 +1568,183 @@ async def test_a_response_that_never_sends_a_body_is_still_forwarded() -> None:
     # Assert
     assert [message["type"] for message in sent] == ["http.response.start"]
     assert not [name for name, _ in sent[0]["headers"] if name == b"etag"]
+
+
+async def test_a_streamed_response_still_carries_a_recorded_tag() -> None:
+    """A version the handler recorded needs no body to be known.
+
+    The stream is not held, and the tag still reaches the client, so the
+    next request can send it back.
+    """
+
+    # Arrange
+    async def stream(
+        scope: Any,  # noqa: ANN401, ARG001
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        check_freshness(VERSION)
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send(
+            {"type": "http.response.body", "body": b"a", "more_body": True}
+        )
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = ConditionalRequestsMiddleware(stream)
+
+    # Act
+    sent = await _drive(middleware)
+
+    # Assert
+    assert dict(sent[0]["headers"])[b"etag"] == etag_of(VERSION).encode()
+
+
+async def test_a_streamed_response_still_answers_304() -> None:
+    """Ignoring what `check_freshness` returned costs the work, not the answer.
+
+    The tag is known before the first byte, so the stream is swapped for a
+    `304` and what the handler goes on producing reaches nobody.
+    """
+
+    # Arrange
+    async def stream(
+        scope: Any,  # noqa: ANN401, ARG001
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        check_freshness(VERSION)
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        for _ in range(2):
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b"data: x\n\n",
+                    "more_body": True,
+                }
+            )
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = ConditionalRequestsMiddleware(stream)
+
+    # Act
+    sent = await _drive(
+        middleware,
+        headers=[(b"if-none-match", etag_of(VERSION).encode())],
+    )
+
+    # Assert
+    assert sent[0]["status"] == HTTP_304_NOT_MODIFIED
+    assert sum(len(message.get("body", b"")) for message in sent) == 0
+
+
+def test_a_failure_that_recorded_a_version_is_not_answered_304() -> None:
+    """A resource that is gone or refused is not one the client still holds.
+
+    The version was read, then the load failed. Answering `304` would
+    leave the client serving a cached copy of something it can no longer
+    have.
+    """
+    # Arrange
+    micro = Grelmicro(uses=[ConditionalRequests()])
+    app = FastAPI()
+
+    @app.get("/gone")
+    async def gone() -> dict[str, int]:
+        check_freshness(VERSION)
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND)
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/gone", headers={"If-None-Match": etag_of(VERSION)}
+        )
+
+    # Assert
+    assert response.status_code == HTTP_404_NOT_FOUND
+    assert "etag" not in response.headers
+
+
+def test_a_handlers_own_tag_still_answers_304() -> None:
+    """The best-behaved handler is not the one that loses the shortcut."""
+    # Arrange
+    micro = Grelmicro(uses=[ConditionalRequests()])
+    app = FastAPI()
+
+    @app.get("/carts/1")
+    async def read() -> Any:  # noqa: ANN401
+        from fastapi.responses import JSONResponse  # noqa: PLC0415
+
+        return JSONResponse({"version": VERSION}, headers={"ETag": '"v7"'})
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        matching = client.get("/carts/1", headers={"If-None-Match": '"v7"'})
+        stale = client.get("/carts/1", headers={"If-None-Match": '"v6"'})
+
+    # Assert
+    assert matching.status_code == HTTP_304_NOT_MODIFIED
+    assert matching.headers["etag"] == '"v7"'
+    assert stale.status_code == HTTP_200_OK
+    assert stale.headers["etag"] == '"v7"'
+
+
+async def test_a_background_task_never_delays_the_response() -> None:
+    """The decision is made when the body completes, not when the app returns.
+
+    A framework runs background tasks inside the call this wraps, so a
+    response held until they finish is a response the client waits for.
+    """
+    # Arrange
+    started: list[float] = []
+
+    async def app(
+        scope: Any,  # noqa: ANN401, ARG001
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"{}"})
+        # What a background task does inside the same call.
+        await anyio.sleep(0.2)
+
+    middleware = ConditionalRequestsMiddleware(app)
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/thing",
+        "headers": [],
+        "query_string": b"",
+    }
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: dict[str, Any]) -> None:
+        if message["type"] == "http.response.start":
+            started.append(anyio.current_time())
+
+    # Act
+    begin = anyio.current_time()
+    await middleware(scope, receive, send)  # ty: ignore[invalid-argument-type]
+
+    # Assert
+    assert started[0] - begin < BACKGROUND_WORK
+
+
+def test_a_router_prefix_selects_the_router_root() -> None:
+    """`"/payments/*"` covers `POST /payments`, the create route it names."""
+    # Assert
+    assert selects("/payments", include=("/payments/*",), exclude=())
+    assert selects("/payments/1", include=("/payments/*",), exclude=())
+    assert not selects("/payments-eu", include=("/payments/*",), exclude=())
+    assert not selects("/other", include=("/payments/*",), exclude=())

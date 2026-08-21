@@ -290,10 +290,15 @@ class ConditionalRequest:
         return await save(cart)
     ```
 
-    It is the same implementation underneath, so both forms answer the same
-    and a service can use whichever reads better. The plain functions work
-    on Starlette and Litestar too, where there is no dependency injection
-    to hang this on.
+    It is the same implementation underneath, so a service can use
+    whichever reads better. The plain functions work on Starlette and
+    Litestar too, where there is no dependency injection to hang this on.
+
+    `check` reads the headers this was handed, so a route that injects it
+    is guarded whether or not `ConditionalRequests()` is registered.
+    `fresh` needs the component: recording a version is how the middleware
+    knows what tag to put on the response, and without one there is
+    nothing to record it in, so it raises `OutOfContextError`.
 
     Declaring it puts `If-Match` and `If-None-Match` in the schema for
     that operation alone, so Swagger offers the fields exactly where a

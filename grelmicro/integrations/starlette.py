@@ -90,11 +90,13 @@ def install(
             yield state
 
     app.router.lifespan_context = lifespan
-    if ambient:
+    if not ambient:
+        micro._on_ambient_disabled()  # noqa: SLF001
+    elif not is_bound(app):
+        # Once. Installing twice is a wiring mistake, and a second binding
+        # would set the same context variable again on every request.
         app.add_middleware(GrelmicroMiddleware, micro=micro)
         _keep_binding_outermost(app)
-    else:
-        micro._on_ambient_disabled()  # noqa: SLF001
 
 
 def install_error_responses(
