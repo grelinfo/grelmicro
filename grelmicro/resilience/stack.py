@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import functools
-from inspect import iscoroutinefunction, ismethod
+from inspect import iscoroutinefunction
 from typing import TYPE_CHECKING, Annotated, Any, NoReturn, overload
-from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
 
@@ -243,7 +242,7 @@ class Stack:
     docs.
     """
 
-    __slots__ = ("_chains", "_guard", "_members", "_name")
+    __slots__ = ("_guard", "_members", "_name")
 
     def __init__(
         self,
@@ -296,9 +295,6 @@ class Stack:
             raise ValueError(msg)
         self._name = name
         self._members = members
-        self._chains: WeakKeyDictionary[
-            Callable[..., Any], Callable[..., Awaitable[Any]]
-        ] = WeakKeyDictionary()
         self._guard = (
             _CIRCUIT_BREAKER in members
             and (_RATE_LIMITER in members or _BULKHEAD in members),
@@ -382,6 +378,8 @@ class Stack:
 
         Raises:
             TypeError: If `fn` is not async.
+            ValueError: If a rate limiter key template names a
+                parameter `fn` does not take.
         """
         if not is_async_callable(fn):
             msg = (
@@ -389,13 +387,7 @@ class Stack:
                 "the decorator for a sync function."
             )
             raise TypeError(msg)
-        if ismethod(fn):
-            return await self._build_async(fn)(*args, **kwargs)
-        chain = self._chains.get(fn)
-        if chain is None:
-            chain = self._build_async(fn)
-            self._chains[fn] = chain
-        return await chain(*args, **kwargs)
+        return await self._build_async(fn)(*args, **kwargs)
 
     def _build_async[**P, R](
         self, fn: Callable[P, Awaitable[R]]

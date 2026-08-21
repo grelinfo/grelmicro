@@ -1,6 +1,9 @@
 """Tests for the Stack composition pattern."""
 
 import asyncio
+import gc
+import weakref
+from dataclasses import dataclass
 
 import pytest
 
@@ -674,33 +677,58 @@ async def test_run_calls_a_callable_object() -> None:
     assert await stack.run(Client(), DOUBLE) == DOUBLED
 
 
-async def test_run_builds_one_chain_per_function() -> None:
-    """Repeating `run` on one function reuses the chain it built."""
+async def test_run_calls_the_object_it_was_given() -> None:
+    """Two equal but distinct clients are two different calls."""
+
+    @dataclass(frozen=True)
+    class Client:
+        """A client that compares equal to another with the same url."""
+
+        url: str
+
+        async def __call__(self) -> int:
+            return id(self)
+
     stack = Stack("recs", patterns=[a_retry()])
+    first, second = Client("http://a"), Client("http://a")
 
-    async def work(value: int) -> int:
-        return value * 2
-
-    assert await stack.run(work, DOUBLE) == DOUBLED
-    assert await stack.run(work, DOUBLE) == DOUBLED
-    assert len(stack._chains) == 1
+    assert first == second
+    assert await stack.run(first) == id(first)
+    assert await stack.run(second) == id(second)
 
 
-async def test_run_does_not_cache_a_bound_method() -> None:
-    """A bound method is a fresh object per lookup, so caching it leaks."""
+async def test_run_calls_a_client_that_takes_no_weak_reference() -> None:
+    """A `__slots__` client is callable, so `run` calls it."""
 
     class Client:
-        """A client whose method is called through the stack."""
+        """A callable that cannot be weakly referenced."""
 
-        async def fetch(self, value: int) -> int:
+        __slots__ = ()
+
+        async def __call__(self, value: int) -> int:
             return value * 2
 
     stack = Stack("recs", patterns=[a_retry()])
-    client = Client()
 
-    assert await stack.run(client.fetch, DOUBLE) == DOUBLED
-    assert await stack.run(client.fetch, DOUBLE) == DOUBLED
-    assert len(stack._chains) == 0
+    assert await stack.run(Client(), DOUBLE) == DOUBLED
+
+
+async def test_run_holds_on_to_nothing() -> None:
+    """A per-call target is collected once the call is over."""
+    stack = Stack("recs", patterns=[a_retry()])
+    refs = []
+
+    for offset in range(3):
+
+        async def work(value: int, offset: int = offset) -> int:
+            return value + offset
+
+        refs.append(weakref.ref(work))
+        await stack.run(work, 1)
+        del work
+
+    gc.collect()
+    assert [ref() for ref in refs] == [None, None, None]
 
 
 def test_a_sync_breaker_entered_from_the_event_loop_is_refused() -> None:

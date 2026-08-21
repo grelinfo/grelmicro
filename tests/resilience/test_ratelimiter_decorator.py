@@ -259,3 +259,11 @@ def test_a_positional_template_field_is_refused(template: str) -> None:
         @limiter(key=template)
         async def work(user_id: int) -> int:
             return user_id
+
+
+@pytest.mark.parametrize("cost", [0, -1], ids=["zero", "negative"])
+def test_a_cost_below_one_is_refused(cost: int) -> None:
+    """A cost is a number of tokens, refused where it is written."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    with pytest.raises(ValueError, match="at least 1"):
+        limiter(cost=cost)

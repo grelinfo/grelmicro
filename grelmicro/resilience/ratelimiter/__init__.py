@@ -871,7 +871,8 @@ class RateLimiterBinding:
         Raises:
             TypeError: If both `key` and `key_maker` are passed, or
                 `max_wait` is `None`.
-            ValueError: If `max_wait` is negative.
+            ValueError: If `cost` is below 1, or `max_wait` is
+                negative.
         """
         if key is not None and key_maker is not None:
             msg = (
@@ -880,6 +881,12 @@ class RateLimiterBinding:
                 "computes the key itself."
             )
             raise TypeError(msg)
+        if cost < 1:
+            msg = (
+                "cost is a number of tokens, so it is at least 1, got "
+                f"{cost!r}."
+            )
+            raise ValueError(msg)
         if max_wait is None:
             msg = (
                 "max_wait is a number of seconds here, never None. "
