@@ -58,6 +58,23 @@ directly. The [block form](../idempotency/index.md#quick-start) and the
 registered at all. The difference is what is replayed: the middleware replays
 the whole HTTP response, the block replays the value your function returned.
 
+## What each refusal answers
+
+The middleware writes these itself, before the handler runs, so they are the
+same on FastAPI, Starlette and Litestar, byte for byte:
+
+| The client did | Status | Why that one |
+|---|---|---|
+| Sent no key on a route with `require_key` | `400` | The request is malformed for this endpoint. |
+| Sent a key over 255 characters | `400` | Longer than the schema publishes. |
+| Sent a key holding a byte outside printable ASCII | `400` | A control byte or a high byte reaches the cache as a key and travels through proxies that may rewrite it. |
+| Reused a key with a different body, under `fingerprint_body` | `422` | See [Conflicting payloads](#conflicting-payloads). |
+| Sent a body over `max_body_size`, under `fingerprint_body` | `413` | Larger than the service reads. |
+| Retried while the first request is still running | `409` | See [Duplicates in flight](#duplicates-in-flight). |
+
+Every one is a `4xx`, because every one is something the client can fix. A
+backend that is down is the service's fault and stays a `5xx`.
+
 ## It runs behind your authentication
 
 `micro.install(app)` puts grelmicro's middleware **innermost**, behind every
@@ -123,7 +140,7 @@ IdempotentRequests(
 )
 ```
 
-A handler that raises an unhandled exception is different. The framework turns it into a `500` outside the middleware, so nothing is stored and a retry runs fresh. A raised `HTTPException` is not an unhandled exception. The framework turns it into a response inside the middleware, so it is stored and replayed like any other.
+A handler that raises an unhandled exception is different. The middleware sits under whatever turns an exception into a response, on every framework, so nothing is stored and a retry runs fresh rather than replaying a `500` for the whole window. A raised `HTTPException` is not an unhandled exception. The framework turns it into a response the handler chose, so it is stored and replayed like any other.
 
 ## What is never stored
 
@@ -299,7 +316,7 @@ A background task runs after the response is sent, so the response is stored and
 | `namespace` | `"http"` | Namespace the stored keys sit under. Component only. |
 | `cache` | the registered `Cache` | The `TTLCache` responses are stored in. Component only. |
 | `idempotency` | required on the middleware | The `Idempotency` it stores through. The component builds one from `ttl`, `namespace` and `cache`. |
-| `header` | `"Idempotency-Key"` | Request header carrying the key. |
+| `header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
 | `key_maker` | `None` | Build the stored key from the scope and the client key. Set it in any multi-tenant app. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |

@@ -35,10 +35,10 @@ from grelmicro.http import (
     PreconditionRequiredError,
     ProblemDetail,
     check_freshness,
-    check_sent_precondition,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
-from grelmicro.http._idempotency import _MAX_KEY_LENGTH
+from grelmicro.http._conditional import _check_sent_precondition
+from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
 from grelmicro.http._paths import selects
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
@@ -340,7 +340,7 @@ class ConditionalRequest:
         # From the headers this was handed, not from the request scope, so
         # a route that injects it answers the same whether or not
         # `ConditionalRequests()` is registered.
-        check_sent_precondition(
+        _check_sent_precondition(
             self.if_match,
             self.if_none_match,
             version,
@@ -670,11 +670,16 @@ def _annotate_schema(
         "name": header,
         "in": "header",
         "required": options["require_key"],
-        "schema": {"type": "string", "maxLength": _MAX_KEY_LENGTH},
+        "schema": {
+            "type": "string",
+            "maxLength": _MAX_KEY_LENGTH,
+            "pattern": _KEY_PATTERN,
+        },
         "description": (
             "Key that makes this request safe to retry. A repeat within the "
             "replay window returns the first response instead of running the "
-            f"operation again. Up to {_MAX_KEY_LENGTH} ASCII characters."
+            f"operation again. Up to {_MAX_KEY_LENGTH} printable ASCII "
+            f"characters, such as a UUID."
         ),
     }
     responses = {

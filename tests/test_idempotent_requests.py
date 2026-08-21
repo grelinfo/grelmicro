@@ -35,6 +35,7 @@ HEADER = "Idempotency-Key"
 MAX_BODY_SIZE = 2048
 HTTP_400_BAD_REQUEST = 400
 HTTP_422_UNPROCESSABLE_CONTENT = 422
+HTTP_400_BAD_REQUEST = 400
 HTTP_401_UNAUTHORIZED = 401
 HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_200_OK = 200
@@ -687,3 +688,78 @@ def test_a_hand_added_middleware_is_not_added_twice() -> None:
         GrelmicroMiddleware,
         IdempotencyMiddleware,
     ]
+
+
+async def test_a_key_holding_bytes_a_header_cannot_carry_is_refused() -> None:
+    """The schema publishes printable ASCII, so the wire enforces it.
+
+    Driven as raw ASGI: an HTTP client refuses to send these, and a proxy
+    or a hand-rolled client does not.
+    """
+    # Arrange
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    reached: list[int] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        reached.append(1)  # pragma: no cover
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-length", b"0")],
+            }
+        )
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware, options = IdempotentRequests().asgi_middleware()
+    wrapped = middleware(app, **options)
+    sent: list[dict[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    # Act
+    async with micro:
+        for raw in (b"abc\x01def", b"key-\xff"):
+            sent.clear()
+            await wrapped(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "path": "/charge",
+                    "headers": [(b"idempotency-key", raw)],
+                    "query_string": b"",
+                },
+                receive,
+                send,
+            )
+            # Assert
+            assert sent[0]["status"] == HTTP_400_BAD_REQUEST, raw
+    assert reached == []
+
+
+def test_installing_after_the_app_started_says_so() -> None:
+    """The list this edits stops being the one that serves requests.
+
+    `micro.install(app)` fails on the binding first, and a direct call to
+    `install_middleware` has no such guard in front of it. Silence there
+    would look installed and answer nothing.
+    """
+    # Arrange
+    app = FastAPI()
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}  # pragma: no cover
+
+    # What serving the first request does.
+    app.middleware_stack = app.build_middleware_stack()
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="after an application has started"):
+        install_middleware(app, [IdempotentRequests()])
+    with pytest.raises(RuntimeError, match="after an application has started"):
+        Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)

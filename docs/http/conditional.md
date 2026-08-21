@@ -79,8 +79,13 @@ async def update(cart_id: int, conditional: Conditional) -> Cart:
 
 `conditional.fresh(version)` is the read half. Use whichever reads better: the
 imported functions are the portable form and work on Starlette and Litestar
-too, the injected one is FastAPI-native. Neither shows up in the schema as a
-parameter a client has to send.
+too, the injected one is FastAPI-native.
+
+The injected form declares `If-Match` and `If-None-Match` itself, so those show
+up in the schema for that operation alone, and `conditional.check(...)` answers
+from what the request carried whether or not `ConditionalRequests()` is
+registered. `fresh` still needs the component, since only the middleware can
+put the tag on the response.
 
 ## The read is what makes the write possible
 
@@ -120,7 +125,22 @@ async def read(cart_id: int) -> Cart:
 ```
 
 Ignoring the return value is correct too. The client gets the same `304`, it
-just costs the work of building a body nobody reads.
+just costs the work of building a body nobody reads. Either way the `304`
+carries the entity tag you recorded, which is what
+[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) asks of one.
+
+### What never gets a generated tag
+
+Three responses, and none of them is held up waiting to be hashed:
+
+| Response | Why |
+|---|---|
+| A streamed one | A body arriving in pieces goes out as it comes, so an event stream stays live. Tagging it would mean holding the whole thing. |
+| One over `max_body_size` | A large download is never buffered. |
+| A `204` | It carries no representation, and hashing its empty body would give every empty resource in the app the same tag. |
+
+A handler that recorded a version with `check_freshness` still gets that tag on
+the response, since nothing had to be hashed to know it.
 
 Register the component and call nothing, and responses still get an `ETag`,
 hashed from the body. That covers a route you have not touched. A recorded
@@ -175,6 +195,19 @@ PATCH /carts/1 HTTP/1.1
 
 HTTP/1.1 428 Precondition Required
 ```
+
+### What each refusal answers
+
+| The client did | Status | Why that one |
+|---|---|---|
+| Sent an `If-Match` that is not the current tag | `412` | The precondition evaluated false. |
+| Sent no precondition on a write that requires one | `428` | The write has to be conditional, and the client can fix that. |
+| Sent `If-None-Match: *` for a resource that exists | `412` | The create it asked for cannot happen. |
+| Sent a malformed or unquoted `If-Match` | `412` | It matches no entity tag, which is a precondition that failed. |
+
+All four are `4xx`, because all four are something the client can fix, and all
+four are written by grelmicro, so they read the same on FastAPI, Starlette and
+Litestar, byte for byte.
 
 ### Creating without overwriting
 

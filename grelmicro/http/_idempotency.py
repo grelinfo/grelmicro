@@ -67,6 +67,18 @@ __all__ = ["IdempotencyMiddleware", "IdempotentRequests", "StoredResponse"]
 _logger = logging.getLogger(__name__)
 
 
+_KEY_PATTERN = r"^[\x20-\x7e]+$"
+"""The key rule, as the OpenAPI schema publishes it."""
+
+_KEY_CHARS = re.compile(_KEY_PATTERN)
+"""What an idempotency key may hold: printable US-ASCII, and nothing else.
+
+A control byte or a byte above `0x7e` reaches the cache as a key, travels
+through proxies that may rewrite it, and reads back as mojibake. The schema
+publishes this, so the wire enforces it.
+"""
+
+
 _MAX_KEY_LENGTH = 255
 """Longest accepted idempotency key, in characters.
 
@@ -347,6 +359,16 @@ class IdempotencyMiddleware:
                 IDEMPOTENCY_KEY_INVALID,
                 f"The {self._header_name} header is longer than "
                 f"{_MAX_KEY_LENGTH} characters.",
+            )
+            return
+
+        if not _KEY_CHARS.match(key):
+            await _refuse(
+                send,
+                scope,
+                IDEMPOTENCY_KEY_INVALID,
+                f"The {self._header_name} header holds a character it "
+                f"cannot carry. Use printable ASCII, such as a UUID.",
             )
             return
 

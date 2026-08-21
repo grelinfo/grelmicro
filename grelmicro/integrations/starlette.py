@@ -223,6 +223,17 @@ def install_middleware(
     """
     from starlette.middleware import Middleware  # noqa: PLC0415
 
+    if getattr(app, "middleware_stack", None) is not None:
+        # The framework built its stack, so the list this edits is no
+        # longer what serves requests. `add_middleware` refuses the same
+        # call for the same reason, and silence here would look installed
+        # and answer nothing.
+        msg = (
+            "Cannot add middleware after an application has started. Call "
+            "micro.install(app) before the app serves its first request."
+        )
+        raise RuntimeError(msg)
+
     wired = {
         entry.cls
         for entry in app.user_middleware

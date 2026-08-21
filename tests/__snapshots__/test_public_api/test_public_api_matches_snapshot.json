@@ -292,9 +292,6 @@
     "check_precondition": {
       "()": "(version=<object object at 0x...>, *, etag=None, require=True) -> 'None'"
     },
-    "check_sent_precondition": {
-      "()": "(if_match, if_none_match, version=<object object at 0x...>, *, etag=None, require=True) -> 'None'"
-    },
     "etag_of": {
       "()": "(value, *, weak=False) -> 'str'"
     },

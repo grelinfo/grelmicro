@@ -60,7 +60,6 @@ __all__ = [
     "ConditionalRequestsMiddleware",
     "check_freshness",
     "check_precondition",
-    "check_sent_precondition",
     "etag_of",
 ]
 
@@ -446,7 +445,7 @@ def check_precondition(
     _bound("check_precondition").preconditions.check(current, require=require)
 
 
-def check_sent_precondition(
+def _check_sent_precondition(
     if_match: str | None,
     if_none_match: str | None,
     version: object = _UNSET,
@@ -819,24 +818,22 @@ class _ResponseShaper:
         await self._release()
 
     def _tag(self, body: bytes) -> str | None:
-        """Return the entity tag this response should carry, if any."""
+        """Return the entity tag this response should carry, if any.
+
+        A handler that answers `304` itself carries the tag it recorded,
+        which is what RFC 9110 asks of a `304`. Otherwise the response has
+        to be one that can carry a representation, and the handler's own
+        tag wins over a hash of the bytes.
+        """
         start = self._start
         if start is None:  # pragma: no cover
             return None
-        status = start["status"]
-        if not (_MIN_SUCCESS <= status <= _MAX_SUCCESS):
-            return None
-        if status in BODYLESS_STATUSES:
-            # A `204` carries no representation, so hashing its empty body
-            # would give every empty resource in the app one entity tag.
-            return None
-        if any(name.lower() == b"etag" for name, _ in start["headers"]):
-            # The handler knows the resource better than its bytes do.
-            return None
         recorded = self._conditional.etag
+        if start["status"] == _HTTP_304_NOT_MODIFIED:
+            return recorded
+        if not _describes_a_representation(start):
+            return None
         if recorded is not None:
-            # A handler that recorded a version tagged it better than a
-            # hash of the bytes can, and cost nothing to do it.
             return recorded
         return etag_of(body) if self._hash_body else None
 
@@ -881,6 +878,22 @@ class _ResponseShaper:
                     "more_body": not self._complete,
                 }
             )
+
+
+def _describes_a_representation(start: Message) -> bool:
+    """Return whether this response is one a generated tag can describe.
+
+    A failure describes nothing to tag. A `204` carries no representation,
+    so hashing its empty body would give every empty resource in the app
+    one entity tag. And a handler that set its own knows the resource
+    better than its bytes do.
+    """
+    status = start["status"]
+    if not (_MIN_SUCCESS <= status <= _MAX_SUCCESS):
+        return False
+    if status in BODYLESS_STATUSES:
+        return False
+    return not any(name.lower() == b"etag" for name, _ in start["headers"])
 
 
 def _tags(
