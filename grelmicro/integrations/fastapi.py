@@ -429,6 +429,9 @@ def document_conditional_requests(
     app.openapi_schema = None
 
 
+_CREATE_CASE = "Required, unless the request creates with `If-None-Match: *`."
+"""What `required` alone cannot say: either header satisfies the rule."""
+
 _IF_MATCH = "If-Match"
 """Header a client sends to say which version it is updating."""
 
@@ -533,12 +536,7 @@ def _annotate_conditional(
                     "Entity tag of the version being updated, from the "
                     "`ETag` of an earlier read. The write is refused if "
                     "the resource changed since."
-                    + (
-                        " Required, unless the request creates with "
-                        "`If-None-Match: *`."
-                        if needed
-                        else ""
-                    )
+                    + (f" {_CREATE_CASE}" if needed else "")
                 ),
             },
         )
@@ -563,7 +561,9 @@ def _mark_required(operation: dict[str, Any], name: str) -> None:
     """Mark a header the operation already declares as required.
 
     The dependency puts it there, so the annotation cannot add a second
-    one, and OpenAPI forbids a duplicate anyway.
+    one, and OpenAPI forbids a duplicate anyway. The description gains
+    what `required` cannot say: a schema has no way to express that one
+    header or the other will do.
     """
     lowered = name.lower()
     for parameter in operation.get("parameters", ()):
@@ -572,6 +572,11 @@ def _mark_required(operation: dict[str, Any], name: str) -> None:
             and str(parameter.get("name", "")).lower() == lowered
         ):
             parameter["required"] = True
+            description = str(parameter.get("description", ""))
+            if _CREATE_CASE not in description:
+                parameter["description"] = (
+                    f"{description} {_CREATE_CASE}".strip()
+                )
 
 
 def _paths(

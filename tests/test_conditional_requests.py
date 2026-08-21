@@ -1290,6 +1290,14 @@ def test_a_declared_requirement_reaches_the_schema() -> None:
     # Assert
     assert loose_headers["If-Match"] is False
     assert strict_headers["If-Match"] is True
+    # A schema cannot say "one header or the other", so the description does.
+    paths = app.openapi()["paths"]
+    required = next(
+        parameter
+        for parameter in paths["/strict/{cart_id}"]["patch"]["parameters"]
+        if parameter["name"] == "If-Match"
+    )
+    assert "If-None-Match: *" in required["description"]
 
 
 def test_a_declared_requirement_answers_428_not_422() -> None:
