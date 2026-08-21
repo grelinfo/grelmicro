@@ -138,3 +138,25 @@ def test_timeout_errors_rejects_an_unreadable_value(value: object) -> None:
     """
     with pytest.raises(ValidationError):
         ApiShieldConfig(timeout_errors=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(KeyboardInterrupt, id="alone"),
+        pytest.param((KeyboardInterrupt,), id="in-a-tuple"),
+        pytest.param([KeyboardInterrupt], id="in-a-list"),
+        pytest.param((ValueError, KeyboardInterrupt), id="beside-a-good-one"),
+        pytest.param("builtins.KeyboardInterrupt", id="by-name"),
+    ],
+)
+def test_timeout_errors_refuses_a_base_exception_by_every_route(
+    value: object,
+) -> None:
+    """A `BaseException`-only type is never retried, so it is never accepted.
+
+    Passed alone or by name it was refused, passed inside a tuple it was
+    accepted, and the entry then sat in the config doing nothing.
+    """
+    with pytest.raises(ValidationError, match="Exception subclass"):
+        ApiShieldConfig(timeout_errors=value)

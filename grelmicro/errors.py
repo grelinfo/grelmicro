@@ -1,6 +1,7 @@
 """Errors."""
 
 import re
+from collections.abc import Callable
 from typing import Any, ClassVar, cast, get_args
 
 from pydantic import ValidationError
@@ -335,6 +336,12 @@ def _text_of(value: object) -> str:
     cannot be the thing that fails. An unrenderable value is one no
     message could have quoted.
     """
+    if type(value) is str:
+        return value
+    if is_instance(value, str):
+        # A `str` subclass runs its own `__str__`, and this one is here to
+        # be removed from a message, so it is read without asking it.
+        return str.__str__(cast("str", value))
     try:
         return str(value)
     except (KeyboardInterrupt, SystemExit):
@@ -371,16 +378,28 @@ def _candidates(value: object) -> set[str]:
         text = _text_of(value)
         return {text} if len(text) >= _MIN_REDACTED_LENGTH else set()
     if is_instance(value, dict):
-        found: set[str] = set()
-        for item in cast("dict[Any, Any]", value).values():
-            found |= _candidates(item)
-        return found
+        return _candidates_in(cast("dict[Any, Any]", value).values)
     if is_instance(value, (list, tuple, set)):
-        found = set()
-        for item in cast("tuple[Any, ...]", value):
-            found |= _candidates(item)
-        return found
+        return _candidates_in(lambda: cast("tuple[Any, ...]", value))
     return set()
+
+
+def _candidates_in(items: Callable[[], Any]) -> set[str]:
+    """Walk a container for strings, and never raise walking it.
+
+    A container subclass defines its own traversal, and this runs while
+    an error is already being reported. What cannot be walked holds
+    nothing this can redact.
+    """
+    found: set[str] = set()
+    try:
+        for item in items():
+            found |= _candidates(item)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return found
+    return found
 
 
 def _scrub(msg: str, value: object, error_type: str) -> str:

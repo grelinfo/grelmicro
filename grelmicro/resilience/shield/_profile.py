@@ -27,6 +27,7 @@ from grelmicro._guards import (
     is_class,
     is_instance,
     is_subclass,
+    name_of,
     type_name,
 )
 
@@ -49,6 +50,12 @@ def _normalize_entry(item: Any) -> type[BaseException]:  # noqa: ANN401
         )
         # `ValueError`, not `TypeError`: pydantic converts only `ValueError`
         # and `AssertionError`.
+        raise ValueError(msg)
+    if not is_subclass(item, Exception):
+        msg = (
+            f"timeout_errors entry {name_of(item)} is not an Exception "
+            f"subclass. BaseException-only types are never retried."
+        )
         raise ValueError(msg)
     return cast("type[BaseException]", item)
 
@@ -181,7 +188,7 @@ class _BaseShieldConfig(
         if is_class(value):
             if not is_subclass(value, Exception):
                 msg = (
-                    f"timeout_errors entry {value.__name__} is not an "
+                    f"timeout_errors entry {name_of(value)} is not an "
                     f"Exception subclass. BaseException-only types are "
                     f"never retried."
                 )

@@ -202,7 +202,12 @@ def _finds_itself(value: Any) -> bool:  # noqa: ANN401
     code. An object whose `__hash__` answers differently each call, or
     whose `__eq__` disagrees with itself, is added and then never found,
     and never removed either, because removal looks it up the same way.
-    Asked before the set is touched, so nothing is ever stranded in it.
+    Asked before the set is touched, so such an object never enters it.
+
+    It answers for the moment it is asked. A hash the program itself
+    moves, by mutating the attribute it is built from between calls, is
+    stable here and not stable later, and still strands its entry. That
+    object breaks the contract every dict and set relies on.
     """
     try:
         # Compared with itself on purpose: this asks whether the object

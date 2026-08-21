@@ -15,6 +15,7 @@ import importlib
 import pkgutil
 import warnings
 from collections.abc import Callable
+from typing import Any
 from unittest import mock
 
 import anyio
@@ -34,7 +35,7 @@ from grelmicro.coordination import (
     TaskLock,
 )
 from grelmicro.coordination.postgres import PostgresLockAdapter
-from grelmicro.errors import SettingsValidationError, _scrub
+from grelmicro.errors import SettingsValidationError, _candidates, _scrub
 from grelmicro.log import Log
 from grelmicro.metrics import Metrics
 from grelmicro.resilience import (
@@ -597,8 +598,8 @@ class _HostileText(str):
         raise RuntimeError(msg)
 
 
-class _InterruptingText(str):
-    """A string that raises an interrupt while it is rendered."""
+class _InterruptingNumber(int):
+    """A number that raises an interrupt while it is rendered."""
 
     __slots__ = ()
 
@@ -650,7 +651,96 @@ def test_an_unreadable_value_still_raises_the_settings_error(
 def test_a_real_interrupt_is_never_swallowed_by_the_scrubber() -> None:
     """The scrubber absorbs an unreadable value, not a genuine Ctrl-C."""
     with pytest.raises(ValidationError) as exc_info:
-        _RejectingConfig(field=_InterruptingText("secret"))
+        _RejectingConfig(field=_InterruptingNumber(11))
 
     with pytest.raises(KeyboardInterrupt):
         SettingsValidationError(exc_info.value)
+
+
+def test_a_string_is_read_without_asking_it() -> None:
+    """A `str` subclass is redacted without running its `__str__`.
+
+    Its `__str__` is caller code, and the scrubber holds the value only
+    to remove it from a message, so there is nothing to ask it for.
+    """
+    secret = "sk-live-SUPERSECRET"
+
+    with pytest.raises(ValidationError) as exc_info:
+        _RejectingConfig(field=_HostileText(secret))
+
+    wrapped = SettingsValidationError(exc_info.value)
+
+    assert "field is not acceptable" in str(wrapped)
+
+
+class _UnwalkableMapping(dict[str, object]):
+    """A mapping that refuses to be walked."""
+
+    __slots__ = ()
+
+    def values(self) -> Any:  # noqa: ANN401
+        """Raise, the way a lazily-populated mapping does when detached."""
+        msg = "values exploded"
+        raise RuntimeError(msg)
+
+
+class _UnwalkableSequence(list[object]):
+    """A sequence that refuses to be walked."""
+
+    __slots__ = ()
+
+    def __iter__(self) -> Any:  # noqa: ANN401
+        """Raise, the way a detached cursor does."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_UnwalkableMapping({"key": "secret"}), id="mapping"),
+        pytest.param(_UnwalkableSequence(["secret"]), id="sequence"),
+    ],
+)
+def test_a_container_that_refuses_to_be_walked_holds_nothing(
+    value: object,
+) -> None:
+    """A container subclass defines its own traversal, which is caller code.
+
+    This runs while an error is already being reported, so it answers
+    with what it found rather than raising. What cannot be walked holds
+    nothing the message could have quoted.
+    """
+    assert _candidates(value) == set()
+
+
+class _UnreadableNumber(int):
+    """A number that raises while it is rendered."""
+
+    __slots__ = ()
+
+    def __str__(self) -> str:
+        """Raise, so the scrubber cannot read what it must redact."""
+        msg = "number is unreadable"
+        raise RuntimeError(msg)
+
+
+class _InterruptingMapping(dict[str, object]):
+    """A mapping that raises an interrupt while it is walked."""
+
+    __slots__ = ()
+
+    def values(self) -> Any:  # noqa: ANN401
+        """Raise an interrupt, which no guard may swallow."""
+        raise KeyboardInterrupt
+
+
+def test_an_unreadable_number_redacts_nothing_and_raises_nothing() -> None:
+    """A number that will not render is one no message could have quoted."""
+    assert _candidates(_UnreadableNumber(11)) == set()
+
+
+def test_a_real_interrupt_is_never_swallowed_while_walking() -> None:
+    """Walking a container absorbs a hostile one, not a genuine Ctrl-C."""
+    with pytest.raises(KeyboardInterrupt):
+        _candidates(_InterruptingMapping({"key": "secret"}))

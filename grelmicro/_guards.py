@@ -18,7 +18,13 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["is_class", "is_instance", "is_subclass", "type_name"]
+__all__ = [
+    "is_class",
+    "is_instance",
+    "is_subclass",
+    "name_of",
+    "type_name",
+]
 
 
 def is_instance(value: Any, parent: Any) -> bool:  # noqa: ANN401
@@ -51,6 +57,10 @@ def is_subclass(candidate: Any, parent: type) -> bool:  # noqa: ANN401
         return False
 
 
+UNNAMEABLE = "<unnameable>"
+"""Stands in for a value that refuses every attempt to name it."""
+
+
 def type_name(value: Any) -> str:  # noqa: ANN401
     """Name a value by its type, and never raise doing it.
 
@@ -60,8 +70,35 @@ def type_name(value: Any) -> str:  # noqa: ANN401
     caller code.
     """
     try:
-        return str(type(value).__name__)
+        return _exact(str(type(value).__name__))
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001
-        return "<unnameable>"
+        return UNNAMEABLE
+
+
+def name_of(value: Any) -> str:  # noqa: ANN401
+    """Name a class by itself and anything else by its type, never raising.
+
+    `ValueError` reads as `ValueError`, and an instance reads as the class
+    it came from, so a message names the thing the caller passed without
+    printing what it holds.
+    """
+    try:
+        if is_class(value):
+            return _exact(str(value.__name__))
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return UNNAMEABLE
+    return type_name(value)
+
+
+def _exact(text: str) -> str:
+    """Return `text` as an exact `str`, whatever subclass it arrived as.
+
+    `str()` may hand back a subclass, and a subclass runs caller code
+    again from `__format__` or `__str__` the moment the name is
+    interpolated into the message it was read for.
+    """
+    return str.__str__(text)

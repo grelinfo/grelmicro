@@ -37,7 +37,7 @@ that a client library used to accept.
 | `SettingsValidationError` where you caught `ValueError` or `TypeError` from `cached()`, `TrustedProxies`, or `ExternalConfig` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError` on a bad `Lock` name, adapter `table_name`, or Redis `prefix` | 0.40 | [Catch the base error](#0-40-one-settings-error) |
 | `SettingsValidationError: environment= must be one of ...` on a `Grelmicro(...)` that used to build | 0.40 | [Name a real tier](#0-40-environment-validated) |
-| `ValueError` where you caught `TypeError` from `Match.exception(...)` or a bad `when=` | 0.40 | [Catch `ValueError`](#0-40-match-value-error) |
+| `ValueError` where you caught `TypeError` from any `Match` argument error or a bad `when=` | 0.40 | [Catch `ValueError`](#0-40-match-value-error) |
 | `ImportError: cannot import name 'RedisProviderConfigError'` or `'PostgresProviderConfigError'` | 0.40 | [Catch the base error](#0-40-provider-errors) |
 
 ## 0.40
@@ -117,8 +117,12 @@ doors agree.
 
 `Match.exception()` and `Match.exception_cause()` raised `TypeError` when an
 argument was not an exception class, and when they got no argument at all.
-`when=` raised `TypeError` for a value that was not a `Match`, an exception
-class, a tuple of them, or a callable. They raise `ValueError` now:
+`Match.exception_message()` raised `TypeError` when it got both `contains=`
+and `regex=`, or neither. `when=` raised `TypeError` for a value that was not
+a `Match`, an exception class, a tuple of them, or a callable. They raise
+`ValueError` now, and so do `Match.predicate()` for a non-callable and
+`Match.exception_message()` for a `contains=` that is not a string or a
+`regex=` that is neither a string nor a compiled pattern:
 
 ```python
 # Before
