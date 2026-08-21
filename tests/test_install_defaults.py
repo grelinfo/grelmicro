@@ -12,7 +12,6 @@ here rather than in someone's service.
 
 from __future__ import annotations
 
-import importlib
 from typing import TYPE_CHECKING
 
 import pytest
@@ -25,7 +24,7 @@ from starlette.status import (
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
-from grelmicro import Grelmicro
+from grelmicro import Grelmicro, GrelmicroMiddleware
 from grelmicro.integrations import fastapi as integration
 
 if TYPE_CHECKING:
@@ -67,14 +66,8 @@ def test_install_adds_only_the_binding_middleware() -> None:
     # Only grelmicro's own frames are this test's business. A global
     # OpenTelemetry instrumentor enabled by another test patches every app
     # built afterwards, and that is not something `install` did.
-    # Resolved through the live module rather than the one bound at import
-    # time: a sibling test reimports the integration, and the class this
-    # module imported would then not be the class `install` added.
-    binding = importlib.import_module(
-        "grelmicro.integrations.fastapi"
-    ).GrelmicroMiddleware
     mine = [m.cls for m in added if m.cls.__module__.startswith("grelmicro")]
-    assert mine == [binding]
+    assert mine == [GrelmicroMiddleware]
 
 
 def test_install_registers_no_exception_handler() -> None:

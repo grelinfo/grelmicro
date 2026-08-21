@@ -65,6 +65,17 @@ class AmbientBindingWarning(GrelmicroConfigWarning):
     code: ClassVar[str] = "ambient-binding"
 
 
+class MiddlewarePlacementWarning(GrelmicroConfigWarning):
+    """A grelmicro middleware wraps middleware the app declared itself.
+
+    A middleware that answers a request on its own, such as an idempotent
+    replay, then answers it before the app's own middleware runs, including
+    whatever authenticates the caller.
+    """
+
+    code: ClassVar[str] = "middleware-placement"
+
+
 class SentinelPasswordWarning(GrelmicroConfigWarning):
     """A Sentinel password is set but the URL scheme cannot apply it."""
 

@@ -10,6 +10,7 @@ from grelmicro._app import (
     LifecycleOrderError,
     NoActiveAppError,
 )
+from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import Component, Usable
 from grelmicro.config import ExternalConfig
 from grelmicro.errors import (
@@ -22,6 +23,7 @@ from grelmicro.errors import (
     EnvLoadOffWarning,
     GrelmicroConfigWarning,
     GrelmicroError,
+    MiddlewarePlacementWarning,
     MultipleActiveAppsError,
     OutOfContextError,
     ProviderNotRegisteredError,
@@ -48,7 +50,9 @@ __all__ = [
     "Grelmicro",
     "GrelmicroConfigWarning",
     "GrelmicroError",
+    "GrelmicroMiddleware",
     "LifecycleOrderError",
+    "MiddlewarePlacementWarning",
     "MultipleActiveAppsError",
     "NoActiveAppError",
     "OutOfContextError",

@@ -46,11 +46,15 @@ from starlette.testclient import TestClient as StarletteTestClient
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
-from grelmicro.http import ERROR_DOCS_BASE, PROBLEM_MEDIA_TYPE, ErrorResponses
+from grelmicro.http import (
+    ERROR_DOCS_BASE,
+    PROBLEM_MEDIA_TYPE,
+    ErrorResponses,
+    IdempotencyMiddleware,
+)
 from grelmicro.http import ProblemDetail as GrelmicroProblem
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import (
-    IdempotencyMiddleware,
     document_idempotency,
     error_response,
 )

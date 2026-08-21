@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from grelmicro import Grelmicro
+from grelmicro import Grelmicro, GrelmicroMiddleware
 from grelmicro.cache import TTLCache
 from grelmicro.cache.cached import cached
 from grelmicro.coordination import LeaderElection, Lock
 from grelmicro.health import HealthChecks
-from grelmicro.integrations.fastapi import GrelmicroMiddleware, health_router
+from grelmicro.integrations.fastapi import health_router
 from grelmicro.log import configure
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider

@@ -63,6 +63,11 @@ class Integration(Protocol):
     that defines it answers every error in the format that component
     carries, and one that does not is skipped, which is what a framework
     serving no HTTP wants.
+
+    `install_middleware(app, components)` is the second, where `components`
+    are the registered components carrying `asgi_middleware()`. An
+    integration that defines it adds each middleware the way its framework
+    takes one, and one that does not is skipped the same way.
     """
 
     def install(

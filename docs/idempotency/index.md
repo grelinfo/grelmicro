@@ -6,7 +6,7 @@ This pairs with retries. Wrap a call in `Retry`, mark the operation idempotent, 
 
 - **[Idempotency](#the-block-form)**: an explicit block that runs the work once and replays it on repeat.
 - **[@idempotent](#decorator)**: a decorator that derives the key from the call arguments.
-- **[IdempotencyMiddleware](middleware.md)**: replays a whole HTTP response when a request repeats its `Idempotency-Key` header.
+- **[IdempotentRequests](../http/idempotency.md)**: replays a whole HTTP response when a request repeats its `Idempotency-Key` header.
 
 ## Quick start
 
@@ -61,7 +61,7 @@ micro = Grelmicro(uses=[Cache(redis, requires="cluster")])
 ```
 
 To cover a whole app at once instead of one handler at a time, use
-[IdempotencyMiddleware](middleware.md).
+[IdempotencyMiddleware](../http/idempotency.md).
 
 ## The block form
 
@@ -152,7 +152,7 @@ except IdempotencyWaitTimeoutError:
     ...  # an execution for this key is still in flight
 ```
 
-[IdempotencyMiddleware](middleware.md) bounds it at ten seconds and answers `409`.
+[IdempotencyMiddleware](../http/idempotency.md) bounds it at ten seconds and answers `409`.
 
 ## Payload fingerprint
 

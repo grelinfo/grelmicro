@@ -97,6 +97,8 @@ micro.install(app, ambient=False)
 !!! warning "Only when every call site passes `backend=`"
     Without the binding, a pattern that omits `backend=` raises `OutOfContextError` on the first request that reaches it. The app still starts up healthy, so the failure shows up in production rather than at boot.
 
+    A registered `IdempotentRequests()` needs it too: its middleware resolves the `Cache` through the request scope, so without the binding the first request that carries a key fails.
+
     `install(ambient=False)` warns at startup when ambient components are registered, and raises under `Grelmicro(strict=True)`. Assert the wiring in a test either way:
 
     ```python

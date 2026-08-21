@@ -36,12 +36,10 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import DependencyNotFoundError, OutOfContextError
+from grelmicro.http import IdempotencyMiddleware
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
-from grelmicro.integrations.fastapi import (
-    IdempotencyMiddleware,
-    document_idempotency,
-)
+from grelmicro.integrations.fastapi import document_idempotency
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -677,7 +675,7 @@ def test_key_maker_returning_an_empty_key_is_refused() -> None:
     # Act / Assert
     with (
         TestClient(app) as client,
-        pytest.raises(IdempotencyKeyMakerError, match="non-empty string"),
+        pytest.raises(IdempotencyKeyMakerError, match="non-empty key"),
     ):
         client.post("/charge", headers=KEY)
 
@@ -1168,9 +1166,9 @@ def test_document_idempotency_raises_without_fastapi() -> None:
     """`document_idempotency` reports the missing dependency.
 
     The module is put back exactly as it was, not reimported. A fresh
-    import would mint a second `GrelmicroMiddleware` class, and every test
-    that had already imported the first would then compare two classes of
-    the same name that are not the same object.
+    import would mint a second `HealthzResponse` class, and every test that
+    had already imported the first would then compare two classes of the
+    same name that are not the same object.
     """
     # Arrange
     name = "grelmicro.integrations.fastapi"

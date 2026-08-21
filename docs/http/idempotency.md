@@ -1,6 +1,6 @@
-# HTTP Middleware
+# Idempotency Middleware
 
-The [quick start](index.md#quick-start) reads the key and opens a block in every handler that needs one. `IdempotencyMiddleware` does it once, for the whole app.
+The [quick start](../idempotency/index.md#quick-start) reads the key and opens a block in every handler that needs one. `IdempotentRequests()` does it once, for the whole app.
 
 ```python title="middleware.py"
 --8<-- "idempotency/middleware.py"
@@ -8,7 +8,77 @@ The [quick start](index.md#quick-start) reads the key and opens a block in every
 
 Handlers stay as they are. There is no key parameter to thread through and no block to open.
 
-Add the middleware before or after `micro.install(app)`. It resolves its `Cache` through the grelmicro request scope, and `install` keeps that scope outside every other middleware.
+Register `IdempotentRequests()` and `micro.install(app)` adds the middleware and describes it in the OpenAPI schema. The bare form keeps a response for a day. `ttl=` says how long, and `namespace=` and `cache=` say where.
+
+The middleware itself is pure ASGI and runs in front of any ASGI app. Add it by hand when the app never goes through `install`:
+
+```python
+from grelmicro.http import IdempotencyMiddleware
+from grelmicro.idempotency import Idempotency
+
+app.add_middleware(
+    IdempotencyMiddleware, idempotency=Idempotency("http", ttl=3600)
+)
+```
+
+Either way it resolves its `Cache` through the grelmicro request scope, and `install` keeps that scope outside every other middleware.
+
+## Which endpoints it applies to
+
+Endpoints are grouped by the router they sit on, so selection follows the
+router:
+
+```python
+payments = APIRouter(prefix="/payments")
+app.include_router(payments)
+
+IdempotentRequests(include=("/payments/*",))
+```
+
+Three filters on the component, and a fourth door that skips it entirely.
+
+```python
+IdempotentRequests(
+    methods=("POST", "PATCH"),  # which verbs take a key
+    include=("/payments/*",),  # which paths to act on, empty means all
+    exclude=("/payments/webhook",),  # which to leave alone, and it wins
+)
+```
+
+`methods` is the first cut: every other verb passes straight through. A path
+matches exactly, unless the pattern ends with `*`, which matches as a prefix.
+It is the same word and the same matching on every grelmicro middleware.
+
+A request without the header passes through anyway, so a route that never
+sends one is already unaffected.
+
+**For one route rather than the app**, skip the middleware and use the pattern
+directly. The [block form](../idempotency/index.md#quick-start) and the
+`@idempotent` decorator make one operation idempotent, with no middleware
+registered at all. The difference is what is replayed: the middleware replays
+the whole HTTP response, the block replays the value your function returned.
+
+## It runs behind your authentication
+
+`micro.install(app)` puts grelmicro's middleware **innermost**, behind every
+middleware the app added itself, whichever order the two were wired in.
+
+That placement is not a preference. A middleware that answers a request on its
+own, such as an idempotent replay, must never be the reason a request skipped
+the authentication in front of your handlers. Innermost means a replay is
+served only after your own middleware has run and let the request through, so a
+caller who learns another caller's key is turned away exactly as they would be
+on a first request.
+
+`GrelmicroMiddleware` stays outermost, because it only binds a context variable
+and changes nothing a client can see.
+
+!!! warning "Litestar builds its stack at construction"
+    There, `install` can only wrap the whole app, which puts the middleware
+    outside the app's own. grelmicro warns with
+    [`middleware-placement`](../diagnostics.md#middleware-placement) and names
+    the fix: pass it to `Litestar(middleware=[...])`, after your authentication,
+    and `install` then leaves it alone.
 
 ## What a client sees
 
@@ -48,9 +118,7 @@ Every response the app returns is stored, `4xx` and `5xx` included. A handler th
 Store only what you want replayed. A transient `503` stored for the whole `ttl` keeps answering `503` long after the dependency recovers, so exclude the statuses that mean "try again later":
 
 ```python
-app.add_middleware(
-    IdempotencyMiddleware,
-    idempotency=Idempotency("http"),
+IdempotentRequests(
     skip=lambda response: response["status"] in (429, 502, 503, 504),
 )
 ```
@@ -93,11 +161,7 @@ hands a caller another caller's session.
 `skip` receives the finished response and returns `True` to leave it unstored. It mirrors [`skip` on `@cached`](../cache/cached.md#decorator-parameters).
 
 ```python
-app.add_middleware(
-    IdempotencyMiddleware,
-    idempotency=Idempotency("http"),
-    skip=lambda response: response["status"] == 202,
-)
+IdempotentRequests(skip=lambda response: response["status"] == 202)
 ```
 
 Use it for a response that is technically replayable but should not be. The four rules above run first, so `skip` never has to re-check them.
@@ -122,11 +186,7 @@ The stored key combines the method, the path, the query string, and the header v
         return SEP.join((str(user.tenant_id), scope["path"], key))
 
 
-    app.add_middleware(
-        IdempotencyMiddleware,
-        idempotency=Idempotency("http"),
-        key_maker=tenant_key,
-    )
+    IdempotentRequests(key_maker=tenant_key)
     ```
 
     Three things carry the isolation here. The identity comes from authentication rather than from the request. The separator is one an identity cannot contain, so `a` plus `b|c` cannot collide with `a|b` plus `c`. And a missing identity raises instead of returning a partial key.
@@ -136,8 +196,8 @@ The stored key combines the method, the path, the query string, and the header v
     `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
 
     ```python
+    micro = Grelmicro(uses=[redis, IdempotentRequests(key_maker=tenant_key)])
     micro.install(app)
-    app.add_middleware(IdempotencyMiddleware, idempotency=idem, key_maker=tenant_key)
     app.add_middleware(AuthenticationMiddleware, backend=...)
     ```
 
@@ -152,7 +212,7 @@ The stored key combines the method, the path, the query string, and the header v
 
 A duplicate that arrives while the first execution is still running waits for it, then replays its response.
 
-The wait folds duplicates across replicas when a `Coordination` lock backend is configured, and in-process otherwise. See [Single-flight duplicates](index.md#single-flight-duplicates).
+The wait folds duplicates across replicas when a `Coordination` lock backend is configured, and in-process otherwise. See [Single-flight duplicates](../idempotency/index.md#single-flight-duplicates).
 
 The wait is bounded by `wait_timeout`, ten seconds by default:
 
@@ -173,36 +233,48 @@ retry-after: 1
 
 Past the timeout the duplicate receives that instead of holding the connection open.
 
-Every response the middleware writes itself follows the [error format](../http/errors.md) the app registered, the `400`, `409`, `413`, and `422` alike, so a client reads the same shape here as from a rejection raised in a handler. The body below is RFC 9457, the default.
+Every response the middleware writes itself follows the [error format](errors.md) the app registered, the `400`, `409`, `413`, and `422` alike, so a client reads the same shape here as from a rejection raised in a handler. The body below is RFC 9457, the default.
 
 ## Conflicting payloads
 
 Pass `fingerprint_body=True` to hash the request body and store the hash with the response. A key reused with a different body then gets `422 Unprocessable Content` instead of a wrong replay, matching the [Idempotency-Key header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/).
 
 ```python
-app.add_middleware(
-    IdempotencyMiddleware,
-    idempotency=Idempotency("http"),
-    fingerprint_body=True,
-)
+IdempotentRequests(fingerprint_body=True)
 ```
 
 Fingerprinting buffers the request body before the handler runs, so it is off by default. A request body over `max_body_size` is answered with `413`.
 
-## OpenAPI
-
-The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists. `document_idempotency` fixes that:
+The draft says `422` here and Stripe answers `400`, so this is the one status the middleware lets you pick:
 
 ```python
-from grelmicro.integrations.fastapi import (
-    IdempotencyMiddleware,
-    document_idempotency,
-)
+IdempotentRequests(fingerprint_body=True, reused_status=400)
+```
+
+The body does not change, so a client branching on the `type` identifier reads the same thing either way, and the OpenAPI schema publishes whichever status you chose. The other two statuses are not configurable, because the draft, Stripe, and every implementation in between already agree on them: `400` for a missing or malformed key, `409` for a duplicate arriving while the first request is still running.
+
+The block form raises `IdempotencyConflictError` to your handler instead, which [Error Responses](errors.md) renders with the draft's `422`.
+
+## OpenAPI
+
+The middleware runs outside the routing layer, so nothing it does reaches the generated schema. A client built from that schema never learns the header exists, and Swagger offers no field for it. `micro.install(app)` writes it there, so a registered component needs nothing else: every operation the middleware covers gains the `Idempotency-Key` field and the responses the middleware itself returns. Pass `openapi=False` to leave the schema alone:
+
+```python
+IdempotentRequests(openapi=False)
+```
+
+A middleware added by hand is documented with `document_idempotency`:
+
+```python
+from grelmicro.http import IdempotencyMiddleware
+from grelmicro.integrations.fastapi import document_idempotency
 
 micro.install(app)
 app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
 document_idempotency(app)
 ```
+
+Only FastAPI builds an OpenAPI schema, so every other framework ignores this.
 
 Every operation the middleware covers gains the `Idempotency-Key` header parameter and the responses the middleware itself returns. Call it any time after `add_middleware`, and routes added afterwards are covered too.
 
@@ -217,11 +289,16 @@ Each response the middleware adds points at a `ProblemDetail` component, so a ge
 
 A background task runs after the response is sent, so the response is stored and replayable while the task is still working. A replay can land before the original request's background work finishes. Put anything a retry must not repeat in the handler, not in a background task.
 
-## Middleware parameters
+## Parameters
+
+`IdempotentRequests` and `IdempotencyMiddleware` take the same options, so a registered component and a hand-added middleware answer the same.
 
 | Parameter | Default | Behaviour |
 |---|---|---|
-| `idempotency` | required | The `Idempotency` that stores responses. Its `ttl` sets the replay window. |
+| `ttl` | one day | Seconds a stored response replays for. Component only. |
+| `namespace` | `"http"` | Namespace the stored keys sit under. Component only. |
+| `cache` | the registered `Cache` | The `TTLCache` responses are stored in. Component only. |
+| `idempotency` | required on the middleware | The `Idempotency` it stores through. The component builds one from `ttl`, `namespace` and `cache`. |
 | `header` | `"Idempotency-Key"` | Request header carrying the key. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
 | `key_maker` | `None` | Build the stored key from the scope and the client key. Set it in any multi-tenant app. |
@@ -230,3 +307,8 @@ A background task runs after the response is sent, so the response is stored and
 | `fingerprint_body` | `False` | Hash the request body and answer `422` on a reused key with a different body. |
 | `max_body_size` | `1048576` | Largest body held in memory, in bytes. Caps the stored response, and the fingerprinted request. |
 | `wait_timeout` | `10.0` | Seconds a duplicate waits for an execution in flight before `409`. |
+| `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
+| `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
+| `reused_status` | `422` | Status for a key reused with a different payload. `400` matches Stripe. |
+| `openapi` | `True` | Describe the header and the middleware responses in the OpenAPI schema. Component only, and only FastAPI builds one. |
+| `name` | `"default"` | Registration name, for a second set of rules on one app. Component only. |
