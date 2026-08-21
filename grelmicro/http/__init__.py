@@ -39,6 +39,7 @@ from grelmicro.http._conditional import (
     ConditionalRequestsMiddleware,
     check_freshness,
     check_precondition,
+    check_sent_precondition,
     etag_of,
 )
 from grelmicro.http._idempotency import (
@@ -75,6 +76,7 @@ __all__ = [
     "TMFError",
     "check_freshness",
     "check_precondition",
+    "check_sent_precondition",
     "etag_of",
     "merge_headers",
     "send_error",

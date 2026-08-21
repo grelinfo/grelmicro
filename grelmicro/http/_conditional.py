@@ -33,6 +33,7 @@ from grelmicro._guards import is_instance, type_name
 from grelmicro.errors import OutOfContextError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
+    BODYLESS_STATUSES,
     PRECONDITION_REQUIRED,
     Kind,
     Occurrence,
@@ -59,6 +60,7 @@ __all__ = [
     "ConditionalRequestsMiddleware",
     "check_freshness",
     "check_precondition",
+    "check_sent_precondition",
     "etag_of",
 ]
 
@@ -68,6 +70,9 @@ _ETAG_CHARS = re.compile(r"^[\x21\x23-\x7e]*$")
 
 _WEAK_PREFIX = "W/"
 """Marks an entity tag that compares equal only under weak comparison."""
+
+_SEPARATOR = ","
+"""What separates two entity tags in one header, so no tag may hold it."""
 
 _ANY = "*"
 """The wildcard tag, which matches whatever the resource currently is."""
@@ -209,10 +214,11 @@ def _checked(token: str) -> str:
     Raises:
         ValueError: If it holds a quote or a control character.
     """
-    if not token or not _ETAG_CHARS.match(token):
+    if not token or not _ETAG_CHARS.match(token) or _SEPARATOR in token:
         msg = (
             f"etag_of() cannot build an entity tag from {token!r}: it must "
-            f"be a non-empty value without quotes or control characters. "
+            f"be a non-empty value without quotes, commas, or control "
+            f"characters. "
             f"Pass the representation to have it hashed, or, if this is "
             f"already an entity tag, check_precondition(etag=...)."
         )
@@ -438,6 +444,40 @@ def check_precondition(
     """
     current = _current(version, etag)
     _bound("check_precondition").preconditions.check(current, require=require)
+
+
+def check_sent_precondition(
+    if_match: str | None,
+    if_none_match: str | None,
+    version: object = _UNSET,
+    *,
+    etag: str | None = None,
+    require: bool = True,
+) -> None:
+    """Evaluate preconditions read somewhere other than the request scope.
+
+    What the FastAPI dependency calls: it declares the two headers itself,
+    so it answers from those rather than from the middleware's binding, and
+    a route that injects it works whether or not the component is
+    registered.
+
+    Raises:
+        PreconditionFailedError: If the client's entity tag is not the one
+            the resource carries.
+        PreconditionRequiredError: If `require` and neither header arrived.
+    """
+    _Preconditions(
+        if_match=_split(if_match),
+        if_none_match=_split(if_none_match),
+    ).check(_current(version, etag), require=require)
+
+
+def _split(value: str | None) -> tuple[str, ...] | None:
+    """Return the entity tags of one header value, or None when absent."""
+    if value is None:
+        return None
+    tags = tuple(tag.strip() for tag in value.split(_SEPARATOR) if tag.strip())
+    return tags or None
 
 
 def _current(version: object, etag: str | None) -> str | None:
@@ -739,6 +779,14 @@ class _ResponseShaper:
             await self._release()
             await self._send(message)
             return
+        if message.get("more_body", False):
+            # A response that arrives in pieces is one the app is streaming.
+            # Holding it back to hash it would turn an event stream into one
+            # message at the end, so it goes out as it comes and carries no
+            # entity tag of ours.
+            await self._release()
+            await self._send(message)
+            return
         chunk = message.get("body", b"")
         self._size += len(chunk)
         if self._size > self._max_body_size:
@@ -746,8 +794,7 @@ class _ResponseShaper:
             await self._send(message)
             return
         self._chunks.append(chunk)
-        if not message.get("more_body", False):
-            self._complete = True
+        self._complete = True
 
     async def flush(self) -> None:
         """Answer with the entity tag, a `304`, or what the handler sent."""
@@ -778,6 +825,10 @@ class _ResponseShaper:
             return None
         status = start["status"]
         if not (_MIN_SUCCESS <= status <= _MAX_SUCCESS):
+            return None
+        if status in BODYLESS_STATUSES:
+            # A `204` carries no representation, so hashing its empty body
+            # would give every empty resource in the app one entity tag.
             return None
         if any(name.lower() == b"etag" for name, _ in start["headers"]):
             # The handler knows the resource better than its bytes do.

@@ -35,7 +35,7 @@ from grelmicro.http import (
     PreconditionRequiredError,
     ProblemDetail,
     check_freshness,
-    check_precondition,
+    check_sent_precondition,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._idempotency import _MAX_KEY_LENGTH
@@ -337,7 +337,16 @@ class ConditionalRequest:
             PreconditionFailedError: If the entity tag is not current.
             PreconditionRequiredError: If `require` and none was sent.
         """
-        check_precondition(version, etag=etag, require=require)
+        # From the headers this was handed, not from the request scope, so
+        # a route that injects it answers the same whether or not
+        # `ConditionalRequests()` is registered.
+        check_sent_precondition(
+            self.if_match,
+            self.if_none_match,
+            version,
+            etag=etag,
+            require=require,
+        )
 
     def fresh(
         self,
@@ -519,6 +528,12 @@ def _annotate_conditional(
                     "Entity tag of the version being updated, from the "
                     "`ETag` of an earlier read. The write is refused if "
                     "the resource changed since."
+                    + (
+                        " Required, unless the request creates with "
+                        "`If-None-Match: *`."
+                        if needed
+                        else ""
+                    )
                 ),
             },
         )

@@ -36,6 +36,7 @@ MAX_BODY_SIZE = 2048
 HTTP_400_BAD_REQUEST = 400
 HTTP_422_UNPROCESSABLE_CONTENT = 422
 HTTP_401_UNAUTHORIZED = 401
+HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_200_OK = 200
 
 
@@ -158,8 +159,13 @@ def test_registration_order_is_wrapping_order() -> None:
     assert added == ["binding", "X-Outer", "X-Inner"]
 
 
-def test_litestar_wraps_the_middleware_inside_the_binding() -> None:
-    """A middleware resolving a backend has to run in the request scope."""
+def test_litestar_wraps_the_middleware_inside_what_renders_errors() -> None:
+    """It runs in the request scope, and under Litestar's error handling.
+
+    Wrapping around the error handling would hand it the framework's `500`
+    as though the app had produced it, and the replay would serve that
+    `500` for the whole window.
+    """
 
     # Arrange
     @post("/charge", status_code=200)
@@ -175,7 +181,37 @@ def test_litestar_wraps_the_middleware_inside_the_binding() -> None:
     # Assert
     binding = app.asgi_handler
     assert isinstance(binding, GrelmicroMiddleware)
-    assert isinstance(binding.app, IdempotencyMiddleware)
+    # Under the layer that turns an exception into a response, not around it.
+    assert not isinstance(binding.app, IdempotencyMiddleware)
+    assert isinstance(binding.app.app, IdempotencyMiddleware)  # ty: ignore[unresolved-attribute]
+
+
+def test_litestar_never_replays_an_unhandled_exception() -> None:
+    """The framework's `500` is not a response the app chose to store."""
+    # Arrange
+    calls: list[int] = []
+
+    @post("/boom", status_code=200)
+    async def boom() -> dict[str, int]:
+        calls.append(1)
+        msg = "kaboom"
+        raise RuntimeError(msg)
+
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    app = Litestar(route_handlers=[boom])
+    micro.install(app)
+
+    # Act
+    with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
+        first = client.post("/boom", headers={HEADER: "abc"})
+        second = client.post("/boom", headers={HEADER: "abc"})
+
+    # Assert
+    assert first.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert second.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert "idempotent-replayed" not in second.headers
+    # Ran again, exactly as it does on Starlette and FastAPI.
+    assert calls == [1, 1]
 
 
 def test_litestar_replays_a_repeated_key() -> None:
@@ -364,7 +400,7 @@ def test_litestar_wraps_the_handler_when_there_is_no_binding() -> None:
     micro.install(app, ambient=False)
 
     # Assert
-    assert isinstance(app.asgi_handler, _Marker)
+    assert isinstance(app.asgi_handler.app, _Marker)  # ty: ignore[unresolved-attribute]
 
 
 def test_the_ttl_needs_no_pattern_object() -> None:
@@ -629,3 +665,25 @@ def test_a_key_maker_returning_a_hostile_value_is_named_not_printed() -> None:
     # Act / Assert
     with pytest.raises(IdempotencyKeyMakerError, match="expected a"):
         _checked_key(Unbound(), "abc")
+
+
+def test_a_hand_added_middleware_is_not_added_twice() -> None:
+    """An app that wired it itself placed it where it wanted."""
+    # Arrange
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    app = FastAPI()
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("http"))
+
+    # Act
+    micro.install(app)
+
+    # Assert
+    assert [middleware.cls for middleware in app.user_middleware] == [
+        GrelmicroMiddleware,
+        IdempotencyMiddleware,
+    ]

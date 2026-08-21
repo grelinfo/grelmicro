@@ -223,11 +223,19 @@ def install_middleware(
     """
     from starlette.middleware import Middleware  # noqa: PLC0415
 
+    wired = {
+        entry.cls
+        for entry in app.user_middleware
+        if isinstance(entry.cls, type)
+    }
     added = [
         Middleware(middleware, **options)
         for middleware, options in (
             component.asgi_middleware() for component in components
         )
+        # One is enough. An app that added it by hand placed it where it
+        # wanted, and a second would store, tag and answer twice.
+        if middleware not in wired
     ]
     # Innermost, behind every middleware the app added itself. One of ours
     # that answers a request without calling the app, such as an idempotent

@@ -145,11 +145,46 @@ def install_middleware(
         if isinstance(binding, GrelmicroMiddleware):
             # Inside the binding, which `install` put outermost so a
             # middleware resolving a backend runs in the request scope.
-            binding.app = middleware(binding.app, **options)
+            _wrap_inside(binding, middleware, options)
         else:
-            app.asgi_handler = middleware(
-                cast("ASGIApp", app.asgi_handler), **options
+            app.asgi_handler = cast(
+                "Any",
+                _wrapped(
+                    cast("ASGIApp", app.asgi_handler), middleware, options
+                ),
             )
+
+
+def _wrap_inside(
+    binding: GrelmicroMiddleware,
+    middleware: type[Any],
+    options: dict[str, Any],
+) -> None:
+    """Put the middleware under the binding, inside what handles errors."""
+    binding.app = cast("Any", _wrapped(binding.app, middleware, options))
+
+
+def _wrapped(
+    handler: ASGIApp, middleware: type[Any], options: dict[str, Any]
+) -> ASGIApp:
+    """Return `handler` wrapped, under whatever turns errors into responses.
+
+    Litestar renders an unhandled exception into a response in the
+    outermost layer of its own handler. Wrapping around that would hand a
+    middleware of ours the framework's `500` as though the app had
+    produced it, and an idempotent replay would serve that `500` for the
+    whole window. Slipping underneath it means the exception reaches our
+    middleware as an exception, exactly as it does on Starlette.
+
+    Feature-detected rather than named: a layer that exposes the next ASGI
+    app under `app` is one this can go under, and a release that stops
+    doing so falls back to wrapping the whole thing.
+    """
+    inner = getattr(handler, "app", None)
+    if inner is None or not callable(inner):  # pragma: no cover
+        return middleware(handler, **options)
+    handler.app = middleware(cast("ASGIApp", inner), **options)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    return handler
 
 
 def _already_wired(app: Litestar, middleware: type[Any]) -> bool:

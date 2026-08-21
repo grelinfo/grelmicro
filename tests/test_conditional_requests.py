@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.timeout(5)]
 
 HTTP_200_OK = 200
+HTTP_204_NO_CONTENT = 204
 HTTP_304_NOT_MODIFIED = 304
 HTTP_412_PRECONDITION_FAILED = 412
 HTTP_428_PRECONDITION_REQUIRED = 428
@@ -1431,3 +1432,135 @@ def test_a_real_interrupt_is_never_swallowed_serializing() -> None:
     # Act / Assert
     with pytest.raises(KeyboardInterrupt):
         etag_of(Interrupting(a=1))
+
+
+async def test_a_streamed_response_is_never_held_back() -> None:
+    """An event stream reaches the client as it is produced, not at the end.
+
+    Buffering to hash a body is only safe while the body arrives in one
+    piece. A response that arrives in chunks is one the app is streaming,
+    and holding it turns a live stream into a single message nobody reads
+    until the stream ends.
+    """
+    # Arrange
+    produced: list[str] = []
+
+    async def stream(
+        scope: Any,  # noqa: ANN401, ARG001
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"text/event-stream")],
+            }
+        )
+        for index in range(3):
+            produced.append(f"chunk-{index}")
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": f"data: {index}\n\n".encode(),
+                    "more_body": True,
+                }
+            )
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = ConditionalRequestsMiddleware(stream)
+
+    # Act
+    sent = await _drive(middleware)
+
+    # Assert
+    bodies = [
+        message["body"]
+        for message in sent
+        if message["type"] == "http.response.body"
+    ]
+    # One message per chunk, in order, rather than one at the end.
+    assert bodies[:3] == [b"data: 0\n\n", b"data: 1\n\n", b"data: 2\n\n"]
+    assert not [name for name, _ in sent[0]["headers"] if name == b"etag"]
+
+
+def test_a_bodyless_status_carries_no_generated_tag() -> None:
+    """A `204` has no representation, so hashing its empty body says nothing."""
+    # Arrange
+    micro = Grelmicro(uses=[ConditionalRequests()])
+    app = FastAPI()
+
+    @app.get("/one", status_code=HTTP_204_NO_CONTENT)
+    async def one() -> None:
+        return None
+
+    @app.get("/two", status_code=HTTP_204_NO_CONTENT)
+    async def two() -> None:
+        return None
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.get("/one")
+        second = client.get("/two")
+
+    # Assert
+    assert first.status_code == HTTP_204_NO_CONTENT
+    assert "etag" not in first.headers
+    assert "etag" not in second.headers
+
+
+def test_a_tag_cannot_hold_the_separator() -> None:
+    """A comma separates two tags in one header, so no tag may carry one."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="commas"):
+        etag_of("v1,rev2")
+
+
+def test_the_injected_guard_answers_without_the_component() -> None:
+    """It declares the headers, so it reads them whether or not one is wired."""
+    # Arrange
+    micro = Grelmicro(uses=[ErrorResponses()])  # no ConditionalRequests
+    app = FastAPI()
+
+    @app.patch("/carts/1")
+    async def update(conditional: Conditional) -> dict[str, int]:
+        conditional.check(VERSION)
+        return {"version": NEXT_VERSION}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        current = client.patch("/carts/1", headers={"If-Match": '"3"'})
+        stale = client.patch("/carts/1", headers={"If-Match": '"2"'})
+        missing = client.patch("/carts/1")
+
+    # Assert
+    assert current.status_code == HTTP_200_OK
+    assert stale.status_code == HTTP_412_PRECONDITION_FAILED
+    assert missing.status_code == HTTP_428_PRECONDITION_REQUIRED
+
+
+async def test_a_response_that_never_sends_a_body_is_still_forwarded() -> None:
+    """Start and nothing else: there is no representation to tag."""
+
+    # Arrange
+    async def headers_only(
+        scope: Any,  # noqa: ANN401, ARG001
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+
+    middleware = ConditionalRequestsMiddleware(headers_only)
+
+    # Act
+    sent = await _drive(middleware)
+
+    # Assert
+    assert [message["type"] for message in sent] == ["http.response.start"]
+    assert not [name for name, _ in sent[0]["headers"] if name == b"etag"]

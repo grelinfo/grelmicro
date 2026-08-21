@@ -331,6 +331,7 @@ It fails loudly rather than issuing a tag that cannot do its job:
 |---|---|
 | `etag_of(True)` | `TypeError`. A boolean version is a mistake, not the tag `"True"`. |
 | `etag_of('has "quotes"')` | `ValueError`. An entity tag carries no quote or control character. |
+| `etag_of("v1,rev2")` | `ValueError`. A comma separates two tags in one header, so no tag may hold one. |
 | `etag_of(object())` | `TypeError`. A tag comes from data, never from a repr. |
 | `etag_of('"3"')` | `ValueError`, naming the other door: this is already a tag, so pass `check_precondition(etag=...)`. |
 
