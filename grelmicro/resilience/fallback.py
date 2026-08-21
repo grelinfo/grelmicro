@@ -35,7 +35,13 @@ from grelmicro._config import (
     env_prefixes,
     parse_csv_or_json,
 )
-from grelmicro._guards import is_class, is_instance, is_subclass
+from grelmicro._guards import (
+    is_class,
+    is_instance,
+    is_subclass,
+    items_of,
+    type_name,
+)
 from grelmicro._json import json_loads
 from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience._match import Match, Matcher
@@ -72,15 +78,17 @@ def _coerce_to_match(value: Any) -> Match:  # noqa: ANN401
     """
     if is_class(value) and is_subclass(value, Exception):
         return Match.exception(value)
-    if is_instance(value, tuple) and all(
-        is_class(item) and is_subclass(item, Exception) for item in value
-    ):
-        return Match.exception(*value)
+    if is_instance(value, tuple):
+        items = items_of(value)
+        if items is not None and all(
+            is_class(item) and is_subclass(item, Exception) for item in items
+        ):
+            return Match.exception(*items)
     if callable(value):
         return Match.exception(value)
     msg = (
         "when= must be a Match, an Exception class, a tuple of "
-        f"Exception classes, or a callable. Got {type(value).__name__}"
+        f"Exception classes, or a callable. Got {type_name(value)}"
     )
     # `ValueError`, not `TypeError`: pydantic converts only `ValueError` and
     # `AssertionError`, so a `TypeError` escaped every documented `except`.
@@ -162,16 +170,17 @@ class FallbackConfig(
             return value
         if is_instance(value, str):
             value = parse_csv_or_json(value)
-        if is_instance(value, list | tuple) and not (
+        items = items_of(value) if is_instance(value, list | tuple) else None
+        if items is not None and not (
             is_instance(value, tuple)
             and all(
                 is_class(item) and is_subclass(item, Exception)
-                for item in value
+                for item in items
             )
         ):
             resolved: tuple[type[Exception], ...] = tuple(
                 _resolve_fqn(item) if is_instance(item, str) else item
-                for item in value
+                for item in items
             )
             if not resolved:
                 msg = "when= is empty, name at least one exception class"

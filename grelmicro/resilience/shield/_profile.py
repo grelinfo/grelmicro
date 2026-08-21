@@ -27,6 +27,7 @@ from grelmicro._guards import (
     is_class,
     is_instance,
     is_subclass,
+    items_of,
     name_of,
     type_name,
 )
@@ -202,7 +203,9 @@ class _BaseShieldConfig(
                 return tuple(_normalize_entry(item) for item in parsed)
             return parsed  # pragma: no cover  # defensive: always a list here
         if is_instance(value, list | tuple):
-            return tuple(_normalize_entry(item) for item in value)
+            items = items_of(value)
+            if items is not None:
+                return tuple(_normalize_entry(item) for item in items)
         msg = (
             f"timeout_errors must be an exception class, a tuple of them, or "
             f"a fully-qualified name, got {type_name(value)}"

@@ -1,6 +1,7 @@
 """Fallback policy tests."""
 
 import asyncio as _asyncio
+from collections.abc import Iterator
 
 import pytest
 from pydantic import ValidationError
@@ -516,5 +517,40 @@ def test_when_rejects_an_unreadable_value(value: object) -> None:
     unbound. A validator converts only `ValueError`, so whatever the proxy
     raised escaped `except SettingsValidationError` entirely.
     """
+    with pytest.raises(SettingsValidationError):
+        Fallback("api", when=value, default=0)  # ty: ignore[invalid-argument-type]
+
+
+class _UnwalkableTuple(tuple):  # type: ignore[type-arg]  # noqa: SLOT001
+    """A tuple subclass that refuses to be walked."""
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a lazily-populated container does when detached."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+class _UnwalkableList(list):  # type: ignore[type-arg]
+    """A list subclass that refuses to be walked."""
+
+    __slots__ = ()
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a detached cursor does."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_UnwalkableTuple((ValueError,)), id="tuple"),
+        pytest.param(_UnwalkableList([ValueError]), id="list"),
+    ],
+)
+def test_when_rejects_a_container_that_refuses_to_be_walked(
+    value: object,
+) -> None:
+    """Classifying a container walks it, and `__iter__` is caller code."""
     with pytest.raises(SettingsValidationError):
         Fallback("api", when=value, default=0)  # ty: ignore[invalid-argument-type]

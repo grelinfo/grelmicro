@@ -22,6 +22,7 @@ __all__ = [
     "is_class",
     "is_instance",
     "is_subclass",
+    "items_of",
     "name_of",
     "type_name",
 ]
@@ -92,6 +93,22 @@ def name_of(value: Any) -> str:  # noqa: ANN401
     except BaseException:  # noqa: BLE001
         return UNNAMEABLE
     return type_name(value)
+
+
+def items_of(value: Any) -> tuple[Any, ...] | None:  # noqa: ANN401
+    """Return a container's items, or None when it will not be walked.
+
+    `__iter__` is caller code, and a container subclass writes its own: a
+    lazily-populated one raises once it is detached from what filled it.
+    Walked once, here, so the answer is used without asking the container
+    twice, and None sends it to the argument error it was going to get.
+    """
+    try:
+        return tuple(value)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return None
 
 
 def _exact(text: str) -> str:

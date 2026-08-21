@@ -11,12 +11,13 @@ from grelmicro._guards import (
     is_class,
     is_instance,
     is_subclass,
+    items_of,
     name_of,
     type_name,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 
 class _LazyProxy:
@@ -200,3 +201,51 @@ def test_a_name_is_an_exact_str(name: str) -> None:
     """
     assert type(name) is str
     assert f"{name}" == name
+
+
+class _UnwalkableTuple(tuple):  # type: ignore[type-arg]  # noqa: SLOT001
+    """A tuple subclass that refuses to be walked."""
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a lazily-populated container does when detached."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+class _UnwalkableList(list):  # type: ignore[type-arg]
+    """A list subclass that refuses to be walked."""
+
+    __slots__ = ()
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a detached cursor does."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+def test_a_container_is_walked_once() -> None:
+    """Ordinary containers come back as a tuple of their items."""
+    assert items_of([1, 2]) == (1, 2)
+    assert items_of((1, 2)) == (1, 2)
+    assert items_of(x for x in (1, 2)) == (1, 2)
+    assert items_of([]) == ()
+
+
+def test_a_container_that_refuses_to_be_walked_answers_none() -> None:
+    """`__iter__` is caller code, and a subclass writes its own."""
+    assert items_of(_UnwalkableTuple((ValueError,))) is None
+    assert items_of(_UnwalkableList([ValueError])) is None
+    assert items_of(42) is None
+
+
+def test_walking_lets_a_real_interrupt_through() -> None:
+    """Walking absorbs a hostile container, not a genuine Ctrl-C."""
+
+    class Interrupts(list):  # type: ignore[type-arg]
+        __slots__ = ()
+
+        def __iter__(self) -> Iterator[object]:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        items_of(Interrupts([1]))

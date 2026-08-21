@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,6 +12,9 @@ from grelmicro.resilience.shield import (
     InternalShieldConfig,
     SlowShieldConfig,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def test_internal_profile_constants() -> None:
@@ -159,4 +164,39 @@ def test_timeout_errors_refuses_a_base_exception_by_every_route(
     accepted, and the entry then sat in the config doing nothing.
     """
     with pytest.raises(ValidationError, match="Exception subclass"):
+        ApiShieldConfig(timeout_errors=value)
+
+
+class _UnwalkableTuple(tuple):  # type: ignore[type-arg]  # noqa: SLOT001
+    """A tuple subclass that refuses to be walked."""
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a lazily-populated container does when detached."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+class _UnwalkableList(list):  # type: ignore[type-arg]
+    """A list subclass that refuses to be walked."""
+
+    __slots__ = ()
+
+    def __iter__(self) -> Iterator[object]:
+        """Raise, the way a detached cursor does."""
+        msg = "iter exploded"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(_UnwalkableTuple((ValueError,)), id="tuple"),
+        pytest.param(_UnwalkableList([ValueError]), id="list"),
+    ],
+)
+def test_timeout_errors_rejects_a_container_that_refuses_to_be_walked(
+    value: object,
+) -> None:
+    """Normalizing the entries walks the container, which is caller code."""
+    with pytest.raises(ValidationError):
         ApiShieldConfig(timeout_errors=value)
