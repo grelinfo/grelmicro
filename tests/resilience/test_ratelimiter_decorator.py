@@ -1,5 +1,6 @@
 """Tests for the RateLimiter decorator and its binding."""
 
+import functools
 import gc
 import weakref
 from typing import Any
@@ -11,6 +12,7 @@ from grelmicro.resilience import (
     RateLimiter,
     RateLimiterBinding,
     RateLimitExceededError,
+    Stack,
 )
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -350,3 +352,41 @@ def test_a_resolver_is_built_for_a_target_that_takes_no_weak_reference() -> (
 
     resolver = binding._resolver(Client())
     assert resolver((USER,), {}) == f"user:{USER}"
+
+
+async def test_a_key_maker_resolver_holds_on_to_nothing() -> None:
+    """A key maker closes over the target, so its resolver is not kept."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    binding = limiter(key_maker=lambda _fn, _args, _kwargs: "made")
+    assert isinstance(binding, RateLimiterBinding)
+
+    async def work(user_id: int) -> int:
+        return user_id
+
+    binding._resolver(work)
+    reference = weakref.ref(work)
+    del work
+    gc.collect()
+
+    assert reference() is None
+    assert len(binding._resolvers) == 0
+
+
+async def test_a_key_maker_stack_does_not_grow_per_call() -> None:
+    """`run` on a fresh target each call keeps nothing behind."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=10**6, refill_rate=10**6, backend=backend
+        )
+        binding = limiter(key_maker=lambda _fn, _args, _kwargs: "made")
+        assert isinstance(binding, RateLimiterBinding)
+        stack = Stack("api", patterns=[binding])
+
+        async def base(value: int) -> int:
+            return value
+
+        for value in range(5):
+            await stack.run(functools.partial(base), value)
+
+        gc.collect()
+        assert len(binding._resolvers) == 0

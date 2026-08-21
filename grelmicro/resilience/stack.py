@@ -242,7 +242,7 @@ class Stack:
     docs.
     """
 
-    __slots__ = ("_guard", "_members", "_name")
+    __slots__ = ("_binding", "_guard", "_members", "_name")
 
     def __init__(
         self,
@@ -295,6 +295,14 @@ class Stack:
             raise ValueError(msg)
         self._name = name
         self._members = members
+        limiter = members.get(_RATE_LIMITER)
+        self._binding = (
+            RateLimiterBinding(limiter)
+            if isinstance(limiter, RateLimiter)
+            else limiter
+            if isinstance(limiter, RateLimiterBinding)
+            else None
+        )
         self._guard = (
             _CIRCUIT_BREAKER in members
             and (_RATE_LIMITER in members or _BULKHEAD in members),
@@ -412,12 +420,10 @@ class Stack:
         bulkhead = members.get(_BULKHEAD)
         if isinstance(bulkhead, Bulkhead):
             call = _bulkhead_layer(bulkhead, call, guard=guard_refusal)
-        limiter = members.get(_RATE_LIMITER)
-        if isinstance(limiter, RateLimiter):
-            limiter = RateLimiterBinding(limiter)
-        if isinstance(limiter, RateLimiterBinding):
+        binding = self._binding
+        if binding is not None:
             call = _limiter_layer(
-                limiter._admitter(fn),  # noqa: SLF001
+                binding._admitter(fn),  # noqa: SLF001
                 call,
                 guard=guard_refusal,
             )

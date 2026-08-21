@@ -857,6 +857,7 @@ class RateLimiterBinding:
         "_key_maker",
         "_limiter",
         "_max_wait",
+        "_reads_signature",
         "_resolvers",
     )
 
@@ -916,7 +917,12 @@ class RateLimiterBinding:
         self._limiter = limiter
         self._key = key
         self._fields = (
-            _template_fields(key) if key is not None and "{" in key else ()
+            _template_fields(key)
+            if key_maker is None and key is not None and "{" in key
+            else ()
+        )
+        self._reads_signature = bool(
+            key_maker is None and key is not None and "{" in key
         )
         self._key_maker = key_maker
         self._cost = cost
@@ -943,14 +949,19 @@ class RateLimiterBinding:
     ) -> Callable[[tuple[Any, ...], dict[str, Any]], str]:
         """Return the key resolver for one decorated function.
 
-        A template resolver reads the signature and nothing else, so
-        two callables that compare equal share one safely, and the
-        resolver holds no reference back to the callable it was built
-        for. A callable that cannot be a weak key is resolved fresh.
+        Only a template resolver is worth keeping: it is the one that
+        reads a signature, and the one that closes over the signature
+        rather than over the callable, so it can be held without
+        keeping that callable alive. Two callables that compare equal
+        share one safely, because it renders from the arguments and
+        never calls them. A callable that cannot be a weak key is
+        resolved fresh.
 
         Raises:
             ValueError: If the template names a parameter `fn` has not.
         """
+        if not self._reads_signature:
+            return self._build_resolver(fn)
         try:
             cached = self._resolvers.get(fn)
         except TypeError:
