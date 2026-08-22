@@ -173,8 +173,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 scope belongs to that app run, so a later run opens it
                 again from the start. A run overlapping the one that owns
                 the scope borrows it, and closes with it. Entering while
-                the scope is opening or closing raises and asks you to try
-                again, and so does entering once the owning run has gone.
+                the scope is opening or closing raises `OutOfContextError`
+                and asks you to try again, and so does entering once the
+                owning run has gone.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
