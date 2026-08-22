@@ -238,6 +238,15 @@ class _MemoryConsecutiveCountStrategy(CircuitBreakerStrategy):
 
         return False
 
+    async def abandon(self) -> None:
+        """Give back a probe slot the call never used."""
+        state = self._live(monotonic())
+        if (
+            state.state == CircuitBreakerState.HALF_OPEN
+            and state.half_open_admit > 0
+        ):
+            state.half_open_admit -= 1
+
     async def record_outcome(
         self,
         *,

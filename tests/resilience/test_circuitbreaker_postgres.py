@@ -629,3 +629,35 @@ async def test_migrate_leaves_current_functions_alone(
         # Assert
         assert before
         assert [dict(row) for row in after] == [dict(row) for row in before]
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_abandon_returns_the_half_open_slot(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A probe that produced no outcome must not hold its slot."""
+    strategy = _bind(backend, error_threshold=1, reset_timeout=0.01)
+    await strategy.record_outcome(success=False)
+    await asyncio.sleep(0.05)
+
+    assert await strategy.try_acquire() is True
+    assert await strategy.try_acquire() is False
+
+    await strategy.abandon()
+
+    assert await strategy.try_acquire() is True
+
+
+@pytest.mark.integration
+@_INTEGRATION_TIMEOUT
+async def test_abandon_outside_half_open_changes_nothing(
+    backend: PostgresCircuitBreakerAdapter,
+) -> None:
+    """A closed circuit holds no slot to give back."""
+    strategy = _bind(backend)
+
+    await strategy.abandon()
+
+    snapshot = await strategy.get_snapshot()
+    assert snapshot.state is CircuitBreakerState.CLOSED

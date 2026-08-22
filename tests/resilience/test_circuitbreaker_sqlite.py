@@ -700,3 +700,54 @@ async def test_sweep_spares_an_open_circuit_still_cooling_down(
 
     assert await _row_names(backend) == ["cb:slow"]
     assert (await strategy.get_snapshot()).state is CircuitBreakerState.OPEN
+
+
+async def test_abandon_returns_the_half_open_slot(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A probe that produced no outcome must not hold its slot."""
+    strategy = _bind(backend, error_threshold=1, reset_timeout=0.01)
+    await strategy.record_outcome(success=False)
+    await asyncio.sleep(0.02)
+
+    assert await strategy.try_acquire() is True
+    assert await strategy.try_acquire() is False
+
+    await strategy.abandon()
+
+    assert await strategy.try_acquire() is True
+
+
+async def test_abandon_outside_half_open_changes_nothing(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A closed circuit holds no slot to give back."""
+    strategy = _bind(backend)
+
+    await strategy.abandon()
+
+    snapshot = await strategy.get_snapshot()
+    assert snapshot.state is CircuitBreakerState.CLOSED
+
+
+async def test_abandon_rolls_back_when_the_write_fails(
+    backend: SQLiteCircuitBreakerAdapter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed give-back leaves no half-open transaction behind."""
+    strategy = _bind(backend, error_threshold=1, reset_timeout=0.01)
+    await strategy.record_outcome(success=False)
+    await asyncio.sleep(0.02)
+    assert await strategy.try_acquire() is True
+
+    async def refuse(_row: object) -> None:
+        msg = "disk gone"
+        raise OSError(msg)
+
+    monkeypatch.setattr(strategy, "_write", refuse)
+
+    with pytest.raises(OSError, match="disk gone"):
+        await strategy.abandon()
+
+    monkeypatch.undo()
+    assert await strategy.try_acquire() is False

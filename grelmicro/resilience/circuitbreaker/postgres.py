@@ -713,6 +713,12 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
     _SQL_RECORD_SUCCESS = (
         "SELECT * FROM {table_name}_cb_record_success($1, $2, $3);"
     )
+    _SQL_ABANDON = """
+        UPDATE {table_name}
+            SET ho_admit = ho_admit - 1,
+                updated_at = EXTRACT(EPOCH FROM clock_timestamp())
+            WHERE name = $1 AND state = 'HALF_OPEN' AND ho_admit > 0;
+    """
     _SQL_TRANSITION = "SELECT {table_name}_cb_transition($1, $2, $3);"
     _SQL_GET_STATE = "SELECT * FROM {table_name}_cb_get_state($1);"
 
@@ -740,6 +746,7 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
         self._record_success_sql = self._SQL_RECORD_SUCCESS.format(
             table_name=table_name
         )
+        self._abandon_sql = self._SQL_ABANDON.format(table_name=table_name)
         self._transition_sql = self._SQL_TRANSITION.format(
             table_name=table_name
         )
@@ -754,6 +761,10 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
             self._reset_timeout,
         )
         return bool(result)
+
+    async def abandon(self) -> None:
+        """Give back a probe slot the call never used."""
+        await self._pool.execute(self._abandon_sql, self._name)
 
     async def record_outcome(
         self,

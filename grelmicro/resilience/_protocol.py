@@ -291,6 +291,17 @@ class CircuitBreakerStrategy(Protocol):
         """
         ...
 
+    async def abandon(self) -> None:
+        """Give back an admission that produced no outcome.
+
+        The counterpart of `try_acquire`. A call admitted while
+        HALF_OPEN holds one of the probe slots, and `record_outcome`
+        is what returns it. When the call never happened, and so has
+        no outcome to record, this returns the slot instead. Outside
+        HALF_OPEN there is nothing to give back and this does nothing.
+        """
+        ...
+
     async def record_outcome(
         self,
         *,
