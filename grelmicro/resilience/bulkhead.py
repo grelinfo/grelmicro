@@ -422,12 +422,13 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                         raise OutOfContextError(msg) from exc
                     raise OutOfContextError(msg)
                 exit_stack.push_async_exit(item)
-                # Sits above the item, so the scope stops reporting
-                # itself open before anything it holds closes.
-                exit_stack.callback(self._forget_scope, scope)
                 scope.entered += 1
             finally:
                 self._finish_open()
+        # Sits above every item, so the scope stops reporting itself open
+        # before anything it holds closes. Pushed once the last item is on
+        # the stack, because anything pushed after it would close first.
+        exit_stack.callback(self._forget_scope, scope)
         scope.opened = True
 
     def _lost_scope(self, micro: Grelmicro, exit_stack: AsyncExitStack) -> bool:

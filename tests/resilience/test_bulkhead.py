@@ -1173,6 +1173,41 @@ async def test_a_dropped_borrow_stops_reporting_the_scope_open() -> None:
     assert log == ["open", "close", "drain refused"]
 
 
+async def test_a_multi_item_scope_forgets_itself_once() -> None:
+    """One forget covers the scope, and still runs before any item closes."""
+    log: list[str] = []
+
+    class Track:
+        """A scope item that records when it closes."""
+
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            log.append(f"close {self.label}")
+
+    bulkhead = Bulkhead("pair", uses=[Track("first"), Track("second")])
+    forget = bulkhead._forget_scope
+    forgets = 0
+
+    def counting_forget(scope: object) -> None:
+        nonlocal forgets
+        forgets += 1
+        log.append("forget")
+        forget(scope)  # ty: ignore[invalid-argument-type]
+
+    bulkhead._forget_scope = counting_forget  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+    async with Grelmicro(), bulkhead:
+        pass
+
+    assert forgets == 1  # one callback for the scope, not one per item
+    assert log == ["forget", "close second", "close first"]
+
+
 async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:
     """The scope is claimed before the first item, so a race has one winner."""
     opens = 0
