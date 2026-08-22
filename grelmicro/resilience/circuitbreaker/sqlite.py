@@ -471,6 +471,23 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
             return True
         return False
 
+    async def abandon(self) -> None:
+        """Give back a probe slot the call never used."""
+        async with self._lock:
+            await self._conn.execute("BEGIN IMMEDIATE;")
+            try:
+                row = await self._read()
+                if (
+                    row.state == CircuitBreakerState.HALF_OPEN
+                    and row.ho_admit > 0
+                ):
+                    row.ho_admit -= 1
+                    await self._write(row)
+                await self._conn.execute("COMMIT;")
+            except BaseException:
+                await self._conn.execute("ROLLBACK;")
+                raise
+
     async def record_outcome(
         self,
         *,

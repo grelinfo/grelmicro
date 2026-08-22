@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 💥 `CircuitBreakerStrategy` gains `abandon()`, the counterpart of `try_acquire()`. A custom backend has to implement it: it gives back a half-open probe slot when the admitted call produced no outcome. The four shipped adapters implement it, and the Postgres one does it with a plain statement, so no migration is needed. ([#789](https://github.com/grelinfo/grelmicro/issues/789))
 
 * 💥 `GrelmicroMiddleware` is imported from the top level: `from grelmicro import GrelmicroMiddleware`. It is pure ASGI and belongs to no framework, so it no longer ships from one named after FastAPI or Starlette. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
 * 💥 `IdempotencyMiddleware` and `StoredResponse` are imported from `grelmicro.http`, which is where the wire-facing pieces live. Both are pure ASGI and run on Starlette and Litestar as well as FastAPI. ([#771](https://github.com/grelinfo/grelmicro/issues/771))
@@ -17,6 +18,7 @@
 * 💥 `GREL_LOG_JSON_SERIALIZER` defaults to `auto`, which uses orjson when it is installed and the standard library when it is not. Install `grelmicro[standard]` and JSON logs get faster with no further setting. `auto` never writes less than the standard library would, because anything orjson declines falls back to it, but the two do not render every value the same way: orjson writes a `UUID`, an `Enum`, and a dataclass natively and writes non-ASCII as UTF-8, where the standard library falls back to `repr` and escapes. Set `stdlib` or `orjson` to pin the exact bytes. ([#780](https://github.com/grelinfo/grelmicro/pull/780))
 
 ### Fixed
+* 🐛 A half-open probe that ends without a call outcome gives its slot back instead of holding it. The slot is taken on admission and returned by recording the outcome, so an exit with anything that is not an `Exception`, an `asyncio.CancelledError` above all, kept it forever: the circuit then refused every call for a day while the dependency was healthy. A cancelled probe, a shutdown mid-probe, and an outer deadline all did it. ([#789](https://github.com/grelinfo/grelmicro/issues/789))
 
 * 🐛 A `Match` predicate that returns a non-bool is warned about once per predicate, not once per address, so a collected predicate no longer silences the next one. ([#782](https://github.com/grelinfo/grelmicro/pull/782))
 * 🐛 Calling a matcher never raises. A predicate that raises, a class with a hostile `__instancecheck__`, an exception whose `__cause__` raises, and a return whose truth value cannot be read each read as no match, and each is reported once per predicate. An exception whose `__str__` raises has no message to match, so a message matcher answers no match without a warning. `Retry` calls a matcher from an `except` block, so an error there replaced the very exception being handled. ([#782](https://github.com/grelinfo/grelmicro/pull/782))

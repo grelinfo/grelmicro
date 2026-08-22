@@ -729,7 +729,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             self._last_error = exc_value
             self._last_error_time = datetime.now(UTC)
             result = "error"
-        else:  # pragma: no cover
+        else:
+            await strategy.abandon()
             return None
         _emit.incr(
             "grelmicro.circuit_breaker.calls",
@@ -1090,6 +1091,7 @@ async def _async_handle_exit(
         cb._total_error_count += 1  # noqa: SLF001
         cb._last_error = exc_value  # noqa: SLF001
         cb._last_error_time = datetime.now(UTC)  # noqa: SLF001
-    else:  # pragma: no cover
+    else:
+        await strategy.abandon()
         return
     cb._apply_snapshot(snapshot)  # noqa: SLF001

@@ -178,6 +178,19 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
       state transition.
     """
 
+    _LUA_ABANDON = """
+        local key = KEYS[1]
+        local state = redis.call("HGET", key, "state")
+        if state ~= "HALF_OPEN" then
+            return 0
+        end
+        local ho_admit = tonumber(redis.call("HGET", key, "ho_admit")) or 0
+        if ho_admit > 0 then
+            redis.call("HINCRBY", key, "ho_admit", -1)
+        end
+        return 1
+    """
+
     _LUA_TRY_ACQUIRE = """
         local key = KEYS[1]
         local capacity = tonumber(ARGV[1])
@@ -421,6 +434,7 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
         )
         self._lua_transition = client.register_script(self._LUA_TRANSITION)
         self._lua_get_state = client.register_script(self._LUA_GET_STATE)
+        self._lua_abandon = client.register_script(self._LUA_ABANDON)
 
     async def try_acquire(self) -> bool:
         """Atomic admission via Lua."""
@@ -430,6 +444,10 @@ class _RedisConsecutiveCountStrategy(CircuitBreakerStrategy):
             client=self._client,
         )
         return bool(result)
+
+    async def abandon(self) -> None:
+        """Give back a probe slot the call never used."""
+        await self._lua_abandon(keys=[self._key], client=self._client)
 
     async def record_outcome(
         self,

@@ -1299,3 +1299,73 @@ class TestSharedBackendIntegration:
             len(backend.try_acquire_calls)
             == len(backend.record_outcome_calls) + 1
         )
+
+
+class _NoOutcome(BaseException):
+    """An exit that is not a call outcome, the way a cancellation is."""
+
+
+async def test_a_probe_that_records_no_outcome_gives_its_slot_back() -> None:
+    """A half-open probe that never happened must not wedge the circuit."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker.consecutive_count(
+            "probe", error_threshold=1, backend=backend, reset_timeout=0.01
+        )
+
+        with pytest.raises(RuntimeError):
+            async with cb:
+                raise RuntimeError
+        assert cb.state is CircuitBreakerState.OPEN
+
+        await asyncio.sleep(0.02)
+        with pytest.raises(_NoOutcome):
+            async with cb:
+                raise _NoOutcome
+
+        async with cb:
+            pass
+        assert cb.state is not CircuitBreakerState.OPEN
+
+
+async def test_abandon_outside_half_open_changes_nothing() -> None:
+    """There is no slot to give back while the circuit is closed."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker("closed", backend=backend)
+        strategy = backend.bind(name="closed", config=cb.config)
+
+        await strategy.abandon()
+
+        snapshot = await strategy.get_snapshot()
+        assert snapshot.state is CircuitBreakerState.CLOSED
+
+
+async def test_a_probe_cancelled_from_a_thread_gives_its_slot_back() -> None:
+    """The worker-thread path returns the slot the same way."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker.consecutive_count(
+            "probe-thread",
+            error_threshold=1,
+            backend=backend,
+            reset_timeout=0.01,
+        )
+
+        def fail() -> None:
+            with cb.from_thread:
+                raise RuntimeError
+
+        def abandon() -> None:
+            with cb.from_thread:
+                raise _NoOutcome
+
+        def probe() -> None:
+            with cb.from_thread:
+                pass
+
+        with pytest.raises(RuntimeError):
+            await asyncio.to_thread(fail)
+        await asyncio.sleep(0.02)
+        with pytest.raises(_NoOutcome):
+            await asyncio.to_thread(abandon)
+
+        await asyncio.to_thread(probe)
+        assert cb.state is not CircuitBreakerState.OPEN
