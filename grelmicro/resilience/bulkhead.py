@@ -100,20 +100,14 @@ class _State:
     semaphore: asyncio.Semaphore | None
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, eq=False)
 class _Scope:
-    """One app's record of the `uses=` items this bulkhead has opened."""
+    """One app run's record of the `uses=` items this bulkhead has opened."""
 
     lock: asyncio.Lock
     entered: int = 0
     opened: bool = False
-    borrowers: list[_Scope] = field(default_factory=list)
-
-    def forget(self) -> None:
-        """Stop reporting the scope open, before anything it holds closes."""
-        self.opened = False
-        for borrower in self.borrowers:
-            borrower.opened = False
+    borrowers: set[_Scope] = field(default_factory=set)
 
 
 class Bulkhead(Reconfigurable[BulkheadConfig]):
@@ -373,11 +367,11 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         micro = _current_micro.get(self._scoped_to)
         if micro is None:
             raise NoActiveAppError(self._no_app_message())
-        if self._borrows_open_scope(micro):
-            return
         exit_stack = micro._exit_stack  # noqa: SLF001
         if exit_stack is None:
             raise OutOfContextError(self._no_scope_message(micro, None))
+        if self._borrows_open_scope(micro, exit_stack):
+            return
         scope = self._scope_for(micro)
         async with scope.lock:
             if scope.opened:
@@ -389,36 +383,46 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             if self._claim_scope(micro, exit_stack):
                 # Sits below every item, so it runs once they have all
                 # closed and the next app is free to take the scope.
-                exit_stack.callback(self._release_scope)
-            report_unmet_requirements(
-                unmet_requirements(self._uses), micro.environment
-            )
-            for item in self._uses[scope.entered :]:
-                # Counted for as long as the entry is in flight. The exit
-                # stack does not know about an item still being entered, so
-                # this is what keeps the scope from changing hands under it.
-                with self._owner_lock:
-                    self._opening += 1
-                try:
-                    await item.__aenter__()
-                    if self._lost_scope(micro, exit_stack):
-                        # The app moved on while this item was entering, so
-                        # its stack will never close it. Close it here and
-                        # leave the scope for the next app to open.
-                        msg = self._no_scope_message(micro, exit_stack)
-                        try:
-                            await item.__aexit__(None, None, None)
-                        except Exception as exc:
-                            raise OutOfContextError(msg) from exc
-                        raise OutOfContextError(msg)
-                    exit_stack.push_async_exit(item)
-                    # Sits above the item, so the scope stops reporting
-                    # itself open before anything it holds closes.
-                    exit_stack.callback(scope.forget)
-                    scope.entered += 1
-                finally:
-                    self._finish_open()
-            scope.opened = True
+                exit_stack.callback(self._release_scope, exit_stack)
+            try:
+                await self._enter_uses(micro, exit_stack, scope)
+            except BaseException:
+                self._drop_empty_claim(scope, exit_stack)
+                raise
+
+    async def _enter_uses(
+        self, micro: Grelmicro, exit_stack: AsyncExitStack, scope: _Scope
+    ) -> None:
+        """Enter what the scope has left to enter, in order."""
+        report_unmet_requirements(
+            unmet_requirements(self._uses), micro.environment
+        )
+        for item in self._uses[scope.entered :]:
+            # Counted for as long as the entry is in flight. The exit
+            # stack does not know about an item still being entered, so
+            # this is what keeps the scope from changing hands under it.
+            with self._owner_lock:
+                self._opening += 1
+            try:
+                await item.__aenter__()
+                if self._lost_scope(micro, exit_stack):
+                    # The app moved on while this item was entering, so
+                    # its stack will never close it. Close it here and
+                    # leave the scope for the next app to open.
+                    msg = self._no_scope_message(micro, exit_stack)
+                    try:
+                        await item.__aexit__(None, None, None)
+                    except Exception as exc:
+                        raise OutOfContextError(msg) from exc
+                    raise OutOfContextError(msg)
+                exit_stack.push_async_exit(item)
+                # Sits above the item, so the scope stops reporting
+                # itself open before anything it holds closes.
+                exit_stack.callback(self._forget_scope, scope)
+                scope.entered += 1
+            finally:
+                self._finish_open()
+        scope.opened = True
 
     def _lost_scope(self, micro: Grelmicro, exit_stack: AsyncExitStack) -> bool:
         """Report whether the app moved on from the stack this open captured.
@@ -441,7 +445,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             scopes[self] = scope
         return scope
 
-    def _borrows_open_scope(self, micro: Grelmicro) -> bool:
+    def _borrows_open_scope(
+        self, micro: Grelmicro, exit_stack: AsyncExitStack
+    ) -> bool:
         """Report whether another run holds this scope open for `micro`.
 
         Only the run that owns a scope enters its items, so a run that
@@ -452,22 +458,37 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             OutOfContextError: If that run holds the scope but not open,
                 because it is still opening it or already closing it.
         """
-        holder = self._scoped_to
-        if holder is None or holder is micro:
-            return False
-        held = holder._scoped_uses.get(self)  # noqa: SLF001
-        if held is None or not held.opened:
-            raise OutOfContextError(self._shared_scope_message(micro))
+        borrowed = _Scope(lock=asyncio.Lock(), opened=True)
+        with self._owner_lock:
+            holder = self._scoped_to
+            if holder is None or holder is micro:
+                return False
+            held = holder._scoped_uses.get(self)  # noqa: SLF001
+            if held is None or not held.opened:
+                raise OutOfContextError(self._shared_scope_message(micro))
+            held.borrowers.add(borrowed)
+        # Dropped when this run ends, so a long-lived owner does not collect
+        # a record per run that ever borrowed from it.
+        exit_stack.callback(self._drop_borrow, held, borrowed)
         # Checked against this run's environment, not the owner's.
         report_unmet_requirements(
             unmet_requirements(self._uses), micro.environment
         )
-        # Recorded on this run so the check runs once rather than per entry,
-        # and so the owner can forget the borrow as it closes the items.
-        borrowed = _Scope(lock=asyncio.Lock(), opened=True)
+        # Recorded on this run so the check runs once rather than per entry.
         micro._scoped_uses[self] = borrowed  # noqa: SLF001
-        held.borrowers.append(borrowed)
         return True
+
+    def _drop_borrow(self, held: _Scope, borrowed: _Scope) -> None:
+        """Take this run's borrow off the scope it borrowed from."""
+        with self._owner_lock:
+            held.borrowers.discard(borrowed)
+
+    def _forget_scope(self, scope: _Scope) -> None:
+        """Stop reporting the scope open, before anything it holds closes."""
+        with self._owner_lock:
+            scope.opened = False
+            for borrower in scope.borrowers:
+                borrower.opened = False
 
     def _claim_scope(
         self, micro: Grelmicro, exit_stack: AsyncExitStack
@@ -494,11 +515,33 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 raise OutOfContextError(self._shared_scope_message(micro))
         return False
 
-    def _release_scope(self) -> None:
-        """Give the scope up once every item its app opened has closed."""
+    def _release_scope(self, exit_stack: AsyncExitStack) -> None:
+        """Give the scope up once every item its run opened has closed.
+
+        Does nothing once the run has already given the scope back, so a
+        claim dropped early cannot free the run that took it next.
+        """
         with self._owner_lock:
+            if self._scope_stack is not exit_stack:
+                return
             self._unwound = True
             self._free_scope()
+
+    def _drop_empty_claim(
+        self, scope: _Scope, exit_stack: AsyncExitStack
+    ) -> None:
+        """Give the scope back when an open left nothing entered behind it.
+
+        An open that fails before its first item holds nothing, so keeping
+        the claim would refuse every other run until this one shuts down.
+        """
+        if scope.entered:
+            return
+        with self._owner_lock:
+            if self._scope_stack is exit_stack:
+                self._scope_stack = None
+                self._scoped_to = None
+                self._unwound = False
 
     def _finish_open(self) -> None:
         """Drop one in-flight entry, and the scope with the last of them."""

@@ -827,6 +827,66 @@ async def test_a_borrowing_run_is_checked_once_not_per_entry() -> None:
     assert checks == 1  # recorded on the first borrow, not repeated
 
 
+async def test_a_failed_open_gives_the_scope_back() -> None:
+    """An open that entered nothing does not keep the scope from other runs."""
+    opens = 0
+
+    class Brittle:
+        """A scope item that fails the first time it is entered."""
+
+        def __init__(self) -> None:
+            self.fails = True
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            if self.fails:
+                self.fails = False
+                msg = "server briefly down"
+                raise ConnectionError(msg)
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("brittle-open", uses=[Brittle()])
+
+    async with Grelmicro(allow_multiple=True):
+        with pytest.raises(ConnectionError):
+            async with bulkhead:
+                pass
+        assert bulkhead._scoped_to is None  # the failed claim was given back
+        # Another run is free to open the scope for itself.
+        async with Grelmicro(allow_multiple=True), bulkhead:
+            pass
+        assert opens == 1
+
+
+async def test_a_finished_run_leaves_no_borrow_behind() -> None:
+    """The owner does not collect a record per run that borrowed from it."""
+
+    class Track:
+        """A scope item that can be opened."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("collector", uses=[Track()])
+    borrows = 3
+
+    async with Grelmicro(allow_multiple=True) as owner:
+        async with bulkhead:
+            pass
+        for _ in range(borrows):
+            async with Grelmicro(allow_multiple=True), bulkhead:
+                pass
+        held = owner._scoped_uses[bulkhead]
+        assert held.borrowers == set()
+
+
 async def test_a_borrowed_scope_is_reopened_once_its_owner_goes() -> None:
     """A run that outlives the owner opens the scope for itself."""
     opens = 0
@@ -846,11 +906,24 @@ async def test_a_borrowed_scope_is_reopened_once_its_owner_goes() -> None:
     survivor = Grelmicro(allow_multiple=True)
 
     async with survivor:
-        async with Grelmicro(allow_multiple=True) as owner, bulkhead:
-            pass
-        assert opens == 1
-        assert owner._scoped_uses == {}
-        # The owner is gone, so this run opens the scope for itself.
+        async with Grelmicro(allow_multiple=True) as owner:
+            async with bulkhead:
+                pass
+            assert opens == 1
+            # Borrow from the survivor while the owner is still running.
+            token = bulkhead_module._current_micro.set(survivor)
+            try:
+                async with bulkhead:
+                    pass
+                assert opens == 1  # borrowed, not opened again
+                held = owner._scoped_uses[bulkhead]
+                assert len(held.borrowers) == 1
+            finally:
+                bulkhead_module._current_micro.reset(token)
+
+        # The owner forgot the borrow on its way out, so this run does not
+        # keep reporting a scope that closed with it.
+        assert survivor._scoped_uses[bulkhead].opened is False
         async with bulkhead:
             pass
         assert opens == LIMIT
