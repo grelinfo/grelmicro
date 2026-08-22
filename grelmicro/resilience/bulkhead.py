@@ -484,8 +484,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             if not held.opened:
                 raise OutOfContextError(self._shared_scope_message(micro))
             # Whichever scope this run last borrowed from already let go:
-            # the owner clears it as it forgets, and so does this run's own
-            # drop, so there is never a second link to unpick here.
+            # the owner clears the link as it forgets, and this run's own
+            # drop clears it too, so there is never a second one to unpick.
             borrowed.opened = True
             borrowed.borrowed_from = held
             held.borrowers.add(borrowed)
@@ -498,12 +498,19 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         return True
 
     def _drop_borrow(self, borrowed: _Scope) -> None:
-        """Take this run's borrow off whatever scope it borrowed from."""
+        """Take this run's borrow off whatever scope it borrowed from.
+
+        Stops reporting the scope open as well, because the owner can no
+        longer reach this record to forget it, and clears the arming so a
+        borrow taken after this still registers its own drop.
+        """
         with self._owner_lock:
             held = borrowed.borrowed_from
             if held is not None:
                 held.borrowers.discard(borrowed)
                 borrowed.borrowed_from = None
+            borrowed.opened = False
+            borrowed.drop_armed = False
 
     def _forget_scope(self, scope: _Scope) -> None:
         """Stop reporting the scope open, before anything it holds closes."""

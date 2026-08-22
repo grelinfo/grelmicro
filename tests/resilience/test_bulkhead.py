@@ -1123,6 +1123,56 @@ async def test_borrowing_across_owner_turnover_arms_one_drop() -> None:
     assert drops == 1  # armed once for this run, not once per owner
 
 
+async def test_a_dropped_borrow_stops_reporting_the_scope_open() -> None:
+    """A run that drains after its borrow was dropped does not reuse it."""
+    log: list[str] = []
+    draining = asyncio.Event()
+    owner_closed = asyncio.Event()
+
+    class Track:
+        """A scope item that records its own lifecycle."""
+
+        async def __aenter__(self) -> Self:
+            log.append("open")
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            log.append("close")
+
+    bulkhead = Bulkhead("drained", uses=[Track()])
+
+    class Drainer:
+        """An app item that drains once the owner of the scope has gone."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            draining.set()
+            await owner_closed.wait()
+            try:
+                async with bulkhead:
+                    log.append("drain used the scope")
+            except OutOfContextError:
+                log.append("drain refused")
+
+    async def borrow_then_drain() -> None:
+        async with Grelmicro(uses=[Drainer()]), bulkhead:
+            pass
+
+    async with Grelmicro():
+        async with bulkhead:
+            pass
+        task = asyncio.create_task(borrow_then_drain())
+        # The borrow is dropped on the way out, before `Drainer` drains.
+        await draining.wait()
+
+    owner_closed.set()
+    await task
+
+    assert log == ["open", "close", "drain refused"]
+
+
 async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:
     """The scope is claimed before the first item, so a race has one winner."""
     opens = 0
