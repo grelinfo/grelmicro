@@ -90,7 +90,7 @@ Stack 'recs' only decorates async functions, because Timeout does.
 Make refresh_prices async, or drop that pattern from the stack.
 ```
 
-A sync stack that holds a `CircuitBreaker` runs from a worker thread. The breaker keeps its state on the backend and reaches it through the event loop the backend runs on, so calling it from that loop would wait on the loop that has to do the work. That is refused with a message rather than left to hang. Reach it with `asyncio.to_thread(...)`, the same way [`CircuitBreaker`](circuit-breaker.md) is reached from sync code on its own.
+A sync stack that holds a `CircuitBreaker` runs from a worker thread. The breaker keeps its state on the backend and reaches it through the event loop the backend runs on, so calling it from that loop would wait on the loop that has to do the work. That is refused with a message rather than left to hang, and the refusal travels the way a cancellation does, past every `Retry` and `Fallback`, so a wiring mistake is never stood in for by a default. Reach it with `asyncio.to_thread(...)`, the same way [`CircuitBreaker`](circuit-breaker.md) is reached from sync code on its own.
 
 An object whose `__call__` is `async def` counts as an async function everywhere a `Stack` looks, in the decorator and in `run`.
 

@@ -15,10 +15,7 @@ from typing_extensions import Doc
 from grelmicro._async import is_async_callable
 from grelmicro._markers import is_scheduled
 from grelmicro.resilience.bulkhead import Bulkhead
-from grelmicro.resilience.circuitbreaker import (
-    CircuitBreaker,
-    _EventLoopEntryError,
-)
+from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import CircuitBreakerError
 from grelmicro.resilience.fallback import Fallback
 from grelmicro.resilience.ratelimiter import RateLimiter, RateLimiterBinding
@@ -181,7 +178,7 @@ def _is_generator(fn: object) -> bool:
     """Return whether calling `fn` builds a generator instead of running."""
     if isasyncgenfunction(fn) or isgeneratorfunction(fn):
         return True
-    call = type(fn).__dict__.get("__call__")
+    call = getattr(type(fn), "__call__", None)  # noqa: B004
     return call is not None and (
         isasyncgenfunction(call) or isgeneratorfunction(call)
     )
@@ -590,7 +587,7 @@ def _breaker_layer[**P, R](
             async with breaker:
                 admitted = True
                 return await inner(*args, **kwargs)
-        except (CircuitBreakerError, _EventLoopEntryError) as error:
+        except CircuitBreakerError as error:
             if admitted or not guard:
                 raise
             raise _Control(error) from None
@@ -632,7 +629,7 @@ def _sync_breaker_layer[**P, R](
             with breaker.from_thread:
                 admitted = True
                 return inner(*args, **kwargs)
-        except (CircuitBreakerError, _EventLoopEntryError) as error:
+        except CircuitBreakerError as error:
             if admitted:
                 raise
             raise _Control(error) from None

@@ -29,6 +29,9 @@ from grelmicro.resilience import (
     Stack,
     Timeout,
 )
+from grelmicro.resilience.circuitbreaker import (
+    _EventLoopEntryError,
+)
 from grelmicro.task import Tasks
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -757,9 +760,7 @@ def test_a_sync_breaker_entered_from_the_event_loop_is_refused() -> None:
             def work() -> str:
                 return "never"
 
-            with pytest.raises(
-                RuntimeError, match="the event loop its backend runs on"
-            ):
+            with pytest.raises(_EventLoopEntryError):
                 work()
 
     asyncio.run(scenario())
@@ -955,7 +956,7 @@ def test_a_failure_to_admit_is_never_retried_on_the_loop() -> None:
                 return "ok"
 
             started = time.perf_counter()
-            with pytest.raises(RuntimeError, match="event loop its backend"):
+            with pytest.raises(_EventLoopEntryError):
                 work()
             return time.perf_counter() - started, calls
 
@@ -1070,3 +1071,49 @@ def test_a_callable_object_that_yields_is_refused(kind: str) -> None:
 
     with pytest.raises(TypeError, match="runs its body while it is iterated"):
         stack(target)
+
+
+def test_a_wiring_mistake_is_not_swallowed_by_a_fallback() -> None:
+    """A misconfiguration must surface, not be stood in for."""
+
+    async def scenario() -> int:
+        async with MemoryCircuitBreakerAdapter() as backend:
+            stack = Stack(
+                "recs",
+                patterns=[
+                    Fallback("recs", when=Exception, default="degraded"),
+                    a_retry(),
+                    CircuitBreaker("recs", backend=backend),
+                ],
+            )
+            calls = 0
+
+            @stack
+            def work() -> str:
+                nonlocal calls
+                calls += 1
+                return "ok"
+
+            with pytest.raises(_EventLoopEntryError):
+                work()
+            return calls
+
+    assert asyncio.run(scenario()) == 0
+
+
+def test_an_inherited_call_that_yields_is_refused() -> None:
+    """A generator `__call__` counts wherever the class inherits it from."""
+
+    class Base:
+        """A base whose call builds a generator."""
+
+        def __call__(self, value: int) -> Iterator[int]:
+            yield value
+
+    class Sub(Base):
+        """A subclass that inherits it."""
+
+    stack = Stack("recs", patterns=[a_retry()])
+
+    with pytest.raises(TypeError, match="runs its body while it is iterated"):
+        stack(Sub())

@@ -27,6 +27,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerMetrics,
     CircuitBreakerState,
     ErrorDetails,
+    _EventLoopEntryError,
     _TransitionCause,
 )
 from grelmicro.resilience.circuitbreaker import memory as cb_memory_module
@@ -1376,9 +1377,7 @@ async def test_from_thread_on_the_event_loop_thread_is_refused() -> None:
     async with MemoryCircuitBreakerAdapter() as backend:
         cb = CircuitBreaker("loop-thread", backend=backend)
 
-        with pytest.raises(
-            RuntimeError, match="the event loop its backend runs on"
-        ):
+        with pytest.raises(_EventLoopEntryError):
             cb.from_thread.__enter__()
 
 

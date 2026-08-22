@@ -1053,11 +1053,13 @@ class _ThreadAdapter:
         return None
 
 
-class _EventLoopEntryError(RuntimeError):
+class _EventLoopEntryError(BaseException):
     """A `from_thread` entry made from the loop the backend runs on.
 
-    Retrying one can never succeed, so a `Stack` lets it through its
-    retry rather than sleeping the loop between attempts.
+    Not an `Exception`, and deliberately so. It reports a wiring
+    mistake that no retry can fix and no fallback should stand in for,
+    so it travels the way `CancelledError` does: through every handler
+    that catches `Exception`, out to whoever ran the call.
     """
 
 
