@@ -766,6 +766,79 @@ async def test_a_second_live_app_is_refused_the_same_scope() -> None:
         assert opens == 1
 
 
+async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:
+    """The scope is claimed before the first item, so a race has one winner."""
+    opens = 0
+
+    class Slow:
+        """A scope item slow enough for a second app to race it."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            await asyncio.sleep(0.02)
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("racing", uses=[Slow()])
+    refused = 0
+
+    async def run(delay: float) -> None:
+        nonlocal refused
+        await asyncio.sleep(delay)
+        async with Grelmicro():
+            try:
+                async with bulkhead:
+                    await asyncio.sleep(0.05)
+            except OutOfContextError:
+                refused += 1
+
+    await asyncio.gather(run(0), run(0.01))
+
+    assert opens == 1  # the item was entered once, not once per app
+    assert refused == 1
+
+
+async def test_a_second_app_waits_for_every_item_to_close() -> None:
+    """The scope frees up only once the app that held it closed its items."""
+    order: list[str] = []
+    closing = asyncio.Event()
+    release = asyncio.Event()
+
+    class Slow:
+        """A scope item that blocks inside its own exit."""
+
+        async def __aenter__(self) -> Self:
+            order.append("open")
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            closing.set()
+            await release.wait()
+            order.append("close")
+
+    bulkhead = Bulkhead("handoff", uses=[Slow()])
+
+    async def take() -> None:
+        await closing.wait()
+        async with Grelmicro(allow_multiple=True):
+            # The first app is still inside the item's exit.
+            with pytest.raises(OutOfContextError, match="another Grelmicro"):
+                async with bulkhead:
+                    pass
+        order.append("refused")
+        release.set()
+
+    task = asyncio.create_task(take())
+    async with Grelmicro(allow_multiple=True), bulkhead:
+        pass
+    await task
+
+    assert order == ["open", "refused", "close"]
+
+
 async def test_the_next_app_takes_the_scope_the_last_one_released() -> None:
     """Refusing a second live app does not strand the scope after shutdown."""
     opens = 0
@@ -826,7 +899,7 @@ async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
     # Shut the app down while the open is parked on the first item.
     await micro.__aexit__(None, None, None)
     release.set()
-    with pytest.raises(OutOfContextError, match="closing with the app"):
+    with pytest.raises(OutOfContextError, match="lost its uses= scope"):
         await task
 
     assert opened == ["first"]  # the second item was never started
@@ -955,7 +1028,7 @@ async def test_an_open_parked_across_a_restart_pushes_nothing() -> None:
     micro = Grelmicro()
 
     async def enter() -> None:
-        with pytest.raises(OutOfContextError):
+        with pytest.raises(OutOfContextError, match="lost its uses= scope"):
             async with bulkhead:
                 pass
 
