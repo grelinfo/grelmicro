@@ -390,3 +390,57 @@ async def test_a_key_maker_stack_does_not_grow_per_call() -> None:
 
         gc.collect()
         assert len(binding._resolvers) == 0
+
+
+async def test_a_template_of_escaped_braces_reads_no_parameter() -> None:
+    """Escaped braces render once, they do not bind the call."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=1, refill_rate=SLOW_REFILL, backend=backend
+        )
+        binding = limiter(key="a{{b}}")
+        assert isinstance(binding, RateLimiterBinding)
+
+        @binding
+        async def work(user_id: int) -> int:
+            return user_id
+
+        assert await work(USER) == USER
+        with pytest.raises(RateLimitExceededError):
+            await work(OTHER_USER)
+        assert binding._reads_signature is False
+
+
+async def test_a_mis_called_function_is_named_in_the_error() -> None:
+    """Binding the call must not hide which function was called."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+
+    @limiter(key="user:{user_id}")
+    async def work(user_id: int) -> int:
+        return user_id
+
+    with pytest.raises(TypeError, match=r"work\(\) missing a required"):
+        await work()  # type: ignore[call-arg]  # ty: ignore[missing-argument]
+
+
+async def test_a_bound_method_reuses_one_resolver() -> None:
+    """A fresh bound method per lookup must not miss the cache."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=10**6, refill_rate=10**6, backend=backend
+        )
+        binding = limiter(key="user:{user_id}")
+        assert isinstance(binding, RateLimiterBinding)
+
+        class Service:
+            """A service whose method is metered per user."""
+
+            async def fetch(self, user_id: int) -> int:
+                return user_id
+
+        service = Service()
+        stack = Stack("api", patterns=[binding])
+
+        assert await stack.run(service.fetch, USER) == USER
+        assert await stack.run(service.fetch, OTHER_USER) == OTHER_USER
+        assert len(binding._resolvers) == 1

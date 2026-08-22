@@ -964,8 +964,8 @@ def test_a_failure_to_admit_is_never_retried_on_the_loop() -> None:
     assert elapsed < SLOW_DELAY
 
 
-async def test_a_breaker_backend_failure_is_not_retried() -> None:
-    """A breaker that cannot admit has not run the call either."""
+async def test_a_breaker_backend_failure_is_retried() -> None:
+    """A backend blip is transient, so the retry above still gets its go."""
     async with MemoryCircuitBreakerAdapter() as backend:
         breaker = CircuitBreaker("recs", backend=backend)
         stack = Stack("recs", patterns=[a_retry(), breaker])
@@ -994,7 +994,7 @@ async def test_a_breaker_backend_failure_is_not_retried() -> None:
             breaker.backend.bind = original  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
         assert calls == 0
-        assert admits == 1
+        assert admits == ATTEMPTS
 
 
 @pytest.mark.parametrize("kind", ["async", "sync"], ids=["async", "sync"])
@@ -1039,3 +1039,11 @@ def test_a_wrapper_over_a_registered_task_is_refused_too() -> None:
 
     with pytest.raises(TypeError, match="already registered as a task"):
         stack(wrapped)
+
+
+def test_the_scheduled_and_generator_refusals_are_named_by_what_was_passed() -> (
+    None
+):
+    """A class passed instead of an instance reads as that class."""
+    with pytest.raises(TypeError, match="does not take Retry"):
+        Stack("recs", patterns=[Retry])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]

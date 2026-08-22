@@ -1053,6 +1053,14 @@ class _ThreadAdapter:
         return None
 
 
+class _EventLoopEntryError(RuntimeError):
+    """A `from_thread` entry made from the loop the backend runs on.
+
+    Retrying one can never succeed, so a `Stack` lets it through its
+    retry rather than sleeping the loop between attempts.
+    """
+
+
 def _refuse_on_backend_loop(name: str, loop: asyncio.AbstractEventLoop) -> None:
     """Refuse a worker-thread entry made from the backend's own loop.
 
@@ -1076,7 +1084,7 @@ def _refuse_on_backend_loop(name: str, loop: asyncio.AbstractEventLoop) -> None:
         "async code, or run the sync call through "
         "`asyncio.to_thread(...)`."
     )
-    raise RuntimeError(msg)
+    raise _EventLoopEntryError(msg)
 
 
 async def _async_admit(cb: CircuitBreaker) -> CircuitBreakerSnapshot | None:

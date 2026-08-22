@@ -15,7 +15,11 @@ from typing_extensions import Doc
 from grelmicro._async import is_async_callable
 from grelmicro._markers import is_scheduled
 from grelmicro.resilience.bulkhead import Bulkhead
-from grelmicro.resilience.circuitbreaker import CircuitBreaker
+from grelmicro.resilience.circuitbreaker import (
+    CircuitBreaker,
+    _EventLoopEntryError,
+)
+from grelmicro.resilience.errors import CircuitBreakerError
 from grelmicro.resilience.fallback import Fallback
 from grelmicro.resilience.ratelimiter import RateLimiter, RateLimiterBinding
 from grelmicro.resilience.retry import Retry
@@ -214,7 +218,7 @@ def _slot_of(item: object) -> str:
     for accepted, name in _SLOTS.items():
         if isinstance(item, accepted):
             return name
-    kind = type(item)
+    kind = item if isinstance(item, type) else type(item)
     known = _ELSEWHERE.get(f"{kind.__module__}.{kind.__qualname__}")
     detail = (
         known
@@ -376,9 +380,9 @@ class Stack:
         """Decorate `fn` with every pattern, in the safe order.
 
         Raises:
-            TypeError: If `fn` is sync and a pattern in the stack
-                decorates async functions only, or `fn` is already
-                registered as a task.
+            TypeError: If `fn` is a generator function, `fn` is sync
+                and a pattern in the stack decorates async functions
+                only, or `fn` is already registered as a task.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
@@ -425,7 +429,7 @@ class Stack:
         same breaker, bucket, and permits are shared.
 
         Raises:
-            TypeError: If `fn` is not async.
+            TypeError: If `fn` is a generator function or is not async.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
@@ -576,7 +580,7 @@ def _breaker_layer[**P, R](
             async with breaker:
                 admitted = True
                 return await inner(*args, **kwargs)
-        except Exception as error:
+        except (CircuitBreakerError, _EventLoopEntryError) as error:
             if admitted or not guard:
                 raise
             raise _Control(error) from None
@@ -618,7 +622,7 @@ def _sync_breaker_layer[**P, R](
             with breaker.from_thread:
                 admitted = True
                 return inner(*args, **kwargs)
-        except Exception as error:
+        except (CircuitBreakerError, _EventLoopEntryError) as error:
             if admitted:
                 raise
             raise _Control(error) from None

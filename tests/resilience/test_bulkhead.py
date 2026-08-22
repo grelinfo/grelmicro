@@ -482,3 +482,23 @@ def test_scope_resolves_per_event_loop() -> None:
         thread.join()
 
     assert seen == {"left": (True, True), "right": (True, True)}
+
+
+async def test_a_permit_is_returned_when_the_scope_cannot_open() -> None:
+    """A provider that is down must not cost a permit for good."""
+    bulkhead = Bulkhead("uses-fail", max_concurrent=1)
+
+    async def refuse() -> None:
+        msg = "provider down"
+        raise ConnectionError(msg)
+
+    bulkhead._uses = (object(),)
+    bulkhead._open_uses = refuse  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+    for _ in range(2):
+        with pytest.raises(ConnectionError):
+            await bulkhead.__aenter__()
+
+    semaphore = bulkhead._state.semaphore
+    assert semaphore is not None
+    assert semaphore._value == 1

@@ -262,7 +262,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                     max_concurrent=state.config.max_concurrent,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 ) from None
         if self._uses and not self._opened:
-            await self._open_uses()
+            try:
+                await self._open_uses()
+            except BaseException:
+                if semaphore is not None:
+                    semaphore.release()
+                raise
         token: Token[Any] | None = None
         if self._overrides:
             current = _active_bulkhead.get(None)

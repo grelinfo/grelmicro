@@ -921,9 +921,7 @@ class RateLimiterBinding:
             if key_maker is None and key is not None and "{" in key
             else ()
         )
-        self._reads_signature = bool(
-            key_maker is None and key is not None and "{" in key
-        )
+        self._reads_signature = bool(self._fields)
         self._key_maker = key_maker
         self._cost = cost
         self._max_wait = max_wait
@@ -962,14 +960,15 @@ class RateLimiterBinding:
         """
         if not self._reads_signature:
             return self._build_resolver(fn)
+        cache_key = getattr(fn, "__func__", fn)
         try:
-            cached = self._resolvers.get(fn)
+            cached = self._resolvers.get(cache_key)
         except TypeError:
             return self._build_resolver(fn)
         if cached is not None:
             return cached
         resolver = self._build_resolver(fn)
-        self._resolvers[fn] = resolver
+        self._resolvers[cache_key] = resolver
         return resolver
 
     def _build_resolver(
@@ -986,8 +985,9 @@ class RateLimiterBinding:
         key = self._key
         if key is None:
             return lambda _args, _kwargs: _DEFAULT_KEY
-        if "{" not in key:
-            return lambda _args, _kwargs: key
+        if not self._fields:
+            constant = key.format_map({}) if "{" in key else key
+            return lambda _args, _kwargs: constant
         signature = inspect.signature(fn)
         unknown = sorted(set(self._fields) - set(signature.parameters))
         if unknown:
@@ -998,8 +998,14 @@ class RateLimiterBinding:
             )
             raise ValueError(msg)
 
+        name = _named(fn)
+
         def render(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
-            bound = signature.bind(*args, **kwargs)
+            try:
+                bound = signature.bind(*args, **kwargs)
+            except TypeError as error:
+                msg = f"{name}() {error}"
+                raise TypeError(msg) from None
             bound.apply_defaults()
             return key.format_map(bound.arguments)
 
