@@ -10,6 +10,7 @@ from grelmicro import (
     ComponentNotRegisteredError,
     Grelmicro,
     NoActiveAppError,
+    OutOfContextError,
 )
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
@@ -680,13 +681,12 @@ async def test_a_failed_first_item_arms_one_reset_per_app() -> None:
     assert micro._scoped_uses == {}
 
 
-async def test_overlapping_apps_each_open_their_own_scope() -> None:
-    """Two apps active at once do not share one bulkhead's scope."""
+async def test_overlapping_apps_keep_separate_scope_records() -> None:
+    """Two apps active at once each keep their own record of the scope."""
     opens = 0
-    closes = 0
 
     class Track:
-        """A scope item that counts opens and closes."""
+        """A scope item that counts opens."""
 
         async def __aenter__(self) -> Self:
             nonlocal opens
@@ -694,33 +694,27 @@ async def test_overlapping_apps_each_open_their_own_scope() -> None:
             return self
 
         async def __aexit__(self, *_: object) -> None:
-            nonlocal closes
-            closes += 1
+            """Leave the scope."""
 
     bulkhead = Bulkhead("shared", uses=[Track()])
-    inner_done = asyncio.Event()
+    inner = Grelmicro(allow_multiple=True)
+    outer = Grelmicro(allow_multiple=True)
 
-    async def inner() -> None:
-        async with Grelmicro(allow_multiple=True), bulkhead:
-            pass
-        inner_done.set()
-
-    async with Grelmicro(allow_multiple=True):
+    async with outer:
         async with bulkhead:
             pass
         assert opens == 1
-        # A second app opens and closes its own scope while this one holds
-        # its own. The item it closes must not be the one still in use here.
-        await asyncio.create_task(inner())
-        await inner_done.wait()
+        async with inner, bulkhead:
+            pass
+        # Each app opened against its own record, so neither read the
+        # other's as its own.
         assert opens == LIMIT
-        assert closes == 1
-        # This app's scope survived the other app's shutdown.
+        assert len(outer._scoped_uses) == 1
+        assert inner._scoped_uses == {}
+        # The other app's shutdown left this one's record alone.
         async with bulkhead:
             pass
         assert opens == LIMIT
-
-    assert closes == LIMIT
 
 
 async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
@@ -758,7 +752,8 @@ async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
     # Shut the app down while the open is parked on the first item.
     await micro.__aexit__(None, None, None)
     release.set()
-    await task
+    with pytest.raises(OutOfContextError, match="closing with the app"):
+        await task
 
     assert opened == ["first"]  # the second item was never started
     assert closed == ["first"]  # the first closed itself, the stack was gone
@@ -767,8 +762,8 @@ async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
     assert micro._scoped_uses == {}
 
 
-async def test_the_scope_is_not_reopened_while_the_app_unwinds() -> None:
-    """An item entering the bulkhead from its own exit reuses the scope."""
+async def test_entering_a_scope_that_closed_with_its_app_raises() -> None:
+    """An entry made after the owning app unwound names the shutdown."""
     opens = 0
 
     class Track:
@@ -783,6 +778,7 @@ async def test_the_scope_is_not_reopened_while_the_app_unwinds() -> None:
             """Leave the scope."""
 
     bulkhead = Bulkhead("drain", uses=[Track()])
+    drained: list[BaseException] = []
 
     class Flusher:
         """An app item that drains through the bulkhead on shutdown."""
@@ -791,15 +787,19 @@ async def test_the_scope_is_not_reopened_while_the_app_unwinds() -> None:
             return self
 
         async def __aexit__(self, *_: object) -> None:
-            async with bulkhead:
-                pass
+            try:
+                async with bulkhead:
+                    pass
+            except OutOfContextError as exc:
+                drained.append(exc)
 
     async with Grelmicro(uses=[Flusher()]):
         async with bulkhead:
             pass
         assert opens == 1
 
-    assert opens == 1  # the drain reused the scope, it did not rebuild it
+    assert opens == 1  # the drain did not rebuild the closed scope
+    assert "closing with the app that opened it" in str(drained[0])
 
 
 def test_the_open_lock_is_built_on_the_app_event_loop() -> None:

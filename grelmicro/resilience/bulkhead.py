@@ -23,6 +23,7 @@ from grelmicro._environment import (
     report_unmet_requirements,
     unmet_requirements,
 )
+from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import BulkheadFullError
 
@@ -164,7 +165,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 opens these on first entry and closes them when the app
                 shuts down, so an active `Grelmicro` app is required. The
                 scope belongs to that app, so a later app opens it again
-                and two apps running at once each get their own.
+                from the start, and entering once the app has shut down
+                raises.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
@@ -358,9 +360,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             exit_stack.callback(self._forget_scope, micro, scope)
         async with scope.lock:
             if scope.closing:
-                # The app is unwinding: reuse what it still has open rather
-                # than opening a fresh scope onto a stack already closing.
-                return
+                raise OutOfContextError(self._closed_scope_message())
             if scope.opened:
                 self._opened_for = micro
                 return
@@ -374,11 +374,20 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                     # entering, so the stack will never close it. Close it
                     # here and leave the scope for the next app to open.
                     await item.__aexit__(None, None, None)
-                    return
+                    raise OutOfContextError(self._closed_scope_message())
                 exit_stack.push_async_exit(item)
                 scope.entered += 1
             scope.opened = True
             self._opened_for = micro
+
+    def _closed_scope_message(self) -> str:
+        """Describe a `uses=` scope that closed with the app that opened it."""
+        return (
+            f"Bulkhead {self._name!r} was entered while its uses= scope was "
+            "closing with the app that opened it. Enter it before the app "
+            "shuts down, or list the provider in Grelmicro(uses=[...]) so it "
+            "outlives the item that needs it."
+        )
 
     def _forget_scope(self, micro: Grelmicro, scope: _Scope) -> None:
         """Mark the scope closing as the app that opened it shuts down."""
