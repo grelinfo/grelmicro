@@ -9,11 +9,9 @@ from typing import TYPE_CHECKING, Annotated, Any, overload
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
+from grelmicro._markers import is_scheduled
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
-from grelmicro.resilience.errors import (
-    CircuitBreakerError,
-)
 from grelmicro.resilience.fallback import Fallback
 from grelmicro.resilience.ratelimiter import RateLimiter, RateLimiterBinding
 from grelmicro.resilience.retry import Retry
@@ -82,9 +80,6 @@ _SLOTS: dict[type, str] = {
 
 _ASYNC_ONLY = (_RATE_LIMITER, _BULKHEAD, _TIMEOUT)
 """Slots whose pattern decorates async functions only."""
-
-_SCHEDULED = "__grelmicro_scheduled__"
-"""What a task router marks a function it has registered with."""
 
 _LABELS = {
     _FALLBACK: "Fallback",
@@ -357,7 +352,7 @@ class Stack:
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
-        if getattr(fn, _SCHEDULED, False):
+        if is_scheduled(fn):
             msg = (
                 f"{_named(fn)} is already registered as a task, so the "
                 f"schedule holds it as it is and Stack {self._name!r} "
@@ -549,7 +544,7 @@ def _breaker_layer[**P, R](
             async with breaker:
                 admitted = True
                 return await inner(*args, **kwargs)
-        except CircuitBreakerError as error:
+        except Exception as error:
             if admitted or not guard:
                 raise
             raise _Control(error) from None
@@ -591,7 +586,7 @@ def _sync_breaker_layer[**P, R](
             with breaker.from_thread:
                 admitted = True
                 return inner(*args, **kwargs)
-        except CircuitBreakerError as error:
+        except Exception as error:
             if admitted:
                 raise
             raise _Control(error) from None

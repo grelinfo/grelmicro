@@ -1,12 +1,12 @@
 """Task Router."""
 
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro._markers import mark_scheduled
 from grelmicro.task._utils import normalize_timezone
 from grelmicro.task.errors import TaskAddOperationError
 
@@ -18,21 +18,6 @@ if TYPE_CHECKING:
     from grelmicro.coordination.leaderelection import LeaderElection
     from grelmicro.coordination.tasklock import TaskLock
     from grelmicro.task._protocol import Task
-
-
-SCHEDULED_ATTRIBUTE = "__grelmicro_scheduled__"
-"""Marks a function a router has already registered as a task.
-
-A task decorator registers the function it receives and hands the same
-one back, so a decorator applied above it never reaches the schedule.
-The mark lets one refuse that order instead of running unwrapped.
-"""
-
-
-def _mark_scheduled(function: object) -> None:
-    """Mark `function` as registered, where the object allows it."""
-    with suppress(AttributeError):  # pragma: no cover - defensive
-        setattr(function, SCHEDULED_ATTRIBUTE, True)
 
 
 class TaskRouter:
@@ -224,7 +209,7 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
-            _mark_scheduled(function)
+            mark_scheduled(function)
             return function
 
         return decorator
@@ -350,7 +335,7 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
-            _mark_scheduled(function)
+            mark_scheduled(function)
             return function
 
         return decorator

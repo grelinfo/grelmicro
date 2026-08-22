@@ -2,6 +2,7 @@
 
 import asyncio
 import gc
+import time
 import weakref
 from dataclasses import dataclass
 from typing import Any, cast
@@ -41,6 +42,7 @@ DOUBLED = 42
 SLOW_REFILL = 0.0001
 RESET_TIMEOUT = 30.0
 INTERVAL = 60.0
+SLOW_DELAY = 0.2
 
 
 def a_retry(name: str = "recs") -> Retry:
@@ -927,3 +929,68 @@ async def test_a_task_registered_above_the_stack_runs_through_it() -> None:
         await task._async_function()
 
     assert len(_task_calls) == ATTEMPTS
+
+
+def test_a_failure_to_admit_is_never_retried_on_the_loop() -> None:
+    """A misconfigured sync stack answers at once, it does not sleep."""
+
+    async def scenario() -> tuple[float, int]:
+        async with MemoryCircuitBreakerAdapter() as backend:
+            stack = Stack(
+                "recs",
+                patterns=[
+                    Retry.constant(
+                        "recs", when=Exception, attempts=5, delay=SLOW_DELAY
+                    ),
+                    CircuitBreaker("recs", backend=backend),
+                ],
+            )
+            calls = 0
+
+            @stack
+            def work() -> str:
+                nonlocal calls
+                calls += 1
+                return "ok"
+
+            started = time.perf_counter()
+            with pytest.raises(RuntimeError, match="event loop its backend"):
+                work()
+            return time.perf_counter() - started, calls
+
+    elapsed, calls = asyncio.run(scenario())
+    assert calls == 0
+    assert elapsed < SLOW_DELAY
+
+
+async def test_a_breaker_backend_failure_is_not_retried() -> None:
+    """A breaker that cannot admit has not run the call either."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        breaker = CircuitBreaker("recs", backend=backend)
+        stack = Stack("recs", patterns=[a_retry(), breaker])
+        calls = 0
+
+        @stack
+        async def work() -> str:
+            nonlocal calls
+            calls += 1
+            return "ok"
+
+        admits = 0
+        original = breaker.backend.bind
+
+        def failing_bind(**_kwargs: Any) -> Any:  # noqa: ANN401
+            nonlocal admits
+            admits += 1
+            msg = "backend down"
+            raise ConnectionError(msg)
+
+        breaker.backend.bind = failing_bind  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        try:
+            with pytest.raises(ConnectionError):
+                await work()
+        finally:
+            breaker.backend.bind = original  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+        assert calls == 0
+        assert admits == 1
