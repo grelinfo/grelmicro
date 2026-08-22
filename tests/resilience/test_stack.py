@@ -4,6 +4,7 @@ import asyncio
 import gc
 import weakref
 from dataclasses import dataclass
+from typing import Any, cast
 
 import pytest
 
@@ -26,6 +27,7 @@ from grelmicro.resilience import (
     Stack,
     Timeout,
 )
+from grelmicro.task import Tasks
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -38,6 +40,7 @@ DOUBLE = 21
 DOUBLED = 42
 SLOW_REFILL = 0.0001
 RESET_TIMEOUT = 30.0
+INTERVAL = 60.0
 
 
 def a_retry(name: str = "recs") -> Retry:
@@ -873,3 +876,54 @@ async def test_a_refusal_carries_no_trace_of_the_carrier() -> None:
 
         assert caught.value.__context__ is None
         assert caught.value.__cause__ is None
+
+
+_task_calls: list[int] = []
+
+
+async def scheduled_job() -> None:
+    """Do nothing, from the module level the scheduler requires."""
+
+
+async def cron_job() -> None:
+    """Do nothing, from the module level the scheduler requires."""
+
+
+async def stacked_job() -> None:
+    """Fail every attempt, counting the calls."""
+    _task_calls.append(1)
+    raise RuntimeError
+
+
+def test_a_function_already_registered_as_a_task_is_refused() -> None:
+    """The schedule holds what it registered, so the stack goes above."""
+    tasks = Tasks()
+    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    stack = Stack("job", patterns=[a_retry("job")])
+
+    with pytest.raises(TypeError, match="already registered as a task"):
+        stack(registered)
+
+
+def test_a_cron_task_marks_its_function_too() -> None:
+    """Both task decorators register, so both are refused below a stack."""
+    tasks = Tasks()
+    registered = tasks.cron("* * * * *")(cron_job)
+    stack = Stack("job", patterns=[a_retry("job")])
+
+    with pytest.raises(TypeError, match="already registered as a task"):
+        stack(registered)
+
+
+async def test_a_task_registered_above_the_stack_runs_through_it() -> None:
+    """The order the refusal asks for is the one that works."""
+    _task_calls.clear()
+    tasks = Tasks()
+    stack = Stack("job", patterns=[a_retry("job")])
+    tasks.every(seconds=INTERVAL)(stack(stacked_job))
+
+    task = cast("Any", tasks.tasks[0])
+    with pytest.raises(RuntimeError):
+        await task._async_function()
+
+    assert len(_task_calls) == ATTEMPTS

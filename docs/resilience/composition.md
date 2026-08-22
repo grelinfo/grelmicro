@@ -112,7 +112,7 @@ A `Stack` composes the six patterns that wrap a call. Anything else is refused a
 |---|---|
 | [`Shield`](shield.md) | On its own. It is already a stack, with its own timeout, retries, and adaptive throttling. |
 | [`@cached`](../cache/cached.md) | Above the Stack, so a hit answers without entering it. |
-| A task decorator (`@tasks.every`, `@tasks.cron`) | Above the Stack. It registers the function, so it has to see the wrapped one. |
+| A task decorator (`@tasks.every`, `@tasks.cron`) | Above the Stack. It registers the function it is handed, so a Stack below it would wrap only direct calls and leave every scheduled run unprotected. Written the wrong way round, the Stack refuses. |
 | [`LeaderElection`](../coordination/leader-election.md) | Nowhere in the order. It runs as a service. Gate the work on `leader.is_leader`. |
 | [`Lock`](../coordination/lock.md), [`ReadWriteLock`](../coordination/read-write-lock.md) | Inside the function. Both are keyed and held around a block. |
 

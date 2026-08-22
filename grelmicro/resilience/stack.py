@@ -83,6 +83,9 @@ _SLOTS: dict[type, str] = {
 _ASYNC_ONLY = (_RATE_LIMITER, _BULKHEAD, _TIMEOUT)
 """Slots whose pattern decorates async functions only."""
 
+_SCHEDULED = "__grelmicro_scheduled__"
+"""What a task router marks a function it has registered with."""
+
 _LABELS = {
     _FALLBACK: "Fallback",
     _RETRY: "Retry",
@@ -349,10 +352,20 @@ class Stack:
 
         Raises:
             TypeError: If `fn` is sync and a pattern in the stack
-                decorates async functions only.
+                decorates async functions only, or `fn` is already
+                registered as a task.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
+        if getattr(fn, _SCHEDULED, False):
+            msg = (
+                f"{_named(fn)} is already registered as a task, so the "
+                f"schedule holds it as it is and Stack {self._name!r} "
+                "would only wrap direct calls. Put the task decorator "
+                "on top, above the stack, so it registers the wrapped "
+                "function."
+            )
+            raise TypeError(msg)
         if is_async_callable(fn):
             return functools.wraps(fn)(self._build_async(fn))
         blocking = self._async_only()
