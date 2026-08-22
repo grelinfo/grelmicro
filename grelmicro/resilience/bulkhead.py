@@ -104,7 +104,7 @@ class _Scope:
     opened: bool = False
 
     def forget(self) -> None:
-        """Stop reporting the scope open, as its first item closes."""
+        """Stop reporting the scope open, before anything it holds closes."""
         self.opened = False
 
 
@@ -224,6 +224,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             if isinstance(item, Component)
         }
         self._scoped_to: Grelmicro | None = None
+        self._opening = 0
+        self._unwound = False
         self._owner_lock = ThreadLock()
         self._scopes: dict[
             asyncio.Task[Any],
@@ -380,20 +382,28 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 unmet_requirements(self._uses), micro.environment
             )
             for item in self._uses[scope.entered :]:
-                await item.__aenter__()
-                if self._lost_scope(micro, exit_stack):
-                    # The app moved on while this item was entering, so its
-                    # stack will never close it. Close it here and leave the
-                    # scope for the next app to open.
-                    await item.__aexit__(None, None, None)
-                    raise OutOfContextError(
-                        self._no_scope_message(micro, exit_stack)
-                    )
-                exit_stack.push_async_exit(item)
-                # Sits above the item, so the scope stops reporting itself
-                # open before anything it holds closes.
-                exit_stack.callback(scope.forget)
-                scope.entered += 1
+                # Counted for as long as the entry is in flight. The exit
+                # stack does not know about an item still being entered, so
+                # this is what keeps the scope from changing hands under it.
+                with self._owner_lock:
+                    self._opening += 1
+                try:
+                    await item.__aenter__()
+                    if self._lost_scope(micro, exit_stack):
+                        # The app moved on while this item was entering, so
+                        # its stack will never close it. Close it here and
+                        # leave the scope for the next app to open.
+                        await item.__aexit__(None, None, None)
+                        raise OutOfContextError(
+                            self._no_scope_message(micro, exit_stack)
+                        )
+                    exit_stack.push_async_exit(item)
+                    # Sits above the item, so the scope stops reporting
+                    # itself open before anything it holds closes.
+                    exit_stack.callback(scope.forget)
+                    scope.entered += 1
+                finally:
+                    self._finish_open()
             scope.opened = True
 
     def _lost_scope(self, micro: Grelmicro, exit_stack: AsyncExitStack) -> bool:
@@ -417,6 +427,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             owner = self._scoped_to
             if owner is None:
                 self._scoped_to = micro
+                self._unwound = False
                 return True
             if owner is not micro:
                 raise OutOfContextError(self._shared_scope_message())
@@ -425,7 +436,20 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     def _release_scope(self) -> None:
         """Give the scope up once every item its app opened has closed."""
         with self._owner_lock:
+            self._unwound = True
+            self._free_scope()
+
+    def _finish_open(self) -> None:
+        """Drop one in-flight entry, and the scope with the last of them."""
+        with self._owner_lock:
+            self._opening -= 1
+            self._free_scope()
+
+    def _free_scope(self) -> None:
+        """Hand the scope back once nothing holds it. Call under the lock."""
+        if self._unwound and not self._opening:
             self._scoped_to = None
+            self._unwound = False
 
     def _shared_scope_message(self) -> str:
         """Describe a `uses=` scope another live app already holds."""
@@ -439,7 +463,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self, micro: Grelmicro, exit_stack: AsyncExitStack | None
     ) -> str:
         """Describe a `uses=` scope the app cannot open right now."""
-        if exit_stack is not None and micro._exit_stack is not exit_stack:  # noqa: SLF001
+        current = micro._exit_stack  # noqa: SLF001
+        if (
+            exit_stack is not None
+            and current is not None
+            and current is not exit_stack
+        ):
             return (
                 f"Bulkhead {self._name!r} lost its uses= scope while opening "
                 "it, because the app that owned it shut down. Enter it again "
