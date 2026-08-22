@@ -9,12 +9,15 @@ from typing import Any, Self, cast
 import pytest
 
 from grelmicro import (
+    AmbiguousProviderError,
     BackendScopeError,
     ComponentNotRegisteredError,
     Grelmicro,
     NoActiveAppError,
     OutOfContextError,
 )
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.providers.memory import MemoryProvider
@@ -337,6 +340,32 @@ async def test_uses_leaves_a_kind_an_explicit_component_claims() -> None:
 
     async with micro, bulkhead:
         assert micro.get("coordination", "default").lock_backend is dedicated
+
+
+def test_uses_refuses_two_bare_providers() -> None:
+    """Two bare Providers cannot both be the default for a shared kind."""
+    with pytest.raises(AmbiguousProviderError, match="multiple providers"):
+        Bulkhead("reports", uses=[MemoryProvider(), MemoryProvider()])
+
+
+async def test_uses_fills_no_defaults_for_two_providers_with_a_component() -> (
+    None
+):
+    """With a Component listed, two Providers are lifecycle only."""
+    default = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead(
+        "reports",
+        uses=[
+            MemoryProvider(),
+            MemoryProvider(),
+            Cache(MemoryCacheAdapter()),
+        ],
+    )
+
+    async with micro, bulkhead:
+        # Neither provider filled `coordination`, so the app's lock stands.
+        assert micro.get("coordination", "default").lock_backend is default
 
 
 async def test_uses_skips_none_entries() -> None:

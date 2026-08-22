@@ -14,6 +14,7 @@ from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._app import (
+    AmbiguousProviderError,
     Grelmicro,
     NoActiveAppError,
     _active_bulkhead,
@@ -224,7 +225,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._state = _State(config=config, semaphore=_build_semaphore(config))
         self._reconfigure_lock = asyncio.Lock()
         self._executor: ThreadPoolExecutor | None = None
-        self._uses = _expand_uses(uses)
+        self._uses = _expand_uses(name, uses)
         _check_usable(name, self._uses)
         self._overrides: dict[tuple[str, str], Component] = {
             (item.kind, item.name): item
@@ -729,32 +730,55 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
 
 
 def _expand_uses(
-    uses: Iterable[Usable | None],
+    name: str, uses: Iterable[Usable | None]
 ) -> tuple[AbstractAsyncContextManager[object], ...]:
     """Resolve `uses=` the way `Grelmicro(uses=[...])` resolves it.
 
-    A bare backend becomes its Component. A bare Provider keeps its own
-    lifecycle and gains a default Component for every kind it serves that
-    no Component in the list already claims, so the shortest form
+    A bare backend becomes its Component. One bare Provider keeps its own
+    lifecycle and gains a default Component for every kind it serves that no
+    Component in the list already claims, so the shortest form
     (`uses=[redis]`) scopes what it can serve instead of overriding nothing.
+
+    Two or more bare Providers fill no defaults, because neither can be the
+    default for a kind they both serve.
+
+    Raises:
+        AmbiguousProviderError: Two or more bare Providers are listed with no
+            Component, so the default for each kind is ambiguous.
     """
     items = [
         _resolve_usable(instantiate_if_class(item))
         for item in uses
         if item is not None
     ]
+    providers = [item for item in items if isinstance(item, Provider)]
     claimed = {item.kind for item in items if isinstance(item, Component)}
-    resolved = []
+    if len(providers) > 1:
+        if not claimed:
+            raise AmbiguousProviderError(_ambiguous_message(name, providers))
+        return tuple(items)
+    resolved: list[AbstractAsyncContextManager[object]] = []
     for item in items:
         resolved.append(item)
         if not isinstance(item, Provider):
             continue
-        for component in _default_components_for_provider(item):
-            if component.kind in claimed:
-                continue
-            claimed.add(component.kind)
-            resolved.append(component)
+        resolved.extend(
+            component
+            for component in _default_components_for_provider(item)
+            if component.kind not in claimed
+        )
     return tuple(resolved)
+
+
+def _ambiguous_message(name: str, providers: list[Provider]) -> str:
+    """Describe a `uses=` list no single Provider can fill the defaults of."""
+    listed = ", ".join(type(provider).__name__ for provider in providers)
+    return (
+        f"Bulkhead {name!r} lists multiple providers ({listed}) in uses= with "
+        f"no components, so the default component for each kind is ambiguous. "
+        f"Wrap each provider in the components it should serve, for example "
+        f"Cache(provider) or RateLimiterComponent(provider)."
+    )
 
 
 def _resolve_usable[T](item: T) -> T | Component:
