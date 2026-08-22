@@ -1,6 +1,6 @@
 # Sync from thread
 
-grelmicro is async-first. Every primitive exposes an async API. When a synchronous handler in the host framework needs to call a primitive, grelmicro provides a sync entry point: `lock.from_thread`, `task_lock.from_thread`, and `cb.from_thread` for the locks and circuit breaker, and the `@cached(...)` decorator on a `def` function for `TTLCache`. Each one signals the intent explicitly so async code is never accidentally promoted to sync.
+grelmicro is async-first. Every primitive exposes an async API. When a synchronous handler in the host framework needs to call a primitive, grelmicro provides a sync entry point: `lock.from_thread`, `rwlock.read.from_thread`, `rwlock.write.from_thread`, `task_lock.from_thread`, and `cb.from_thread` for the locks and circuit breaker, and the `@cached(...)` decorator on a `def` function for `TTLCache`. Each one signals the intent explicitly so async code is never accidentally promoted to sync.
 
 ## How it works
 
@@ -76,9 +76,10 @@ def sync_route():
 
 ## Constraints
 
-- **The backend must be opened.** `async with backend:` (or `async with micro:` on a `Grelmicro` app) captures the loop. Without it, the sync adapter raises `AttributeError` because `backend._loop` is `None`.
+- **The backend must be opened.** `async with backend:` (or `async with micro:` on a `Grelmicro` app) captures the loop. Without it, the sync adapter raises `RuntimeError` and says which primitive was reached too early.
 - **Same loop for the lifetime of the backend.** Sync calls dispatch to the loop the backend was opened on.
 - **Async is the default API.** Use `with cb.from_thread:` only inside a sync handler, to make the boundary explicit.
+- **Never from the loop thread itself.** A sync entry point hands its work to the backend's loop and blocks on the answer. Called from that loop, the answer never arrives: the call waits on the loop it is blocking. Every sync entry point raises `EventLoopDeadlockError` instead of reaching that deadlock. It is a `BaseException`, so `except Exception`, a `Retry`, and a `Fallback` all pass it through. A caller on a different event loop, or on a thread with no loop at all, is served normally.
 
 ## Industry alignment
 

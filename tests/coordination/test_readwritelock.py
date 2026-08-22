@@ -28,6 +28,7 @@ from grelmicro.coordination.errors import (
 )
 from grelmicro.coordination.memory import MemoryReadWriteLockAdapter
 from grelmicro.errors import (
+    EventLoopDeadlockError,
     OutOfContextError,
     SettingsValidationError,
     WouldBlockError,
@@ -586,6 +587,36 @@ async def test_from_thread_needs_an_open_backend() -> None:
             lock.read.from_thread.acquire()
 
     await asyncio.to_thread(body)
+
+
+async def test_from_thread_on_the_event_loop_thread_is_refused(
+    lock: ReadWriteLock,
+) -> None:
+    """A call made from the backend's own loop would wait on itself.
+
+    Both views refuse, and each names the one it belongs to.
+    """
+    with pytest.raises(EventLoopDeadlockError, match=r"`read\.from_thread`"):
+        lock.read.from_thread.acquire()
+    with pytest.raises(EventLoopDeadlockError, match=r"`write\.from_thread`"):
+        lock.write.from_thread.acquire()
+
+    assert (await lock.state()).readers == 0
+
+
+async def test_from_thread_on_another_loop_is_served(
+    lock: ReadWriteLock,
+) -> None:
+    """Only the backend's own loop would wait on itself."""
+
+    def read_on_a_second_loop() -> int:
+        async def inner() -> int:
+            with lock.read.from_thread as guard:
+                return guard.generation
+
+        return asyncio.run(inner())
+
+    assert await asyncio.to_thread(read_on_a_second_loop) == 0
 
 
 async def test_acquire_nowait_grants(lock: ReadWriteLock) -> None:

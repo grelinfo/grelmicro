@@ -13,6 +13,7 @@ import pytest
 from grelmicro._markers import is_scheduled
 from grelmicro.cache import TTLCache
 from grelmicro.coordination import LeaderElection, Lock, ReadWriteLock
+from grelmicro.errors import EventLoopDeadlockError
 from grelmicro.resilience import (
     Bulkhead,
     BulkheadFullError,
@@ -29,9 +30,6 @@ from grelmicro.resilience import (
     Shield,
     Stack,
     Timeout,
-)
-from grelmicro.resilience.circuitbreaker import (
-    _EventLoopEntryError,
 )
 from grelmicro.resilience.stack import _detach_control
 from grelmicro.task import Tasks
@@ -775,7 +773,7 @@ def test_a_sync_breaker_entered_from_the_event_loop_is_refused() -> None:
             def work() -> str:
                 return "never"
 
-            with pytest.raises(_EventLoopEntryError):
+            with pytest.raises(EventLoopDeadlockError):
                 work()
 
     asyncio.run(scenario())
@@ -971,7 +969,7 @@ def test_a_failure_to_admit_is_never_retried_on_the_loop() -> None:
                 return "ok"
 
             started = time.perf_counter()
-            with pytest.raises(_EventLoopEntryError):
+            with pytest.raises(EventLoopDeadlockError):
                 work()
             return time.perf_counter() - started, calls
 
@@ -1109,7 +1107,7 @@ def test_a_wiring_mistake_is_not_swallowed_by_a_fallback() -> None:
                 calls += 1
                 return "ok"
 
-            with pytest.raises(_EventLoopEntryError):
+            with pytest.raises(EventLoopDeadlockError):
                 work()
             return calls
 

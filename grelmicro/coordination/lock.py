@@ -11,7 +11,11 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
-from grelmicro._async import raise_backend_not_open
+from grelmicro._async import (
+    on_backend_loop,
+    raise_backend_not_open,
+    raise_event_loop_deadlock,
+)
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
@@ -767,6 +771,12 @@ class ThreadLockAdapter:
         loop = self._lock.backend._loop  # noqa: SLF001
         if loop is None:
             raise_backend_not_open(f"Lock {self._lock.name!r}")
+        if on_backend_loop(loop):
+            raise_event_loop_deadlock(
+                f"Lock {self._lock.name!r} `from_thread`",
+                "Use `async with lock:` from async code, or run the sync "
+                "call through `asyncio.to_thread(...)`.",
+            )
         return loop
 
     def __enter__(self) -> LockHandle:
@@ -802,11 +812,12 @@ class ThreadLockAdapter:
             LockTimeoutError: If `timeout` is set and the lock was not acquired
                 within that time. Subclasses builtin `TimeoutError`.
         """
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_acquire(
                 current_thread_identity(), timeout=timeout
             ),
-            self._backend_loop,
+            loop,
         ).result()
 
     def extend(self) -> LockHandle:
@@ -818,9 +829,10 @@ class ThreadLockAdapter:
             LockNotOwnedError: If this thread does not hold the lock or the lease was lost.
             LockAcquireError: Cannot extend the lock due to backend error.
         """
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_extend(current_thread_identity()),
-            self._backend_loop,
+            loop,
         ).result()
 
     def acquire_nowait(self) -> LockHandle:
@@ -834,9 +846,10 @@ class ThreadLockAdapter:
             LockAcquireError: Cannot acquire the lock due to backend error.
             WouldBlockError: If the lock cannot be acquired without blocking.
         """
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_acquire_nowait(current_thread_identity()),
-            self._backend_loop,
+            loop,
         ).result()
 
     def release(self) -> None:
@@ -846,20 +859,23 @@ class ThreadLockAdapter:
             LockReleaseError: Cannot release the lock due to backend error.
             LockNotOwnedError: If the lock is not currently held.
         """
+        loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._lock.do_thread_release(current_thread_identity()),
-            self._backend_loop,
+            loop,
         ).result()
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._lock.locked(),
-            self._backend_loop,
+            loop,
         ).result()
 
     def owned(self) -> bool:
         """Return True if the lock is currently held by the current worker thread."""
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._lock.do_owned(
                 generate_thread_token(
@@ -867,5 +883,5 @@ class ThreadLockAdapter:
                     identity=current_thread_identity(),
                 ),
             ),
-            self._backend_loop,
+            loop,
         ).result()

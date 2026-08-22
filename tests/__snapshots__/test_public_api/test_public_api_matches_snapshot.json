@@ -19,6 +19,7 @@
       "()": "(*, module) -> None"
     },
     "EnvLoadOffWarning": null,
+    "EventLoopDeadlockError": null,
     "ExternalConfig": {
       "()": "(config=None, *, secrets=None, reload_interval=10.0) -> 'None'"
     },

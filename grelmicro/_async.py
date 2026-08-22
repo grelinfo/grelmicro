@@ -7,6 +7,8 @@ import functools
 import inspect
 from typing import Any, NoReturn
 
+from grelmicro.errors import EventLoopDeadlockError
+
 
 def raise_backend_not_open(what: str) -> NoReturn:
     """Raise for a sync adapter used before its backend captured a loop.
@@ -23,6 +25,39 @@ def raise_backend_not_open(what: str) -> NoReturn:
         "`async with backend:`."
     )
     raise RuntimeError(msg)
+
+
+def on_backend_loop(loop: asyncio.AbstractEventLoop) -> bool:
+    """Return True when the calling thread is the one running ``loop``.
+
+    A sync adapter hands its work to ``loop`` and blocks on the result,
+    which never arrives when the caller is that loop. A caller on another
+    loop, or on a thread with no loop at all, is served normally.
+    """
+    try:
+        return asyncio.get_running_loop() is loop
+    except RuntimeError:
+        return False
+
+
+def raise_event_loop_deadlock(what: str, instead: str) -> NoReturn:
+    """Raise for a sync entry point used on the loop that has to serve it.
+
+    Call this only on the failure branch of ``if on_backend_loop(loop)``.
+    ``what`` names the caller, for example ``"Lock 'orders' `from_thread`"``.
+    ``instead`` is the sentence that tells the caller the way in.
+
+    Raises:
+        EventLoopDeadlockError: Always. Not an ``Exception``, so
+            ``except Exception``, a retry, and a fallback all pass it
+            through.
+    """
+    msg = (
+        f"{what} was used from the event loop that has to do the work, so "
+        "the call would wait forever on the loop it is blocking. "
+        f"{instead}"
+    )
+    raise EventLoopDeadlockError(msg)
 
 
 async def sleep_or_stop(seconds: float, stop: asyncio.Event | None) -> bool:
