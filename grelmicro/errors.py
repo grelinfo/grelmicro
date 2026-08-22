@@ -26,8 +26,7 @@ class EventLoopDeadlockError(BaseException):
 
     Not a `GrelmicroError`, and not an `Exception` at all, so
     `except Exception`, a `Retry`, and a `Fallback` all pass it through to
-    whoever ran the call. A wiring mistake no retry can fix reads as a
-    failure, never as a fallback value.
+    whoever ran the call.
 
     Use the async API from async code, or reach the sync one through
     `asyncio.to_thread(...)`. A caller on a different event loop, or on a
