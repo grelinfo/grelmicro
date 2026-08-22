@@ -31,7 +31,11 @@ from typing import (
 
 from typing_extensions import Doc
 
-from grelmicro._async import raise_backend_not_open
+from grelmicro._async import (
+    on_backend_loop,
+    raise_backend_not_open,
+    raise_event_loop_deadlock,
+)
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
     AsyncStampedeGuard,
@@ -1129,6 +1133,19 @@ def _build_sync_wrapper(  # noqa: C901
     key_locks: OrderedDict[str, threading.Lock] = OrderedDict()
     key_locks_guard = threading.Lock()
 
+    def backend_loop() -> asyncio.AbstractEventLoop:
+        """Return the event loop the cache backend captured on open."""
+        loop = cache._get_backend()._loop  # noqa: SLF001
+        if loop is None:
+            raise_backend_not_open("The cache")
+        if on_backend_loop(loop):
+            raise_event_loop_deadlock(
+                f"The sync `@cached` function {func.__qualname__!r}",
+                "Await an async `@cached` function from async code, or run "
+                "the sync one through `asyncio.to_thread(...)`.",
+            )
+        return loop
+
     def get_key_lock(key: str) -> threading.Lock:
         with key_locks_guard:
             the_lock = key_locks.get(key)
@@ -1142,9 +1159,7 @@ def _build_sync_wrapper(  # noqa: C901
 
     def sync_refresh(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
-        loop = cache._get_backend()._loop  # noqa: SLF001
-        if loop is None:
-            raise_backend_not_open("The cache")
+        loop = backend_loop()
 
         def recompute() -> Any:  # noqa: ANN401
             return _compute_and_cache_sync(
@@ -1183,11 +1198,9 @@ def _build_sync_wrapper(  # noqa: C901
             return recompute()
 
     @functools.wraps(func)
-    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401, C901
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         key = _make_key(func, args, kwargs, key_maker, typed=typed)
-        loop = cache._get_backend()._loop  # noqa: SLF001
-        if loop is None:
-            raise_backend_not_open("The cache")
+        loop = backend_loop()
         result = _run(cache.get(key, _SENTINEL), loop)
         if result is not _SENTINEL:
             if early is not None:

@@ -27,6 +27,7 @@ from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import (
     AdmissionError,
+    EventLoopDeadlockError,
     LockTimeoutError,
     OutOfContextError,
     SettingsValidationError,
@@ -1553,3 +1554,44 @@ async def test_lock_from_thread_unopened_backend_raises() -> None:
 
     with pytest.raises(RuntimeError, match="async with micro:"):
         await asyncio.to_thread(acquire)
+
+
+async def test_from_thread_on_the_event_loop_thread_is_refused(
+    thread_lock: Lock,
+) -> None:
+    """A call made from the backend's own loop would wait on itself."""
+    with pytest.raises(EventLoopDeadlockError, match="`from_thread`"):
+        thread_lock.from_thread.acquire()
+
+    assert not await thread_lock.locked()
+
+
+async def test_from_thread_refusal_is_not_an_exception(
+    thread_lock: Lock,
+) -> None:
+    """A wiring mistake passes through every `except Exception`."""
+
+    def with_a_fallback() -> str:
+        try:
+            thread_lock.from_thread.locked()
+        except Exception:  # noqa: BLE001
+            return "swallowed"
+        return "answered"
+
+    with pytest.raises(EventLoopDeadlockError):
+        with_a_fallback()
+
+
+async def test_from_thread_on_another_loop_is_served(
+    thread_lock: Lock,
+) -> None:
+    """Only the backend's own loop would wait on itself."""
+
+    def acquire_on_a_second_loop() -> bool:
+        async def inner() -> bool:
+            with thread_lock.from_thread:
+                return thread_lock.from_thread.owned()
+
+        return asyncio.run(inner())
+
+    assert await asyncio.to_thread(acquire_on_a_second_loop) is True

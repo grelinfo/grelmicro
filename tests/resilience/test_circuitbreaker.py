@@ -15,6 +15,7 @@ import pytest
 from freezegun import freeze_time
 
 from grelmicro import Grelmicro
+from grelmicro.errors import EventLoopDeadlockError
 from grelmicro.resilience import CircuitBreakerComponent
 from grelmicro.resilience._protocol import (
     CircuitBreakerSnapshot,
@@ -27,7 +28,6 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerMetrics,
     CircuitBreakerState,
     ErrorDetails,
-    _EventLoopEntryError,
     _TransitionCause,
 )
 from grelmicro.resilience.circuitbreaker import memory as cb_memory_module
@@ -1377,7 +1377,7 @@ async def test_from_thread_on_the_event_loop_thread_is_refused() -> None:
     async with MemoryCircuitBreakerAdapter() as backend:
         cb = CircuitBreaker("loop-thread", backend=backend)
 
-        with pytest.raises(_EventLoopEntryError):
+        with pytest.raises(EventLoopDeadlockError):
             cb.from_thread.__enter__()
 
 

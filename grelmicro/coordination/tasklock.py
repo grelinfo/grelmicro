@@ -16,7 +16,11 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
-from grelmicro._async import raise_backend_not_open
+from grelmicro._async import (
+    on_backend_loop,
+    raise_backend_not_open,
+    raise_event_loop_deadlock,
+)
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
@@ -564,6 +568,12 @@ class ThreadTaskLockAdapter:
         loop = self._task_lock.backend._loop  # noqa: SLF001
         if loop is None:
             raise_backend_not_open(f"TaskLock {self._task_lock.name!r}")
+        if on_backend_loop(loop):
+            raise_event_loop_deadlock(
+                f"TaskLock {self._task_lock.name!r} `from_thread`",
+                "Use `async with task_lock:` from async code, or run the "
+                "sync call through `asyncio.to_thread(...)`.",
+            )
         return loop
 
     def __enter__(self) -> Self:
@@ -574,9 +584,10 @@ class ThreadTaskLockAdapter:
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
         """
+        loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._task_lock.do_thread_enter(),
-            self._backend_loop,
+            loop,
         ).result()
         return self
 
@@ -591,14 +602,16 @@ class ThreadTaskLockAdapter:
         Raises:
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
+        loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._task_lock.do_thread_exit(),
-            self._backend_loop,
+            loop,
         ).result()
 
     def locked(self) -> bool:
         """Return True if the lock is currently held."""
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._task_lock.locked(),
-            self._backend_loop,
+            loop,
         ).result()

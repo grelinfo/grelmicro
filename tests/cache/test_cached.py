@@ -17,6 +17,7 @@ from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.errors import EventLoopDeadlockError
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -1802,6 +1803,55 @@ class TestSyncCachedNoLoop:
 
         with pytest.raises(RuntimeError, match="async with"):
             compute(5)
+
+
+class TestSyncCachedOnTheEventLoop:
+    """Test the sync wrapper called on the loop that has to serve it."""
+
+    async def test_call_on_the_event_loop_thread_is_refused(self) -> None:
+        """The call would wait forever on the loop it is blocking."""
+        cache = _make_cache()
+        calls = 0
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            nonlocal calls
+            calls += 1
+            return x * 2
+
+        with pytest.raises(EventLoopDeadlockError, match="`@cached`"):
+            compute(5)
+
+        assert calls == 0
+
+    async def test_refresh_on_the_event_loop_thread_is_refused(self) -> None:
+        """`refresh` takes the same route in, so it refuses the same way."""
+        cache = _make_cache()
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            return x * 2
+
+        with pytest.raises(EventLoopDeadlockError, match="`@cached`"):
+            compute.refresh(5)
+
+    async def test_call_on_another_loop_is_served(self) -> None:
+        """Only the cache backend's own loop would wait on itself."""
+        cache = _make_cache()
+
+        @cached(cache)
+        def compute(x: int) -> int:
+            return x * 2
+
+        def call_on_a_second_loop() -> int:
+            async def inner() -> int:
+                return compute(5)
+
+            return asyncio.run(inner())
+
+        assert (
+            await asyncio.to_thread(call_on_a_second_loop) == EXPECTED_DOUBLE_5
+        )
 
 
 # ---------------------------------------------------------------------------

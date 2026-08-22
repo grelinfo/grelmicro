@@ -22,7 +22,11 @@ from grelmicro.coordination.errors import (
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
-from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.errors import (
+    EventLoopDeadlockError,
+    OutOfContextError,
+    SettingsValidationError,
+)
 from grelmicro.errors import WouldBlockError as WouldBlock
 
 pytestmark = [pytest.mark.timeout(10)]
@@ -520,6 +524,38 @@ async def test_tasklock_from_thread_acquire_release(
     assert locked_before is False
     assert locked_inside is True
     assert locked_after is False
+
+
+async def test_tasklock_from_thread_on_the_event_loop_thread_is_refused(
+    backend: LockBackend,
+) -> None:
+    """A call made from the backend's own loop would wait on itself."""
+    task_lock = TaskLock(LOCK_NAME, backend=backend, worker=WORKER_1)
+
+    with pytest.raises(EventLoopDeadlockError, match="`from_thread`"):
+        task_lock.from_thread.locked()
+
+
+async def test_tasklock_from_thread_on_another_loop_is_served(
+    backend: LockBackend,
+) -> None:
+    """Only the backend's own loop would wait on itself."""
+    task_lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_hold_duration=0.001,
+        lease_duration=10,
+    )
+
+    def enter_on_a_second_loop() -> bool:
+        async def inner() -> bool:
+            with task_lock.from_thread:
+                return task_lock.from_thread.locked()
+
+        return asyncio.run(inner())
+
+    assert await asyncio.to_thread(enter_on_a_second_loop) is True
 
 
 async def test_tasklock_from_thread_would_block(backend: LockBackend) -> None:

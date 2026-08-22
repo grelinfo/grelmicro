@@ -14,6 +14,27 @@ class GrelmicroError(Exception):
     """Base grelmicro error."""
 
 
+class EventLoopDeadlockError(BaseException):
+    """Raised by a sync entry point reached from the loop that has to serve it.
+
+    `lock.from_thread`, `rwlock.read.from_thread`, `rwlock.write.from_thread`,
+    `task_lock.from_thread`, `breaker.from_thread`, and the sync `@cached`
+    wrapper hand their work to the event loop the backend runs on and block
+    until it answers. Called from that loop, the answer never arrives: the
+    call waits on the loop it is blocking. Each one raises this instead, so
+    the deadlock is reported rather than reached.
+
+    Not a `GrelmicroError`, and not an `Exception` at all, so
+    `except Exception`, a `Retry`, and a `Fallback` all pass it through to
+    whoever ran the call.
+
+    Use the async API from async code, or reach the sync one through
+    `asyncio.to_thread(...)`. A caller on a different event loop, or on a
+    thread with no loop at all, is served by the backend's own loop and is
+    unaffected.
+    """
+
+
 class GrelmicroConfigWarning(UserWarning):
     """Warned when configuration is set in a way that will not take effect.
 

@@ -11,7 +11,11 @@ from weakref import WeakKeyDictionary
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
-from grelmicro._async import raise_backend_not_open
+from grelmicro._async import (
+    on_backend_loop,
+    raise_backend_not_open,
+    raise_event_loop_deadlock,
+)
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
@@ -1038,6 +1042,9 @@ class _ThreadAdapter[ModeT: _Mode]:
 
     __slots__ = ("_mode",)
 
+    _view: ClassVar[str]
+    """Name of the view this adapter serves, `read` or `write`."""
+
     def __init__(self, mode: ModeT) -> None:
         """Initialize the adapter."""
         self._mode = mode
@@ -1048,6 +1055,13 @@ class _ThreadAdapter[ModeT: _Mode]:
         loop = self._mode.backend._loop  # noqa: SLF001
         if loop is None:
             raise_backend_not_open(f"ReadWriteLock {self._mode.name!r}")
+        if on_backend_loop(loop):
+            view = self._view
+            raise_event_loop_deadlock(
+                f"ReadWriteLock {self._mode.name!r} `{view}.from_thread`",
+                f"Use `async with lock.{view}:` from async code, or run the "
+                "sync call through `asyncio.to_thread(...)`.",
+            )
         return loop
 
 
@@ -1055,6 +1069,8 @@ class ThreadReadAdapter(_ThreadAdapter[ReadMode]):
     """Read adapter for a worker thread spawned from an event loop."""
 
     __slots__ = ()
+
+    _view = "read"
 
     def __enter__(self) -> ReadGuard:
         """Acquire the read lock."""
@@ -1071,25 +1087,28 @@ class ThreadReadAdapter(_ThreadAdapter[ReadMode]):
 
     def acquire(self, *, timeout: Seconds | None = None) -> ReadGuard:
         """Acquire the read lock, blocking this thread."""
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_acquire(
                 current_thread_identity(), timeout=timeout
             ),
-            self._backend_loop,
+            loop,
         ).result()
 
     def extend(self) -> None:
         """Renew this thread's read lease."""
+        loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_extend(current_thread_identity()),
-            self._backend_loop,
+            loop,
         ).result()
 
     def release(self) -> None:
         """Release this thread's read lease."""
+        loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_release(current_thread_identity()),
-            self._backend_loop,
+            loop,
         ).result()
 
 
@@ -1097,6 +1116,8 @@ class ThreadWriteAdapter(_ThreadAdapter[WriteMode]):
     """Write adapter for a worker thread spawned from an event loop."""
 
     __slots__ = ()
+
+    _view = "write"
 
     def __enter__(self) -> WriteGuard:
         """Acquire the write lock."""
@@ -1113,23 +1134,26 @@ class ThreadWriteAdapter(_ThreadAdapter[WriteMode]):
 
     def acquire(self, *, timeout: Seconds | None = None) -> WriteGuard:
         """Acquire the write lock, blocking this thread."""
+        loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_acquire(
                 current_thread_identity(), timeout=timeout
             ),
-            self._backend_loop,
+            loop,
         ).result()
 
     def extend(self) -> None:
         """Renew this thread's write lease."""
+        loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_extend(current_thread_identity()),
-            self._backend_loop,
+            loop,
         ).result()
 
     def release(self) -> None:
         """Release this thread's write lease."""
+        loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_release(current_thread_identity()),
-            self._backend_loop,
+            loop,
         ).result()
