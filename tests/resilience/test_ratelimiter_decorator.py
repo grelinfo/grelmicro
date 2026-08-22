@@ -14,6 +14,7 @@ from grelmicro.resilience import (
     RateLimitExceededError,
     Stack,
 )
+from grelmicro.task import Tasks
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -23,6 +24,10 @@ FAST_REFILL = 1000.0
 MAX_WAIT = 1.0
 USER = 7
 OTHER_USER = 8
+
+
+async def metered_job() -> None:
+    """Do nothing, from the module level the scheduler requires."""
 
 
 async def test_bare_decorator_meters_the_whole_function() -> None:
@@ -494,3 +499,14 @@ def test_a_wait_budget_that_is_not_finite_is_refused(budget: float) -> None:
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
     with pytest.raises(ValueError, match="finite"):
         limiter(max_wait=budget)
+
+
+def test_a_function_already_registered_as_a_task_is_refused() -> None:
+    """The schedule holds what it registered, so the limiter goes above."""
+    tasks = Tasks()
+    registered = tasks.every(seconds=60, name="metered")(metered_job)
+
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+
+    with pytest.raises(TypeError, match="already registered as a task"):
+        limiter(registered)

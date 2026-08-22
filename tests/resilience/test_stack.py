@@ -50,6 +50,19 @@ INTERVAL = 60.0
 SLOW_DELAY = 0.2
 
 
+def _carriers_in(error: BaseException) -> list[BaseException]:
+    """Return every private carrier reachable from an error."""
+    found: list[BaseException] = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if type(current).__name__ == "_Control":
+            found.append(current)
+        current = current.__cause__ or current.__context__
+    return found
+
+
 def a_retry(name: str = "recs") -> Retry:
     """Return a retry that retries anything, quickly."""
     return Retry.constant(name, when=Exception, attempts=ATTEMPTS, delay=DELAY)
@@ -1234,7 +1247,8 @@ async def test_a_refusal_survives_a_breaker_that_fails_to_exit() -> None:
             await work()
 
         assert caught.value.retry_after > 0
-        assert caught.value.__context__ is None
+        assert isinstance(caught.value.__cause__, ConnectionError)
+        assert not _carriers_in(caught.value)
 
 
 def test_a_decorated_callable_object_keeps_its_name() -> None:

@@ -11,8 +11,6 @@ reading a mark costs no import of the package that sets it.
 
 from __future__ import annotations
 
-from contextlib import suppress
-
 __all__ = ["is_scheduled", "mark_scheduled"]
 
 SCHEDULED = "__grelmicro_scheduled__"
@@ -36,8 +34,12 @@ def mark_scheduled(function: object) -> None:
     underneath is marked instead. Every bound form of it then reads as
     registered, which is what the schedule holds either way.
     """
-    with suppress(AttributeError):
+    try:
         setattr(_underlying(function), SCHEDULED, True)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001, S110
+        pass
 
 
 def is_scheduled(function: object) -> bool:

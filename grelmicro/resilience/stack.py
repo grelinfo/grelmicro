@@ -633,6 +633,7 @@ def _breaker_layer[**P, R](
                 raise
             error.__context__ = None
             refusal = _carried(displaced)
+            raise refusal from error
         raise refusal
 
     return layer

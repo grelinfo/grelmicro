@@ -525,3 +525,41 @@ async def test_a_permit_is_returned_when_the_scope_push_fails() -> None:
     assert semaphore is not None
     assert semaphore._value == 1
     assert bulkhead_module._active_bulkhead.get(None) is None
+
+
+async def test_a_partly_opened_scope_resumes_where_it_stopped() -> None:
+    """An item already entered must not be entered a second time."""
+    entered: list[str] = []
+
+    class Item:
+        """A scope item that records its entries."""
+
+        def __init__(self, label: str, *, fails: bool) -> None:
+            self.label = label
+            self.fails = fails
+
+        async def __aenter__(self) -> Self:
+            entered.append(self.label)
+            if self.fails:
+                self.fails = False
+                msg = "server briefly down"
+                raise ConnectionError(msg)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    micro = Grelmicro()
+    async with micro:
+        bulkhead = Bulkhead(
+            "resume",
+            max_concurrent=1,
+            uses=[Item("first", fails=False), Item("second", fails=True)],
+        )
+        with pytest.raises(ConnectionError):
+            await bulkhead.__aenter__()
+
+        async with bulkhead:
+            pass
+
+    assert entered == ["first", "second", "second"]
