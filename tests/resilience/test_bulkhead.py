@@ -635,8 +635,8 @@ async def test_a_partly_opened_scope_does_not_resume_in_the_next_app() -> None:
     assert entered == ["first", "second", "first", "second"]
 
 
-async def test_a_failed_first_item_arms_one_reset_per_app() -> None:
-    """A retried open pushes the reset once, not once per attempt."""
+async def test_a_retried_open_keeps_one_record_per_app() -> None:
+    """A retried open reuses the app's record rather than starting a new one."""
 
     class Item:
         """A scope item that fails a set number of times."""
@@ -656,29 +656,81 @@ async def test_a_failed_first_item_arms_one_reset_per_app() -> None:
 
     attempts = 3
     bulkhead = Bulkhead("retry", uses=[Item(attempts)])
-    forget = bulkhead._forget_scope
-    resets = 0
-
-    def counting_forget(
-        micro: Grelmicro, scope: bulkhead_module._Scope
-    ) -> None:
-        nonlocal resets
-        resets += 1
-        forget(micro, scope)
-
-    bulkhead._forget_scope = counting_forget  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
     async with Grelmicro() as micro:
         for _ in range(attempts):
             with pytest.raises(ConnectionError):
                 await bulkhead.__aenter__()
+        assert len(micro._scoped_uses) == 1
         async with bulkhead:
             pass
         assert len(micro._scoped_uses) == 1
 
-    assert resets == 1  # pushed once per app, not once per attempt
-    assert bulkhead._opened_for is bulkhead_module._UNSCOPED
     assert micro._scoped_uses == {}
+
+
+async def test_an_entry_while_the_scope_unwinds_raises() -> None:
+    """A call landing while the app closes its items does not run against them."""
+    closing = asyncio.Event()
+    release = asyncio.Event()
+
+    class Slow:
+        """A scope item that blocks the app inside its own exit."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            closing.set()
+            await release.wait()
+
+    bulkhead = Bulkhead("unwind", uses=[Slow()])
+    micro = Grelmicro()
+
+    async def enter() -> None:
+        await closing.wait()
+        with pytest.raises(OutOfContextError, match="closing with the app"):
+            async with bulkhead:
+                pass
+        release.set()
+
+    async with micro:
+        async with bulkhead:
+            pass
+        task = asyncio.create_task(enter())
+
+    await task
+
+
+async def test_an_entry_after_shutdown_raises_from_an_inherited_context() -> (
+    None
+):
+    """A task that outlives its app names the shutdown, not a bare failure."""
+    bulkhead = Bulkhead("outlived", uses=[_Gate()])
+    micro = Grelmicro()
+    entered = asyncio.Event()
+    resume = asyncio.Event()
+    raised: list[BaseException] = []
+
+    async def outlive() -> None:
+        entered.set()
+        await resume.wait()
+        # The app is gone, but this task's context still resolves to it.
+        try:
+            async with bulkhead:
+                pass
+        except OutOfContextError as exc:
+            raised.append(exc)
+
+    async with micro:
+        task = asyncio.create_task(outlive())
+        await entered.wait()
+
+    resume.set()
+    await task
+
+    assert micro._exit_stack is None
+    assert "closing with the app that opened it" in str(raised[0])
 
 
 async def test_overlapping_apps_keep_separate_scope_records() -> None:
@@ -758,7 +810,6 @@ async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
     assert opened == ["first"]  # the second item was never started
     assert closed == ["first"]  # the first closed itself, the stack was gone
     # Nothing claims the scope is open, so the next app opens it again.
-    assert bulkhead._opened_for is bulkhead_module._UNSCOPED
     assert micro._scoped_uses == {}
 
 

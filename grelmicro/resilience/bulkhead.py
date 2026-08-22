@@ -7,7 +7,7 @@ import functools
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from inspect import iscoroutinefunction
-from typing import TYPE_CHECKING, Annotated, Any, Final, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 from typing_extensions import Doc
@@ -100,11 +100,6 @@ class _Scope:
     lock: asyncio.Lock
     entered: int = 0
     opened: bool = False
-    closing: bool = False
-
-
-_UNSCOPED: Final = object()
-"""Stands in for the app a scope is open for while there is none."""
 
 
 class Bulkhead(Reconfigurable[BulkheadConfig]):
@@ -221,7 +216,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             for item in self._uses
             if isinstance(item, Component)
         }
-        self._opened_for: object = _UNSCOPED
         self._scopes: dict[
             asyncio.Task[Any],
             list[tuple[asyncio.Semaphore | None, Token[Any] | None]],
@@ -280,8 +274,15 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 ) from None
         token: Token[Any] | None = None
         try:
-            if self._uses and self._opened_for is not _current_micro.get(None):
-                await self._open_uses()
+            if self._uses:
+                micro = _current_micro.get(None)
+                if (
+                    micro is None
+                    or micro._closing  # noqa: SLF001
+                    or (scope := micro._scoped_uses.get(self)) is None  # noqa: SLF001
+                    or not scope.opened
+                ):
+                    await self._open_uses()
             if self._overrides:
                 current = _active_bulkhead.get(None)
                 merged = (
@@ -347,9 +348,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         """
         micro = Grelmicro.current()
         exit_stack = micro._exit_stack  # noqa: SLF001
-        if exit_stack is None:  # pragma: no cover
-            msg = "Bulkhead uses= requires an open Grelmicro app"
-            raise RuntimeError(msg)
+        if exit_stack is None:
+            raise OutOfContextError(self._closed_scope_message())
         scopes = micro._scoped_uses  # noqa: SLF001
         scope = scopes.get(self)
         if scope is None:
@@ -357,28 +357,25 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             # racing the first entry cannot both create a scope.
             scope = _Scope(lock=asyncio.Lock())
             scopes[self] = scope
-            exit_stack.callback(self._forget_scope, micro, scope)
         async with scope.lock:
-            if scope.closing:
+            if micro._closing:  # noqa: SLF001
                 raise OutOfContextError(self._closed_scope_message())
             if scope.opened:
-                self._opened_for = micro
                 return
             report_unmet_requirements(
                 unmet_requirements(self._uses), micro.environment
             )
             for item in self._uses[scope.entered :]:
                 await item.__aenter__()
-                if scope.closing:
-                    # Shutdown unwound the app's stack while this item was
-                    # entering, so the stack will never close it. Close it
+                if micro._closing:  # noqa: SLF001
+                    # Shutdown began while this item was entering, so the
+                    # app's stack may already have unwound past it. Close it
                     # here and leave the scope for the next app to open.
                     await item.__aexit__(None, None, None)
                     raise OutOfContextError(self._closed_scope_message())
                 exit_stack.push_async_exit(item)
                 scope.entered += 1
             scope.opened = True
-            self._opened_for = micro
 
     def _closed_scope_message(self) -> str:
         """Describe a `uses=` scope that closed with the app that opened it."""
@@ -388,12 +385,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             "shuts down, or list the provider in Grelmicro(uses=[...]) so it "
             "outlives the item that needs it."
         )
-
-    def _forget_scope(self, micro: Grelmicro, scope: _Scope) -> None:
-        """Mark the scope closing as the app that opened it shuts down."""
-        scope.closing = True
-        if self._opened_for is micro:
-            self._opened_for = _UNSCOPED
 
     def __call__[**P, R](
         self, fn: Callable[P, Awaitable[R]], /
