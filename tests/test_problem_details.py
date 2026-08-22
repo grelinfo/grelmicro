@@ -18,6 +18,7 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.status import (
+    HTTP_200_OK,
     HTTP_409_CONFLICT,
     HTTP_418_IM_A_TEAPOT,
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -48,6 +49,13 @@ from grelmicro.idempotency.errors import (
     IdempotencyWaitTimeoutError,
 )
 from grelmicro.integrations import faststream
+from grelmicro.resilience import (
+    CircuitBreaker,
+    MemoryCircuitBreakerAdapter,
+    MemoryRateLimiterAdapter,
+    RateLimiter,
+    Stack,
+)
 from grelmicro.resilience.errors import (
     BulkheadFullError,
     CircuitBreakerError,
@@ -748,3 +756,77 @@ def test_every_kind_dereferences_to_its_own_section() -> None:
 
 _MIN_KINDS = 12
 """Floor for the sweep, so an empty scan cannot pass silently."""
+
+
+# --- A Stack's refusals on the wire -------------------------------------
+
+
+@pytest.fixture
+def stacked_client() -> Iterator[TestClient]:
+    """Build an app whose routes are wrapped by a `Stack`."""
+    app = FastAPI()
+    cb_backend = MemoryCircuitBreakerAdapter()
+    rl_backend = MemoryRateLimiterAdapter()
+    breaker = CircuitBreaker.consecutive_count(
+        "recs", error_threshold=1, backend=cb_backend, reset_timeout=60.0
+    )
+    limiter = RateLimiter.token_bucket(
+        "recs", capacity=1, refill_rate=0.00001, backend=rl_backend
+    )
+    limited = Stack("recs", patterns=[breaker, limiter])
+    tripped = Stack(
+        "recs",
+        patterns=[
+            CircuitBreaker.consecutive_count(
+                "trip",
+                error_threshold=1,
+                backend=cb_backend,
+                reset_timeout=60.0,
+            )
+        ],
+    )
+
+    @app.get("/stacked-limited")
+    @limited
+    async def stacked_limited() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    @app.get("/stacked-open")
+    @tripped
+    async def stacked_open() -> dict[str, str]:
+        raise BoomError
+
+    micro = Grelmicro(uses=[ErrorResponses(), cb_backend, rl_backend])
+    micro.install(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
+
+
+def test_a_stack_rate_limit_reaches_the_wire_as_429(
+    stacked_client: TestClient,
+) -> None:
+    """The refusal a Stack carries past its breaker is still a 429."""
+    assert stacked_client.get("/stacked-limited").status_code == HTTP_200_OK
+
+    response = stacked_client.get("/stacked-limited")
+
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["content-type"] == PROBLEM_MEDIA_TYPE
+    assert int(response.headers["retry-after"]) > 0
+    assert response.json()["type"].endswith("rate-limit-exceeded")
+
+
+def test_a_stack_open_circuit_reaches_the_wire_as_503(
+    stacked_client: TestClient,
+) -> None:
+    """An open circuit a Stack refuses on is still a 503."""
+    assert (
+        stacked_client.get("/stacked-open").status_code
+        == HTTP_500_INTERNAL_SERVER_ERROR
+    )
+
+    response = stacked_client.get("/stacked-open")
+
+    assert response.status_code == HTTP_503_SERVICE_UNAVAILABLE
+    assert response.headers["content-type"] == PROBLEM_MEDIA_TYPE
+    assert response.json()["type"].endswith("circuit-breaker-open")

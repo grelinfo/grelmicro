@@ -627,7 +627,7 @@ def _breaker_layer[**P, R](
             raise _Control(error) from None
         except _Control as control:
             refusal = _carried(control)
-        except BaseException as error:
+        except Exception as error:
             displaced = _control_in(error)
             if displaced is None:
                 raise

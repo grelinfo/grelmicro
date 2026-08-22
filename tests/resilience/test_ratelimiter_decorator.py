@@ -198,7 +198,7 @@ def test_a_key_and_a_key_maker_together_are_refused() -> None:
 def test_a_negative_wait_budget_is_refused() -> None:
     """A wait budget is a number of seconds."""
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
-    with pytest.raises(ValueError, match="cannot be negative"):
+    with pytest.raises(ValueError, match="finite and not negative"):
         limiter(max_wait=-1.0)
 
 
@@ -484,3 +484,13 @@ def test_a_template_that_cannot_be_read_names_itself() -> None:
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
     with pytest.raises(ValueError, match=r"'u:\{oops' cannot be read"):
         limiter(key="u:{oops")
+
+
+@pytest.mark.parametrize(
+    "budget", [float("inf"), float("nan")], ids=["infinite", "nan"]
+)
+def test_a_wait_budget_that_is_not_finite_is_refused(budget: float) -> None:
+    """An unbounded wait has nothing above it to stop it inside a stack."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    with pytest.raises(ValueError, match="finite"):
+        limiter(max_wait=budget)

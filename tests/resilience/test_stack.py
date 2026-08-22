@@ -1275,3 +1275,47 @@ def test_an_interrupt_while_reading_the_mark_is_never_swallowed() -> None:
 
     with pytest.raises(KeyboardInterrupt):
         is_scheduled(Interrupting())
+
+
+async def test_a_cancellation_is_never_turned_into_a_refusal() -> None:
+    """Control flow is not an outcome, however it displaces a carrier."""
+    async with (
+        MemoryCircuitBreakerAdapter() as cb_backend,
+        MemoryRateLimiterAdapter() as rl_backend,
+    ):
+        breaker = CircuitBreaker("recs", backend=cb_backend)
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=1, refill_rate=SLOW_REFILL, backend=rl_backend
+        )
+        stack = Stack(
+            "recs",
+            patterns=[
+                Fallback("recs", when=Exception, default="degraded"),
+                breaker,
+                limiter,
+            ],
+        )
+
+        @stack
+        async def work() -> str:
+            return "ok"
+
+        assert await work() == "ok"
+
+        state = breaker._state
+        strategy = state.strategy or breaker._resolve_strategy(state)
+        entered = asyncio.Event()
+
+        async def slow_abandon() -> None:
+            entered.set()
+            await asyncio.sleep(TIMEOUT)
+
+        strategy.abandon = slow_abandon  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+        task = asyncio.create_task(work())
+        await entered.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert task.cancelled()

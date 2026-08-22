@@ -6,6 +6,7 @@ import asyncio
 import functools
 import inspect
 import logging
+import math
 from dataclasses import dataclass
 from string import Formatter
 from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never, overload
@@ -897,8 +898,8 @@ class RateLimiterBinding:
         Raises:
             TypeError: If both `key` and `key_maker` are passed, or
                 `max_wait` is `None`.
-            ValueError: If `cost` is below 1, `max_wait` is negative,
-                or `key` reads a positional field.
+            ValueError: If `cost` is below 1, `max_wait` is negative
+                or not finite, or `key` reads a positional field.
         """
         if key is not None and key_maker is not None:
             msg = (
@@ -922,11 +923,13 @@ class RateLimiterBinding:
                 "budget is spent, or a positive number of seconds."
             )
             raise TypeError(msg)
-        if max_wait < 0:
+        if not math.isfinite(max_wait) or max_wait < 0:
             msg = (
-                "max_wait is a number of seconds, so it cannot be "
-                f"negative, got {max_wait!r}. Use 0.0 to raise as soon "
-                "as the budget is spent."
+                "max_wait is a number of seconds, so it is finite and "
+                f"not negative, got {max_wait!r}. Use 0.0 to raise as "
+                "soon as the budget is spent. A wait with no bound has "
+                "nothing above it to stop it inside a stack: call "
+                "`limiter.wait()` directly when that is what you want."
             )
             raise ValueError(msg)
         self._limiter = limiter
