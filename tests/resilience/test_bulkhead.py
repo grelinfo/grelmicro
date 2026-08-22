@@ -740,8 +740,45 @@ async def test_an_entry_after_shutdown_raises_from_an_inherited_context() -> (
     assert "closing with the app that opened it" in str(raised[0])
 
 
-async def test_a_second_live_app_is_refused_the_same_scope() -> None:
-    """A `uses=` scope belongs to one app at a time, and says so."""
+async def test_an_overlapping_run_borrows_the_open_scope() -> None:
+    """A second live run uses the open items rather than opening its own."""
+    opens = 0
+    closes = 0
+
+    class Track:
+        """A scope item that counts opens and closes."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            nonlocal closes
+            closes += 1
+
+    bulkhead = Bulkhead("shared", uses=[Track()])
+
+    async with Grelmicro(allow_multiple=True):
+        async with bulkhead:
+            pass
+        assert opens == 1
+        # Only the run that owns the scope enters the items, so this one
+        # cannot close them under the outer run when it exits.
+        async with Grelmicro(allow_multiple=True), bulkhead:
+            pass
+        assert opens == 1
+        assert closes == 0
+        # The outer run still holds a working scope.
+        async with bulkhead:
+            pass
+        assert opens == 1
+
+    assert closes == 1
+
+
+async def test_a_borrowed_scope_is_reopened_once_its_owner_goes() -> None:
+    """A run that outlives the owner opens the scope for itself."""
     opens = 0
 
     class Track:
@@ -755,22 +792,18 @@ async def test_a_second_live_app_is_refused_the_same_scope() -> None:
         async def __aexit__(self, *_: object) -> None:
             """Leave the scope."""
 
-    bulkhead = Bulkhead("shared", uses=[Track()])
+    bulkhead = Bulkhead("outliving", uses=[Track()])
+    survivor = Grelmicro(allow_multiple=True)
 
-    async with Grelmicro(allow_multiple=True):
-        async with bulkhead:
+    async with survivor:
+        async with Grelmicro(allow_multiple=True) as owner, bulkhead:
             pass
         assert opens == 1
-        # The items are one set of objects, so a second live app entering
-        # them would tear them down under this one on its own exit.
-        async with Grelmicro(allow_multiple=True):
-            with pytest.raises(OutOfContextError, match="another Grelmicro"):
-                async with bulkhead:
-                    pass
-        # This app kept its scope, and still holds it.
+        assert owner._scoped_uses == {}
+        # The owner is gone, so this run opens the scope for itself.
         async with bulkhead:
             pass
-        assert opens == 1
+        assert opens == LIMIT
 
 
 async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:

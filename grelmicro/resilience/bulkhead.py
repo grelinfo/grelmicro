@@ -170,10 +170,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 with an explicit `backend=` is unaffected. The bulkhead
                 opens these on first entry and closes them when the app
                 shuts down, so an active `Grelmicro` app is required. The
-                scope belongs to that app, so a later app opens it again
-                from the start. Entering once the app has shut down raises,
-                and so does sharing the bulkhead with a second app running
-                at the same time.
+                scope belongs to that app run, so a later run opens it
+                again from the start. A run overlapping the one that owns
+                the scope borrows it, and entering once the owning run has
+                gone raises.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
@@ -369,16 +369,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         micro = _current_micro.get(self._scoped_to)
         if micro is None:
             raise NoActiveAppError(self._no_app_message())
+        if self._borrows_open_scope(micro):
+            return
         exit_stack = micro._exit_stack  # noqa: SLF001
         if exit_stack is None:
             raise OutOfContextError(self._no_scope_message(micro, None))
-        scopes = micro._scoped_uses  # noqa: SLF001
-        scope = scopes.get(self)
-        if scope is None:
-            # Nothing awaits between the lookup and the store, so two tasks
-            # racing the first entry cannot both create a scope.
-            scope = _Scope(lock=asyncio.Lock())
-            scopes[self] = scope
+        scope = self._scope_for(micro)
         async with scope.lock:
             if scope.opened:
                 return
@@ -427,6 +423,38 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         item never pushes onto a stack the app has finished with.
         """
         return micro._closing or micro._exit_stack is not exit_stack  # noqa: SLF001
+
+    def _scope_for(self, micro: Grelmicro) -> _Scope:
+        """Return this run's record of the scope, starting one if it is new.
+
+        Nothing awaits between the lookup and the store, so two tasks racing
+        the first entry cannot both start a record.
+        """
+        scopes = micro._scoped_uses  # noqa: SLF001
+        scope = scopes.get(self)
+        if scope is None:
+            scope = _Scope(lock=asyncio.Lock())
+            scopes[self] = scope
+        return scope
+
+    def _borrows_open_scope(self, micro: Grelmicro) -> bool:
+        """Report whether another run holds this scope open for `micro`.
+
+        Only the run that owns a scope enters its items, so a run that
+        overlaps it borrows what is open rather than opening a second set
+        that the first to exit would close under the other.
+
+        Raises:
+            OutOfContextError: If that run holds the scope but not open,
+                because it is still opening it or already closing it.
+        """
+        holder = self._scoped_to
+        if holder is None or holder is micro:
+            return False
+        held = holder._scoped_uses.get(self)  # noqa: SLF001
+        if held is not None and held.opened:
+            return True
+        raise OutOfContextError(self._shared_scope_message(micro))
 
     def _claim_scope(
         self, micro: Grelmicro, exit_stack: AsyncExitStack
