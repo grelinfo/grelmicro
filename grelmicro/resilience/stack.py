@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Any, overload
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
+from grelmicro._guards import is_class, is_instance, name_of
 from grelmicro._markers import is_scheduled
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
@@ -213,6 +214,17 @@ def _describe(item: Pattern) -> str:
     return f"{type(item).__name__}({inner.name!r})"
 
 
+def _origin(item: object) -> str:
+    """Return where a value's type was defined, and never raise doing it."""
+    kind = item if is_class(item) else type(item)
+    try:
+        return f"{kind.__module__}.{kind.__qualname__}"  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return ""
+
+
 def _slot_of(item: object) -> str:
     """Return the slot `item` fills.
 
@@ -223,18 +235,16 @@ def _slot_of(item: object) -> str:
     if slot is not None:
         return slot
     for accepted, name in _SLOTS.items():
-        if isinstance(item, accepted):
+        if is_instance(item, accepted):
             return name
-    kind = item if isinstance(item, type) else type(item)
-    known = _ELSEWHERE.get(f"{kind.__module__}.{kind.__qualname__}")
     detail = (
-        known
+        _ELSEWHERE.get(_origin(item))
         or "Stack composes patterns, and takes each one built: "
         "Fallback, Retry, CircuitBreaker, RateLimiter, Bulkhead, "
         "Timeout. Pass the pattern rather than its config, its class, "
         "or an already-decorated function."
     )
-    msg = f"Stack(patterns=[...]) does not take {kind.__qualname__}. {detail}"
+    msg = f"Stack(patterns=[...]) does not take {name_of(item)}. {detail}"
     raise TypeError(msg)
 
 
@@ -304,7 +314,7 @@ class Stack:
             ValueError: If two items fill the same slot, or no item is
                 given.
         """
-        if isinstance(patterns, (str, bytes, *_SLOTS)):
+        if is_instance(patterns, (str, bytes, *_SLOTS)):
             msg = (
                 f"Stack {name!r} takes a list of patterns, got "
                 f"{type(patterns).__name__}. Wrap it: "

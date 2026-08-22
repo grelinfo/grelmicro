@@ -21,6 +21,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._guards import is_instance
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.errors import OutOfContextError
@@ -750,11 +751,19 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         `Stack(patterns=[...])` accepts.
 
         Raises:
-            TypeError: If both `key` and `key_maker` are passed, or the
-                decorated function is not async.
+            TypeError: If the key is passed positionally, if both `key`
+                and `key_maker` are passed, or the decorated function
+                is not async.
             ValueError: If `max_wait` is negative, or a `key` template
                 names a parameter the function does not have.
         """
+        if is_instance(fn, str):
+            msg = (
+                f"RateLimiter {self._name!r} takes the key by name, so "
+                f"write `@limiter(key={fn!r})`. The first argument is "
+                "the function to decorate."
+            )
+            raise TypeError(msg)
         binding = RateLimiterBinding(
             self,
             key=key,
@@ -821,11 +830,16 @@ def _template_fields(template: str) -> list[str]:
     """Return the parameter names a key template reads.
 
     Raises:
-        ValueError: If the template reads a positional field, which
-            names no parameter.
+        ValueError: If the template cannot be read, or reads a
+            positional field, which names no parameter.
     """
+    try:
+        parsed = list(Formatter().parse(template))
+    except ValueError as error:
+        msg = f"Rate limiter key template {template!r} cannot be read: {error}."
+        raise ValueError(msg) from None
     fields = []
-    for _, field, spec, _ in Formatter().parse(template):
+    for _, field, spec, _ in parsed:
         if field is not None:
             fields.append(field.split(".")[0].split("[")[0])
         if spec:

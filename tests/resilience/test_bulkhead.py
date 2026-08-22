@@ -2,7 +2,7 @@
 
 import asyncio
 import threading
-from typing import Self
+from typing import Any, Self, cast
 
 import pytest
 
@@ -14,6 +14,7 @@ from grelmicro import (
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
+from grelmicro.resilience import bulkhead as bulkhead_module
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -502,3 +503,25 @@ async def test_a_permit_is_returned_when_the_scope_cannot_open() -> None:
     semaphore = bulkhead._state.semaphore
     assert semaphore is not None
     assert semaphore._value == 1
+
+
+async def test_a_permit_is_returned_when_the_scope_push_fails() -> None:
+    """Everything after the permit is taken must give it back on failure."""
+    bulkhead = Bulkhead("push-fail", max_concurrent=1)
+
+    def no_task() -> object:
+        msg = "no running task"
+        raise RuntimeError(msg)
+
+    bulkhead._overrides = {("cache", "default"): cast("Any", object())}
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(bulkhead_module, "_current_task", no_task)
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="no running task"):
+                await bulkhead.__aenter__()
+
+    semaphore = bulkhead._state.semaphore
+    assert semaphore is not None
+    assert semaphore._value == 1
+    assert bulkhead_module._active_bulkhead.get(None) is None

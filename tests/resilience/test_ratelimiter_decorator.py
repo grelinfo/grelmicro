@@ -470,3 +470,17 @@ async def test_a_bound_method_and_its_function_keep_separate_resolvers() -> (
         assert await unbound(service, "u1") == "u1"
         assert await stack.run(service.fetch, "u2") == "u2"
         assert await unbound(service, "u3") == "u3"
+
+
+def test_a_key_passed_positionally_points_at_the_keyword() -> None:
+    """The first argument is the function, so a key must be named."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    with pytest.raises(TypeError, match=r"write `@limiter\(key="):
+        limiter("user:{user_id}")  # type: ignore[call-overload]  # ty: ignore[no-matching-overload]
+
+
+def test_a_template_that_cannot_be_read_names_itself() -> None:
+    """A malformed template says which template, like every other refusal."""
+    limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
+    with pytest.raises(ValueError, match=r"'u:\{oops' cannot be read"):
+        limiter(key="u:{oops")

@@ -261,23 +261,25 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                     name=self._name,
                     max_concurrent=state.config.max_concurrent,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 ) from None
-        if self._uses and not self._opened:
-            try:
-                await self._open_uses()
-            except BaseException:
-                if semaphore is not None:
-                    semaphore.release()
-                raise
         token: Token[Any] | None = None
-        if self._overrides:
-            current = _active_bulkhead.get(None)
-            merged = (
-                {**current, **self._overrides}
-                if current
-                else dict(self._overrides)
-            )
-            token = _active_bulkhead.set(merged)
-        task = _current_task()
+        try:
+            if self._uses and not self._opened:
+                await self._open_uses()
+            if self._overrides:
+                current = _active_bulkhead.get(None)
+                merged = (
+                    {**current, **self._overrides}
+                    if current
+                    else dict(self._overrides)
+                )
+                token = _active_bulkhead.set(merged)
+            task = _current_task()
+        except BaseException:
+            if token is not None:
+                _active_bulkhead.reset(token)
+            if semaphore is not None:
+                semaphore.release()
+            raise
         scope = (semaphore, token)
         stack = self._scopes.get(task)
         if stack is None:

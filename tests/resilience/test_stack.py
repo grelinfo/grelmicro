@@ -1135,3 +1135,68 @@ def test_a_bound_method_registered_as_a_task_is_refused() -> None:
 
     with pytest.raises(TypeError, match="already registered as a task"):
         stack(service.job)
+
+
+def test_an_item_that_refuses_inspection_is_still_a_type_error() -> None:
+    """Deciding what a value is must not raise the caller's error."""
+
+    class Hostile:
+        """A value whose type cannot be read."""
+
+        @property
+        def __class__(self) -> type:  # type: ignore[override]
+            msg = "unbound proxy"
+            raise RuntimeError(msg)
+
+    with pytest.raises(TypeError, match="does not take"):
+        Stack("recs", patterns=[a_retry(), Hostile()])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
+
+
+def test_a_hostile_value_passed_instead_of_a_list_is_a_type_error() -> None:
+    """The same holds for the list itself."""
+
+    class Hostile:
+        """A value whose type cannot be read."""
+
+        @property
+        def __class__(self) -> type:  # type: ignore[override]
+            msg = "unbound proxy"
+            raise RuntimeError(msg)
+
+    with pytest.raises(TypeError):
+        Stack("recs", patterns=Hostile())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_a_type_that_refuses_to_be_placed_is_still_a_type_error() -> None:
+    """Finding where a value comes from must not raise the caller's error."""
+
+    class Unplaceable(type):
+        """A metaclass whose classes refuse to say where they come from."""
+
+        @property
+        def __module__(cls) -> str:
+            msg = "no module"
+            raise RuntimeError(msg)
+
+    class Hostile(metaclass=Unplaceable):
+        """A value whose type cannot be placed."""
+
+    with pytest.raises(TypeError, match="does not take"):
+        Stack("recs", patterns=[a_retry(), Hostile()])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
+
+
+def test_an_interrupt_while_placing_a_type_is_never_swallowed() -> None:
+    """A real interrupt still gets out."""
+
+    class Interrupting(type):
+        """A metaclass that interrupts while being placed."""
+
+        @property
+        def __module__(cls) -> str:
+            raise KeyboardInterrupt
+
+    class Hostile(metaclass=Interrupting):
+        """A value whose type interrupts."""
+
+    with pytest.raises(KeyboardInterrupt):
+        Stack("recs", patterns=[a_retry(), Hostile()])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
