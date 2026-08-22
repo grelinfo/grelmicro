@@ -101,6 +101,10 @@ class _Scope:
     entered: int = 0
     opened: bool = False
 
+    def forget(self) -> None:
+        """Stop reporting the scope open, as its first item closes."""
+        self.opened = False
+
 
 class Bulkhead(Reconfigurable[BulkheadConfig]):
     """Bulkhead policy.
@@ -278,7 +282,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 micro = _current_micro.get(None)
                 if (
                     micro is None
-                    or micro._closing  # noqa: SLF001
                     or (scope := micro._scoped_uses.get(self)) is None  # noqa: SLF001
                     or not scope.opened
                 ):
@@ -349,7 +352,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         micro = Grelmicro.current()
         exit_stack = micro._exit_stack  # noqa: SLF001
         if exit_stack is None:
-            raise OutOfContextError(self._closed_scope_message())
+            raise OutOfContextError(self._no_scope_message(micro))
         scopes = micro._scoped_uses  # noqa: SLF001
         scope = scopes.get(self)
         if scope is None:
@@ -359,7 +362,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             scopes[self] = scope
         async with scope.lock:
             if micro._closing:  # noqa: SLF001
-                raise OutOfContextError(self._closed_scope_message())
+                raise OutOfContextError(self._no_scope_message(micro))
             if scope.opened:
                 return
             report_unmet_requirements(
@@ -372,18 +375,26 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                     # app's stack may already have unwound past it. Close it
                     # here and leave the scope for the next app to open.
                     await item.__aexit__(None, None, None)
-                    raise OutOfContextError(self._closed_scope_message())
+                    raise OutOfContextError(self._no_scope_message(micro))
                 exit_stack.push_async_exit(item)
+                # Sits above the item, so the unwind forgets the scope
+                # before closing anything it holds.
+                exit_stack.callback(scope.forget)
                 scope.entered += 1
             scope.opened = True
 
-    def _closed_scope_message(self) -> str:
-        """Describe a `uses=` scope that closed with the app that opened it."""
+    def _no_scope_message(self, micro: Grelmicro) -> str:
+        """Describe a `uses=` scope the app cannot open right now."""
+        if micro._closing:  # noqa: SLF001
+            return (
+                f"Bulkhead {self._name!r} was entered while its uses= scope "
+                "was closing with the app that opened it. Enter it before "
+                "the app shuts down, or list the provider in "
+                "Grelmicro(uses=[...]) so it outlives the item that needs it."
+            )
         return (
-            f"Bulkhead {self._name!r} was entered while its uses= scope was "
-            "closing with the app that opened it. Enter it before the app "
-            "shuts down, or list the provider in Grelmicro(uses=[...]) so it "
-            "outlives the item that needs it."
+            f"Bulkhead {self._name!r} was entered before its app started. "
+            "Enter it inside `async with micro:`, after startup has run."
         )
 
     def __call__[**P, R](

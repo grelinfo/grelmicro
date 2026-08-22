@@ -734,7 +734,11 @@ async def test_an_entry_after_shutdown_raises_from_an_inherited_context() -> (
 
 
 async def test_overlapping_apps_keep_separate_scope_records() -> None:
-    """Two apps active at once each keep their own record of the scope."""
+    """Two apps active at once each keep their own record of the scope.
+
+    The records are separate, the `uses=` items are not: both apps enter the
+    same objects, as they would in two overlapping `Grelmicro(uses=[...])`.
+    """
     opens = 0
 
     class Track:
@@ -851,6 +855,65 @@ async def test_entering_a_scope_that_closed_with_its_app_raises() -> None:
 
     assert opens == 1  # the drain did not rebuild the closed scope
     assert "closing with the app that opened it" in str(drained[0])
+
+
+async def test_a_startup_opened_scope_still_drains_at_shutdown() -> None:
+    """An app item drains through a scope its own items still hold open."""
+    closed: list[str] = []
+    drained: list[str] = []
+
+    class Track:
+        """A scope item that records when it closes."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            closed.append("scope")
+
+    bulkhead = Bulkhead("db", uses=[Track()])
+
+    class Warmup:
+        """An app item that opens the scope during startup."""
+
+        async def __aenter__(self) -> Self:
+            async with bulkhead:
+                pass
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    class Server:
+        """A later app item that drains through the bulkhead on shutdown."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            async with bulkhead:
+                drained.append("ok")
+
+    async with Grelmicro(uses=[Warmup(), Server()]):
+        pass
+
+    # The scope sits below `Server` on the stack, so it is still open when
+    # `Server` drains through it.
+    assert drained == ["ok"]
+    assert closed == ["scope"]
+
+
+async def test_entering_before_startup_names_startup_not_shutdown() -> None:
+    """A call that beats startup is told to wait for it, not that it is late."""
+    bulkhead = Bulkhead("early", uses=[_Gate()])
+    micro = Grelmicro()
+    token = bulkhead_module._current_micro.set(micro)
+    try:
+        with pytest.raises(OutOfContextError, match="before its app started"):
+            async with bulkhead:
+                pass
+    finally:
+        bulkhead_module._current_micro.reset(token)
 
 
 def test_the_open_lock_is_built_on_the_app_event_loop() -> None:
