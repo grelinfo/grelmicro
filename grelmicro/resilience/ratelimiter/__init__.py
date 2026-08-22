@@ -851,6 +851,7 @@ class RateLimiterBinding:
     """
 
     __slots__ = (
+        "_bound_resolvers",
         "_cost",
         "_fields",
         "_key",
@@ -929,6 +930,10 @@ class RateLimiterBinding:
             Callable[..., Any],
             Callable[[tuple[Any, ...], dict[str, Any]], str],
         ] = WeakKeyDictionary()
+        self._bound_resolvers: WeakKeyDictionary[
+            Callable[..., Any],
+            Callable[[tuple[Any, ...], dict[str, Any]], str],
+        ] = WeakKeyDictionary()
 
     @property
     def limiter(self) -> RateLimiter:
@@ -960,15 +965,17 @@ class RateLimiterBinding:
         """
         if not self._reads_signature:
             return self._build_resolver(fn)
-        cache_key = getattr(fn, "__func__", fn)
+        bound = inspect.ismethod(fn)
+        cache = self._bound_resolvers if bound else self._resolvers
+        cache_key = getattr(fn, "__func__", fn) if bound else fn
         try:
-            cached = self._resolvers.get(cache_key)
+            cached = cache.get(cache_key)
         except TypeError:
             return self._build_resolver(fn)
         if cached is not None:
             return cached
         resolver = self._build_resolver(fn)
-        self._resolvers[cache_key] = resolver
+        cache[cache_key] = resolver
         return resolver
 
     def _build_resolver(

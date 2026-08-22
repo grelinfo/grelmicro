@@ -1047,3 +1047,26 @@ def test_the_scheduled_and_generator_refusals_are_named_by_what_was_passed() -> 
     """A class passed instead of an instance reads as that class."""
     with pytest.raises(TypeError, match="does not take Retry"):
         Stack("recs", patterns=[Retry])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("kind", ["async", "sync"], ids=["async", "sync"])
+def test_a_callable_object_that_yields_is_refused(kind: str) -> None:
+    """A generator is a generator however it is spelled."""
+
+    class AsyncGenClient:
+        """A callable object whose call builds an async generator."""
+
+        async def __call__(self) -> AsyncIterator[int]:
+            yield 1
+
+    class SyncGenClient:
+        """A callable object whose call builds a generator."""
+
+        def __call__(self) -> Iterator[int]:
+            yield 1
+
+    stack = Stack("recs", patterns=[a_retry()])
+    target = AsyncGenClient() if kind == "async" else SyncGenClient()
+
+    with pytest.raises(TypeError, match="runs its body while it is iterated"):
+        stack(target)

@@ -177,13 +177,23 @@ def _as_coroutine_function[**P, R](
     return target
 
 
+def _is_generator(fn: object) -> bool:
+    """Return whether calling `fn` builds a generator instead of running."""
+    if isasyncgenfunction(fn) or isgeneratorfunction(fn):
+        return True
+    call = type(fn).__dict__.get("__call__")
+    return call is not None and (
+        isasyncgenfunction(call) or isgeneratorfunction(call)
+    )
+
+
 def _refuse_generator(fn: object, name: str) -> None:
     """Refuse a generator function, whose body no pattern would wrap.
 
     Raises:
         TypeError: If `fn` is a generator or async generator function.
     """
-    if not (isasyncgenfunction(fn) or isgeneratorfunction(fn)):
+    if not _is_generator(fn):
         return
     msg = (
         f"Stack {name!r} does not wrap {_named(fn)}, because a "

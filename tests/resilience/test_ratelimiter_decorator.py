@@ -443,4 +443,30 @@ async def test_a_bound_method_reuses_one_resolver() -> None:
 
         assert await stack.run(service.fetch, USER) == USER
         assert await stack.run(service.fetch, OTHER_USER) == OTHER_USER
-        assert len(binding._resolvers) == 1
+        assert len(binding._bound_resolvers) == 1
+
+
+async def test_a_bound_method_and_its_function_keep_separate_resolvers() -> (
+    None
+):
+    """The two forms differ by `self`, so one signature cannot serve both."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "api", capacity=10**6, refill_rate=10**6, backend=backend
+        )
+        binding = limiter(key="user:{user_id}")
+        assert isinstance(binding, RateLimiterBinding)
+
+        class Service:
+            """A service metered through both forms of its method."""
+
+            async def fetch(self, user_id: str) -> str:
+                return user_id
+
+        service = Service()
+        unbound = binding(Service.fetch)
+        stack = Stack("api", patterns=[binding])
+
+        assert await unbound(service, "u1") == "u1"
+        assert await stack.run(service.fetch, "u2") == "u2"
+        assert await unbound(service, "u3") == "u3"

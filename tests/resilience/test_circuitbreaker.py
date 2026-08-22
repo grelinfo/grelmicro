@@ -1395,3 +1395,24 @@ async def test_from_thread_on_another_loop_is_served() -> None:
             return asyncio.run(inner())
 
         assert await asyncio.to_thread(enter_on_a_second_loop) == "admitted"
+
+
+class _NotAnOutcome(BaseException):
+    """Something that is not a dependency outcome."""
+
+
+async def test_from_thread_records_nothing_for_a_non_exception() -> None:
+    """A `BaseException` is control flow, not a call that failed."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker("no-outcome", backend=backend)
+
+        def enter_and_raise() -> None:
+            with cb.from_thread:
+                raise _NotAnOutcome
+
+        with pytest.raises(_NotAnOutcome):
+            await asyncio.to_thread(enter_and_raise)
+
+        metrics = cb.metrics()
+        assert metrics.total_error_count == 0
+        assert metrics.total_success_count == 0
