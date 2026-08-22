@@ -223,6 +223,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._uses = tuple(
             instantiate_if_class(item) for item in uses if item is not None
         )
+        _check_usable(name, self._uses)
         self._overrides: dict[tuple[str, str], Component] = {
             (item.kind, item.name): item
             for item in self._uses
@@ -589,6 +590,19 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._state = _State(
             config=new_config, semaphore=_build_semaphore(new_config)
         )
+
+
+def _check_usable(name: str, items: tuple[Usable, ...]) -> None:
+    """Refuse a `uses=` entry the bulkhead could not open as a scope."""
+    for item in items:
+        if hasattr(item, "__aenter__") and hasattr(item, "__aexit__"):
+            continue
+        msg = (
+            f"Bulkhead {name!r} got {item!r} in uses=, which is not an async "
+            "context manager. Pass a Provider, a Component, or an object with "
+            "__aenter__ and __aexit__."
+        )
+        raise TypeError(msg)
 
 
 def _build_semaphore(config: BulkheadConfig) -> asyncio.Semaphore | None:

@@ -356,6 +356,12 @@ async def test_uses_opens_once_and_closes_at_shutdown() -> None:
     assert track.exited == 1  # closed at app shutdown
 
 
+def test_uses_refuses_something_that_is_not_a_scope() -> None:
+    """A `uses=` entry that cannot be opened is named at construction."""
+    with pytest.raises(TypeError, match="not an async context manager"):
+        Bulkhead("wired-wrong", uses=[object()])  # ty: ignore[invalid-argument-type]
+
+
 async def test_uses_requires_active_app() -> None:
     """Entering a `uses=` bulkhead without an app raises."""
     bulkhead = Bulkhead(
