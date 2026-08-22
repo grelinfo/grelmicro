@@ -28,6 +28,7 @@ CONFIG_WAIT = 0.5
 CONFIG_WORKERS = 2
 ADD_RESULT = 42
 KWARGS_SUM = 5
+APPS = 3
 
 
 # --- Construction & configuration ---
@@ -563,3 +564,115 @@ async def test_a_partly_opened_scope_resumes_where_it_stopped() -> None:
             pass
 
     assert entered == ["first", "second", "second"]
+
+
+async def test_a_second_app_opens_the_scope_again() -> None:
+    """The scope belongs to one app, so the next app opens it from scratch."""
+
+    class Track:
+        """A scope item that counts its entries and exits."""
+
+        def __init__(self) -> None:
+            self.entered = 0
+            self.exited = 0
+
+        async def __aenter__(self) -> Self:
+            self.entered += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            self.exited += 1
+
+    track = Track()
+    bulkhead = Bulkhead("reports", uses=[track])
+
+    for _ in range(APPS):
+        async with Grelmicro():
+            async with bulkhead:
+                pass
+            async with bulkhead:
+                pass
+
+    assert track.entered == APPS  # once per app, not once per entry
+    assert track.exited == APPS
+
+
+async def test_a_partly_opened_scope_does_not_resume_in_the_next_app() -> None:
+    """A failed open in one app leaves no resume index for the next."""
+    entered: list[str] = []
+
+    class Item:
+        """A scope item that records its entries."""
+
+        def __init__(self, label: str, *, fails: bool) -> None:
+            self.label = label
+            self.fails = fails
+
+        async def __aenter__(self) -> Self:
+            entered.append(self.label)
+            if self.fails:
+                self.fails = False
+                msg = "server briefly down"
+                raise ConnectionError(msg)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead(
+        "resume",
+        uses=[Item("first", fails=False), Item("second", fails=True)],
+    )
+
+    async with Grelmicro():
+        with pytest.raises(ConnectionError):
+            await bulkhead.__aenter__()
+
+    async with Grelmicro(), bulkhead:
+        pass
+
+    assert entered == ["first", "second", "first", "second"]
+
+
+async def test_a_failed_first_item_arms_one_reset_per_app() -> None:
+    """A retried open pushes the reset once, not once per attempt."""
+
+    class Item:
+        """A scope item that fails a set number of times."""
+
+        def __init__(self, failures: int) -> None:
+            self.failures = failures
+
+        async def __aenter__(self) -> Self:
+            if self.failures:
+                self.failures -= 1
+                msg = "server briefly down"
+                raise ConnectionError(msg)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    attempts = 3
+    bulkhead = Bulkhead("retry", uses=[Item(attempts)])
+    forget = bulkhead._forget_scope
+    resets = 0
+
+    def counting_forget() -> None:
+        nonlocal resets
+        resets += 1
+        forget()
+
+    bulkhead._forget_scope = counting_forget  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+    async with Grelmicro():
+        for _ in range(attempts):
+            with pytest.raises(ConnectionError):
+                await bulkhead.__aenter__()
+        async with bulkhead:
+            pass
+
+    assert resets == 1  # pushed once per app, not once per attempt
+    assert bulkhead._opened is False
+    assert bulkhead._entered == 0
+    assert bulkhead._scoped is False
