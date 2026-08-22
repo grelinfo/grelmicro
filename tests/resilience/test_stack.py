@@ -4,6 +4,7 @@ import asyncio
 import gc
 import time
 import weakref
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -994,3 +995,47 @@ async def test_a_breaker_backend_failure_is_not_retried() -> None:
 
         assert calls == 0
         assert admits == 1
+
+
+@pytest.mark.parametrize("kind", ["async", "sync"], ids=["async", "sync"])
+def test_a_generator_function_is_refused(kind: str) -> None:
+    """A generator runs its body while iterated, so nothing would wrap it."""
+    stack = Stack("recs", patterns=[a_retry()])
+
+    async def async_gen() -> AsyncIterator[int]:
+        yield 1
+
+    def sync_gen() -> Iterator[int]:
+        yield 1
+
+    target = async_gen if kind == "async" else sync_gen
+    with pytest.raises(TypeError, match="runs its body while it is iterated"):
+        stack(target)
+
+
+async def test_run_refuses_a_generator_function() -> None:
+    """`run` refuses what the decorator refuses, and for the same reason."""
+    stack = Stack("recs", patterns=[a_retry()])
+
+    async def async_gen() -> AsyncIterator[int]:
+        yield 1
+
+    with pytest.raises(TypeError, match="runs its body while it is iterated"):
+        await stack.run(async_gen)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_one_pattern_without_a_list_says_so() -> None:
+    """`patterns` takes a list, and a lone pattern is iterable."""
+    with pytest.raises(TypeError, match="takes a list of patterns"):
+        Stack("recs", patterns=a_retry())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_a_wrapper_over_a_registered_task_is_refused_too() -> None:
+    """The schedule still holds the original, so the stack misses it."""
+    tasks = Tasks()
+    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    wrapped = Fallback("job", when=Exception, default=None)(registered)
+    stack = Stack("job", patterns=[a_retry("job")])
+
+    with pytest.raises(TypeError, match="already registered as a task"):
+        stack(wrapped)

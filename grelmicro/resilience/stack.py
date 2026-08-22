@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import functools
-from inspect import iscoroutinefunction
+from inspect import (
+    isasyncgenfunction,
+    iscoroutinefunction,
+    isgeneratorfunction,
+)
 from typing import TYPE_CHECKING, Annotated, Any, overload
 
 from typing_extensions import Doc
@@ -169,6 +173,24 @@ def _as_coroutine_function[**P, R](
     return target
 
 
+def _refuse_generator(fn: object, name: str) -> None:
+    """Refuse a generator function, whose body no pattern would wrap.
+
+    Raises:
+        TypeError: If `fn` is a generator or async generator function.
+    """
+    if not (isasyncgenfunction(fn) or isgeneratorfunction(fn)):
+        return
+    msg = (
+        f"Stack {name!r} does not wrap {_named(fn)}, because a "
+        "generator runs its body while it is iterated and not when it "
+        "is called, so every pattern would wrap building the generator "
+        "and nothing else. Wrap the function that consumes it, or the "
+        "call inside the body."
+    )
+    raise TypeError(msg)
+
+
 def _named(fn: object) -> str:
     """Return the name of a decorated function, for a message."""
     return getattr(fn, "__qualname__", None) or repr(fn)
@@ -266,10 +288,18 @@ class Stack:
         """Build a stack from the patterns it applies.
 
         Raises:
-            TypeError: If an item is not a pattern a Stack composes.
+            TypeError: If `patterns` is one pattern rather than a list
+                of them, or an item is not a pattern a Stack composes.
             ValueError: If two items fill the same slot, or no item is
                 given.
         """
+        if isinstance(patterns, (str, bytes, *_SLOTS)):
+            msg = (
+                f"Stack {name!r} takes a list of patterns, got "
+                f"{type(patterns).__name__}. Wrap it: "
+                "patterns=[the_pattern]."
+            )
+            raise TypeError(msg)
         members: dict[str, Pattern] = {}
         for item in patterns:
             if item is None:
@@ -352,6 +382,7 @@ class Stack:
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
+        _refuse_generator(fn, self._name)
         if is_scheduled(fn):
             msg = (
                 f"{_named(fn)} is already registered as a task, so the "
@@ -398,6 +429,7 @@ class Stack:
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
+        _refuse_generator(fn, self._name)
         if not is_async_callable(fn):
             blocking = self._async_only()
             makes = "make" if len(blocking) > 1 else "makes"

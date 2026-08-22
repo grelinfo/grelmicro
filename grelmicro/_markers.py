@@ -21,7 +21,7 @@ SCHEDULED = "__grelmicro_scheduled__"
 
 def mark_scheduled(function: object) -> None:
     """Mark `function` as registered by a task router."""
-    with suppress(AttributeError):  # pragma: no cover - defensive
+    with suppress(AttributeError):
         setattr(function, SCHEDULED, True)
 
 

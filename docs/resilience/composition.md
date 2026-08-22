@@ -115,6 +115,7 @@ A `Stack` composes the six patterns that wrap a call. Anything else is refused a
 | A task decorator (`@tasks.every`, `@tasks.cron`) | Above the Stack. It registers the function it is handed, so a Stack below it would wrap only direct calls and leave every scheduled run unprotected. Written the wrong way round, the Stack refuses. |
 | [`LeaderElection`](../coordination/leader-election.md) | Nowhere in the order. It runs as a service. Gate the work on `leader.is_leader`. |
 | [`Lock`](../coordination/lock.md), [`ReadWriteLock`](../coordination/read-write-lock.md) | Inside the function. Both are keyed and held around a block. |
+| A generator function | Around the code that consumes it, or around the call inside its body. A generator runs its body while it is iterated, so a Stack would wrap building it and nothing else. Refused. |
 
 Read outside-in, a fully wired call site looks like this:
 
