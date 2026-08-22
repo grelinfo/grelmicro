@@ -283,6 +283,7 @@ class Grelmicro:
         self._by_key: dict[tuple[str, str], Component] = {}
         self._by_kind: dict[str, Component] = {}
         self._exit_stack: AsyncExitStack | None = None
+        self._scoped_uses: dict[object, Any] = {}
         self._token: Any = None
         self._strict = strict
         self._environment = resolve_environment(environment)
@@ -1231,6 +1232,7 @@ class Grelmicro:
         """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
+        self._scoped_uses.clear()
         with _active_apps_lock:
             if (
                 not self._allow_multiple
@@ -1289,6 +1291,7 @@ class Grelmicro:
                 if self in _active_apps:  # pragma: no branch
                     _active_apps.remove(self)
             self._exit_stack = None
+            self._scoped_uses.clear()
 
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.

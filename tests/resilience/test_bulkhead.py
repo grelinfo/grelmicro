@@ -658,21 +658,175 @@ async def test_a_failed_first_item_arms_one_reset_per_app() -> None:
     forget = bulkhead._forget_scope
     resets = 0
 
-    def counting_forget() -> None:
+    def counting_forget(
+        micro: Grelmicro, scope: bulkhead_module._Scope
+    ) -> None:
         nonlocal resets
         resets += 1
-        forget()
+        forget(micro, scope)
 
     bulkhead._forget_scope = counting_forget  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
-    async with Grelmicro():
+    async with Grelmicro() as micro:
         for _ in range(attempts):
             with pytest.raises(ConnectionError):
                 await bulkhead.__aenter__()
         async with bulkhead:
             pass
+        assert len(micro._scoped_uses) == 1
 
     assert resets == 1  # pushed once per app, not once per attempt
-    assert bulkhead._opened is False
-    assert bulkhead._entered == 0
-    assert bulkhead._scoped is False
+    assert bulkhead._opened_for is bulkhead_module._UNSCOPED
+    assert micro._scoped_uses == {}
+
+
+async def test_overlapping_apps_each_open_their_own_scope() -> None:
+    """Two apps active at once do not share one bulkhead's scope."""
+    opens = 0
+    closes = 0
+
+    class Track:
+        """A scope item that counts opens and closes."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            nonlocal closes
+            closes += 1
+
+    bulkhead = Bulkhead("shared", uses=[Track()])
+    inner_done = asyncio.Event()
+
+    async def inner() -> None:
+        async with Grelmicro(allow_multiple=True), bulkhead:
+            pass
+        inner_done.set()
+
+    async with Grelmicro(allow_multiple=True):
+        async with bulkhead:
+            pass
+        assert opens == 1
+        # A second app opens and closes its own scope while this one holds
+        # its own. The item it closes must not be the one still in use here.
+        await asyncio.create_task(inner())
+        await inner_done.wait()
+        assert opens == LIMIT
+        assert closes == 1
+        # This app's scope survived the other app's shutdown.
+        async with bulkhead:
+            pass
+        assert opens == LIMIT
+
+    assert closes == LIMIT
+
+
+async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
+    """Shutdown during an in-flight open leaves no stale open scope behind."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    opened: list[str] = []
+    closed: list[str] = []
+
+    class Slow:
+        """A scope item that blocks until it is released."""
+
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        async def __aenter__(self) -> Self:
+            started.set()
+            await release.wait()
+            opened.append(self.label)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            closed.append(self.label)
+
+    bulkhead = Bulkhead("slow", uses=[Slow("first"), Slow("second")])
+    micro = Grelmicro()
+
+    async def enter() -> None:
+        async with bulkhead:
+            pass
+
+    await micro.__aenter__()
+    task = asyncio.create_task(enter())
+    await started.wait()
+    # Shut the app down while the open is parked on the first item.
+    await micro.__aexit__(None, None, None)
+    release.set()
+    await task
+
+    assert opened == ["first"]  # the second item was never started
+    assert closed == ["first"]  # the first closed itself, the stack was gone
+    # Nothing claims the scope is open, so the next app opens it again.
+    assert bulkhead._opened_for is bulkhead_module._UNSCOPED
+    assert micro._scoped_uses == {}
+
+
+async def test_the_scope_is_not_reopened_while_the_app_unwinds() -> None:
+    """An item entering the bulkhead from its own exit reuses the scope."""
+    opens = 0
+
+    class Track:
+        """A scope item that counts opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("drain", uses=[Track()])
+
+    class Flusher:
+        """An app item that drains through the bulkhead on shutdown."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            async with bulkhead:
+                pass
+
+    async with Grelmicro(uses=[Flusher()]):
+        async with bulkhead:
+            pass
+        assert opens == 1
+
+    assert opens == 1  # the drain reused the scope, it did not rebuild it
+
+
+def test_the_open_lock_is_built_on_the_app_event_loop() -> None:
+    """A bulkhead reused across event loops does not carry a bound lock."""
+    bulkhead = Bulkhead("cli", uses=[_Gate()])
+
+    async def run() -> None:
+        async with Grelmicro():
+            # Two tasks race the first entry, which binds the scope lock.
+            await asyncio.gather(*(_enter(bulkhead) for _ in range(LIMIT)))
+
+    asyncio.run(run())
+    asyncio.run(run())
+
+
+class _Gate:
+    """A scope item that yields control so a racing entry queues behind it."""
+
+    async def __aenter__(self) -> Self:
+        await asyncio.sleep(0)
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        """Leave the scope."""
+
+
+async def _enter(bulkhead: Bulkhead) -> None:
+    """Enter and leave the bulkhead once."""
+    async with bulkhead:
+        pass
