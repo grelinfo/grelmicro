@@ -1,6 +1,7 @@
 """Tests for the Bulkhead concurrency-isolation pattern."""
 
 import asyncio
+import contextvars
 import threading
 from typing import Any, Self, cast
 
@@ -360,7 +361,7 @@ async def test_uses_requires_active_app() -> None:
     bulkhead = Bulkhead(
         "checkout", uses=[Coordination(lock=MemoryLockAdapter())]
     )
-    with pytest.raises(NoActiveAppError):
+    with pytest.raises(NoActiveAppError, match="no active Grelmicro app"):
         async with bulkhead:
             pass
 
@@ -845,7 +846,7 @@ async def test_a_parked_open_keeps_the_scope_until_it_finishes() -> None:
 
     async with Grelmicro():
         # The exit stack is done, but the entry is not, so it still holds it.
-        with pytest.raises(OutOfContextError, match="another Grelmicro"):
+        with pytest.raises(OutOfContextError, match="a run that has shut down"):
             async with bulkhead:
                 pass
         release.set()
@@ -1199,6 +1200,67 @@ async def test_a_failing_close_still_names_the_lost_scope() -> None:
     await task
 
     assert bulkhead._scope_stack is None
+
+
+async def test_an_unbound_context_uses_the_run_holding_the_scope() -> None:
+    """A task with no app binding still enters a scope that is already open."""
+    opens = 0
+
+    class Track:
+        """A scope item that counts opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("unbound", uses=[Track()])
+    ran = False
+
+    async def unbound() -> None:
+        nonlocal ran
+        async with bulkhead:
+            ran = True
+
+    async with Grelmicro():
+        async with bulkhead:
+            pass
+        # A fresh context carries no `Grelmicro.current()` binding, as a
+        # request handler under `install(ambient=False)` does not.
+        await asyncio.create_task(unbound(), context=contextvars.Context())
+
+    assert ran is True
+    assert opens == 1  # reused the open scope rather than refusing
+
+
+async def test_a_failed_startup_reads_as_a_shutdown() -> None:
+    """An app that started and tore itself down is not waiting to start."""
+
+    class Boom:
+        """An app item that fails startup."""
+
+        async def __aenter__(self) -> Self:
+            msg = "startup failed"
+            raise RuntimeError(msg)
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("late", uses=[_Gate()])
+    micro = Grelmicro(uses=[Boom()])
+    with pytest.raises(RuntimeError, match="startup failed"):
+        await micro.__aenter__()
+
+    token = bulkhead_module._current_micro.set(micro)
+    try:
+        with pytest.raises(OutOfContextError, match="closing with the app"):
+            async with bulkhead:
+                pass
+    finally:
+        bulkhead_module._current_micro.reset(token)
 
 
 def test_the_open_lock_is_built_on_the_app_event_loop() -> None:

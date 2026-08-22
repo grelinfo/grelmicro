@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING, Annotated, Any, Self
 from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._app import Grelmicro, _active_bulkhead, _current_micro
+from grelmicro._app import (
+    Grelmicro,
+    NoActiveAppError,
+    _active_bulkhead,
+    _current_micro,
+)
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
     Reconfigurable,
@@ -287,7 +292,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         token: Token[Any] | None = None
         try:
             if self._uses:
-                micro = _current_micro.get(None)
+                # Falls back to the run holding the scope when this context
+                # carries no binding. Ownership is exclusive, so that run is
+                # the only one it can be.
+                micro = _current_micro.get(self._scoped_to)
                 if (
                     micro is None
                     or (scope := micro._scoped_uses.get(self)) is None  # noqa: SLF001
@@ -357,7 +365,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         check their backend scope at startup. They are checked here instead,
         the first time the scope opens.
         """
-        micro = Grelmicro.current()
+        micro = _current_micro.get(self._scoped_to)
+        if micro is None:
+            raise NoActiveAppError(self._no_app_message())
         exit_stack = micro._exit_stack  # noqa: SLF001
         if exit_stack is None:
             raise OutOfContextError(self._no_scope_message(micro, None))
@@ -461,6 +471,14 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             self._scoped_to = None
             self._unwound = False
 
+    def _no_app_message(self) -> str:
+        """Describe a `uses=` bulkhead entered with no app to open it under."""
+        return (
+            f"Bulkhead {self._name!r} was entered with no active Grelmicro "
+            "app. Its uses= scope needs one, so enter it inside "
+            "`async with micro:`."
+        )
+
     def _shared_scope_message(self, micro: Grelmicro) -> str:
         """Describe a `uses=` scope another app run already holds."""
         if self._scoped_to is micro:
@@ -468,6 +486,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 f"Bulkhead {self._name!r} still has its uses= scope open "
                 "from an earlier run of this app, which has not finished "
                 "closing it. Enter it again once that run has drained."
+            )
+        if self._unwound:
+            return (
+                f"Bulkhead {self._name!r} still has its uses= scope held by "
+                "a run that has shut down, because one of its uses= items is "
+                "still being entered. That entry has to finish first."
             )
         return (
             f"Bulkhead {self._name!r} has its uses= scope open on another "
