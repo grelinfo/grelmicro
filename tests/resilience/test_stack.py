@@ -1117,3 +1117,21 @@ def test_an_inherited_call_that_yields_is_refused() -> None:
 
     with pytest.raises(TypeError, match="runs its body while it is iterated"):
         stack(Sub())
+
+
+class Service:
+    """A service whose method a router registers."""
+
+    async def job(self) -> None:
+        """Do nothing."""
+
+
+def test_a_bound_method_registered_as_a_task_is_refused() -> None:
+    """A bound method carries no mark, so the function under it does."""
+    tasks = Tasks()
+    tasks.every(seconds=INTERVAL, name="bound")(Service.job)
+    stack = Stack("job", patterns=[a_retry("job")])
+    service = Service()
+
+    with pytest.raises(TypeError, match="already registered as a task"):
+        stack(service.job)

@@ -1071,7 +1071,9 @@ def _refuse_on_backend_loop(name: str, loop: asyncio.AbstractEventLoop) -> None:
     caller on a different loop is served by the backend's own.
 
     Raises:
-        RuntimeError: If the calling thread runs the backend's loop.
+        _EventLoopEntryError: If the calling thread runs the backend's
+            loop. Not an `Exception`, so `except Exception` and
+            `except RuntimeError` both pass it through.
     """
     try:
         running = asyncio.get_running_loop()
