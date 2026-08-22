@@ -8,6 +8,7 @@ from typing import Any, Self, cast
 import pytest
 
 from grelmicro import (
+    BackendScopeError,
     ComponentNotRegisteredError,
     Grelmicro,
     NoActiveAppError,
@@ -777,6 +778,25 @@ async def test_an_overlapping_run_borrows_the_open_scope() -> None:
     assert closes == 1
 
 
+async def test_a_borrowing_run_gets_its_own_backend_check() -> None:
+    """The check runs against the run that borrows, not the one that opened."""
+    lenient = Grelmicro(allow_multiple=True, environment="development")
+    strict = Grelmicro(allow_multiple=True, environment="production")
+    bulkhead = Bulkhead(
+        "checked", uses=[Coordination(lock=MemoryLockAdapter())]
+    )
+
+    async with lenient:
+        async with bulkhead:
+            pass
+        async with strict:
+            # A memory backend passes in development and not in production,
+            # so borrowing must not inherit the owner's verdict.
+            with pytest.raises(BackendScopeError):
+                async with bulkhead:
+                    pass
+
+
 async def test_a_borrowed_scope_is_reopened_once_its_owner_goes() -> None:
     """A run that outlives the owner opens the scope for itself."""
     opens = 0
@@ -924,7 +944,7 @@ async def test_a_second_app_waits_for_every_item_to_close() -> None:
         await closing.wait()
         async with Grelmicro(allow_multiple=True):
             # The first app is still inside the item's exit.
-            with pytest.raises(OutOfContextError, match="another Grelmicro"):
+            with pytest.raises(OutOfContextError, match="is closing its uses="):
                 async with bulkhead:
                     pass
         order.append("refused")

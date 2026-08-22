@@ -34,7 +34,7 @@ The default fails fast: with no `max_wait`, a full bulkhead rejects immediately.
 --8<-- "resilience/bulkhead_uses.py"
 ```
 
-The bulkhead opens its `uses=` on first entry and closes them when the app shuts down, so an active `Grelmicro` app is required. The scope belongs to that app run, which holds the record of it, so a later run in the same process enters every item again from the start. One run owns the scope: another run that overlaps it borrows the open items rather than opening a second set, and entering once the owning run has gone raises rather than using closed providers. Re-entering an item does not always hand it back ready, because `PostgresProvider` and `SqliteProvider` rebuild their pool while `RedisProvider` and `ValkeyProvider` keep the client they built at construction. List the Provider before the Component that borrows it, exactly as in `Grelmicro(uses=[...])`.
+The bulkhead opens its `uses=` on first entry and closes them when the app shuts down, so an active `Grelmicro` app is required. The scope belongs to that app run, which holds the record of it, so a later run in the same process enters every item again from the start. One run owns the scope: another run that overlaps it borrows the open items rather than opening a second set, and entering once the owning run has gone raises rather than using closed providers. List the Provider before the Component that borrows it, exactly as in `Grelmicro(uses=[...])`.
 
 These Components are not registered on the app, so the [backend check](../deployment.md#the-backend-check) cannot run at startup for them. It runs on first entry instead, with the same rules.
 

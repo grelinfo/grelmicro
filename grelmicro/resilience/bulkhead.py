@@ -452,9 +452,13 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         if holder is None or holder is micro:
             return False
         held = holder._scoped_uses.get(self)  # noqa: SLF001
-        if held is not None and held.opened:
-            return True
-        raise OutOfContextError(self._shared_scope_message(micro))
+        if held is None or not held.opened:
+            raise OutOfContextError(self._shared_scope_message(micro))
+        # Checked against this run's environment, not the owner's.
+        report_unmet_requirements(
+            unmet_requirements(self._uses), micro.environment
+        )
+        return True
 
     def _claim_scope(
         self, micro: Grelmicro, exit_stack: AsyncExitStack
@@ -510,7 +514,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
 
     def _shared_scope_message(self, micro: Grelmicro) -> str:
         """Describe a `uses=` scope another app run already holds."""
-        if self._scoped_to is micro:
+        holder = self._scoped_to
+        if holder is micro:
             return (
                 f"Bulkhead {self._name!r} still has its uses= scope open "
                 "from an earlier run of this app, which has not finished "
@@ -521,6 +526,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 f"Bulkhead {self._name!r} still has its uses= scope held by "
                 "a run that has shut down, because one of its uses= items is "
                 "still being entered. That entry has to finish first."
+            )
+        if holder is not None and holder._closing:  # noqa: SLF001
+            return (
+                f"Bulkhead {self._name!r} is closing its uses= scope with "
+                "the app run that owns it. Enter it again once that run has "
+                "finished, and this one opens the scope for itself."
             )
         return (
             f"Bulkhead {self._name!r} has its uses= scope open on another "
@@ -626,9 +637,9 @@ def _check_usable(name: str, items: tuple[Usable, ...]) -> None:
         if hasattr(item, "__aenter__") and hasattr(item, "__aexit__"):
             continue
         msg = (
-            f"Bulkhead {name!r} got {item!r} in uses=, which is not an async "
-            "context manager. Pass a Provider, a Component, or an object with "
-            "__aenter__ and __aexit__."
+            f"Bulkhead {name!r} got a {type(item).__name__} in uses=, which "
+            "is not an async context manager. Pass a Provider, a Component, "
+            "or an object with __aenter__ and __aexit__."
         )
         raise TypeError(msg)
 

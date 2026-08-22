@@ -1233,8 +1233,6 @@ class Grelmicro:
         """
         if self._exit_stack is not None:
             raise OutOfContextError(self, "__aenter__")
-        self._scoped_uses.clear()
-        self._closing = False
         with _active_apps_lock:
             if (
                 not self._allow_multiple
@@ -1246,6 +1244,8 @@ class Grelmicro:
             ):
                 raise MultipleActiveAppsError
             _active_apps.append(self)
+        self._scoped_uses.clear()
+        self._closing = False
         try:
             self._discover_shared_providers()
             self._order_providers_before_dependents()
