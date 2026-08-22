@@ -17,6 +17,7 @@ from grelmicro import (
 )
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.providers.memory import MemoryProvider
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
 from grelmicro.resilience import bulkhead as bulkhead_module
 
@@ -315,6 +316,29 @@ async def test_uses_wraps_a_bare_backend_like_the_app() -> None:
         assert micro.get("coordination", "default").lock_backend is dedicated
 
 
+async def test_uses_scopes_the_kinds_a_bare_provider_serves() -> None:
+    """A bare Provider in `uses=` overrides the kinds it can serve."""
+    default = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead("reports", uses=[MemoryProvider()])
+
+    async with micro, bulkhead:
+        scoped = micro.get("coordination", "default")
+        assert scoped.lock_backend is not default
+
+
+async def test_uses_leaves_a_kind_an_explicit_component_claims() -> None:
+    """An explicit Component wins over the default a Provider would give."""
+    dedicated = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
+    bulkhead = Bulkhead(
+        "reports", uses=[MemoryProvider(), Coordination(lock=dedicated)]
+    )
+
+    async with micro, bulkhead:
+        assert micro.get("coordination", "default").lock_backend is dedicated
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()
@@ -515,7 +539,7 @@ async def test_a_permit_is_returned_when_the_scope_cannot_open() -> None:
         msg = "provider down"
         raise ConnectionError(msg)
 
-    bulkhead._uses = (object(),)
+    bulkhead._uses = (_Gate(),)
     bulkhead._open_uses = refuse  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
     for _ in range(2):

@@ -18,6 +18,7 @@ from grelmicro._app import (
     NoActiveAppError,
     _active_bulkhead,
     _current_micro,
+    _default_components_for_provider,
     _maybe_wrap_first_party_backend,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
@@ -37,7 +38,7 @@ from grelmicro.resilience.errors import BulkheadFullError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
-    from contextlib import AsyncExitStack
+    from contextlib import AbstractAsyncContextManager, AsyncExitStack
     from contextvars import Token
     from types import TracebackType
 
@@ -223,11 +224,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._state = _State(config=config, semaphore=_build_semaphore(config))
         self._reconfigure_lock = asyncio.Lock()
         self._executor: ThreadPoolExecutor | None = None
-        self._uses = tuple(
-            _resolve_usable(instantiate_if_class(item))
-            for item in uses
-            if item is not None
-        )
+        self._uses = _expand_uses(uses)
         _check_usable(name, self._uses)
         self._overrides: dict[tuple[str, str], Component] = {
             (item.kind, item.name): item
@@ -729,6 +726,35 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._state = _State(
             config=new_config, semaphore=_build_semaphore(new_config)
         )
+
+
+def _expand_uses(
+    uses: Iterable[Usable | None],
+) -> tuple[AbstractAsyncContextManager[object], ...]:
+    """Resolve `uses=` the way `Grelmicro(uses=[...])` resolves it.
+
+    A bare backend becomes its Component. A bare Provider keeps its own
+    lifecycle and gains a default Component for every kind it serves that
+    no Component in the list already claims, so the shortest form
+    (`uses=[redis]`) scopes what it can serve instead of overriding nothing.
+    """
+    items = [
+        _resolve_usable(instantiate_if_class(item))
+        for item in uses
+        if item is not None
+    ]
+    claimed = {item.kind for item in items if isinstance(item, Component)}
+    resolved = []
+    for item in items:
+        resolved.append(item)
+        if not isinstance(item, Provider):
+            continue
+        for component in _default_components_for_provider(item):
+            if component.kind in claimed:
+                continue
+            claimed.add(component.kind)
+            resolved.append(component)
+    return tuple(resolved)
 
 
 def _resolve_usable[T](item: T) -> T | Component:
