@@ -3,6 +3,7 @@
 import asyncio
 import contextvars
 import threading
+from contextlib import AsyncExitStack
 from typing import Any, Self, cast
 
 import pytest
@@ -927,6 +928,153 @@ async def test_a_borrowed_scope_is_reopened_once_its_owner_goes() -> None:
         async with bulkhead:
             pass
         assert opens == LIMIT
+
+
+async def test_repeated_failed_opens_arm_one_release() -> None:
+    """A retried open does not stack a release callback per attempt."""
+
+    class Brittle:
+        """A scope item that always fails to open."""
+
+        async def __aenter__(self) -> Self:
+            msg = "server down"
+            raise ConnectionError(msg)
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("flapping", uses=[Brittle()])
+    release = bulkhead._release_scope
+    releases = 0
+    attempts = 20
+
+    def counting_release(exit_stack: AsyncExitStack) -> None:
+        nonlocal releases
+        releases += 1
+        release(exit_stack)
+
+    bulkhead._release_scope = counting_release  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+    async with Grelmicro() as micro:
+        for _ in range(attempts):
+            with pytest.raises(ConnectionError):
+                async with bulkhead:
+                    pass
+        assert len(micro._scoped_uses) == 1
+
+    assert releases == 1  # armed once per run, not once per attempt
+
+
+async def test_a_failing_borrow_check_records_nothing() -> None:
+    """A borrow refused by the backend check leaves no trace to repeat."""
+    bulkhead = Bulkhead(
+        "refused", uses=[Coordination(lock=MemoryLockAdapter())]
+    )
+    drop = bulkhead._drop_borrow
+    drops = 0
+    attempts = 10
+
+    def counting_drop(held: object, borrowed: object) -> None:
+        nonlocal drops
+        drops += 1
+        drop(held, borrowed)  # ty: ignore[invalid-argument-type]
+
+    bulkhead._drop_borrow = counting_drop  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+    async with Grelmicro(allow_multiple=True, environment="development") as own:
+        async with bulkhead:
+            pass
+        held = own._scoped_uses[bulkhead]
+        async with Grelmicro(
+            allow_multiple=True, environment="production"
+        ) as borrower:
+            for _ in range(attempts):
+                with pytest.raises(BackendScopeError):
+                    async with bulkhead:
+                        pass
+            assert bulkhead not in borrower._scoped_uses
+
+        assert held.borrowers == set()
+
+    assert drops == 0  # nothing was registered, so nothing had to be dropped
+
+
+async def test_a_part_opened_scope_says_so_to_another_run() -> None:
+    """A stopped open is not reported to another run as one in flight."""
+    entered: list[str] = []
+
+    class Item:
+        """A scope item that fails the first time it is entered."""
+
+        def __init__(self, label: str, *, fails: bool) -> None:
+            self.label = label
+            self.fails = fails
+
+        async def __aenter__(self) -> Self:
+            if self.fails:
+                self.fails = False
+                msg = "server briefly down"
+                raise ConnectionError(msg)
+            entered.append(self.label)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead(
+        "part-open",
+        uses=[Item("first", fails=False), Item("second", fails=True)],
+    )
+
+    async with Grelmicro(allow_multiple=True):
+        with pytest.raises(ConnectionError):
+            async with bulkhead:
+                pass
+        assert entered == ["first"]
+        # Nothing is in flight, so the other run is not told to wait for one.
+        async with Grelmicro(allow_multiple=True):
+            with pytest.raises(OutOfContextError, match="stopped part way"):
+                async with bulkhead:
+                    pass
+
+
+async def test_a_scope_forgotten_mid_borrow_is_refused() -> None:
+    """A borrow that loses the scope while checking does not record itself."""
+
+    class Track:
+        """A scope item that can be opened."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("vanishing", uses=[Track()])
+
+    async with Grelmicro(allow_multiple=True) as owner:
+        async with bulkhead:
+            pass
+        held = owner._scoped_uses[bulkhead]
+
+        def close_the_scope(*_: object) -> None:
+            """Stand in for the owner unwinding during the borrow check."""
+            owner._closing = True
+            bulkhead._forget_scope(held)
+
+        async with Grelmicro(allow_multiple=True):
+            original = bulkhead_module.report_unmet_requirements
+            bulkhead_module.report_unmet_requirements = close_the_scope  # ty: ignore[invalid-assignment]
+            try:
+                with pytest.raises(
+                    OutOfContextError, match="is closing its uses="
+                ):
+                    async with bulkhead:
+                        pass
+            finally:
+                bulkhead_module.report_unmet_requirements = original
+
+        assert held.borrowers == set()
 
 
 async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:

@@ -107,6 +107,7 @@ class _Scope:
     lock: asyncio.Lock
     entered: int = 0
     opened: bool = False
+    release_armed: bool = False
     borrowers: set[_Scope] = field(default_factory=set)
 
 
@@ -380,10 +381,13 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 raise OutOfContextError(
                     self._no_scope_message(micro, exit_stack)
                 )
-            if self._claim_scope(micro, exit_stack):
+            if self._claim_scope(micro, exit_stack) and not scope.release_armed:
                 # Sits below every item, so it runs once they have all
-                # closed and the next app is free to take the scope.
+                # closed and the next run is free to take the scope. Armed
+                # once per run, because a claim given back and taken again
+                # would otherwise stack one of these per attempt.
                 exit_stack.callback(self._release_scope, exit_stack)
+                scope.release_armed = True
             try:
                 await self._enter_uses(micro, exit_stack, scope)
             except BaseException:
@@ -458,7 +462,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             OutOfContextError: If that run holds the scope but not open,
                 because it is still opening it or already closing it.
         """
-        borrowed = _Scope(lock=asyncio.Lock(), opened=True)
         with self._owner_lock:
             holder = self._scoped_to
             if holder is None or holder is micro:
@@ -466,14 +469,19 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             held = holder._scoped_uses.get(self)  # noqa: SLF001
             if held is None or not held.opened:
                 raise OutOfContextError(self._shared_scope_message(micro))
+        # Checked against this run's environment, not the owner's, and before
+        # anything is recorded, so a check that fails records nothing.
+        report_unmet_requirements(
+            unmet_requirements(self._uses), micro.environment
+        )
+        borrowed = _Scope(lock=asyncio.Lock(), opened=True)
+        with self._owner_lock:
+            if not held.opened:
+                raise OutOfContextError(self._shared_scope_message(micro))
             held.borrowers.add(borrowed)
         # Dropped when this run ends, so a long-lived owner does not collect
         # a record per run that ever borrowed from it.
         exit_stack.callback(self._drop_borrow, held, borrowed)
-        # Checked against this run's environment, not the owner's.
-        report_unmet_requirements(
-            unmet_requirements(self._uses), micro.environment
-        )
         # Recorded on this run so the check runs once rather than per entry.
         micro._scoped_uses[self] = borrowed  # noqa: SLF001
         return True
@@ -585,10 +593,16 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 "the app run that owns it. Enter it again once that run has "
                 "finished, and this one opens the scope for itself."
             )
+        if self._opening:
+            return (
+                f"Bulkhead {self._name!r} is still opening its uses= scope "
+                "on the app run that owns it. Enter it again once that has "
+                "finished."
+            )
         return (
-            f"Bulkhead {self._name!r} is still opening its uses= scope on "
-            "the app run that owns it. Enter it again once that has "
-            "finished."
+            f"Bulkhead {self._name!r} has an unfinished uses= scope on the "
+            "app run that owns it, because opening it stopped part way. "
+            "That run has to finish opening it."
         )
 
     def _no_scope_message(
@@ -686,10 +700,11 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
 def _check_usable(name: str, items: tuple[Usable, ...]) -> None:
     """Refuse a `uses=` entry the bulkhead could not open as a scope."""
     for item in items:
-        if hasattr(item, "__aenter__") and hasattr(item, "__aexit__"):
+        kind = type(item)
+        if hasattr(kind, "__aenter__") and hasattr(kind, "__aexit__"):
             continue
         msg = (
-            f"Bulkhead {name!r} got a {type(item).__name__} in uses=, which "
+            f"Bulkhead {name!r} got a {kind.__name__} in uses=, which "
             "is not an async context manager. Pass a Provider, a Component, "
             "or an object with __aenter__ and __aexit__."
         )
