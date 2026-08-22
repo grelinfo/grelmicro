@@ -636,12 +636,18 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 "it, because the app that owned it shut down. Enter it again "
                 "under the running app."
             )
-        if micro._closing:  # noqa: SLF001
+        if micro._closing and current is not None:  # noqa: SLF001
             return (
                 f"Bulkhead {self._name!r} was entered while its uses= scope "
-                "was closing with the app that opened it. Enter it before "
-                "the app shuts down, or list the provider in "
+                "was closing with the app run that owns it. Enter it before "
+                "that run shuts down, or list the provider in "
                 "Grelmicro(uses=[...]) so it outlives the item that needs it."
+            )
+        if micro._closing:  # noqa: SLF001
+            return (
+                f"Bulkhead {self._name!r} was entered after the app run that "
+                "opened its uses= scope had shut down. Enter it under a "
+                "running app."
             )
         return (
             f"Bulkhead {self._name!r} was entered before its app started. "

@@ -698,7 +698,7 @@ async def test_an_entry_while_the_scope_unwinds_raises() -> None:
 
     async def enter() -> None:
         await closing.wait()
-        with pytest.raises(OutOfContextError, match="closing with the app"):
+        with pytest.raises(OutOfContextError, match="closing with the app run"):
             async with bulkhead:
                 pass
         release.set()
@@ -739,7 +739,7 @@ async def test_an_entry_after_shutdown_raises_from_an_inherited_context() -> (
     await task
 
     assert micro._exit_stack is None
-    assert "closing with the app that opened it" in str(raised[0])
+    assert "had shut down" in str(raised[0])
 
 
 async def test_an_overlapping_run_borrows_the_open_scope() -> None:
@@ -1190,7 +1190,7 @@ async def test_a_parked_open_keeps_the_scope_until_it_finishes() -> None:
     micro = Grelmicro()
 
     async def enter() -> None:
-        with pytest.raises(OutOfContextError, match="closing with the app"):
+        with pytest.raises(OutOfContextError, match="had shut down"):
             async with bulkhead:
                 pass
 
@@ -1315,7 +1315,7 @@ async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
     # Shut the app down while the open is parked on the first item.
     await micro.__aexit__(None, None, None)
     release.set()
-    with pytest.raises(OutOfContextError, match="closing with the app"):
+    with pytest.raises(OutOfContextError, match="had shut down"):
         await task
 
     assert opened == ["first"]  # the second item was never started
@@ -1361,7 +1361,7 @@ async def test_entering_a_scope_that_closed_with_its_app_raises() -> None:
         assert opens == 1
 
     assert opens == 1  # the drain did not rebuild the closed scope
-    assert "closing with the app that opened it" in str(drained[0])
+    assert "closing with the app run that owns it" in str(drained[0])
 
 
 async def test_a_startup_opened_scope_still_drains_at_shutdown() -> None:
@@ -1541,9 +1541,7 @@ async def test_a_failing_close_still_names_the_lost_scope() -> None:
     micro = Grelmicro()
 
     async def enter() -> None:
-        with pytest.raises(
-            OutOfContextError, match="closing with the app"
-        ) as exc:
+        with pytest.raises(OutOfContextError, match="had shut down") as exc:
             async with bulkhead:
                 pass
         assert isinstance(exc.value.__cause__, ConnectionError)
@@ -1612,7 +1610,7 @@ async def test_a_failed_startup_reads_as_a_shutdown() -> None:
 
     token = bulkhead_module._current_micro.set(micro)
     try:
-        with pytest.raises(OutOfContextError, match="closing with the app"):
+        with pytest.raises(OutOfContextError, match="had shut down"):
             async with bulkhead:
                 pass
     finally:
