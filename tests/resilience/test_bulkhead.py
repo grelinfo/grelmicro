@@ -797,6 +797,36 @@ async def test_a_borrowing_run_gets_its_own_backend_check() -> None:
                     pass
 
 
+async def test_a_borrowing_run_is_checked_once_not_per_entry() -> None:
+    """A recorded borrow keeps the backend check off every later entry."""
+    checks = 0
+    real = bulkhead_module.unmet_requirements
+
+    def counting(items: object) -> object:
+        nonlocal checks
+        checks += 1
+        return real(items)  # ty: ignore[invalid-argument-type]
+
+    bulkhead = Bulkhead(
+        "counted", uses=[Coordination(lock=MemoryLockAdapter())]
+    )
+    entries = 5
+
+    async with Grelmicro(allow_multiple=True):
+        async with bulkhead:
+            pass
+        async with Grelmicro(allow_multiple=True):
+            bulkhead_module.unmet_requirements = counting  # ty: ignore[invalid-assignment]
+            try:
+                for _ in range(entries):
+                    async with bulkhead:
+                        pass
+            finally:
+                bulkhead_module.unmet_requirements = real
+
+    assert checks == 1  # recorded on the first borrow, not repeated
+
+
 async def test_a_borrowed_scope_is_reopened_once_its_owner_goes() -> None:
     """A run that outlives the owner opens the scope for itself."""
     opens = 0
@@ -853,7 +883,7 @@ async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:
         await opening.wait()
         async with Grelmicro():
             # The first app claimed the scope before it started the item.
-            with pytest.raises(OutOfContextError, match="another Grelmicro"):
+            with pytest.raises(OutOfContextError, match="still opening its"):
                 async with bulkhead:
                     pass
             refused += 1

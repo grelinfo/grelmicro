@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import functools
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
 from threading import Lock as ThreadLock
 from typing import TYPE_CHECKING, Annotated, Any, Self
@@ -107,10 +107,13 @@ class _Scope:
     lock: asyncio.Lock
     entered: int = 0
     opened: bool = False
+    borrowers: list[_Scope] = field(default_factory=list)
 
     def forget(self) -> None:
         """Stop reporting the scope open, before anything it holds closes."""
         self.opened = False
+        for borrower in self.borrowers:
+            borrower.opened = False
 
 
 class Bulkhead(Reconfigurable[BulkheadConfig]):
@@ -172,8 +175,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 shuts down, so an active `Grelmicro` app is required. The
                 scope belongs to that app run, so a later run opens it
                 again from the start. A run overlapping the one that owns
-                the scope borrows it, and entering once the owning run has
-                gone raises.
+                the scope borrows it, and closes with it. Entering while
+                the scope is opening or closing raises and asks you to try
+                again, and so does entering once the owning run has gone.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
@@ -299,8 +303,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 micro = _current_micro.get(self._scoped_to)
                 if (
                     micro is None
-                    or (scope := micro._scoped_uses.get(self)) is None  # noqa: SLF001
-                    or not scope.opened
+                    or (record := micro._scoped_uses.get(self)) is None  # noqa: SLF001
+                    or not record.opened
                 ):
                     await self._open_uses()
             if self._overrides:
@@ -458,6 +462,11 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         report_unmet_requirements(
             unmet_requirements(self._uses), micro.environment
         )
+        # Recorded on this run so the check runs once rather than per entry,
+        # and so the owner can forget the borrow as it closes the items.
+        borrowed = _Scope(lock=asyncio.Lock(), opened=True)
+        micro._scoped_uses[self] = borrowed  # noqa: SLF001
+        held.borrowers.append(borrowed)
         return True
 
     def _claim_scope(
@@ -534,9 +543,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 "finished, and this one opens the scope for itself."
             )
         return (
-            f"Bulkhead {self._name!r} has its uses= scope open on another "
-            "Grelmicro app. A bulkhead with uses= belongs to one app at a "
-            "time, so give each app its own Bulkhead instance."
+            f"Bulkhead {self._name!r} is still opening its uses= scope on "
+            "the app run that owns it. Enter it again once that has "
+            "finished."
         )
 
     def _no_scope_message(
