@@ -1270,6 +1270,8 @@ class Grelmicro:
             if self._exit_stack is not None:
                 await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
             self._exit_stack = None
+            self._scoped_uses.clear()
+            self._closing = False
             raise
         return self
 

@@ -29,6 +29,7 @@ from grelmicro.resilience.errors import BulkheadFullError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
+    from contextlib import AsyncExitStack
     from contextvars import Token
     from types import TracebackType
 
@@ -101,10 +102,6 @@ class _Scope:
     entered: int = 0
     opened: bool = False
 
-    def forget(self) -> None:
-        """Stop reporting the scope open, as its first item closes."""
-        self.opened = False
-
 
 class Bulkhead(Reconfigurable[BulkheadConfig]):
     """Bulkhead policy.
@@ -164,8 +161,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 opens these on first entry and closes them when the app
                 shuts down, so an active `Grelmicro` app is required. The
                 scope belongs to that app, so a later app opens it again
-                from the start, and entering once the app has shut down
-                raises.
+                from the start. Entering once the app has shut down raises,
+                and so does sharing the bulkhead with a second app running
+                at the same time.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
@@ -220,6 +218,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             for item in self._uses
             if isinstance(item, Component)
         }
+        self._scoped_to: Grelmicro | None = None
         self._scopes: dict[
             asyncio.Task[Any],
             list[tuple[asyncio.Semaphore | None, Token[Any] | None]],
@@ -361,27 +360,52 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             scope = _Scope(lock=asyncio.Lock())
             scopes[self] = scope
         async with scope.lock:
-            if micro._closing:  # noqa: SLF001
+            if self._lost_scope(micro, exit_stack):
                 raise OutOfContextError(self._no_scope_message(micro))
             if scope.opened:
                 return
+            owner = self._scoped_to
+            if owner is not None and owner is not micro:
+                raise OutOfContextError(self._shared_scope_message())
             report_unmet_requirements(
                 unmet_requirements(self._uses), micro.environment
             )
             for item in self._uses[scope.entered :]:
                 await item.__aenter__()
-                if micro._closing:  # noqa: SLF001
-                    # Shutdown began while this item was entering, so the
-                    # app's stack may already have unwound past it. Close it
-                    # here and leave the scope for the next app to open.
+                if self._lost_scope(micro, exit_stack):
+                    # The app moved on while this item was entering, so its
+                    # stack will never close it. Close it here and leave the
+                    # scope for the next app to open.
                     await item.__aexit__(None, None, None)
                     raise OutOfContextError(self._no_scope_message(micro))
                 exit_stack.push_async_exit(item)
-                # Sits above the item, so the unwind forgets the scope
+                # Sits above the item, so the unwind releases the scope
                 # before closing anything it holds.
-                exit_stack.callback(scope.forget)
+                exit_stack.callback(self._release_scope, scope)
+                self._scoped_to = micro
                 scope.entered += 1
             scope.opened = True
+
+    def _lost_scope(self, micro: Grelmicro, exit_stack: AsyncExitStack) -> bool:
+        """Report whether the app moved on from the stack this open captured.
+
+        A shutdown and a restart both land here, so an entry parked in an
+        item never pushes onto a stack the app has finished with.
+        """
+        return micro._closing or micro._exit_stack is not exit_stack  # noqa: SLF001
+
+    def _release_scope(self, scope: _Scope) -> None:
+        """Give up the scope as its app unwinds past the items it holds."""
+        scope.opened = False
+        self._scoped_to = None
+
+    def _shared_scope_message(self) -> str:
+        """Describe a `uses=` scope another live app already holds."""
+        return (
+            f"Bulkhead {self._name!r} has its uses= scope open on another "
+            "Grelmicro app. A bulkhead with uses= belongs to one app at a "
+            "time, so give each app its own Bulkhead instance."
+        )
 
     def _no_scope_message(self, micro: Grelmicro) -> str:
         """Describe a `uses=` scope the app cannot open right now."""

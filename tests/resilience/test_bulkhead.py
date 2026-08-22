@@ -733,12 +733,8 @@ async def test_an_entry_after_shutdown_raises_from_an_inherited_context() -> (
     assert "closing with the app that opened it" in str(raised[0])
 
 
-async def test_overlapping_apps_keep_separate_scope_records() -> None:
-    """Two apps active at once each keep their own record of the scope.
-
-    The records are separate, the `uses=` items are not: both apps enter the
-    same objects, as they would in two overlapping `Grelmicro(uses=[...])`.
-    """
+async def test_a_second_live_app_is_refused_the_same_scope() -> None:
+    """A `uses=` scope belongs to one app at a time, and says so."""
     opens = 0
 
     class Track:
@@ -753,24 +749,46 @@ async def test_overlapping_apps_keep_separate_scope_records() -> None:
             """Leave the scope."""
 
     bulkhead = Bulkhead("shared", uses=[Track()])
-    inner = Grelmicro(allow_multiple=True)
-    outer = Grelmicro(allow_multiple=True)
 
-    async with outer:
+    async with Grelmicro(allow_multiple=True):
         async with bulkhead:
             pass
         assert opens == 1
-        async with inner, bulkhead:
-            pass
-        # Each app opened against its own record, so neither read the
-        # other's as its own.
-        assert opens == LIMIT
-        assert len(outer._scoped_uses) == 1
-        assert inner._scoped_uses == {}
-        # The other app's shutdown left this one's record alone.
+        # The items are one set of objects, so a second live app entering
+        # them would tear them down under this one on its own exit.
+        async with Grelmicro(allow_multiple=True):
+            with pytest.raises(OutOfContextError, match="another Grelmicro"):
+                async with bulkhead:
+                    pass
+        # This app kept its scope, and still holds it.
         async with bulkhead:
             pass
-        assert opens == LIMIT
+        assert opens == 1
+
+
+async def test_the_next_app_takes_the_scope_the_last_one_released() -> None:
+    """Refusing a second live app does not strand the scope after shutdown."""
+    opens = 0
+
+    class Track:
+        """A scope item that counts opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("handover", uses=[Track()])
+
+    for _ in range(APPS):
+        async with Grelmicro(), bulkhead:
+            pass
+
+    assert opens == APPS
+    assert bulkhead._scoped_to is None
 
 
 async def test_a_scope_closing_mid_open_does_not_report_itself_open() -> None:
@@ -914,6 +932,48 @@ async def test_entering_before_startup_names_startup_not_shutdown() -> None:
                 pass
     finally:
         bulkhead_module._current_micro.reset(token)
+
+
+async def test_an_open_parked_across_a_restart_pushes_nothing() -> None:
+    """An entry parked in an item drops it when the app restarts under it."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    closed: list[str] = []
+
+    class Slow:
+        """A scope item that blocks until it is released."""
+
+        async def __aenter__(self) -> Self:
+            started.set()
+            await release.wait()
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            closed.append("scope")
+
+    bulkhead = Bulkhead("restart", uses=[Slow()])
+    micro = Grelmicro()
+
+    async def enter() -> None:
+        with pytest.raises(OutOfContextError):
+            async with bulkhead:
+                pass
+
+    await micro.__aenter__()
+    task = asyncio.create_task(enter())
+    await started.wait()
+    # A whole lifecycle happens while the open is parked on the item.
+    await micro.__aexit__(None, None, None)
+    await micro.__aenter__()
+    release.set()
+    await task
+
+    # The item closed itself rather than riding the stack the app left.
+    assert closed == ["scope"]
+    assert micro._scoped_uses == {}
+    assert bulkhead._scoped_to is None
+    await micro.__aexit__(None, None, None)
+    assert closed == ["scope"]
 
 
 def test_the_open_lock_is_built_on_the_app_event_loop() -> None:
