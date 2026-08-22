@@ -18,6 +18,7 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.status import (
+    HTTP_200_OK,
     HTTP_409_CONFLICT,
     HTTP_418_IM_A_TEAPOT,
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -42,12 +43,20 @@ from grelmicro.http import (
     send_error,
 )
 from grelmicro.http._problem import body_of, retry_after_of
+from grelmicro.http._tmf import TMF_MEDIA_TYPE
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
     IdempotencyKeyMakerError,
     IdempotencyWaitTimeoutError,
 )
 from grelmicro.integrations import faststream
+from grelmicro.resilience import (
+    CircuitBreaker,
+    MemoryCircuitBreakerAdapter,
+    MemoryRateLimiterAdapter,
+    RateLimiter,
+    Stack,
+)
 from grelmicro.resilience.errors import (
     BulkheadFullError,
     CircuitBreakerError,
@@ -748,3 +757,122 @@ def test_every_kind_dereferences_to_its_own_section() -> None:
 
 _MIN_KINDS = 12
 """Floor for the sweep, so an empty scan cannot pass silently."""
+
+
+# --- A Stack's refusals on the wire -------------------------------------
+
+
+@pytest.fixture
+def stacked_client() -> Iterator[TestClient]:
+    """Build an app whose routes are wrapped by a `Stack`."""
+    app = FastAPI()
+    cb_backend = MemoryCircuitBreakerAdapter()
+    rl_backend = MemoryRateLimiterAdapter()
+    breaker = CircuitBreaker.consecutive_count(
+        "recs", error_threshold=1, backend=cb_backend, reset_timeout=60.0
+    )
+    limiter = RateLimiter.token_bucket(
+        "recs", capacity=1, refill_rate=0.00001, backend=rl_backend
+    )
+    limited = Stack("recs", patterns=[breaker, limiter])
+    tripped = Stack(
+        "recs",
+        patterns=[
+            CircuitBreaker.consecutive_count(
+                "trip",
+                error_threshold=1,
+                backend=cb_backend,
+                reset_timeout=60.0,
+            )
+        ],
+    )
+
+    @app.get("/stacked-limited")
+    @limited
+    async def stacked_limited() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    @app.get("/stacked-open")
+    @tripped
+    async def stacked_open() -> dict[str, str]:
+        raise BoomError
+
+    micro = Grelmicro(uses=[ErrorResponses(), cb_backend, rl_backend])
+    micro.install(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
+
+
+def test_a_stack_rate_limit_reaches_the_wire_as_429(
+    stacked_client: TestClient,
+) -> None:
+    """The refusal a Stack carries past its breaker is still a 429."""
+    assert stacked_client.get("/stacked-limited").status_code == HTTP_200_OK
+
+    response = stacked_client.get("/stacked-limited")
+
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["content-type"] == PROBLEM_MEDIA_TYPE
+    assert int(response.headers["retry-after"]) > 0
+    assert response.json()["type"].endswith("rate-limit-exceeded")
+
+
+def test_a_stack_open_circuit_reaches_the_wire_as_503(
+    stacked_client: TestClient,
+) -> None:
+    """An open circuit a Stack refuses on is still a 503."""
+    assert (
+        stacked_client.get("/stacked-open").status_code
+        == HTTP_500_INTERNAL_SERVER_ERROR
+    )
+
+    response = stacked_client.get("/stacked-open")
+
+    assert response.status_code == HTTP_503_SERVICE_UNAVAILABLE
+    assert response.headers["content-type"] == PROBLEM_MEDIA_TYPE
+    assert response.json()["type"].endswith("circuit-breaker-open")
+
+
+def _stacked_app(*, uses: list[Any]) -> FastAPI:
+    """Build an app whose route is metered by a `Stack`."""
+    app = FastAPI()
+    rl_backend = MemoryRateLimiterAdapter()
+    limiter = RateLimiter.token_bucket(
+        "recs", capacity=1, refill_rate=0.00001, backend=rl_backend
+    )
+    stack = Stack("recs", patterns=[limiter])
+
+    @app.get("/stacked")
+    @stack
+    async def stacked() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    Grelmicro(uses=[*uses, rl_backend]).install(app)
+    return app
+
+
+def test_a_stack_refusal_takes_the_tmf_format_when_that_is_registered() -> None:
+    """The format comes from the factory, for a Stack like anything else."""
+    app = _stacked_app(uses=[ErrorResponses.tmf()])
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        assert client.get("/stacked").status_code == HTTP_200_OK
+        response = client.get("/stacked")
+
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["content-type"] == TMF_MEDIA_TYPE
+    assert int(response.headers["retry-after"]) > 0
+    assert response.json()["code"] == "GREL-RATE-LIMIT-EXCEEDED"
+
+
+def test_a_stack_refusal_is_left_alone_without_error_responses() -> None:
+    """Without the component, grelmicro changes nothing about the answer."""
+    app = _stacked_app(uses=[])
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        assert client.get("/stacked").status_code == HTTP_200_OK
+        response = client.get("/stacked")
+
+    assert response.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.headers["content-type"] != PROBLEM_MEDIA_TYPE
+    assert response.headers["content-type"] != TMF_MEDIA_TYPE

@@ -27,6 +27,7 @@ from grelmicro.resilience.circuitbreaker import (
     CircuitBreakerMetrics,
     CircuitBreakerState,
     ErrorDetails,
+    _EventLoopEntryError,
     _TransitionCause,
 )
 from grelmicro.resilience.circuitbreaker import memory as cb_memory_module
@@ -1369,3 +1370,48 @@ async def test_a_probe_cancelled_from_a_thread_gives_its_slot_back() -> None:
 
         await asyncio.to_thread(probe)
         assert cb.state is not CircuitBreakerState.OPEN
+
+
+async def test_from_thread_on_the_event_loop_thread_is_refused() -> None:
+    """Entering from the loop thread would wait on the loop itself."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker("loop-thread", backend=backend)
+
+        with pytest.raises(_EventLoopEntryError):
+            cb.from_thread.__enter__()
+
+
+async def test_from_thread_on_another_loop_is_served() -> None:
+    """Only the backend's own loop would wait on itself."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker("other-loop", backend=backend)
+
+        def enter_on_a_second_loop() -> str:
+            async def inner() -> str:
+                with cb.from_thread:
+                    return "admitted"
+
+            return asyncio.run(inner())
+
+        assert await asyncio.to_thread(enter_on_a_second_loop) == "admitted"
+
+
+class _NotAnOutcome(BaseException):
+    """Something that is not a dependency outcome."""
+
+
+async def test_from_thread_records_nothing_for_a_non_exception() -> None:
+    """A `BaseException` is control flow, not a call that failed."""
+    async with MemoryCircuitBreakerAdapter() as backend:
+        cb = CircuitBreaker("no-outcome", backend=backend)
+
+        def enter_and_raise() -> None:
+            with cb.from_thread:
+                raise _NotAnOutcome
+
+        with pytest.raises(_NotAnOutcome):
+            await asyncio.to_thread(enter_and_raise)
+
+        metrics = cb.metrics()
+        assert metrics.total_error_count == 0
+        assert metrics.total_success_count == 0

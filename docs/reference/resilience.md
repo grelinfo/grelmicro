@@ -2,7 +2,7 @@
 
 - **Start here**: [Resilience guide](../resilience/index.md)
 - **Common recipes**: [Rate Limiter](../resilience/rate-limiter.md), [Circuit Breaker](../resilience/circuit-breaker.md), [Retry](../resilience/retry.md), [Fallback](../resilience/fallback.md), [Timeout](../resilience/timeout.md), [Shield](../resilience/shield.md)
-- **Configuration**: [Composing patterns](../resilience/composition.md)
+- **Composition**: [Composing patterns](../resilience/composition.md)
 
 ::: grelmicro.resilience
     options:
@@ -35,12 +35,14 @@
         - MemoryRateLimiterAdapter
         - MemoryTokenBucket
         - Outcome
+        - Pattern
         - PostgresCircuitBreakerAdapter
         - PostgresRateLimiterAdapter
         - RandomBackoff
         - RateLimiterComponent
         - RateLimiter
         - RateLimiterBackend
+        - RateLimiterBinding
         - RateLimiterConfig
         - RateLimiterStrategy
         - RateLimitExceededError
@@ -60,6 +62,7 @@
         - ShieldConfig
         - SlidingWindowConfig
         - SlowShieldConfig
+        - Stack
         - Timeout
         - TimeoutConfig
         - TokenBucketConfig

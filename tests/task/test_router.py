@@ -6,6 +6,7 @@ from functools import partial
 
 import pytest
 
+from grelmicro import _markers as markers
 from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.coordination.tasklock import TaskLock
@@ -301,3 +302,31 @@ def test_router_started_propagation() -> None:
     assert router_child_started_before is False
     assert router_started_after is True
     assert router_child_started_after is True
+
+
+def test_registering_a_task_that_refuses_the_mark() -> None:
+    """A function that cannot carry the mark is still registered."""
+    router = TaskRouter()
+
+    def refuse(*_: object) -> None:
+        msg = "read only"
+        raise TypeError(msg)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(markers, "setattr", refuse, raising=False)
+        assert router.every(seconds=1, name="unmarkable")(test1) is test1
+
+    assert len(router.tasks) == 1
+
+
+def test_an_interrupt_while_marking_a_task_is_never_swallowed() -> None:
+    """A real interrupt still gets out of the raise-proof write."""
+
+    class Interrupting:
+        """A value whose attribute write interrupts."""
+
+        def __setattr__(self, name: str, value: object) -> None:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        markers.mark_scheduled(Interrupting())

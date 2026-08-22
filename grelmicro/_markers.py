@@ -1,0 +1,52 @@
+"""Marks one part of grelmicro leaves on a function for another to read.
+
+A task decorator registers the function it is handed and gives the same
+one back, so a decorator applied above it never reaches the schedule.
+The mark lets the decorator above refuse that order instead of running
+where nothing will call it.
+
+The reader lives here rather than in the module that writes it, so
+reading a mark costs no import of the package that sets it.
+"""
+
+from __future__ import annotations
+
+__all__ = ["is_scheduled", "mark_scheduled"]
+
+SCHEDULED = "__grelmicro_scheduled__"
+"""Attribute a task router leaves on a function it has registered."""
+
+
+def _underlying(function: object) -> object:
+    """Return what a bound method wraps, and never raise finding out."""
+    try:
+        return getattr(function, "__func__", function)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return function
+
+
+def mark_scheduled(function: object) -> None:
+    """Mark `function` as registered by a task router.
+
+    A bound method carries no attribute of its own, so the function
+    underneath is marked instead. Every bound form of it then reads as
+    registered, which is what the schedule holds either way.
+    """
+    try:
+        setattr(_underlying(function), SCHEDULED, True)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001, S110
+        pass
+
+
+def is_scheduled(function: object) -> bool:
+    """Return whether a task router has already registered `function`."""
+    try:
+        return bool(getattr(_underlying(function), SCHEDULED, False))
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return False

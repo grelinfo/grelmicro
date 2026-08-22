@@ -18,6 +18,29 @@ RateLimiter.sliding_window("api", limit=100, window=60)
 The name comes first because it is the one argument every call sets. Everything
 else (`backend=`, tuning fields) is keyword-only with a default.
 
+## A pattern's name is what it protects
+
+The name is the env prefix and the live-reconfiguration key, so it has to name
+the thing being tuned. A pattern that guards an external system takes the
+system's name and is shared between call sites. A pattern that shapes one call
+takes the call's name:
+
+```python
+breaker = CircuitBreaker("recs-api")          # shared by every recs call site
+
+Stack("recs-list", patterns=[
+    Fallback("recs-list", when=Exception, default=[]),
+    breaker,
+    Timeout("recs-list", seconds=1.0),
+])
+```
+
+`CircuitBreaker` and `RateLimiter` are system-scoped: one circuit and one quota
+per dependency, however many call sites reach it. `Retry`, `Timeout`, and
+`Fallback` are call-scoped, because what is safe to repeat, how long to wait,
+and what to answer with all belong to the call. `Bulkhead` goes either way,
+depending on whether it protects the dependency or your own workers.
+
 ## Components take the provider first, `name` keyword-only
 
 A component is app-level wiring passed to `uses=`, such as `Coordination`,

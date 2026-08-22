@@ -204,6 +204,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             if isinstance(item, Component)
         }
         self._opened = False
+        self._entered = 0
         self._open_lock = asyncio.Lock()
         self._scopes: dict[
             asyncio.Task[Any],
@@ -261,18 +262,25 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                     name=self._name,
                     max_concurrent=state.config.max_concurrent,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 ) from None
-        if self._uses and not self._opened:
-            await self._open_uses()
         token: Token[Any] | None = None
-        if self._overrides:
-            current = _active_bulkhead.get(None)
-            merged = (
-                {**current, **self._overrides}
-                if current
-                else dict(self._overrides)
-            )
-            token = _active_bulkhead.set(merged)
-        task = _current_task()
+        try:
+            if self._uses and not self._opened:
+                await self._open_uses()
+            if self._overrides:
+                current = _active_bulkhead.get(None)
+                merged = (
+                    {**current, **self._overrides}
+                    if current
+                    else dict(self._overrides)
+                )
+                token = _active_bulkhead.set(merged)
+            task = _current_task()
+        except BaseException:
+            if token is not None:
+                _active_bulkhead.reset(token)
+            if semaphore is not None:
+                semaphore.release()
+            raise
         scope = (semaphore, token)
         stack = self._scopes.get(task)
         if stack is None:
@@ -310,7 +318,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
 
         Entered in order so a Component borrows a provider opened just
         before it. Registered on the active app's exit stack, so they
-        close when the app shuts down rather than per scope.
+        close when the app shuts down rather than per scope, and an
+        entry that failed part way resumes where it stopped rather than
+        entering the same item twice.
 
         These components are not registered on the app, so the app cannot
         check their backend scope at startup. They are checked here instead,
@@ -327,8 +337,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             report_unmet_requirements(
                 unmet_requirements(self._uses), micro.environment
             )
-            for item in self._uses:
+            for item in self._uses[self._entered :]:
                 await exit_stack.enter_async_context(item)
+                self._entered += 1
             self._opened = True
 
     def __call__[**P, R](

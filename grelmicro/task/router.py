@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro._markers import mark_scheduled
 from grelmicro.task._utils import normalize_timezone
 from grelmicro.task.errors import TaskAddOperationError
 
@@ -208,6 +209,7 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
+            mark_scheduled(function)
             return function
 
         return decorator
@@ -333,6 +335,7 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
+            mark_scheduled(function)
             return function
 
         return decorator

@@ -39,7 +39,7 @@ A profile sets the starting rate and timeout for the kind of dependency you are 
 --8<-- "resilience/shield_profiles.py"
 ```
 
-Profiles are mutually exclusive: pick one per `Shield` instance. To pace differently, switch profile instead of tuning individual fields. If none of the three fit, you have outgrown Shield: compose `Retry`, `Timeout`, `RateLimiter`, and `CircuitBreaker` directly instead.
+Profiles are mutually exclusive: pick one per `Shield` instance. To pace differently, switch profile instead of tuning individual fields. If none of the three fit, you have outgrown Shield. Tune `Retry`, `Timeout`, `RateLimiter`, and `CircuitBreaker` yourself and hand them to a [`Stack`](composition.md#stack), which applies them in the safe order.
 
 ## Sharing across functions
 

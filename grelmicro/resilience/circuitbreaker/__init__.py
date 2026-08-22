@@ -1014,6 +1014,7 @@ class _ThreadAdapter:
         loop = backend._loop  # noqa: SLF001
         if loop is None:
             raise_backend_not_open(f"CircuitBreaker {cb.name!r}")
+        _refuse_on_backend_loop(cb.name, loop)
         config = cb._state.config  # noqa: SLF001
         snapshot = asyncio.run_coroutine_threadsafe(
             _async_admit(cb), loop
@@ -1050,6 +1051,44 @@ class _ThreadAdapter:
             _async_handle_exit(cb, config, exc_type, exc_value), loop
         ).result()
         return None
+
+
+class _EventLoopEntryError(BaseException):
+    """A `from_thread` entry made from the loop the backend runs on.
+
+    Not an `Exception`, and deliberately so. It reports a wiring
+    mistake that no retry can fix and no fallback should stand in for,
+    so it travels the way `CancelledError` does: through every handler
+    that catches `Exception`, out to whoever ran the call.
+    """
+
+
+def _refuse_on_backend_loop(name: str, loop: asyncio.AbstractEventLoop) -> None:
+    """Refuse a worker-thread entry made from the backend's own loop.
+
+    `from_thread` hands the work to the backend's loop and blocks on
+    the result, which never arrives when the caller is that loop. A
+    caller on a different loop is served by the backend's own.
+
+    Raises:
+        _EventLoopEntryError: If the calling thread runs the backend's
+            loop. Not an `Exception`, so `except Exception` and
+            `except RuntimeError` both pass it through.
+    """
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if running is not loop:
+        return
+    msg = (
+        f"CircuitBreaker {name!r} was entered through `from_thread` on "
+        "the event loop its backend runs on, which would wait on the "
+        "loop that has to do the work. Use `async with breaker:` from "
+        "async code, or run the sync call through "
+        "`asyncio.to_thread(...)`."
+    )
+    raise _EventLoopEntryError(msg)
 
 
 async def _async_admit(cb: CircuitBreaker) -> CircuitBreakerSnapshot | None:

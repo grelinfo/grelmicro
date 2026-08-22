@@ -2,6 +2,7 @@
 
 The `resilience` package provides primitives that help your services handle failures in distributed systems. Each pattern is independent. Use the ones you need and skip the rest.
 
+- [**Stack**](composition.md#stack): apply several patterns to one call in the safe order, whatever order you list them in. Refusals by the stack's own limiter, bulkhead, or breaker are read as calls that never happened.
 - [**Shield**](shield.md): all-in-one outer-layer resilience for one async call to one dependency. Bundles per-attempt timeout, exponential-jittered retry with a consecutive-failure budget, and CUBIC-style adaptive throttling. One decorator, one knob. The recommended starting point.
 - [**Circuit Breaker**](circuit-breaker.md): detect repeated failures in a downstream call and stop sending requests long enough for it to recover. This prevents cascading failures.
 - [**Fallback**](fallback.md): return a safe default value when a call fails. Pluggable filter (any `Match`), static default or factory callable, decorator and block forms.
@@ -10,12 +11,13 @@ The `resilience` package provides primitives that help your services handle fail
 - [**Timeout**](timeout.md): bound how long an async call may run. Reconfigurable deadline, async context manager and decorator forms. Wraps `asyncio.timeout`.
 - [**Bulkhead**](bulkhead.md): cap concurrent in-flight calls and fail fast when saturated. Optional bounded wait for a permit and a dedicated thread pool for blocking work. Async context manager and decorator forms.
 
-See [Composing patterns](composition.md) for the recommended outside-in order when stacking decorators.
+See [Composing patterns](composition.md) for the order, the `Stack` that applies it, and what to do when you want a different one.
 
 ## When to use what
 
 | Pattern | Use when |
 |---|---|
+| **Stack** | You picked and tuned the patterns yourself and want them applied in the safe order. |
 | **Shield** | You wrap one async call to one dependency and want sensible-by-default resilience without composing primitives. |
 | **Circuit Breaker** | The caller is hitting an external dependency (DB, API, third-party) that can fail or stall. |
 | **Fallback** | A call can fail and you want to degrade gracefully (cached value, empty list, neutral default) instead of propagating the error. |

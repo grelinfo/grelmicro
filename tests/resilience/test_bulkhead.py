@@ -2,7 +2,7 @@
 
 import asyncio
 import threading
-from typing import Self
+from typing import Any, Self, cast
 
 import pytest
 
@@ -14,6 +14,7 @@ from grelmicro import (
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
+from grelmicro.resilience import bulkhead as bulkhead_module
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -482,3 +483,83 @@ def test_scope_resolves_per_event_loop() -> None:
         thread.join()
 
     assert seen == {"left": (True, True), "right": (True, True)}
+
+
+async def test_a_permit_is_returned_when_the_scope_cannot_open() -> None:
+    """A provider that is down must not cost a permit for good."""
+    bulkhead = Bulkhead("uses-fail", max_concurrent=1)
+
+    async def refuse() -> None:
+        msg = "provider down"
+        raise ConnectionError(msg)
+
+    bulkhead._uses = (object(),)
+    bulkhead._open_uses = refuse  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+    for _ in range(2):
+        with pytest.raises(ConnectionError):
+            await bulkhead.__aenter__()
+
+    semaphore = bulkhead._state.semaphore
+    assert semaphore is not None
+    assert semaphore._value == 1
+
+
+async def test_a_permit_is_returned_when_the_scope_push_fails() -> None:
+    """Everything after the permit is taken must give it back on failure."""
+    bulkhead = Bulkhead("push-fail", max_concurrent=1)
+
+    def no_task() -> object:
+        msg = "no running task"
+        raise RuntimeError(msg)
+
+    bulkhead._overrides = {("cache", "default"): cast("Any", object())}
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(bulkhead_module, "_current_task", no_task)
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="no running task"):
+                await bulkhead.__aenter__()
+
+    semaphore = bulkhead._state.semaphore
+    assert semaphore is not None
+    assert semaphore._value == 1
+    assert bulkhead_module._active_bulkhead.get(None) is None
+
+
+async def test_a_partly_opened_scope_resumes_where_it_stopped() -> None:
+    """An item already entered must not be entered a second time."""
+    entered: list[str] = []
+
+    class Item:
+        """A scope item that records its entries."""
+
+        def __init__(self, label: str, *, fails: bool) -> None:
+            self.label = label
+            self.fails = fails
+
+        async def __aenter__(self) -> Self:
+            entered.append(self.label)
+            if self.fails:
+                self.fails = False
+                msg = "server briefly down"
+                raise ConnectionError(msg)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    micro = Grelmicro()
+    async with micro:
+        bulkhead = Bulkhead(
+            "resume",
+            max_concurrent=1,
+            uses=[Item("first", fails=False), Item("second", fails=True)],
+        )
+        with pytest.raises(ConnectionError):
+            await bulkhead.__aenter__()
+
+        async with bulkhead:
+            pass
+
+    assert entered == ["first", "second", "second"]
