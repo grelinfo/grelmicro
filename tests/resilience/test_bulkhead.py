@@ -1208,6 +1208,22 @@ async def test_a_multi_item_scope_forgets_itself_once() -> None:
     assert log == ["forget", "close second", "close first"]
 
 
+async def test_a_startup_rollback_that_fails_still_clears_the_scope() -> None:
+    """An item that fails to close does not strand a resume index."""
+    bulkhead = Bulkhead("rollback", uses=[_Gate()])
+    micro = Grelmicro(uses=[_WarmupThenFailClose(bulkhead), _FailStartOnce()])
+
+    with pytest.raises(ConnectionError, match="close failed"):
+        await micro.__aenter__()
+
+    # The rollback cleared its own state, so the app can start again and
+    # the scope opens from the start rather than resuming at item one.
+    assert micro._exit_stack is None
+    assert micro._scoped_uses == {}
+    async with micro, bulkhead:
+        pass
+
+
 async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:
     """The scope is claimed before the first item, so a race has one winner."""
     opens = 0
@@ -1713,6 +1729,42 @@ def test_the_open_lock_is_built_on_the_app_event_loop() -> None:
 
     asyncio.run(run())
     asyncio.run(run())
+
+
+class _WarmupThenFailClose:
+    """An app item that opens a bulkhead scope, then fails to close once."""
+
+    def __init__(self, bulkhead: Bulkhead) -> None:
+        self.bulkhead = bulkhead
+        self.fails = True
+
+    async def __aenter__(self) -> Self:
+        async with self.bulkhead:
+            pass
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        if self.fails:
+            self.fails = False
+            msg = "close failed"
+            raise ConnectionError(msg)
+
+
+class _FailStartOnce:
+    """An app item that fails startup the first time only."""
+
+    def __init__(self) -> None:
+        self.fails = True
+
+    async def __aenter__(self) -> Self:
+        if self.fails:
+            self.fails = False
+            msg = "startup failed"
+            raise RuntimeError(msg)
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        """Leave the scope."""
 
 
 class _Gate:

@@ -1267,10 +1267,14 @@ class Grelmicro:
             if self._token is not None:
                 _current_micro.reset(self._token)
             self._token = None
-            if self._exit_stack is not None:
-                await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
-            self._exit_stack = None
-            self._scoped_uses.clear()
+            try:
+                if self._exit_stack is not None:
+                    await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
+            finally:
+                # Cleared even when an item fails to close, so a stale resume
+                # index cannot survive into the next run.
+                self._exit_stack = None
+                self._scoped_uses.clear()
             raise
         return self
 

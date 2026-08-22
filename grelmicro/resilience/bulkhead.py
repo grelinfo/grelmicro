@@ -172,10 +172,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 shuts down, so an active `Grelmicro` app is required. The
                 scope belongs to that app run, so a later run opens it
                 again from the start. A run overlapping the one that owns
-                the scope borrows it, and closes with it. Entering while
-                the scope is opening or closing raises `OutOfContextError`
-                and asks you to try again, and so does entering once the
-                owning run has gone.
+                the scope borrows it, and closes with it. Entering raises
+                `OutOfContextError` once your own run is shutting down, and
+                while another run holds the scope but has not finished
+                opening it.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
@@ -729,7 +729,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
 
 
 def _check_usable(name: str, items: tuple[Usable, ...]) -> None:
-    """Refuse a `uses=` entry the bulkhead could not open as a scope."""
+    """Refuse a `uses=` entry that does not carry the async context protocol.
+
+    Checks the same names on the type that `async with` resolves. An entry
+    that carries them and still cannot be awaited is left to fail on open,
+    because only calling it would tell them apart.
+    """
     for item in items:
         kind = type(item)
         if hasattr(kind, "__aenter__") and hasattr(kind, "__aexit__"):
