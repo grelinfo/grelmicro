@@ -974,10 +974,10 @@ async def test_a_failing_borrow_check_records_nothing() -> None:
     drops = 0
     attempts = 10
 
-    def counting_drop(held: object, borrowed: object) -> None:
+    def counting_drop(borrowed: object) -> None:
         nonlocal drops
         drops += 1
-        drop(held, borrowed)  # ty: ignore[invalid-argument-type]
+        drop(borrowed)  # ty: ignore[invalid-argument-type]
 
     bulkhead._drop_borrow = counting_drop  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
@@ -1075,6 +1075,52 @@ async def test_a_scope_forgotten_mid_borrow_is_refused() -> None:
                 bulkhead_module.report_unmet_requirements = original
 
         assert held.borrowers == set()
+
+
+async def test_borrowing_across_owner_turnover_arms_one_drop() -> None:
+    """A run that keeps borrowing does not stack a record per owner."""
+    opens = 0
+
+    class Track:
+        """A scope item that counts opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("turnover", uses=[Track()])
+    drop = bulkhead._drop_borrow
+    drops = 0
+    turnovers = 5
+
+    def counting_drop(borrowed: object) -> None:
+        nonlocal drops
+        drops += 1
+        drop(borrowed)  # ty: ignore[invalid-argument-type]
+
+    bulkhead._drop_borrow = counting_drop  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    survivor = Grelmicro(allow_multiple=True)
+
+    async with survivor:
+        for _ in range(turnovers):
+            # A short-lived run owns the scope, then this one borrows it.
+            async with Grelmicro(allow_multiple=True):
+                async with bulkhead:
+                    pass
+                # Borrow it from the run that outlives every owner.
+                token = bulkhead_module._current_micro.set(survivor)
+                try:
+                    async with bulkhead:
+                        pass
+                finally:
+                    bulkhead_module._current_micro.reset(token)
+        assert opens == turnovers  # one open per owner, borrowed each time
+
+    assert drops == 1  # armed once for this run, not once per owner
 
 
 async def test_two_apps_starting_at_once_do_not_both_take_the_scope() -> None:

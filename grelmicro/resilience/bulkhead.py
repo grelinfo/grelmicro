@@ -108,6 +108,8 @@ class _Scope:
     entered: int = 0
     opened: bool = False
     release_armed: bool = False
+    drop_armed: bool = False
+    borrowed_from: _Scope | None = None
     borrowers: set[_Scope] = field(default_factory=set)
 
 
@@ -474,22 +476,34 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         report_unmet_requirements(
             unmet_requirements(self._uses), micro.environment
         )
-        borrowed = _Scope(lock=asyncio.Lock(), opened=True)
+        # Recorded on this run so the check runs once rather than per entry.
+        # The same record is reused each time this run borrows, so borrowing
+        # again after the owner changed leaves nothing of the last one.
+        borrowed = self._scope_for(micro)
         with self._owner_lock:
             if not held.opened:
                 raise OutOfContextError(self._shared_scope_message(micro))
+            # Whichever scope this run last borrowed from already let go:
+            # the owner clears it as it forgets, and so does this run's own
+            # drop, so there is never a second link to unpick here.
+            borrowed.opened = True
+            borrowed.borrowed_from = held
             held.borrowers.add(borrowed)
-        # Dropped when this run ends, so a long-lived owner does not collect
-        # a record per run that ever borrowed from it.
-        exit_stack.callback(self._drop_borrow, held, borrowed)
-        # Recorded on this run so the check runs once rather than per entry.
-        micro._scoped_uses[self] = borrowed  # noqa: SLF001
+            armed = borrowed.drop_armed
+            borrowed.drop_armed = True
+        if not armed:
+            # Dropped when this run ends, so a long-lived owner does not
+            # collect a record per run that ever borrowed from it.
+            exit_stack.callback(self._drop_borrow, borrowed)
         return True
 
-    def _drop_borrow(self, held: _Scope, borrowed: _Scope) -> None:
-        """Take this run's borrow off the scope it borrowed from."""
+    def _drop_borrow(self, borrowed: _Scope) -> None:
+        """Take this run's borrow off whatever scope it borrowed from."""
         with self._owner_lock:
-            held.borrowers.discard(borrowed)
+            held = borrowed.borrowed_from
+            if held is not None:
+                held.borrowers.discard(borrowed)
+                borrowed.borrowed_from = None
 
     def _forget_scope(self, scope: _Scope) -> None:
         """Stop reporting the scope open, before anything it holds closes."""
@@ -497,6 +511,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             scope.opened = False
             for borrower in scope.borrowers:
                 borrower.opened = False
+                borrower.borrowed_from = None
+            scope.borrowers.clear()
 
     def _claim_scope(
         self, micro: Grelmicro, exit_stack: AsyncExitStack
