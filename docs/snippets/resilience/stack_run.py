@@ -2,11 +2,13 @@ import httpx
 
 from grelmicro.resilience import Retry, Stack, Timeout
 
+NAME = "recs"
+
 recs = Stack(
-    "recs",
+    NAME,
     patterns=[
-        Retry.exponential("recs", when=httpx.HTTPError, attempts=3),
-        Timeout("recs", seconds=1.0),
+        Retry.exponential(NAME, when=httpx.HTTPError, attempts=3),
+        Timeout(NAME, seconds=1.0),
     ],
 )
 

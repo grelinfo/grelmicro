@@ -30,6 +30,29 @@ Pass the patterns in any order. A `Stack` applies them in the order above:
 --8<-- "resilience/stack.py"
 ```
 
+## Naming: system-scoped and call-scoped
+
+A name is not a label, it is the configuration identity of the thing it names. It drives the environment prefix (`GREL_TIMEOUT_RECS_LIST_SECONDS`, `GREL_CIRCUITBREAKER_RECS_API_ERROR_THRESHOLD`) and the registration for [live reconfiguration](../architecture/reconfigure.md). Which name a pattern takes follows from what it protects.
+
+| Pattern | Scope | Name it after |
+|---|---|---|
+| `CircuitBreaker` | The external system | The system. Every call site shares one circuit, so one failing dependency trips once |
+| `RateLimiter` | The external system | The system. The quota belongs to the system, not to whoever calls it |
+| `Bulkhead` | Usually the external system | The system, when it caps how hard you may hit it. The call, when it protects your own workers from one slow endpoint |
+| `Retry` | The call | The call. What is safe to repeat depends on the endpoint |
+| `Timeout` | The call | The call. A listing and a report do not share a deadline |
+| `Fallback` | The call | The call. The safe value is the caller's, not the system's |
+
+So one external system usually has several stacks, one per call site, **sharing the system-scoped instances between them**:
+
+```python
+--8<-- "resilience/stack_two_systems.py"
+```
+
+Sharing is by instance, not by name: build the breaker once and put the same object in every stack that reaches that system. Two breakers with the same name and the same backend also share state, but one object is the plain way to say it.
+
+The mistake to avoid is a per-call-site circuit breaker. Give `recs-list` and `recs-report` a breaker each and the system has two circuits that must each fail on their own before either opens, so the first failing call site keeps hammering a dependency the second one already gave up on.
+
 A `Stack` is reusable. Decorate several functions with the same one and they share its breaker, its bucket, and its permits, which is what you want when they call the same dependency.
 
 Two patterns of the same kind are refused, because that needs an order only you know. So is a stack with no patterns, because it would return the function unchanged.

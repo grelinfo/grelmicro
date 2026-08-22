@@ -19,6 +19,16 @@ SCHEDULED = "__grelmicro_scheduled__"
 """Attribute a task router leaves on a function it has registered."""
 
 
+def _underlying(function: object) -> object:
+    """Return what a bound method wraps, and never raise finding out."""
+    try:
+        return getattr(function, "__func__", function)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return function
+
+
 def mark_scheduled(function: object) -> None:
     """Mark `function` as registered by a task router.
 
@@ -27,10 +37,14 @@ def mark_scheduled(function: object) -> None:
     registered, which is what the schedule holds either way.
     """
     with suppress(AttributeError):
-        setattr(getattr(function, "__func__", function), SCHEDULED, True)
+        setattr(_underlying(function), SCHEDULED, True)
 
 
 def is_scheduled(function: object) -> bool:
     """Return whether a task router has already registered `function`."""
-    target = getattr(function, "__func__", function)
-    return bool(getattr(target, SCHEDULED, False))
+    try:
+        return bool(getattr(_underlying(function), SCHEDULED, False))
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return False

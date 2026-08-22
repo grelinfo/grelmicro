@@ -146,6 +146,22 @@ class _Control(BaseException):
         """The refusal, re-raised once the pattern above has passed."""
 
 
+def _control_in(error: BaseException) -> _Control | None:
+    """Return the carrier an error displaced, if it displaced one.
+
+    An exception raised while the breaker exits replaces the carrier
+    travelling through it and pushes it onto `__context__`.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, _Control):
+            return current
+        current = current.__context__
+    return None
+
+
 def _carried(control: _Control) -> Exception:
     """Return the refusal the carrier held, and detach the carrier.
 
@@ -172,6 +188,9 @@ def _as_coroutine_function[**P, R](
     async def target(*args: P.args, **kwargs: P.kwargs) -> R:
         return await fn(*args, **kwargs)
 
+    named = name_of(fn)
+    target.__name__ = named
+    target.__qualname__ = named
     return target
 
 
@@ -208,10 +227,15 @@ def _named(fn: object) -> str:
     return getattr(fn, "__qualname__", None) or repr(fn)
 
 
+def _name_of_pattern(item: Pattern) -> str:
+    """Return the name a pattern was built with."""
+    inner = item.limiter if isinstance(item, RateLimiterBinding) else item
+    return inner.name
+
+
 def _describe(item: Pattern) -> str:
     """Return the pattern as its type and name, for a message."""
-    inner = item.limiter if isinstance(item, RateLimiterBinding) else item
-    return f"{type(item).__name__}({inner.name!r})"
+    return f"{type(item).__name__}({_name_of_pattern(item)!r})"
 
 
 def _origin(item: object) -> str:
@@ -603,6 +627,12 @@ def _breaker_layer[**P, R](
             raise _Control(error) from None
         except _Control as control:
             refusal = _carried(control)
+        except BaseException as error:
+            displaced = _control_in(error)
+            if displaced is None:
+                raise
+            error.__context__ = None
+            refusal = _carried(displaced)
         raise refusal
 
     return layer

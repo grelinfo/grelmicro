@@ -10,22 +10,29 @@ from grelmicro.resilience import (
     Timeout,
 )
 
-limiter = RateLimiter.token_bucket("recs", capacity=20, refill_rate=10)
+SYSTEM = "recs-api"
+CALL = "recs-list"
 
-recs = Stack(
-    "recs",
+# Named for the system, so every call site shares one circuit and one budget.
+breaker = CircuitBreaker(SYSTEM)
+limiter = RateLimiter.token_bucket(SYSTEM, capacity=20, refill_rate=10)
+pool = Bulkhead(SYSTEM, max_concurrent=10)
+
+recs_list = Stack(
+    CALL,
     patterns=[
-        Fallback("recs", when=Exception, default=[]),
-        Retry.exponential("recs", when=httpx.HTTPError, attempts=3),
-        CircuitBreaker("recs"),
+        # Named for this call: its default and its deadline are its own.
+        Fallback(CALL, when=Exception, default=[]),
+        Retry.exponential(CALL, when=httpx.HTTPError, attempts=3),
+        breaker,
         limiter(key="user:{user_id}"),
-        Bulkhead("recs", max_concurrent=10),
-        Timeout("recs", seconds=1.0),
+        pool,
+        Timeout(CALL, seconds=1.0),
     ],
 )
 
 
-@recs
+@recs_list
 async def get_recommendations(
     client: httpx.AsyncClient, user_id: str
 ) -> list[str]:

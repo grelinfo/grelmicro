@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import pytest
 
+from grelmicro._markers import is_scheduled
 from grelmicro.cache import TTLCache
 from grelmicro.coordination import LeaderElection, Lock, ReadWriteLock
 from grelmicro.resilience import (
@@ -1200,3 +1201,77 @@ def test_an_interrupt_while_placing_a_type_is_never_swallowed() -> None:
 
     with pytest.raises(KeyboardInterrupt):
         Stack("recs", patterns=[a_retry(), Hostile()])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
+
+
+async def test_a_refusal_survives_a_breaker_that_fails_to_exit() -> None:
+    """The refusal is what the caller was owed, and the carrier stays private."""
+    async with (
+        MemoryCircuitBreakerAdapter() as cb_backend,
+        MemoryRateLimiterAdapter() as rl_backend,
+    ):
+        breaker = CircuitBreaker("recs", backend=cb_backend)
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=1, refill_rate=SLOW_REFILL, backend=rl_backend
+        )
+        stack = Stack("recs", patterns=[a_retry(), breaker, limiter])
+
+        @stack
+        async def work() -> str:
+            return "ok"
+
+        assert await work() == "ok"
+
+        state = breaker._state
+        strategy = state.strategy or breaker._resolve_strategy(state)
+
+        async def refuse() -> None:
+            msg = "breaker backend down"
+            raise ConnectionError(msg)
+
+        strategy.abandon = refuse  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+        with pytest.raises(RateLimitExceededError) as caught:
+            await work()
+
+        assert caught.value.retry_after > 0
+        assert caught.value.__context__ is None
+
+
+def test_a_decorated_callable_object_keeps_its_name() -> None:
+    """A wrapper must not report an internal name to logs and metrics."""
+
+    class Client:
+        """A callable object with no name of its own."""
+
+        async def __call__(self, value: int) -> int:
+            return value
+
+    stack = Stack("recs", patterns=[a_retry()])
+
+    assert stack(Client()).__qualname__ == "Client"  # ty: ignore[unresolved-attribute]
+
+
+def test_reading_the_scheduled_mark_never_raises() -> None:
+    """A value that refuses attribute access is refused, not propagated."""
+
+    class Hostile:
+        """A value whose attributes raise."""
+
+        def __getattr__(self, name: str) -> object:
+            msg = "unbound proxy"
+            raise RuntimeError(msg)
+
+    assert is_scheduled(Hostile()) is False
+
+
+def test_an_interrupt_while_reading_the_mark_is_never_swallowed() -> None:
+    """A real interrupt still gets out of the raise-proof read."""
+
+    class Interrupting:
+        """A value whose attribute access interrupts."""
+
+        def __getattr__(self, name: str) -> object:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        is_scheduled(Interrupting())
