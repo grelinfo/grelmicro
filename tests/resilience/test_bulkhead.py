@@ -304,6 +304,17 @@ async def test_uses_overrides_default_backend_in_scope() -> None:
         assert micro.get("coordination", "default").lock_backend is default
 
 
+async def test_uses_wraps_a_bare_backend_like_the_app() -> None:
+    """A bare backend in `uses=` becomes the Component a Pattern resolves."""
+    default = MemoryLockAdapter()
+    dedicated = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead("reports", uses=[dedicated])
+
+    async with micro, bulkhead:
+        assert micro.get("coordination", "default").lock_backend is dedicated
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

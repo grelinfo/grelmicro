@@ -36,7 +36,7 @@ The default fails fast: with no `max_wait`, a full bulkhead rejects immediately.
 
 The bulkhead opens its `uses=` on first entry and closes them when the app shuts down, so an active `Grelmicro` app is required. List the Provider before the Component that borrows it, exactly as in `Grelmicro(uses=[...])`.
 
-The scope belongs to one app run: whichever enters the bulkhead first. A later run in the same process opens every item again from the start. A run that overlaps the owner borrows the open items instead of opening a second set, and gives them up when the owner closes them, so give overlapping apps their own `Bulkhead` when their lifetimes differ. Entering raises `OutOfContextError` when your own run is shutting down or already gone, and when another run holds the scope but has not finished opening it. It raises `NoActiveAppError` when no app is active at all. Each message says what to wait for.
+The scope belongs to one app run: whichever enters the bulkhead first. A later run in the same process opens every item again from the start. A run that overlaps the owner borrows the open items instead of opening a second set, and gives them up when the owner closes them, so give overlapping apps their own `Bulkhead` when their lifetimes differ. An entry that finds no open scope, and cannot open one, raises `OutOfContextError`: the run has already gone, or is shutting down and the scope closed with it, or another run holds the scope and has not finished opening it. It raises `NoActiveAppError` when no app is active at all. Each message says what to wait for.
 
 These Components are not registered on the app, so the [backend check](../deployment.md#the-backend-check) cannot run at startup for them. It runs on first entry instead, with the same rules.
 

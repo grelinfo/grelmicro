@@ -18,6 +18,7 @@ from grelmicro._app import (
     NoActiveAppError,
     _active_bulkhead,
     _current_micro,
+    _maybe_wrap_first_party_backend,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
@@ -31,6 +32,7 @@ from grelmicro._environment import (
 )
 from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
+from grelmicro.providers._base import Provider
 from grelmicro.resilience.errors import BulkheadFullError
 
 if TYPE_CHECKING:
@@ -172,10 +174,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 shuts down, so an active `Grelmicro` app is required. The
                 scope belongs to that app run, so a later run opens it
                 again from the start. A run overlapping the one that owns
-                the scope borrows it, and closes with it. Entering raises
-                `OutOfContextError` once your own run is shutting down, and
-                while another run holds the scope but has not finished
-                opening it.
+                the scope borrows it, and closes with it. An entry that
+                finds no open scope, and cannot open one, raises
+                `OutOfContextError`.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
@@ -223,7 +224,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._reconfigure_lock = asyncio.Lock()
         self._executor: ThreadPoolExecutor | None = None
         self._uses = tuple(
-            instantiate_if_class(item) for item in uses if item is not None
+            _resolve_usable(instantiate_if_class(item))
+            for item in uses
+            if item is not None
         )
         _check_usable(name, self._uses)
         self._overrides: dict[tuple[str, str], Component] = {
@@ -726,6 +729,20 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._state = _State(
             config=new_config, semaphore=_build_semaphore(new_config)
         )
+
+
+def _resolve_usable[T](item: T) -> T | Component:
+    """Wrap a bare first-party backend in its Component, as the app does.
+
+    `uses=` takes the same shape as `Grelmicro(uses=[...])`, so a bare
+    `MemoryLockAdapter()` has to become the `Coordination` that a Pattern
+    can resolve against, rather than opening as an item that overrides
+    nothing.
+    """
+    if isinstance(item, Component | Provider):
+        return item
+    wrapped = _maybe_wrap_first_party_backend(item)
+    return item if wrapped is None else wrapped
 
 
 def _check_usable(name: str, items: tuple[Usable, ...]) -> None:
