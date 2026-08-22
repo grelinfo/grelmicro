@@ -224,6 +224,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             if isinstance(item, Component)
         }
         self._scoped_to: Grelmicro | None = None
+        self._scope_stack: AsyncExitStack | None = None
         self._opening = 0
         self._unwound = False
         self._owner_lock = ThreadLock()
@@ -374,7 +375,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 raise OutOfContextError(
                     self._no_scope_message(micro, exit_stack)
                 )
-            if self._claim_scope(micro):
+            if self._claim_scope(micro, exit_stack):
                 # Sits below every item, so it runs once they have all
                 # closed and the next app is free to take the scope.
                 exit_stack.callback(self._release_scope)
@@ -393,10 +394,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                         # The app moved on while this item was entering, so
                         # its stack will never close it. Close it here and
                         # leave the scope for the next app to open.
-                        await item.__aexit__(None, None, None)
-                        raise OutOfContextError(
-                            self._no_scope_message(micro, exit_stack)
-                        )
+                        msg = self._no_scope_message(micro, exit_stack)
+                        try:
+                            await item.__aexit__(None, None, None)
+                        except Exception as exc:
+                            raise OutOfContextError(msg) from exc
+                        raise OutOfContextError(msg)
                     exit_stack.push_async_exit(item)
                     # Sits above the item, so the scope stops reporting
                     # itself open before anything it holds closes.
@@ -414,23 +417,29 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         """
         return micro._closing or micro._exit_stack is not exit_stack  # noqa: SLF001
 
-    def _claim_scope(self, micro: Grelmicro) -> bool:
-        """Take the `uses=` scope for `micro`, and report whether it was free.
+    def _claim_scope(
+        self, micro: Grelmicro, exit_stack: AsyncExitStack
+    ) -> bool:
+        """Take the `uses=` scope for one app run, and report if it was free.
 
-        Synchronous on purpose. Nothing awaits between reading the owner and
-        writing it, so two apps opening at once cannot both pass.
+        Held against the exit stack rather than the app, because one app
+        reused across runs is one app object and several scopes.
+
+        Synchronous on purpose. Nothing awaits between reading the holder
+        and writing it, so two runs opening at once cannot both pass.
 
         Raises:
-            OutOfContextError: If another live app holds the scope.
+            OutOfContextError: If another app run still holds the scope.
         """
         with self._owner_lock:
-            owner = self._scoped_to
-            if owner is None:
+            held = self._scope_stack
+            if held is None:
+                self._scope_stack = exit_stack
                 self._scoped_to = micro
                 self._unwound = False
                 return True
-            if owner is not micro:
-                raise OutOfContextError(self._shared_scope_message())
+            if held is not exit_stack:
+                raise OutOfContextError(self._shared_scope_message(micro))
         return False
 
     def _release_scope(self) -> None:
@@ -448,11 +457,18 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     def _free_scope(self) -> None:
         """Hand the scope back once nothing holds it. Call under the lock."""
         if self._unwound and not self._opening:
+            self._scope_stack = None
             self._scoped_to = None
             self._unwound = False
 
-    def _shared_scope_message(self) -> str:
-        """Describe a `uses=` scope another live app already holds."""
+    def _shared_scope_message(self, micro: Grelmicro) -> str:
+        """Describe a `uses=` scope another app run already holds."""
+        if self._scoped_to is micro:
+            return (
+                f"Bulkhead {self._name!r} still has its uses= scope open "
+                "from an earlier run of this app, which has not finished "
+                "closing it. Enter it again once that run has drained."
+            )
         return (
             f"Bulkhead {self._name!r} has its uses= scope open on another "
             "Grelmicro app. A bulkhead with uses= belongs to one app at a "

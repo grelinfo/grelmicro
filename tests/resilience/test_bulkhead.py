@@ -1108,6 +1108,99 @@ async def test_an_open_parked_across_a_restart_pushes_nothing() -> None:
     assert closed == ["scope"]
 
 
+async def test_a_restarted_app_does_not_take_a_scope_it_still_holds() -> None:
+    """A run still draining keeps the scope from the same app's next run."""
+    opens = 0
+    closes = 0
+    opening = asyncio.Event()
+    release = asyncio.Event()
+
+    class Slow:
+        """A scope item that parks the run that is opening it."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opening.set()
+            await release.wait()
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            nonlocal closes
+            closes += 1
+
+    bulkhead = Bulkhead("reused", uses=[Slow()])
+    micro = Grelmicro()
+
+    async def enter() -> None:
+        with pytest.raises(OutOfContextError, match="lost its uses= scope"):
+            async with bulkhead:
+                pass
+
+    await micro.__aenter__()
+    task = asyncio.create_task(enter())
+    await opening.wait()
+    await micro.__aexit__(None, None, None)
+
+    # The same app object starts again while the first run is still parked.
+    await micro.__aenter__()
+    with pytest.raises(OutOfContextError, match="earlier run of this app"):
+        async with bulkhead:
+            pass
+
+    release.set()
+    await task
+    assert closes == 1  # the parked entry closed the item it had opened
+
+    # The earlier run has drained, so this one can take the scope.
+    async with bulkhead:
+        pass
+    assert opens == LIMIT
+    await micro.__aexit__(None, None, None)
+
+    assert closes == LIMIT
+    assert bulkhead._scope_stack is None
+    assert bulkhead._scoped_to is None
+
+
+async def test_a_failing_close_still_names_the_lost_scope() -> None:
+    """An item that fails to close does not hide why the entry was refused."""
+    opening = asyncio.Event()
+    release = asyncio.Event()
+
+    class Brittle:
+        """A scope item that raises from its own exit."""
+
+        async def __aenter__(self) -> Self:
+            opening.set()
+            await release.wait()
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            msg = "pool already gone"
+            raise ConnectionError(msg)
+
+    bulkhead = Bulkhead("brittle", uses=[Brittle()])
+    micro = Grelmicro()
+
+    async def enter() -> None:
+        with pytest.raises(
+            OutOfContextError, match="closing with the app"
+        ) as exc:
+            async with bulkhead:
+                pass
+        assert isinstance(exc.value.__cause__, ConnectionError)
+
+    await micro.__aenter__()
+    task = asyncio.create_task(enter())
+    await opening.wait()
+    await micro.__aexit__(None, None, None)
+    release.set()
+    await task
+
+    assert bulkhead._scope_stack is None
+
+
 def test_the_open_lock_is_built_on_the_app_event_loop() -> None:
     """A bulkhead reused across event loops does not carry a bound lock."""
     bulkhead = Bulkhead("cli", uses=[_Gate()])
