@@ -148,7 +148,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 matching Component here instead of the app's. A Pattern
                 with an explicit `backend=` is unaffected. The bulkhead
                 opens these on first entry and closes them when the app
-                shuts down, so an active `Grelmicro` app is required.
+                shuts down, so an active `Grelmicro` app is required. The
+                scope belongs to that app, so the next app opens it again.
                 A `None` entry is skipped, as in `Grelmicro(uses=[...])`.
                 """
             ),
@@ -205,6 +206,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         }
         self._opened = False
         self._entered = 0
+        self._scoped = False
         self._open_lock = asyncio.Lock()
         self._scopes: dict[
             asyncio.Task[Any],
@@ -322,6 +324,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         entry that failed part way resumes where it stopped rather than
         entering the same item twice.
 
+        The scope belongs to one app. A reset is pushed on that app's exit
+        stack before the first item, so the app forgets the scope as it
+        shuts down and the next app opens it again from the start.
+
         These components are not registered on the app, so the app cannot
         check their backend scope at startup. They are checked here instead,
         the first time the scope opens.
@@ -334,6 +340,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             if exit_stack is None:  # pragma: no cover
                 msg = "Bulkhead uses= requires an open Grelmicro app"
                 raise RuntimeError(msg)
+            if not self._scoped:
+                exit_stack.callback(self._forget_scope)
+                self._scoped = True
             report_unmet_requirements(
                 unmet_requirements(self._uses), micro.environment
             )
@@ -341,6 +350,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 await exit_stack.enter_async_context(item)
                 self._entered += 1
             self._opened = True
+
+    def _forget_scope(self) -> None:
+        """Drop the scope state the closing app opened."""
+        self._opened = False
+        self._entered = 0
+        self._scoped = False
 
     def __call__[**P, R](
         self, fn: Callable[P, Awaitable[R]], /
