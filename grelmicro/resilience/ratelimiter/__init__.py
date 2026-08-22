@@ -909,6 +909,12 @@ class RateLimiterBinding:
                 "computes the key itself."
             )
             raise TypeError(msg)
+        if not is_instance(cost, int) or is_instance(cost, bool):
+            msg = (
+                "cost is a number of tokens, so it is a whole number, "
+                f"got {type(cost).__name__}."
+            )
+            raise TypeError(msg)
         if cost < 1:
             msg = (
                 "cost is a number of tokens, so it is at least 1, got "
@@ -922,6 +928,14 @@ class RateLimiterBinding:
                 "wait with no bound has nothing above it to stop it "
                 "inside a stack. Use 0.0 to raise as soon as the "
                 "budget is spent, or a positive number of seconds."
+            )
+            raise TypeError(msg)
+        if not is_instance(max_wait, (int, float)) or is_instance(
+            max_wait, bool
+        ):
+            msg = (
+                "max_wait is a number of seconds, got "
+                f"{type(max_wait).__name__}."
             )
             raise TypeError(msg)
         if not math.isfinite(max_wait) or max_wait < 0:

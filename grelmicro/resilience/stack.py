@@ -146,19 +146,25 @@ class _Control(BaseException):
         """The refusal, re-raised once the pattern above has passed."""
 
 
-def _control_in(error: BaseException) -> _Control | None:
-    """Return the carrier an error displaced, if it displaced one.
+def _detach_control(error: BaseException) -> _Control | None:
+    """Unlink the carrier an error displaced, and return it.
 
-    An exception raised while the breaker exits replaces the carrier
-    travelling through it and pushes it onto `__context__`.
+    Anything raised while the breaker exits replaces the carrier
+    travelling through it and pushes it onto `__context__`. Unlinking
+    keeps the private type out of the chain the caller is handed,
+    whether the refusal or the new error goes on from here.
     """
     seen: set[int] = set()
-    current: BaseException | None = error
-    while current is not None and id(current) not in seen:
+    current: BaseException = error
+    while id(current) not in seen:
         seen.add(id(current))
-        if isinstance(current, _Control):
-            return current
-        current = current.__context__
+        following = current.__context__
+        if following is None:
+            return None
+        if isinstance(following, _Control):
+            current.__context__ = following.__context__
+            return following
+        current = following
     return None
 
 
@@ -627,12 +633,13 @@ def _breaker_layer[**P, R](
             raise _Control(error) from None
         except _Control as control:
             refusal = _carried(control)
-        except Exception as error:
-            displaced = _control_in(error)
+        except BaseException as error:
+            displaced = _detach_control(error)
             if displaced is None:
                 raise
-            error.__context__ = None
             refusal = _carried(displaced)
+            if not isinstance(error, Exception):
+                raise
             raise refusal from error
         raise refusal
 

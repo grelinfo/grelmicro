@@ -33,6 +33,7 @@ from grelmicro.resilience import (
 from grelmicro.resilience.circuitbreaker import (
     _EventLoopEntryError,
 )
+from grelmicro.resilience.stack import _detach_control
 from grelmicro.task import Tasks
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -1330,6 +1331,55 @@ async def test_a_cancellation_is_never_turned_into_a_refusal() -> None:
         await entered.wait()
         task.cancel()
 
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError) as caught:
             await task
         assert task.cancelled()
+        assert not _carriers_in(caught.value)
+
+
+async def test_a_carrier_deeper_in_the_chain_is_still_detached() -> None:
+    """The exit failure may carry its own context above the carrier."""
+    async with (
+        MemoryCircuitBreakerAdapter() as cb_backend,
+        MemoryRateLimiterAdapter() as rl_backend,
+    ):
+        breaker = CircuitBreaker("recs", backend=cb_backend)
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=1, refill_rate=SLOW_REFILL, backend=rl_backend
+        )
+        stack = Stack("recs", patterns=[a_retry(), breaker, limiter])
+
+        @stack
+        async def work() -> str:
+            return "ok"
+
+        assert await work() == "ok"
+        state = breaker._state
+        strategy = state.strategy or breaker._resolve_strategy(state)
+
+        def socket_closed() -> OSError:
+            return OSError("socket closed")
+
+        async def refuse() -> None:
+            try:
+                raise socket_closed()
+            except OSError as error:
+                msg = "breaker backend down"
+                raise ConnectionError(msg) from error
+
+        strategy.abandon = refuse  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+        with pytest.raises(RateLimitExceededError) as caught:
+            await work()
+
+        assert not _carriers_in(caught.value)
+
+
+def test_a_chain_that_loops_is_left_alone() -> None:
+    """Walking a chain must end, even one that points back at itself."""
+    first = ValueError("first")
+    second = ValueError("second")
+    first.__context__ = second
+    second.__context__ = first
+
+    assert _detach_control(first) is None

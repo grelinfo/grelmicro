@@ -510,3 +510,21 @@ def test_a_function_already_registered_as_a_task_is_refused() -> None:
 
     with pytest.raises(TypeError, match="already registered as a task"):
         limiter(registered)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"max_wait": "soon"}, "number of seconds"),
+        ({"cost": "two"}, "whole number"),
+        ({"cost": True}, "whole number"),
+    ],
+    ids=["wait-text", "cost-text", "cost-bool"],
+)
+def test_a_budget_that_is_not_a_number_says_so(
+    kwargs: dict[str, Any], match: str
+) -> None:
+    """A wrong type gets the same guiding message as a wrong value."""
+    limiter = RateLimiter.token_bucket("api", capacity=CAPACITY, refill_rate=1)
+    with pytest.raises(TypeError, match=match):
+        limiter(**kwargs)
