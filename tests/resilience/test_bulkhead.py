@@ -368,6 +368,16 @@ async def test_uses_fills_no_defaults_for_two_providers_with_a_component() -> (
         assert micro.get("coordination", "default").lock_backend is default
 
 
+async def test_uses_checks_the_backends_a_provider_fills() -> None:
+    """The filled Components face the same backend check as listed ones."""
+    bulkhead = Bulkhead("reports", uses=[MemoryProvider()])
+
+    async with Grelmicro(environment="production"):
+        with pytest.raises(BackendScopeError):
+            async with bulkhead:
+                pass
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()
