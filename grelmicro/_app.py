@@ -1325,23 +1325,7 @@ class Grelmicro:
         that own their provider (built from env, no user instance) are handled
         by `_resolve_provider_sharing`.
         """
-        listed = {id(item) for item in self._items}
-        discovered: dict[int, AbstractAsyncContextManager[object]] = {}
-        rebuilt: list[AbstractAsyncContextManager[object]] = []
-        for item in self._items:
-            for target in _iter_provider_backends(item):
-                provider = getattr(target, "_provider", None)
-                owns = getattr(target, "_owns_provider", True)
-                if (
-                    provider is not None
-                    and not owns
-                    and id(provider) not in listed
-                    and id(provider) not in discovered
-                ):
-                    discovered[id(provider)] = provider
-                    rebuilt.append(provider)
-            rebuilt.append(item)
-        self._items = rebuilt
+        self._items = _with_shared_providers(self._items)
 
     def _resolve_provider_sharing(self) -> None:
         """Dedupe implicitly-owned providers by `(class, env_prefix)`.
@@ -1355,19 +1339,7 @@ class Grelmicro:
         Adapters that received an explicit `provider=` instance are
         left alone: their lifecycle is the caller's responsibility.
         """
-        cache: dict[tuple[type, str], Provider] = {}
-        for item in self._items:
-            for target in _iter_provider_backends(item):
-                if not getattr(target, "_owns_provider", False):
-                    continue
-                borrower = cast("_ProviderBorrower", target)
-                provider = borrower._provider  # noqa: SLF001
-                key = (type(provider), getattr(provider, "env_prefix", ""))
-                shared = cache.get(key)
-                if shared is None:
-                    cache[key] = provider
-                elif shared is not provider:  # pragma: no branch
-                    borrower._rebind_provider(shared)  # noqa: SLF001
+        _share_owned_providers(self._items)
 
     def _order_providers_before_dependents(self) -> None:
         """Move a listed Provider ahead of the Component that borrows it.
@@ -1387,33 +1359,7 @@ class Grelmicro:
         `Grelmicro(strict=True)` still raises `LifecycleOrderError`, for callers
         who want the list they wrote to be the list that runs.
         """
-        for index, item in enumerate(self._items):
-            for target in _iter_provider_backends(item):
-                provider = getattr(target, "_provider", None)
-                if provider is None or getattr(target, "_owns_provider", True):
-                    continue
-                self._move_provider_ahead(target, provider, index)
-
-    def _move_provider_ahead(
-        self,
-        target: object,
-        provider: Provider,
-        index: int,
-    ) -> None:
-        """Reorder one misplaced Provider, or raise under `strict=True`."""
-        position = self._items.index(provider)
-        if position <= index:
-            return
-        if self._strict:
-            msg = diagnostic(
-                PROVIDER_ORDER,
-                f"{type(provider).__name__} is listed after "
-                f"{type(target).__name__} in Grelmicro(uses=[...]). "
-                f"Providers must be listed before the components that "
-                f"depend on them so they open first.",
-            )
-            raise LifecycleOrderError(msg)
-        self._items.insert(index, self._items.pop(position))
+        _order_providers_first(self._items, strict=self._strict)
 
 
 class _ProviderBorrower(Protocol):
@@ -1627,6 +1573,84 @@ def _fake_components(
         for component in components
         if component.kind in _FAKEABLE_KINDS
     ]
+
+
+def _with_shared_providers(
+    items: list[AbstractAsyncContextManager[object]],
+) -> list[AbstractAsyncContextManager[object]]:
+    """Return `items` with every borrowed Provider inserted before its holder."""
+    listed = {id(item) for item in items}
+    discovered: dict[int, AbstractAsyncContextManager[object]] = {}
+    rebuilt: list[AbstractAsyncContextManager[object]] = []
+    for item in items:
+        for target in _iter_provider_backends(item):
+            provider = getattr(target, "_provider", None)
+            owns = getattr(target, "_owns_provider", True)
+            if (
+                provider is not None
+                and not owns
+                and id(provider) not in listed
+                and id(provider) not in discovered
+            ):
+                discovered[id(provider)] = provider
+                rebuilt.append(provider)
+        rebuilt.append(item)
+    return rebuilt
+
+
+def _share_owned_providers(
+    items: list[AbstractAsyncContextManager[object]],
+) -> None:
+    """Rebind implicitly-owned providers so one pool feeds every consumer."""
+    cache: dict[tuple[type, str], Provider] = {}
+    for item in items:
+        for target in _iter_provider_backends(item):
+            if not getattr(target, "_owns_provider", False):
+                continue
+            borrower = cast("_ProviderBorrower", target)
+            provider = borrower._provider  # noqa: SLF001
+            key = (type(provider), getattr(provider, "env_prefix", ""))
+            shared = cache.get(key)
+            if shared is None:
+                cache[key] = provider
+            elif shared is not provider:  # pragma: no branch
+                borrower._rebind_provider(shared)  # noqa: SLF001
+
+
+def _order_providers_first(
+    items: list[AbstractAsyncContextManager[object]], *, strict: bool
+) -> None:
+    """Move every listed Provider ahead of the Component that borrows it."""
+    for index, item in enumerate(items):
+        for target in _iter_provider_backends(item):
+            provider = getattr(target, "_provider", None)
+            if provider is None or getattr(target, "_owns_provider", True):
+                continue
+            _move_provider_ahead(items, target, provider, index, strict=strict)
+
+
+def _move_provider_ahead(
+    items: list[AbstractAsyncContextManager[object]],
+    target: object,
+    provider: Provider,
+    index: int,
+    *,
+    strict: bool,
+) -> None:
+    """Reorder one misplaced Provider, or raise under `strict=True`."""
+    position = items.index(provider)
+    if position <= index:
+        return
+    if strict:
+        msg = diagnostic(
+            PROVIDER_ORDER,
+            f"{type(provider).__name__} is listed after "
+            f"{type(target).__name__} in Grelmicro(uses=[...]). "
+            f"Providers must be listed before the components that "
+            f"depend on them so they open first.",
+        )
+        raise LifecycleOrderError(msg)
+    items.insert(index, items.pop(position))
 
 
 def _default_components_for_provider(provider: Provider) -> list[Component]:

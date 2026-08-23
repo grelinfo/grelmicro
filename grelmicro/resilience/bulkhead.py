@@ -21,6 +21,9 @@ from grelmicro._app import (
     _current_micro,
     _default_components_for_provider,
     _maybe_wrap_first_party_backend,
+    _order_providers_first,
+    _share_owned_providers,
+    _with_shared_providers,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
@@ -756,7 +759,7 @@ def _expand_uses(
     if len(providers) > 1:
         if not claimed:
             raise AmbiguousProviderError(_ambiguous_message(name, providers))
-        return tuple(items)
+        return _lifecycle_order(items)
     resolved: list[AbstractAsyncContextManager[object]] = []
     for item in items:
         resolved.append(item)
@@ -767,7 +770,22 @@ def _expand_uses(
             for component in _default_components_for_provider(item)
             if component.kind not in claimed
         )
-    return tuple(resolved)
+    return _lifecycle_order(resolved)
+
+
+def _lifecycle_order(
+    items: list[AbstractAsyncContextManager[object]],
+) -> tuple[AbstractAsyncContextManager[object], ...]:
+    """Put the scope in the order the app would open it in.
+
+    Adopts a Provider a listed Component borrows but does not own, shares one
+    implicitly-owned Provider between the adapters that would each build their
+    own, and moves a Provider listed after its Component ahead of it.
+    """
+    ordered = _with_shared_providers(items)
+    _order_providers_first(ordered, strict=False)
+    _share_owned_providers(ordered)
+    return tuple(ordered)
 
 
 def _ambiguous_message(name: str, providers: list[Provider]) -> str:

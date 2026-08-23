@@ -21,6 +21,7 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.providers.memory import MemoryProvider
+from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
 from grelmicro.resilience import bulkhead as bulkhead_module
 
@@ -37,6 +38,8 @@ CONFIG_WORKERS = 2
 ADD_RESULT = 42
 KWARGS_SUM = 5
 APPS = 3
+_LAZY_URL = "postgresql://user:pass@localhost:5499/db"
+"""A URL whose pool is only built on enter, so ordering can be read cold."""
 
 
 # --- Construction & configuration ---
@@ -376,6 +379,23 @@ async def test_uses_checks_the_backends_a_provider_fills() -> None:
         with pytest.raises(BackendScopeError):
             async with bulkhead:
                 pass
+
+
+def test_uses_adopts_a_provider_a_component_borrows() -> None:
+    """A Provider a listed Component borrows is opened before it, as in the app."""
+    provider = PostgresProvider(url=_LAZY_URL)
+    bulkhead = Bulkhead("reports", uses=[Cache(provider)])
+
+    assert bulkhead._uses[0] is provider
+
+
+def test_uses_opens_a_provider_listed_after_its_component() -> None:
+    """A Provider listed late moves ahead of the Component that holds it."""
+    provider = PostgresProvider(url=_LAZY_URL)
+    bulkhead = Bulkhead("reports", uses=[Cache(provider), provider])
+
+    assert bulkhead._uses[0] is provider
+    assert sum(item is provider for item in bulkhead._uses) == 1
 
 
 async def test_uses_skips_none_entries() -> None:
