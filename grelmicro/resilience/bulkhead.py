@@ -23,7 +23,6 @@ from grelmicro._app import (
     _maybe_wrap_first_party_backend,
     _order_providers_first,
     _share_owned_providers,
-    _with_shared_providers,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
@@ -196,7 +195,13 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             ),
         ] = None,
     ) -> None:
-        """Initialize the bulkhead."""
+        """Initialize the bulkhead.
+
+        Raises:
+            TypeError: A `uses=` entry is not an async context manager.
+            AmbiguousProviderError: `uses=` lists two or more bare Providers
+                with no Component, so the default for each kind is ambiguous.
+        """
         env_prefix, kind_prefix = env_prefixes("BULKHEAD", name)
         self._setup(
             name,
@@ -271,6 +276,11 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
 
         The config is taken as-is: no environment variable is read, and
         the instance is not registered for live reconfiguration.
+
+        Raises:
+            TypeError: A `uses=` entry is not an async context manager.
+            AmbiguousProviderError: `uses=` lists two or more bare Providers
+                with no Component, so the default for each kind is ambiguous.
         """
         instance = cls.__new__(cls)
         instance._setup(name, config, uses)  # noqa: SLF001
@@ -776,13 +786,19 @@ def _expand_uses(
 def _lifecycle_order(
     items: list[AbstractAsyncContextManager[object]],
 ) -> tuple[AbstractAsyncContextManager[object], ...]:
-    """Put the scope in the order the app would open it in.
+    """Put the scope in the order it has to open in.
 
-    Adopts a Provider a listed Component borrows but does not own, shares one
-    implicitly-owned Provider between the adapters that would each build their
-    own, and moves a Provider listed after its Component ahead of it.
+    Moves a Provider listed after its Component ahead of it, and shares one
+    implicitly-owned Provider between the adapters that would each build
+    their own.
+
+    A Provider a Component borrows but `uses=` does not list is left alone,
+    where `Grelmicro(uses=[...])` adopts it. The scope opens on the app's
+    exit stack, above the app's own items, so adopting a Provider the app
+    already holds would open it twice and close it while the app is still
+    using it. List it here, or on the app.
     """
-    ordered = _with_shared_providers(items)
+    ordered = list(items)
     _order_providers_first(ordered, strict=False)
     _share_owned_providers(ordered)
     return tuple(ordered)

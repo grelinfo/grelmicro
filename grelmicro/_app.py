@@ -1637,7 +1637,13 @@ def _move_provider_ahead(
     *,
     strict: bool,
 ) -> None:
-    """Reorder one misplaced Provider, or raise under `strict=True`."""
+    """Reorder one misplaced Provider, or raise under `strict=True`.
+
+    A Provider the list does not carry is left alone. The app adopts one
+    before it gets here, a `Bulkhead` deliberately does not.
+    """
+    if not any(item is provider for item in items):
+        return
     position = items.index(provider)
     if position <= index:
         return

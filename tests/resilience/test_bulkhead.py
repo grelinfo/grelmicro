@@ -381,12 +381,16 @@ async def test_uses_checks_the_backends_a_provider_fills() -> None:
                 pass
 
 
-def test_uses_adopts_a_provider_a_component_borrows() -> None:
-    """A Provider a listed Component borrows is opened before it, as in the app."""
+def test_uses_leaves_out_a_provider_it_was_not_given() -> None:
+    """A borrowed Provider the list omits is never adopted into the scope.
+
+    The scope opens on the app's exit stack, above the app's own items, so
+    adopting a Provider the app already holds would close it too early.
+    """
     provider = PostgresProvider(url=_LAZY_URL)
     bulkhead = Bulkhead("reports", uses=[Cache(provider)])
 
-    assert bulkhead._uses[0] is provider
+    assert all(item is not provider for item in bulkhead._uses)
 
 
 def test_uses_opens_a_provider_listed_after_its_component() -> None:
