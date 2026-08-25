@@ -14,7 +14,9 @@ from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._app import (
+    _SINGLETON_REASON,
     AmbiguousProviderError,
+    ComponentAlreadyRegisteredError,
     Grelmicro,
     NoActiveAppError,
     _active_bulkhead,
@@ -201,6 +203,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             TypeError: A `uses=` entry is not an async context manager.
             AmbiguousProviderError: `uses=` lists two or more bare Providers
                 with no Component, so the default for each kind is ambiguous.
+            ComponentAlreadyRegisteredError: Two Components in `uses=` claim
+                one `(kind, name)`, or one kind only one of them may hold.
         """
         env_prefix, kind_prefix = env_prefixes("BULKHEAD", name)
         self._setup(
@@ -235,11 +239,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._executor: ThreadPoolExecutor | None = None
         self._uses = _expand_uses(name, uses)
         _check_usable(name, self._uses)
-        self._overrides: dict[tuple[str, str], Component] = {
-            (item.kind, item.name): item
-            for item in self._uses
-            if isinstance(item, Component)
-        }
+        self._overrides = _index_overrides(name, self._uses)
         self._scoped_to: Grelmicro | None = None
         self._scope_stack: AsyncExitStack | None = None
         self._opening = 0
@@ -281,6 +281,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             TypeError: A `uses=` entry is not an async context manager.
             AmbiguousProviderError: `uses=` lists two or more bare Providers
                 with no Component, so the default for each kind is ambiguous.
+            ComponentAlreadyRegisteredError: Two Components in `uses=` claim
+                one `(kind, name)`, or one kind only one of them may hold.
         """
         instance = cls.__new__(cls)
         instance._setup(name, config, uses)  # noqa: SLF001
@@ -827,6 +829,68 @@ def _resolve_usable[T](item: T) -> T | Component:
         return item
     wrapped = _maybe_wrap_first_party_backend(item)
     return item if wrapped is None else wrapped
+
+
+def _index_overrides(
+    name: str, items: tuple[AbstractAsyncContextManager[object], ...]
+) -> dict[tuple[str, str], Component]:
+    """Index the Components in `items` by `(kind, name)`, refusing a clash.
+
+    Refused rather than last-wins, as `Grelmicro(uses=[...])` refuses it. A
+    Component the scope shadows would still open, holding a connection pool
+    nothing in the scope could ever resolve to.
+
+    Raises:
+        ComponentAlreadyRegisteredError: Two Components claim one key, or one
+            kind is a singleton and two Components claim it.
+    """
+    overrides: dict[tuple[str, str], Component] = {}
+    for item in items:
+        if not isinstance(item, Component):
+            continue
+        key = (item.kind, item.name)
+        existing = overrides.get(key)
+        if existing is item:
+            continue
+        if existing is not None:
+            msg = (
+                f"component {key!r} is listed twice in Bulkhead {name!r} "
+                f"uses=. Pick a different name."
+            )
+            raise ComponentAlreadyRegisteredError(msg)
+        _check_singleton(name, item, overrides)
+        overrides[key] = item
+    return overrides
+
+
+def _check_singleton(
+    name: str,
+    item: Component,
+    overrides: dict[tuple[str, str], Component],
+) -> None:
+    """Refuse a second Component of a kind only one of which may exist.
+
+    Read with `getattr` for the same reason the app reads it that way: a
+    declared attribute would fail `isinstance` for third-party Components.
+
+    Raises:
+        ComponentAlreadyRegisteredError: The kind is a singleton and another
+            Component already claims it.
+    """
+    for other in overrides.values():
+        if other.kind == item.kind and (
+            getattr(item, "singleton", False)
+            or getattr(other, "singleton", False)
+        ):
+            reason = getattr(item, "singleton_reason", None) or getattr(
+                other, "singleton_reason", _SINGLETON_REASON
+            )
+            msg = (
+                f"component kind {item.kind!r} is a singleton and is already "
+                f"listed as {other.name!r} in Bulkhead {name!r} uses=. "
+                f"{reason}."
+            )
+            raise ComponentAlreadyRegisteredError(msg)
 
 
 def _check_usable(name: str, items: tuple[Usable, ...]) -> None:

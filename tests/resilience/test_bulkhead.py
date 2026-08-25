@@ -11,6 +11,7 @@ import pytest
 from grelmicro import (
     AmbiguousProviderError,
     BackendScopeError,
+    ComponentAlreadyRegisteredError,
     ComponentNotRegisteredError,
     Grelmicro,
     NoActiveAppError,
@@ -20,6 +21,7 @@ from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.log import Log
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
@@ -400,6 +402,32 @@ def test_uses_opens_a_provider_listed_after_its_component() -> None:
 
     assert bulkhead._uses[0] is provider
     assert sum(item is provider for item in bulkhead._uses) == 1
+
+
+def test_uses_refuses_two_components_with_one_key() -> None:
+    """A shadowed Component would open a pool nothing could resolve to."""
+    with pytest.raises(ComponentAlreadyRegisteredError, match="listed twice"):
+        Bulkhead(
+            "reports",
+            uses=[
+                Coordination(lock=MemoryLockAdapter()),
+                Coordination(lock=MemoryLockAdapter()),
+            ],
+        )
+
+
+def test_uses_takes_the_same_component_listed_twice() -> None:
+    """One instance named twice is one Component, not a clash."""
+    coordination = Coordination(lock=MemoryLockAdapter())
+    bulkhead = Bulkhead("reports", uses=[coordination, coordination])
+
+    assert bulkhead._overrides[("coordination", "default")] is coordination
+
+
+def test_uses_refuses_two_of_a_singleton_kind() -> None:
+    """A kind only one Component may hold is refused twice, as in the app."""
+    with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
+        Bulkhead("reports", uses=[Log(), Log(name="second")])
 
 
 async def test_uses_skips_none_entries() -> None:
