@@ -477,7 +477,7 @@ async def test_uses_names_a_borrowed_provider_nothing_opens() -> None:
     bulkhead = Bulkhead("omitted", uses=[Cache(_BorrowedProvider())])
 
     async with Grelmicro():
-        with pytest.raises(OutOfContextError, match="nothing opens"):
+        with pytest.raises(OutOfContextError, match="nothing has opened"):
             async with bulkhead:
                 pass
 
@@ -536,6 +536,43 @@ async def test_uses_opens_a_shared_component_once_across_scopes() -> None:
             pass
 
     assert (opens, closes) == (1, 1)
+
+
+async def test_uses_opens_a_shared_item_the_app_has_not_reached() -> None:
+    """A scope entered during startup opens what the app has not opened yet."""
+    log: list[str] = []
+
+    class Shared:
+        """An item both the app and the bulkhead list."""
+
+        async def __aenter__(self) -> Self:
+            log.append("open")
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            log.append("close")
+
+    shared = Shared()
+    bulkhead = Bulkhead("startup", uses=[shared])
+
+    class Starter:
+        """An app item that enters the bulkhead while the app is starting."""
+
+        async def __aenter__(self) -> Self:
+            async with bulkhead:
+                log.append("in scope")
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    # `shared` sits after `Starter`, so the app has not entered it when the
+    # bulkhead opens its scope.
+    async with Grelmicro(uses=[Starter(), shared]):
+        pass
+
+    # Opened before the body ran, and only once between the two of them.
+    assert log == ["open", "in scope", "close"]
 
 
 async def test_uses_skips_none_entries() -> None:

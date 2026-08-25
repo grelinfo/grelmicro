@@ -285,6 +285,7 @@ class Grelmicro:
         self._exit_stack: AsyncExitStack | None = None
         self._scoped_uses: dict[object, Any] = {}
         self._scoped_opened: set[int] = set()
+        self._app_opened: set[int] = set()
         self._closing = False
         self._token: Any = None
         self._strict = strict
@@ -1247,6 +1248,7 @@ class Grelmicro:
             _active_apps.append(self)
         self._scoped_uses.clear()
         self._scoped_opened.clear()
+        self._app_opened.clear()
         self._closing = False
         try:
             self._discover_shared_providers()
@@ -1259,7 +1261,13 @@ class Grelmicro:
             await self._exit_stack.__aenter__()
             self._token = _current_micro.set(self)
             for item in self._items:
+                if id(item) in self._scoped_opened:
+                    # A `Bulkhead` scope opened during startup got here
+                    # first, on this same stack. Opening it again would
+                    # close it twice.
+                    continue
                 await self._exit_stack.enter_async_context(item)
+                self._app_opened.add(id(item))
             self._instrument_providers()
         except BaseException:
             self._closing = True
@@ -1278,6 +1286,7 @@ class Grelmicro:
                 self._exit_stack = None
                 self._scoped_uses.clear()
                 self._scoped_opened.clear()
+                self._app_opened.clear()
             raise
         return self
 
@@ -1305,6 +1314,7 @@ class Grelmicro:
             self._exit_stack = None
             self._scoped_uses.clear()
             self._scoped_opened.clear()
+            self._app_opened.clear()
 
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.

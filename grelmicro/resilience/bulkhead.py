@@ -472,8 +472,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 continue
             msg = (
                 f"Bulkhead {self._name!r} has a component in uses= that "
-                f"borrows a {type(provider).__name__} nothing opens. List "
-                f"that provider in the bulkhead's uses=, or on the app."
+                f"borrows a {type(provider).__name__} nothing has opened. "
+                f"List that provider in the bulkhead's uses=, or earlier on "
+                f"the app than whatever enters this bulkhead."
             )
             raise OutOfContextError(msg)
 
@@ -869,9 +870,16 @@ def _resolve_usable[T](item: T) -> T | Component:
 def _opened_elsewhere(
     micro: Grelmicro, item: AbstractAsyncContextManager[object]
 ) -> bool:
-    """Report whether this run already has `item` open."""
-    return any(held is item for held in micro._items) or (  # noqa: SLF001
-        id(item) in micro._scoped_opened  # noqa: SLF001
+    """Report whether this run has already opened `item`.
+
+    Opened, not listed. The app fills its list at construction, so a scope
+    entered during startup would otherwise read an item the app has not
+    reached yet as open, and skip it while nothing had opened it.
+    """
+    key = id(item)
+    return (
+        key in micro._app_opened  # noqa: SLF001
+        or key in micro._scoped_opened  # noqa: SLF001
     )
 
 
