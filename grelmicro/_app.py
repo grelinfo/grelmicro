@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
@@ -21,6 +22,7 @@ from typing import (
     cast,
     overload,
 )
+from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
 
@@ -283,6 +285,11 @@ class Grelmicro:
         self._by_key: dict[tuple[str, str], Component] = {}
         self._by_kind: dict[str, Component] = {}
         self._exit_stack: AsyncExitStack | None = None
+        self._scoped_uses: dict[object, Any] = {}
+        self._scoped_opened: set[int] = set()
+        self._app_opened: set[int] = set()
+        self._opening_items: dict[int, asyncio.Lock] = {}
+        self._closing = False
         self._token: Any = None
         self._strict = strict
         self._environment = resolve_environment(environment)
@@ -1242,6 +1249,11 @@ class Grelmicro:
             ):
                 raise MultipleActiveAppsError
             _active_apps.append(self)
+        self._scoped_uses.clear()
+        self._scoped_opened.clear()
+        self._app_opened.clear()
+        self._opening_items.clear()
+        self._closing = False
         try:
             self._discover_shared_providers()
             self._order_providers_before_dependents()
@@ -1253,18 +1265,35 @@ class Grelmicro:
             await self._exit_stack.__aenter__()
             self._token = _current_micro.set(self)
             for item in self._items:
-                await self._exit_stack.enter_async_context(item)
+                # Held across the entry, not just the test: a `Bulkhead`
+                # scope opening the same item from another task would
+                # otherwise pass the test while this one is still inside
+                # `__aenter__`, and open it a second time.
+                async with _opening_lock(self, item):
+                    if _opened_key(item) in self._scoped_opened:
+                        continue
+                    await self._exit_stack.enter_async_context(item)
+                    self._app_opened.add(_opened_key(item))
             self._instrument_providers()
         except BaseException:
+            self._closing = True
             with _active_apps_lock:
                 if self in _active_apps:  # pragma: no branch
                     _active_apps.remove(self)
             if self._token is not None:
                 _current_micro.reset(self._token)
             self._token = None
-            if self._exit_stack is not None:
-                await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
-            self._exit_stack = None
+            try:
+                if self._exit_stack is not None:
+                    await self._exit_stack.__aexit__(*_sys_exc_info_or_none())
+            finally:
+                # Cleared even when an item fails to close, so a stale resume
+                # index cannot survive into the next run.
+                self._exit_stack = None
+                self._scoped_uses.clear()
+                self._scoped_opened.clear()
+                self._app_opened.clear()
+                self._opening_items.clear()
             raise
         return self
 
@@ -1277,6 +1306,7 @@ class Grelmicro:
         """Close every item in reverse registration order (LIFO)."""
         if self._exit_stack is None:
             raise OutOfContextError(self, "__aexit__")
+        self._closing = True
         try:
             # Keep `Grelmicro.current()` resolvable during teardown so items
             # that consult it from `__aexit__` still see the active app.
@@ -1289,6 +1319,10 @@ class Grelmicro:
                 if self in _active_apps:  # pragma: no branch
                     _active_apps.remove(self)
             self._exit_stack = None
+            self._scoped_uses.clear()
+            self._scoped_opened.clear()
+            self._app_opened.clear()
+            self._opening_items.clear()
 
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.
@@ -1313,23 +1347,7 @@ class Grelmicro:
         that own their provider (built from env, no user instance) are handled
         by `_resolve_provider_sharing`.
         """
-        listed = {id(item) for item in self._items}
-        discovered: dict[int, AbstractAsyncContextManager[object]] = {}
-        rebuilt: list[AbstractAsyncContextManager[object]] = []
-        for item in self._items:
-            for target in _iter_provider_backends(item):
-                provider = getattr(target, "_provider", None)
-                owns = getattr(target, "_owns_provider", True)
-                if (
-                    provider is not None
-                    and not owns
-                    and id(provider) not in listed
-                    and id(provider) not in discovered
-                ):
-                    discovered[id(provider)] = provider
-                    rebuilt.append(provider)
-            rebuilt.append(item)
-        self._items = rebuilt
+        self._items = _with_shared_providers(self._items)
 
     def _resolve_provider_sharing(self) -> None:
         """Dedupe implicitly-owned providers by `(class, env_prefix)`.
@@ -1343,19 +1361,7 @@ class Grelmicro:
         Adapters that received an explicit `provider=` instance are
         left alone: their lifecycle is the caller's responsibility.
         """
-        cache: dict[tuple[type, str], Provider] = {}
-        for item in self._items:
-            for target in _iter_provider_backends(item):
-                if not getattr(target, "_owns_provider", False):
-                    continue
-                borrower = cast("_ProviderBorrower", target)
-                provider = borrower._provider  # noqa: SLF001
-                key = (type(provider), getattr(provider, "env_prefix", ""))
-                shared = cache.get(key)
-                if shared is None:
-                    cache[key] = provider
-                elif shared is not provider:  # pragma: no branch
-                    borrower._rebind_provider(shared)  # noqa: SLF001
+        _share_owned_providers(self._items)
 
     def _order_providers_before_dependents(self) -> None:
         """Move a listed Provider ahead of the Component that borrows it.
@@ -1375,33 +1381,7 @@ class Grelmicro:
         `Grelmicro(strict=True)` still raises `LifecycleOrderError`, for callers
         who want the list they wrote to be the list that runs.
         """
-        for index, item in enumerate(self._items):
-            for target in _iter_provider_backends(item):
-                provider = getattr(target, "_provider", None)
-                if provider is None or getattr(target, "_owns_provider", True):
-                    continue
-                self._move_provider_ahead(target, provider, index)
-
-    def _move_provider_ahead(
-        self,
-        target: object,
-        provider: Provider,
-        index: int,
-    ) -> None:
-        """Reorder one misplaced Provider, or raise under `strict=True`."""
-        position = self._items.index(provider)
-        if position <= index:
-            return
-        if self._strict:
-            msg = diagnostic(
-                PROVIDER_ORDER,
-                f"{type(provider).__name__} is listed after "
-                f"{type(target).__name__} in Grelmicro(uses=[...]). "
-                f"Providers must be listed before the components that "
-                f"depend on them so they open first.",
-            )
-            raise LifecycleOrderError(msg)
-        self._items.insert(index, self._items.pop(position))
+        _order_providers_first(self._items, strict=self._strict)
 
 
 class _ProviderBorrower(Protocol):
@@ -1553,8 +1533,47 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     if not matches:
         return None
     if len(matches) == 1:
-        return matches[0][2](item)
-    return _most_specific_backend(matches, item)[2](item)
+        return _marked(matches[0][2](item), item)
+    return _marked(_most_specific_backend(matches, item)[2](item), item)
+
+
+_wrapped_backends: WeakKeyDictionary[Component, object] = WeakKeyDictionary()
+"""What each auto-wrapped Component stands for.
+
+Kept beside the Components rather than on them, so wrapping adds no
+attribute to an object the caller can see, and cannot collide with a name a
+Component already uses. Only the Components built here are ever marked, and
+those are weak-referenceable. A Component from anywhere else may not be, so
+reading this has to survive that.
+"""
+
+
+def _marked(component: Component, backend: object) -> Component:
+    """Record what `component` wraps, so one backend has one identity.
+
+    Wrapping happens once per list, so the app and every `Bulkhead` build
+    their own Component around one backend. Opening each of them would open
+    that backend once per wrapper, which is what this lets the callers see
+    through.
+    """
+    _wrapped_backends[component] = backend
+    return component
+
+
+def _opened_key(item: object) -> int:
+    """Return the identity `item` is opened under.
+
+    A Component built around a bare backend answers for the backend, so a
+    second wrapper around the same one is not opened again.
+    """
+    if isinstance(item, Component):
+        try:
+            return id(_wrapped_backends.get(item, item))
+        except TypeError:
+            # A Component with `__slots__` cannot be weak-referenced. It
+            # was never marked either, so it stands for itself.
+            return id(item)
+    return id(item)
 
 
 def _unsupported_framework_message(caller: str, app: object) -> str:
@@ -1615,6 +1634,110 @@ def _fake_components(
         for component in components
         if component.kind in _FAKEABLE_KINDS
     ]
+
+
+def _opening_lock(micro: Grelmicro, item: object) -> asyncio.Lock:
+    """Return the lock that serializes opening `item` on this app run.
+
+    One item can be listed by the app and by any number of `Bulkhead`
+    scopes. Whoever opens it first owns it, which only holds if the test
+    and the entry happen under the same lock.
+
+    Nothing awaits between the lookup and the store, so two tasks racing
+    the first entry cannot both make a lock.
+    """
+    key = _opened_key(item)
+    lock = micro._opening_items.get(key)  # noqa: SLF001
+    if lock is None:
+        lock = asyncio.Lock()
+        micro._opening_items[key] = lock  # noqa: SLF001
+    return lock
+
+
+def _with_shared_providers(
+    items: list[AbstractAsyncContextManager[object]],
+) -> list[AbstractAsyncContextManager[object]]:
+    """Return `items` with every borrowed Provider inserted before its holder."""
+    listed = {id(item) for item in items}
+    discovered: dict[int, AbstractAsyncContextManager[object]] = {}
+    rebuilt: list[AbstractAsyncContextManager[object]] = []
+    for item in items:
+        for target in _iter_provider_backends(item):
+            provider = getattr(target, "_provider", None)
+            owns = getattr(target, "_owns_provider", True)
+            if (
+                provider is not None
+                and not owns
+                and id(provider) not in listed
+                and id(provider) not in discovered
+            ):
+                discovered[id(provider)] = provider
+                rebuilt.append(provider)
+        rebuilt.append(item)
+    return rebuilt
+
+
+def _share_owned_providers(
+    items: list[AbstractAsyncContextManager[object]],
+) -> None:
+    """Rebind implicitly-owned providers so one pool feeds every consumer."""
+    cache: dict[tuple[type, str], Provider] = {}
+    for item in items:
+        for target in _iter_provider_backends(item):
+            if not getattr(target, "_owns_provider", False):
+                continue
+            borrower = cast("_ProviderBorrower", target)
+            provider = borrower._provider  # noqa: SLF001
+            key = (type(provider), getattr(provider, "env_prefix", ""))
+            shared = cache.get(key)
+            if shared is None:
+                cache[key] = provider
+            elif shared is not provider:  # pragma: no branch
+                borrower._rebind_provider(shared)  # noqa: SLF001
+
+
+def _order_providers_first(
+    items: list[AbstractAsyncContextManager[object]], *, strict: bool
+) -> None:
+    """Move every listed Provider ahead of the Component that borrows it."""
+    for index, item in enumerate(items):
+        for target in _iter_provider_backends(item):
+            provider = getattr(target, "_provider", None)
+            if provider is None or getattr(target, "_owns_provider", True):
+                continue
+            _move_provider_ahead(items, target, provider, index, strict=strict)
+
+
+def _move_provider_ahead(
+    items: list[AbstractAsyncContextManager[object]],
+    target: object,
+    provider: Provider,
+    index: int,
+    *,
+    strict: bool,
+) -> None:
+    """Reorder one misplaced Provider, or raise under `strict=True`.
+
+    A Provider the list does not carry is left alone. The app adopts one
+    before it gets here, a `Bulkhead` deliberately does not.
+    """
+    position = next(
+        (index for index, item in enumerate(items) if item is provider), None
+    )
+    if position is None:
+        return
+    if position <= index:
+        return
+    if strict:
+        msg = diagnostic(
+            PROVIDER_ORDER,
+            f"{type(provider).__name__} is listed after "
+            f"{type(target).__name__} in Grelmicro(uses=[...]). "
+            f"Providers must be listed before the components that "
+            f"depend on them so they open first.",
+        )
+        raise LifecycleOrderError(msg)
+    items.insert(index, items.pop(position))
 
 
 def _default_components_for_provider(provider: Provider) -> list[Component]:
