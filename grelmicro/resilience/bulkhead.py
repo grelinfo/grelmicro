@@ -587,11 +587,14 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             held = holder._scoped_uses.get(self)  # noqa: SLF001
             if held is None or _cannot_lend(holder, held):
                 raise OutOfContextError(self._shared_scope_message(micro))
-        # Checked against this run's environment, not the owner's, and before
-        # anything is recorded, so a check that fails records nothing.
-        report_unmet_requirements(
-            unmet_requirements(self._uses), micro.environment
-        )
+        recorded = micro._scoped_uses.get(self)  # noqa: SLF001
+        if recorded is None or not recorded.checked:
+            # Checked against this run's environment, not the owner's, and
+            # before anything is recorded, so a check that fails records
+            # nothing. Once per run, including across owner turnover.
+            report_unmet_requirements(
+                unmet_requirements(self._uses), micro.environment
+            )
         # Recorded on this run so the check runs once rather than per entry.
         # The same record is reused each time this run borrows, so borrowing
         # again after the owner changed leaves nothing of the last one.

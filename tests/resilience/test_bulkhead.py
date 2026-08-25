@@ -947,6 +947,42 @@ async def test_uses_does_not_rebind_a_component_the_app_also_holds() -> None:
     assert kept.provider.log == ["open", "close"]
 
 
+async def test_borrowing_across_owner_turnover_checks_once() -> None:
+    """A run that keeps borrowing reports its backends once, not per owner."""
+    checks = 0
+    real = bulkhead_module.unmet_requirements
+
+    def counting(items: object) -> object:
+        nonlocal checks
+        checks += 1
+        return real(items)  # ty: ignore[invalid-argument-type]
+
+    bulkhead = Bulkhead(
+        "turnover-check", uses=[Coordination(lock=MemoryLockAdapter())]
+    )
+    survivor = Grelmicro(allow_multiple=True)
+    turnovers = 5
+
+    async with survivor:
+        bulkhead_module.unmet_requirements = counting  # ty: ignore[invalid-assignment]
+        try:
+            for _ in range(turnovers):
+                async with Grelmicro(allow_multiple=True):
+                    async with bulkhead:
+                        pass
+                    token = bulkhead_module._current_micro.set(survivor)
+                    try:
+                        async with bulkhead:
+                            pass
+                    finally:
+                        bulkhead_module._current_micro.reset(token)
+        finally:
+            bulkhead_module.unmet_requirements = real
+
+    # One per owner run, plus one for the borrowing run, not one per borrow.
+    assert checks == turnovers + 1
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

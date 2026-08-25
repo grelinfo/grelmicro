@@ -1681,9 +1681,11 @@ def _move_provider_ahead(
     A Provider the list does not carry is left alone. The app adopts one
     before it gets here, a `Bulkhead` deliberately does not.
     """
-    if not any(item is provider for item in items):
+    position = next(
+        (index for index, item in enumerate(items) if item is provider), None
+    )
+    if position is None:
         return
-    position = items.index(provider)
     if position <= index:
         return
     if strict:
