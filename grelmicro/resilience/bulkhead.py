@@ -448,8 +448,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                         raise OutOfContextError(msg) from exc
                     raise OutOfContextError(msg)
                 exit_stack.push_async_exit(item)
-                if isinstance(item, Provider):
-                    micro._scoped_opened.add(id(item))  # noqa: SLF001
+                # Every item, not only a Provider: a Component two scopes
+                # both list would otherwise open, and close, twice.
+                micro._scoped_opened.add(id(item))  # noqa: SLF001
                 scope.entered += 1
             finally:
                 self._finish_open()
@@ -794,9 +795,10 @@ def _expand_uses(
         if entry is None:
             continue
         item = _resolve_usable(instantiate_if_class(entry))
-        # One instance listed twice is one item, as it is on the app. Kept
-        # in place it would open and close a second time, the second close
-        # running after the first already tore the thing down.
+        # One instance listed twice is one item. Kept in place it would
+        # open and close a second time, the second close running after the
+        # first already tore the thing down. The app dedupes its Components
+        # this way and lets the rest through, which is the weaker rule.
         if not any(seen is item for seen in items):
             items.append(item)
     providers = [item for item in items if isinstance(item, Provider)]
@@ -881,12 +883,25 @@ def _borrowed_elsewhere(
     The scope never adopts one, so something else has to open it. Which is
     only knowable once an app is running, so they are collected here and
     checked on open.
+
+    A Provider some item in the list owns is left out: that item opens it.
+    Sharing rebinds the later adapters to it and marks them borrowers, so
+    reading the borrow flag alone would report an owned Provider as absent.
     """
+    owned = {
+        id(provider)
+        for item in items
+        for target in _iter_provider_backends(item)
+        if (provider := getattr(target, "_provider", None)) is not None
+        and getattr(target, "_owns_provider", True)
+    }
     borrowed: list[Provider] = []
     for item in items:
         for target in _iter_provider_backends(item):
             provider = getattr(target, "_provider", None)
             if provider is None or getattr(target, "_owns_provider", True):
+                continue
+            if id(provider) in owned:
                 continue
             if any(listed is provider for listed in items) or any(
                 seen is provider for seen in borrowed

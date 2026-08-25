@@ -19,8 +19,10 @@ from grelmicro import (
 )
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.log import Log
 from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
@@ -489,6 +491,51 @@ async def test_uses_accepts_a_borrowed_provider_the_app_opens() -> None:
         pass
 
     assert provider.log == ["open", "close"]
+
+
+def test_uses_takes_two_adapters_that_share_one_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sharing rebinds the later adapter, which must not read as unopened."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "true")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    bulkhead = Bulkhead(
+        "sharing", uses=[RedisLockAdapter(), RedisCacheAdapter()]
+    )
+
+    # The second adapter was rebound onto the provider the first owns, so
+    # it reads as a borrower. Nothing is missing: the first opens it.
+    assert bulkhead._borrowed == ()
+
+
+async def test_uses_opens_a_shared_component_once_across_scopes() -> None:
+    """Two scopes naming one Component instance open it once between them."""
+    opens = 0
+    closes = 0
+
+    class Track:
+        """A scope item that counts its own lifecycle."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            nonlocal closes
+            closes += 1
+
+    shared = Track()
+    first = Bulkhead("first", uses=[shared])
+    second = Bulkhead("second", uses=[shared])
+
+    async with Grelmicro():
+        async with first:
+            pass
+        async with second:
+            pass
+
+    assert (opens, closes) == (1, 1)
 
 
 async def test_uses_skips_none_entries() -> None:
