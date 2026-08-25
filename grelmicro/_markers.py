@@ -24,9 +24,10 @@ A mark whose function is gone holds nothing, since a registration keeps
 the function it recorded alive, so it stops counting.
 
 A bound method carries no attribute of its own, so the mark goes on the
-function underneath, which every instance of the class shares. The mark
-records the instance it was written for, so registering one object's
-method leaves every other object's alone.
+function underneath, which every instance of the class shares. Each mark
+records the instance it was written for, and they are kept side by side,
+so registering two objects' methods guards both and leaves a third
+object's alone.
 """
 
 from __future__ import annotations
@@ -114,14 +115,34 @@ def mark_registered(function: object, kind: Registered) -> None:
         holder: weakref.ref[object] | None = weakref.ref(target)
     except TypeError:
         holder = None
+    owner = _owner(function)
+    fresh = Registration(kind, holder, owner)
     try:
-        setattr(
-            target, REGISTRATION, Registration(kind, holder, _owner(function))
+        kept = tuple(
+            existing
+            for existing in _marks(target)
+            if existing.owner is not None
+            and existing.owner() is not None
+            and existing.owner() is not (owner() if owner else None)
         )
+        setattr(target, REGISTRATION, (*kept, fresh))
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001, S110
         pass
+
+
+def _marks(target: object) -> tuple[Registration, ...]:
+    """Return the marks on `target`, and never raise reading them."""
+    try:
+        marks = getattr(target, REGISTRATION, ())
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return ()
+    if not isinstance(marks, tuple):
+        return ()
+    return tuple(m for m in marks if isinstance(m, Registration))
 
 
 def registration_of(function: object) -> Registration | None:
@@ -136,18 +157,19 @@ def registration_of(function: object) -> Registration | None:
     """
     target = _underlying(function)
     try:
-        registration = getattr(target, REGISTRATION, None)
         bound_to = getattr(function, "__self__", None)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001
         return None
-    if not isinstance(registration, Registration):
-        return None
-    holder = registration.holder
-    if holder is not None and holder() is None:
-        return None
-    owner = registration.owner
-    if owner is not None and owner() is not bound_to:
-        return None
-    return registration
+    unowned: Registration | None = None
+    for registration in _marks(target):
+        holder = registration.holder
+        if holder is not None and holder() is None:
+            continue
+        owner = registration.owner
+        if owner is None:
+            unowned = registration
+        elif owner() is bound_to:
+            return registration
+    return unowned

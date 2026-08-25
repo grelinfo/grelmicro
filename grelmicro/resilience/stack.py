@@ -14,6 +14,7 @@ from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._guards import is_class, is_instance, name_of
+from grelmicro._markers import registration_of
 from grelmicro._wrapping import refuse_registered
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
@@ -178,6 +179,26 @@ def _carried(control: _Control) -> Exception:
     error = control.error
     control.error = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     return error
+
+
+def _detached[**P, R](
+    fn: Callable[P, Awaitable[R]],
+) -> Callable[P, Awaitable[R]]:
+    """Return a call-through to `fn` that carries no registration mark.
+
+    `Stack.run` composes the patterns around the call it is making, so
+    every pattern in the chain would otherwise refuse a function a
+    registrar holds. The imperative form is the documented way to run
+    such a function under a stack, so it builds on a plain call-through
+    and the refusal stays on the decorator.
+    """
+
+    async def call(*args: P.args, **kwargs: P.kwargs) -> R:
+        return await fn(*args, **kwargs)
+
+    call.__name__ = getattr(fn, "__name__", "call")
+    call.__qualname__ = getattr(fn, "__qualname__", "call")
+    return call
 
 
 def _as_coroutine_function[**P, R](
@@ -429,7 +450,9 @@ class Stack:
         Raises:
             TypeError: If `fn` is a generator function, `fn` is sync
                 and a pattern in the stack decorates async functions
-                only, or `fn` is already registered as a task.
+                only, or a registrar already holds `fn`. Use
+                `Stack.run` to call a registered function under the
+                stack.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
@@ -471,6 +494,9 @@ class Stack:
             TypeError: If `fn` is a generator function or is not async.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
+
+        A function a registrar holds is accepted here, because this
+        form wraps the call it is making rather than the registration.
         """
         _refuse_generator(fn, self._name)
         if not is_async_callable(fn):
@@ -497,6 +523,8 @@ class Stack:
         guard_refusal, guard_breaker = self._guard
         members = self._members
         call = _as_coroutine_function(fn)
+        if registration_of(call) is not None:
+            call = _detached(call)
         timeout = members.get(_TIMEOUT)
         if isinstance(timeout, Timeout):
             call = timeout(call)

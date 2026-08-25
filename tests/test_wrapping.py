@@ -47,6 +47,9 @@ pytestmark = [pytest.mark.timeout(5)]
 
 PACKAGE = Path(__file__).parent.parent / "grelmicro"
 
+ATTEMPTS = 3
+"""Retry attempts the imperative form has to make on a registered function."""
+
 
 async def scheduled_job() -> None:
     """Do nothing, from the module level a schedule requires."""
@@ -148,12 +151,16 @@ _Func = ast.FunctionDef | ast.AsyncFunctionDef
 
 
 def _called_names(node: ast.AST) -> set[str]:
-    """Return the plain names `node` calls."""
-    return {
-        inner.func.id
-        for inner in ast.walk(node)
-        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
-    }
+    """Return the names `node` calls, as a plain name or a method."""
+    names = set()
+    for inner in ast.walk(node):
+        if not isinstance(inner, ast.Call):
+            continue
+        if isinstance(inner.func, ast.Name):
+            names.add(inner.func.id)
+        elif isinstance(inner.func, ast.Attribute):
+            names.add(inner.func.attr)
+    return names
 
 
 def _guarded_functions(functions: dict[str, _Func]) -> set[str]:
@@ -522,3 +529,53 @@ def test_an_interrupt_while_reading_the_owner_is_never_swallowed() -> None:
 
     with pytest.raises(KeyboardInterrupt):
         mark_registered(Interrupting(), Registered.TASK)
+
+
+def test_a_mark_attribute_that_is_not_a_mark_is_ignored() -> None:
+    """The attribute name is not private enough to trust what it holds."""
+
+    async def job() -> None:
+        """Stand in for a function something else wrote an attribute on."""
+
+    setattr(job, markers.REGISTRATION, "not a registration")
+
+    assert registration_of(job) is None
+
+
+def test_an_interrupt_while_reading_the_owner_of_a_mark_is_never_swallowed() -> (
+    None
+):
+    """Reading a registration reads `__self__`, so its guard answers too."""
+
+    class Interrupting:
+        """A value that interrupts only on what it is bound to."""
+
+        def __getattr__(self, name: str) -> object:
+            if name == "__self__":
+                raise KeyboardInterrupt
+            raise AttributeError(name)
+
+    with pytest.raises(KeyboardInterrupt):
+        registration_of(Interrupting())
+
+
+async def test_a_stack_runs_a_registered_function_imperatively() -> None:
+    """`Stack.run` wraps the call it makes, not the registration."""
+    checks = HealthChecks()
+    calls: list[int] = []
+
+    @checks.check("db")
+    async def probe() -> None:
+        """Fail every attempt, counting the calls."""
+        calls.append(1)
+        raise RuntimeError
+
+    stack = Stack("s", patterns=[Retry("r", when=Exception, attempts=ATTEMPTS)])
+
+    with pytest.raises(RuntimeError):
+        await stack.run(probe)
+
+    assert len(calls) == ATTEMPTS
+
+    with pytest.raises(TypeError, match="already registered as a health check"):
+        stack(probe)

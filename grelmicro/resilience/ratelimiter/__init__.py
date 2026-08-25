@@ -1084,8 +1084,8 @@ class RateLimiterBinding:
         """Decorate `fn` so each call consumes tokens first.
 
         Raises:
-            TypeError: If `fn` is not async, or is already registered
-                as a task.
+            TypeError: If `fn` is not async, or a registrar already
+                holds it.
             ValueError: If a `key` template names a parameter `fn` has
                 not.
         """
