@@ -9,6 +9,11 @@ Hypothesis builds the combinations here instead. Each item refuses to open
 while it is already open and refuses to close while it is not, so a broken
 interleaving fails at the operation that broke it rather than at a count
 compared afterwards.
+
+What these do not cover, so nobody reads a pass as more than it is: the
+plans are driven one step at a time, so concurrent entry needs its own
+test, and an overlapping run never lists items of its own, because opening
+once is a per-run property.
 """
 
 from __future__ import annotations
@@ -106,6 +111,11 @@ async def _drive(
         ):
             await enter_each()
             if overlap:
+                # The overlapping run lists nothing of its own. Opening once
+                # is a per-run property: an item a second run *lists* while
+                # a scope holds it open is opened again, on this branch and
+                # on main alike, and the docs say so. Widening this without
+                # a cross-run registry would only assert the known gap.
                 async with Grelmicro(allow_multiple=True):
                     await enter_each()
             await enter_each()

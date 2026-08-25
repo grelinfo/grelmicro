@@ -193,7 +193,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             Doc(
                 """
                 Providers and Components, in the same shape as
-                `Grelmicro(uses=[...])`, scoped to this bulkhead. A bare
+                `Grelmicro(uses=[...])`, scoped to this bulkhead. One thing
+                listed twice is one item here, where the app refuses the
+                list. A bare
                 backend becomes its Component, and a bare Provider fills a
                 default Component for every kind it serves. Two bare
                 Providers fill none, and raise `AmbiguousProviderError`
