@@ -1130,6 +1130,33 @@ def test_uses_names_junk_before_reading_the_rest() -> None:
         )
 
 
+async def test_uses_takes_a_component_that_cannot_be_weak_referenced() -> None:
+    """A Component with `__slots__` is a Component, wrapping marks aside."""
+    opens = 0
+
+    class Slotted:
+        """A Component the caller wrote, with no `__weakref__` slot."""
+
+        __slots__ = ()
+        kind = "slotted"
+        name = "default"
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("slotted", uses=[Slotted()])
+
+    async with Grelmicro(), bulkhead:
+        pass
+
+    assert opens == 1
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

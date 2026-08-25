@@ -1542,8 +1542,9 @@ _wrapped_backends: WeakKeyDictionary[Component, object] = WeakKeyDictionary()
 
 Kept beside the Components rather than on them, so wrapping adds no
 attribute to an object the caller can see, and cannot collide with a name a
-Component already uses. A Component has to be weak-referenceable for this,
-which every one of them is.
+Component already uses. Only the Components built here are ever marked, and
+those are weak-referenceable. A Component from anywhere else may not be, so
+reading this has to survive that.
 """
 
 
@@ -1566,7 +1567,12 @@ def _opened_key(item: object) -> int:
     second wrapper around the same one is not opened again.
     """
     if isinstance(item, Component):
-        return id(_wrapped_backends.get(item, item))
+        try:
+            return id(_wrapped_backends.get(item, item))
+        except TypeError:
+            # A Component with `__slots__` cannot be weak-referenced. It
+            # was never marked either, so it stands for itself.
+            return id(item)
     return id(item)
 
 
