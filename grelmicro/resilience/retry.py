@@ -813,6 +813,10 @@ class Retry(Reconfigurable[RetryConfig]):
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Decorate ``fn`` so each call runs through this retry policy."""
         refuse_registered(fn, f"Retry {self._name!r}")
+        return self._wrap(fn)
+
+    def _wrap(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
+        """Wrap `fn` without the guard, for composing inside a `Stack`."""
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)

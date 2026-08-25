@@ -199,6 +199,12 @@ class Timeout(Reconfigurable[TimeoutConfig]):
     ) -> Callable[P, Awaitable[R]]:
         """Decorate ``fn`` so each call runs under this timeout."""
         refuse_registered(fn, f"Timeout {self._name!r}")
+        return self._wrap(fn)
+
+    def _wrap[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]:
+        """Wrap `fn` without the guard, for composing inside a `Stack`."""
         if not iscoroutinefunction(fn):
             msg = (
                 "Timeout only decorates async functions. asyncio cannot "

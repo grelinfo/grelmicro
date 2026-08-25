@@ -417,21 +417,6 @@ def test_a_mark_that_could_not_name_its_function_still_counts() -> None:
     assert registration.holds(object()) is True
 
 
-def test_reading_the_mark_alone_never_swallows_an_interrupt() -> None:
-    """The read reaches past `__func__`, so its own guard answers too."""
-
-    class Selective:
-        """A value that interrupts only the mark's own attribute."""
-
-        def __getattr__(self, name: str) -> object:
-            if name == markers.REGISTRATION:
-                raise KeyboardInterrupt
-            raise AttributeError(name)
-
-    with pytest.raises(KeyboardInterrupt):
-        registration_of(Selective())
-
-
 def test_naming_a_function_never_swallows_an_interrupt() -> None:
     """Naming a value for a message runs caller code as much as reading it."""
 
@@ -588,12 +573,13 @@ def test_an_interrupt_while_reading_the_owner_of_a_mark_is_never_swallowed() -> 
     class Interrupting:
         """A marked value that interrupts on what it is bound to."""
 
+        def __init__(self) -> None:
+            self.__dict__[markers.REGISTRATION] = _marked()
+
         def __getattr__(self, name: str) -> object:
             if name == "__self__":
                 raise KeyboardInterrupt
             raise AttributeError(name)
-
-    setattr(Interrupting, markers.REGISTRATION, _marked())
 
     with pytest.raises(KeyboardInterrupt):
         registration_of(Interrupting())
@@ -607,15 +593,68 @@ def test_a_hostile_owner_on_a_marked_value_answers_rather_than_raising() -> (
     class Hostile:
         """A marked value whose `__self__` raises."""
 
+        def __init__(self) -> None:
+            self.__dict__[markers.REGISTRATION] = _marked()
+
         def __getattr__(self, name: str) -> object:
             if name == "__self__":
                 msg = "unbound proxy"
                 raise RuntimeError(msg)
             raise AttributeError(name)
 
-    setattr(Hostile, markers.REGISTRATION, _marked())
-
     assert registration_of(Hostile()) is None
+
+
+def test_a_value_that_holds_no_attributes_reads_as_unmarked() -> None:
+    """Reading what an object holds refuses an object that holds nothing."""
+
+    class Slotted:
+        """A value with no `__dict__` of its own."""
+
+        __slots__ = ()
+
+    assert registration_of(Slotted()) is None
+
+
+def _hostile_dict(error: type[BaseException]) -> object:
+    """Return a value whose `__dict__` raises `error` when it is read.
+
+    Built at runtime, because a class that declares `__dict__` as a
+    property is not something a type checker will accept written out.
+    """
+
+    def raising(_self: object) -> dict[str, object]:
+        raise error
+
+    return type("Hostile", (), {"__dict__": property(raising)})()
+
+
+def test_a_hostile_dict_answers_rather_than_raising() -> None:
+    """`__dict__` is caller code on a proxy, so reading it cannot raise."""
+    assert registration_of(_hostile_dict(RuntimeError)) is None
+
+
+def test_an_interrupt_while_reading_the_dict_is_never_swallowed() -> None:
+    """A real interrupt still gets out of the raise-proof read."""
+    with pytest.raises(KeyboardInterrupt):
+        registration_of(_hostile_dict(KeyboardInterrupt))
+
+
+def test_an_instance_of_a_registered_class_is_left_alone() -> None:
+    """A mark on a class is not a mark on everything built from it."""
+
+    class Probe:
+        """A callable class a registrar was handed."""
+
+        async def __call__(self) -> None:
+            """Answer a probe."""
+
+    mark_registered(Probe, Registered.HEALTH_CHECK)
+
+    assert registration_of(Probe) is not None
+    assert registration_of(Probe()) is None
+
+    Retry("r", when=Exception)(Probe())
 
 
 def test_a_mark_of_another_kind_is_never_superseded() -> None:
@@ -831,23 +870,6 @@ def test_a_task_whose_function_attribute_interrupts_is_never_swallowed() -> (
 
     with pytest.raises(KeyboardInterrupt):
         Tasks().add_task(Interrupting())
-
-
-def test_reading_a_hostile_mark_answers_rather_than_raising() -> None:
-    """Reading the mark runs caller code after `__self__` has answered."""
-
-    class Selective:
-        """A value that raises only on the mark's own attribute."""
-
-        __self__ = None
-
-        def __getattr__(self, name: str) -> object:
-            if name == markers.REGISTRATION:
-                msg = "unbound proxy"
-                raise RuntimeError(msg)
-            raise AttributeError(name)
-
-    assert registration_of(Selective()) is None
 
 
 def test_a_router_that_refuses_its_timezone_marks_nothing() -> None:

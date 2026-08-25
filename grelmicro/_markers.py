@@ -176,9 +176,13 @@ def _marks(target: object) -> tuple[Registration, ...]:
 
     Answers the unmarked function without building anything, because
     every decorated call site reads this and almost none carry a mark.
+
+    Reads what the object itself holds rather than what it inherits. A
+    registrar handed a callable class marks the class, and an instance
+    of it is not what the registration holds.
     """
     try:
-        marks = getattr(target, REGISTRATION, ())
+        marks = vars(target).get(REGISTRATION, ())
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001

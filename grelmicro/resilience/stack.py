@@ -14,7 +14,6 @@ from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._guards import is_class, is_instance, name_of
-from grelmicro._markers import registration_of
 from grelmicro._wrapping import named, refuse_registered
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
@@ -179,26 +178,6 @@ def _carried(control: _Control) -> Exception:
     error = control.error
     control.error = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
     return error
-
-
-def _detached[**P, R](
-    fn: Callable[P, Awaitable[R]],
-) -> Callable[P, Awaitable[R]]:
-    """Return a call-through to `fn` that carries no registration mark.
-
-    `Stack.run` composes the patterns around the call it is making, so
-    every pattern in the chain would otherwise refuse a function a
-    registrar holds. The imperative form is the documented way to run
-    such a function under a stack, so it builds on a plain call-through
-    and the refusal stays on the decorator.
-    """
-
-    async def call(*args: P.args, **kwargs: P.kwargs) -> R:
-        return await fn(*args, **kwargs)
-
-    call.__name__ = getattr(fn, "__name__", "call")
-    call.__qualname__ = getattr(fn, "__qualname__", "call")
-    return call
 
 
 def _as_coroutine_function[**P, R](
@@ -519,11 +498,9 @@ class Stack:
         guard_refusal, guard_breaker = self._guard
         members = self._members
         call = _as_coroutine_function(fn)
-        if registration_of(call) is not None:
-            call = _detached(call)
         timeout = members.get(_TIMEOUT)
         if isinstance(timeout, Timeout):
-            call = timeout(call)
+            call = timeout._wrap(call)  # noqa: SLF001
         bulkhead = members.get(_BULKHEAD)
         if isinstance(bulkhead, Bulkhead):
             call = _bulkhead_layer(bulkhead, call, guard=guard_refusal)
@@ -544,12 +521,12 @@ class Stack:
             )
         retry = members.get(_RETRY)
         if isinstance(retry, Retry):
-            call = retry(call)
+            call = retry._wrap(call)  # noqa: SLF001
             if guard_breaker:
                 call = _unwrap_layer(call)
         fallback = members.get(_FALLBACK)
         if isinstance(fallback, Fallback):
-            call = fallback(call)
+            call = fallback._wrap(call)  # noqa: SLF001
         return call
 
     def _build_sync[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
@@ -566,12 +543,12 @@ class Stack:
             call = _sync_breaker_layer(breaker, call, guard=guard_breaker)
         retry = members.get(_RETRY)
         if isinstance(retry, Retry):
-            call = retry(call)
+            call = retry._wrap(call)  # noqa: SLF001
             if guard_breaker:
                 call = _sync_unwrap_layer(call)
         fallback = members.get(_FALLBACK)
         if isinstance(fallback, Fallback):
-            call = fallback(call)
+            call = fallback._wrap(call)  # noqa: SLF001
         return call
 
 
