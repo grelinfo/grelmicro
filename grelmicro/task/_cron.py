@@ -402,6 +402,8 @@ class CronTask(Task):
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
+        self.function = function
+        """The function the task runs, as it was registered."""
         self._async_function = self._prepare_async_function(function)
 
         self._misfire_grace_seconds = misfire_grace_seconds

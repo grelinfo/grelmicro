@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
-from grelmicro._markers import mark_scheduled
+from grelmicro._markers import Registered, mark_registered
 from grelmicro.task._utils import normalize_timezone
 from grelmicro.task.errors import TaskAddOperationError
 
@@ -83,10 +83,18 @@ class TaskRouter:
         return self._timezone
 
     def add_task(self, task: "Task") -> None:
-        """Add a task to the scheduler."""
+        """Add a task to the scheduler.
+
+        Marks the function the task holds, so a decorator applied below
+        the one that registered it is refused instead of wrapping calls
+        the schedule will never make.
+        """
         if self._started:
             raise TaskAddOperationError
 
+        function = getattr(task, "function", None)
+        if function is not None:
+            mark_registered(function, Registered.TASK)
         self._tasks.append(task)
 
     def _resolve_timezones(self, inherited: str) -> None:
@@ -209,7 +217,6 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
-            mark_scheduled(function)
             return function
 
         return decorator
@@ -335,7 +342,6 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
-            mark_scheduled(function)
             return function
 
         return decorator

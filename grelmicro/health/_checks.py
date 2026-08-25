@@ -18,6 +18,7 @@ from grelmicro._config import (
     default_env_prefix,
     resolve_config,
 )
+from grelmicro._markers import Registered, mark_registered
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -346,6 +347,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         if name in self._entries:
             msg = f"Health check '{name}' is already registered"
             raise ValueError(msg)
+        mark_registered(func, Registered.HEALTH_CHECK)
         self._entries[name] = _Entry(
             name=name,
             func=_normalize(func),

@@ -65,6 +65,8 @@ class IntervalTask(Task):
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
         self._seconds = seconds
+        self.function = function
+        """The function the task runs, as it was registered."""
         self._async_function = self._prepare_async_function(function)
 
         distributed = lock is not None or leader is not None

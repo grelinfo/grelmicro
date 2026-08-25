@@ -29,6 +29,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic
 from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
@@ -521,6 +522,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """Return a decorator that protects a function with the circuit breaker."""
         if func is None:
             return self
+
+        refuse_registered(func, f"CircuitBreaker {self._name!r}")
 
         if iscoroutinefunction(func):
 

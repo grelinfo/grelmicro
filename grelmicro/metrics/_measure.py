@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar, overload
 
 from typing_extensions import Doc
 
+from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -132,6 +133,7 @@ def measure[**P, R](
     """
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
+        refuse_registered(fn, "@measure")
         base = name or _default_name(fn)
         m = _Instruments(base, in_flight=record_in_flight)
 

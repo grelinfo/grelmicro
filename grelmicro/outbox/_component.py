@@ -10,6 +10,7 @@ from typing_extensions import Doc
 from grelmicro._app import resolve_ambient
 from grelmicro._component import instantiate_if_class
 from grelmicro._config import env_prefixes, resolve_config
+from grelmicro._markers import Registered, mark_registered
 from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
@@ -310,6 +311,7 @@ class Outbox:
         def decorator(
             fn: Callable[[Message[Any]], Awaitable[None]],
         ) -> Callable[[Message[Any]], Awaitable[None]]:
+            mark_registered(fn, Registered.OUTBOX_HANDLER)
             self._registry.register(target, fn, topic=topic)
             return fn
 

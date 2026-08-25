@@ -43,6 +43,7 @@ from grelmicro._guards import (
     type_name,
 )
 from grelmicro._json import json_loads
+from grelmicro._wrapping import refuse_registered
 from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
@@ -484,6 +485,7 @@ class Fallback(Reconfigurable[FallbackConfig]):
 
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Decorate ``fn`` so each call runs through this fallback policy."""
+        refuse_registered(fn, f"Fallback {self._name!r}")
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)
@@ -539,6 +541,7 @@ def fallback(
     matcher: Matcher = config.when
 
     def wrap(fn: F) -> F:
+        refuse_registered(fn, "@fallback")
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)

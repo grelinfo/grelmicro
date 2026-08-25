@@ -329,4 +329,4 @@ def test_an_interrupt_while_marking_a_task_is_never_swallowed() -> None:
             raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        markers.mark_scheduled(Interrupting())
+        markers.mark_registered(Interrupting(), markers.Registered.TASK)

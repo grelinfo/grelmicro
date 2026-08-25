@@ -23,7 +23,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_instance
-from grelmicro._markers import is_scheduled
+from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.errors import OutOfContextError
@@ -1089,15 +1089,7 @@ class RateLimiterBinding:
             ValueError: If a `key` template names a parameter `fn` has
                 not.
         """
-        if is_scheduled(fn):
-            msg = (
-                f"{_named(fn)} is already registered as a task, so the "
-                "schedule holds it as it is and this rate limiter would "
-                "only meter direct calls. Put the task decorator on "
-                "top, above the limiter, so it registers the metered "
-                "function."
-            )
-            raise TypeError(msg)
+        refuse_registered(fn, f"RateLimiter {self._limiter.name!r}")
         if not is_async_callable(fn):
             msg = (
                 "RateLimiter only decorates async functions. Consuming "

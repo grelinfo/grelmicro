@@ -14,7 +14,7 @@ from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._guards import is_class, is_instance, name_of
-from grelmicro._markers import is_scheduled
+from grelmicro._wrapping import refuse_registered
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import CircuitBreakerError
@@ -434,15 +434,7 @@ class Stack:
                 parameter `fn` does not take.
         """
         _refuse_generator(fn, self._name)
-        if is_scheduled(fn):
-            msg = (
-                f"{_named(fn)} is already registered as a task, so the "
-                f"schedule holds it as it is and Stack {self._name!r} "
-                "would only wrap direct calls. Put the task decorator "
-                "on top, above the stack, so it registers the wrapped "
-                "function."
-            )
-            raise TypeError(msg)
+        refuse_registered(fn, f"Stack {self._name!r}")
         if is_async_callable(fn):
             return functools.wraps(fn)(self._build_async(fn))
         blocking = self._async_only()

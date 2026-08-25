@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar, cast
 
 from typing_extensions import Doc
 
+from grelmicro._wrapping import refuse_registered
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
@@ -81,6 +83,8 @@ def idempotent(
     def decorator(
         func: Callable[P, Coroutine[Any, Any, R]],
     ) -> Callable[P, Coroutine[Any, Any, R]]:
+        refuse_registered(func, "@idempotent")
+
         @functools.wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             call_key = key(*args, **kwargs)

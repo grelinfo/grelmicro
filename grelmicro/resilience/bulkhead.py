@@ -38,6 +38,7 @@ from grelmicro._environment import (
     report_unmet_requirements,
     unmet_requirements,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.providers._base import Provider
@@ -791,6 +792,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
         """Decorate ``fn`` so each call runs under this bulkhead."""
+        refuse_registered(fn, f"Bulkhead {self._name!r}")
         if not iscoroutinefunction(fn):
             msg = (
                 "Bulkhead only decorates async functions. Use "

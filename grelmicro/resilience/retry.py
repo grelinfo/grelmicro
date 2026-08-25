@@ -46,6 +46,7 @@ from grelmicro._guards import (
     items_of,
     type_name,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
@@ -811,6 +812,7 @@ class Retry(Reconfigurable[RetryConfig]):
 
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Decorate ``fn`` so each call runs through this retry policy."""
+        refuse_registered(fn, f"Retry {self._name!r}")
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)
@@ -854,6 +856,7 @@ def _decorator(
     matcher: Matcher = config.when
 
     def wrap(fn: F) -> F:
+        refuse_registered(fn, "@retry")
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)
