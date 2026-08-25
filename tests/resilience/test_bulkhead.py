@@ -22,6 +22,7 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.log import Log
+from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.resilience import Bulkhead, BulkheadConfig, BulkheadFullError
@@ -428,6 +429,66 @@ def test_uses_refuses_two_of_a_singleton_kind() -> None:
     """A kind only one Component may hold is refused twice, as in the app."""
     with pytest.raises(ComponentAlreadyRegisteredError, match="singleton"):
         Bulkhead("reports", uses=[Log(), Log(name="second")])
+
+
+async def test_uses_opens_one_entry_listed_twice_once() -> None:
+    """One instance listed twice opens once, so it cannot close twice."""
+    opens = 0
+    closes = 0
+
+    class Track:
+        """A scope item that counts its own lifecycle."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            nonlocal closes
+            closes += 1
+
+    item = Track()
+    bulkhead = Bulkhead("dup", uses=[item, item])
+
+    assert len(bulkhead._uses) == 1
+
+    async with Grelmicro(), bulkhead:
+        pass
+
+    assert (opens, closes) == (1, 1)
+
+
+async def test_uses_leaves_a_provider_the_app_holds_alone() -> None:
+    """A Provider the app already opened is not opened, or closed, again."""
+    provider = _BorrowedProvider()
+    bulkhead = Bulkhead("shared", uses=[provider, Cache(provider)])
+
+    async with Grelmicro(uses=[provider]), bulkhead:
+        pass
+
+    assert provider.log == ["open", "close"]
+
+
+async def test_uses_names_a_borrowed_provider_nothing_opens() -> None:
+    """A Component borrowing a Provider no list carries says so on entry."""
+    bulkhead = Bulkhead("omitted", uses=[Cache(_BorrowedProvider())])
+
+    async with Grelmicro():
+        with pytest.raises(OutOfContextError, match="nothing opens"):
+            async with bulkhead:
+                pass
+
+
+async def test_uses_accepts_a_borrowed_provider_the_app_opens() -> None:
+    """Listing the Provider on the app is one of the two documented ways."""
+    provider = _BorrowedProvider()
+    bulkhead = Bulkhead("borrowing", uses=[Cache(provider)])
+
+    async with Grelmicro(uses=[provider]), bulkhead:
+        pass
+
+    assert provider.log == ["open", "close"]
 
 
 async def test_uses_skips_none_entries() -> None:
@@ -1891,6 +1952,28 @@ class _FailStartOnce:
 
     async def __aexit__(self, *_: object) -> None:
         """Leave the scope."""
+
+
+class _BorrowedProvider(Provider):
+    """A Provider whose adapters borrow it rather than own it."""
+
+    short_name = "borrowed"
+
+    def __init__(self) -> None:
+        self.log: list[str] = []
+
+    async def __aenter__(self) -> Self:
+        self.log.append("open")
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        self.log.append("close")
+
+    def cache(self, **_: object) -> MemoryCacheAdapter:
+        adapter = MemoryCacheAdapter()
+        adapter._provider = self  # ty: ignore[unresolved-attribute]
+        adapter._owns_provider = False  # ty: ignore[unresolved-attribute]
+        return adapter
 
 
 class _Gate:

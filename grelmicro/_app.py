@@ -284,6 +284,7 @@ class Grelmicro:
         self._by_kind: dict[str, Component] = {}
         self._exit_stack: AsyncExitStack | None = None
         self._scoped_uses: dict[object, Any] = {}
+        self._scoped_opened: set[int] = set()
         self._closing = False
         self._token: Any = None
         self._strict = strict
@@ -1245,6 +1246,7 @@ class Grelmicro:
                 raise MultipleActiveAppsError
             _active_apps.append(self)
         self._scoped_uses.clear()
+        self._scoped_opened.clear()
         self._closing = False
         try:
             self._discover_shared_providers()
@@ -1275,6 +1277,7 @@ class Grelmicro:
                 # index cannot survive into the next run.
                 self._exit_stack = None
                 self._scoped_uses.clear()
+                self._scoped_opened.clear()
             raise
         return self
 
@@ -1301,6 +1304,7 @@ class Grelmicro:
                     _active_apps.remove(self)
             self._exit_stack = None
             self._scoped_uses.clear()
+            self._scoped_opened.clear()
 
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.

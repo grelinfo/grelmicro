@@ -22,6 +22,7 @@ from grelmicro._app import (
     _active_bulkhead,
     _current_micro,
     _default_components_for_provider,
+    _iter_provider_backends,
     _maybe_wrap_first_party_backend,
     _order_providers_first,
     _share_owned_providers,
@@ -239,6 +240,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._executor: ThreadPoolExecutor | None = None
         self._uses = _expand_uses(name, uses)
         _check_usable(name, self._uses)
+        self._borrowed = _borrowed_elsewhere(self._uses)
         self._overrides = _index_overrides(name, self._uses)
         self._scoped_to: Grelmicro | None = None
         self._scope_stack: AsyncExitStack | None = None
@@ -420,7 +422,14 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         report_unmet_requirements(
             unmet_requirements(self._uses), micro.environment
         )
+        self._check_borrowed(micro)
         for item in self._uses[scope.entered :]:
+            if _opened_elsewhere(micro, item):
+                # Already open under this run, so opening it again would
+                # close it twice, the first close landing while the other
+                # holder is still using it.
+                scope.entered += 1
+                continue
             # Counted for as long as the entry is in flight. The exit
             # stack does not know about an item still being entered, so
             # this is what keeps the scope from changing hands under it.
@@ -439,6 +448,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                         raise OutOfContextError(msg) from exc
                     raise OutOfContextError(msg)
                 exit_stack.push_async_exit(item)
+                if isinstance(item, Provider):
+                    micro._scoped_opened.add(id(item))  # noqa: SLF001
                 scope.entered += 1
             finally:
                 self._finish_open()
@@ -447,6 +458,23 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         # the stack, because anything pushed after it would close first.
         exit_stack.callback(self._forget_scope, scope)
         scope.opened = True
+
+    def _check_borrowed(self, micro: Grelmicro) -> None:
+        """Refuse to open when nothing will open a Provider the scope needs.
+
+        Raises:
+            OutOfContextError: A Component in `uses=` borrows a Provider that
+                neither `uses=` nor the app opens.
+        """
+        for provider in self._borrowed:
+            if _opened_elsewhere(micro, provider):
+                continue
+            msg = (
+                f"Bulkhead {self._name!r} has a component in uses= that "
+                f"borrows a {type(provider).__name__} nothing opens. List "
+                f"that provider in the bulkhead's uses=, or on the app."
+            )
+            raise OutOfContextError(msg)
 
     def _lost_scope(self, micro: Grelmicro, exit_stack: AsyncExitStack) -> bool:
         """Report whether the app moved on from the stack this open captured.
@@ -761,11 +789,16 @@ def _expand_uses(
         AmbiguousProviderError: Two or more bare Providers are listed with no
             Component, so the default for each kind is ambiguous.
     """
-    items = [
-        _resolve_usable(instantiate_if_class(item))
-        for item in uses
-        if item is not None
-    ]
+    items: list[AbstractAsyncContextManager[object]] = []
+    for entry in uses:
+        if entry is None:
+            continue
+        item = _resolve_usable(instantiate_if_class(entry))
+        # One instance listed twice is one item, as it is on the app. Kept
+        # in place it would open and close a second time, the second close
+        # running after the first already tore the thing down.
+        if not any(seen is item for seen in items):
+            items.append(item)
     providers = [item for item in items if isinstance(item, Provider)]
     claimed = {item.kind for item in items if isinstance(item, Component)}
     if len(providers) > 1:
@@ -831,6 +864,38 @@ def _resolve_usable[T](item: T) -> T | Component:
     return item if wrapped is None else wrapped
 
 
+def _opened_elsewhere(
+    micro: Grelmicro, item: AbstractAsyncContextManager[object]
+) -> bool:
+    """Report whether this run already has `item` open."""
+    return any(held is item for held in micro._items) or (  # noqa: SLF001
+        id(item) in micro._scoped_opened  # noqa: SLF001
+    )
+
+
+def _borrowed_elsewhere(
+    items: tuple[AbstractAsyncContextManager[object], ...],
+) -> tuple[Provider, ...]:
+    """Return the Providers a listed Component borrows but the list omits.
+
+    The scope never adopts one, so something else has to open it. Which is
+    only knowable once an app is running, so they are collected here and
+    checked on open.
+    """
+    borrowed: list[Provider] = []
+    for item in items:
+        for target in _iter_provider_backends(item):
+            provider = getattr(target, "_provider", None)
+            if provider is None or getattr(target, "_owns_provider", True):
+                continue
+            if any(listed is provider for listed in items) or any(
+                seen is provider for seen in borrowed
+            ):
+                continue
+            borrowed.append(provider)
+    return tuple(borrowed)
+
+
 def _index_overrides(
     name: str, items: tuple[AbstractAsyncContextManager[object], ...]
 ) -> dict[tuple[str, str], Component]:
@@ -849,10 +914,9 @@ def _index_overrides(
         if not isinstance(item, Component):
             continue
         key = (item.kind, item.name)
-        existing = overrides.get(key)
-        if existing is item:
-            continue
-        if existing is not None:
+        # Never the same instance twice: `_expand_uses` drops a repeat
+        # before this sees it, so a clash here is always two Components.
+        if overrides.get(key) is not None:
             msg = (
                 f"component {key!r} is listed twice in Bulkhead {name!r} "
                 f"uses=. Pick a different name."
