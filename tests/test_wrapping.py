@@ -71,8 +71,6 @@ async def constructed_job() -> None:
 WRAPS_WITHOUT_GUARD = {
     # Records calls on a fake backend's own methods, never a user function.
     "testing.py",
-    # Delegates to `Shield.__call__`, which refuses before this wraps.
-    "resilience/shield/_decorator.py",
 }
 """Modules that call `functools.wraps` and need no guard of their own."""
 
@@ -521,8 +519,8 @@ def test_reading_what_a_method_is_bound_to_never_raises() -> None:
     assert registration_of(Hostile()) is None
 
 
-def test_binding_a_method_to_an_unreferenceable_owner_is_survived() -> None:
-    """An owner no weak reference can name leaves the mark unowned."""
+def test_an_owner_no_reference_can_name_is_left_unmarked() -> None:
+    """A mark that cannot name its instance would refuse every sibling."""
 
     class Owner:
         """An instance that refuses a weak reference."""
@@ -532,10 +530,11 @@ def test_binding_a_method_to_an_unreferenceable_owner_is_survived() -> None:
         async def ping(self) -> None:
             """Answer a probe."""
 
-    owner = Owner()
-    mark_registered(owner.ping, Registered.TASK)
+    registered, sibling = Owner(), Owner()
+    mark_registered(registered.ping, Registered.TASK)
 
-    assert registration_of(owner.ping) is not None
+    assert registration_of(registered.ping) is None
+    assert registration_of(sibling.ping) is None
 
 
 def test_an_interrupt_while_reading_the_owner_is_never_swallowed() -> None:
@@ -603,25 +602,30 @@ async def test_a_stack_runs_a_registered_function_imperatively() -> None:
         stack(probe)
 
 
-def test_a_wraps_copy_of_a_registered_method_is_caught_too() -> None:
-    """A bound registration is still a registration a copy misses."""
+def test_a_sibling_instance_survives_being_wrapped_twice() -> None:
+    """Wrapping drops `__self__`, so answering for a copy refuses siblings.
 
-    class Repo:
-        """An object whose method answers a probe."""
+    A registrar that took a bound method is answered for that instance
+    alone. Catching a `functools.wraps` copy of it would cost every
+    other instance of the class, which `add_provider` creates by the
+    handful, so the narrower miss is the one worth keeping.
+    """
 
-        async def ping(self) -> None:
+    class Svc:
+        """Two objects of one class, one of them registered."""
+
+        async def check(self) -> None:
             """Answer a probe."""
 
     checks = HealthChecks()
-    repo = Repo()
-    checks.add("db", repo.ping)
+    registered, sibling = Svc(), Svc()
+    checks.add("a", registered.check)
 
-    @functools.wraps(repo.ping)
-    async def foreign() -> None:
-        """Stand in for a decorator grelmicro does not own."""
+    layered = Timeout("t", seconds=1)(sibling.check)
+    Retry("r", when=Exception)(layered)
 
-    with pytest.raises(TypeError, match="was applied to a wrapper around"):
-        Retry("r", when=Exception)(foreign)
+    with pytest.raises(TypeError, match="already registered as a health check"):
+        Timeout("t", seconds=1)(registered.check)
 
 
 def test_the_class_function_of_a_registered_method_is_left_alone() -> None:
@@ -684,3 +688,113 @@ def test_a_task_exposing_no_function_is_added_unmarked() -> None:
     tasks.add_task(Custom())
 
     assert len(tasks.tasks) == 1
+
+
+def test_a_bound_mark_never_evicts_a_plain_one() -> None:
+    """Two registrations of one function are both live, so both are kept."""
+
+    class Svc:
+        """A class registered both by itself and by an instance."""
+
+        async def check(self) -> None:
+            """Answer a probe."""
+
+    instance = Svc()
+    mark_registered(Svc.check, Registered.HEALTH_CHECK)
+    mark_registered(instance.check, Registered.HEALTH_CHECK)
+
+    assert registration_of(Svc.check) is not None
+    assert registration_of(instance.check) is not None
+
+
+def test_a_shield_refusal_names_the_decorator_the_user_wrote() -> None:
+    """`Shield` names itself after the function, which names nothing."""
+    checks = HealthChecks()
+
+    @checks.check("db")
+    async def check_db() -> None:
+        """Answer a probe."""
+
+    with pytest.raises(TypeError, match=r"@shield would only"):
+        shield(check_db)
+
+    with pytest.raises(TypeError, match=r"@shield\.api would only"):
+        shield.api()(check_db)
+
+
+def test_a_task_whose_function_attribute_raises_is_still_added() -> None:
+    """A `Task` is caller code, so reading what it exposes cannot raise."""
+
+    class Hostile:
+        """A task whose `function` refuses to be read."""
+
+        @property
+        def function(self) -> object:
+            """Raise instead of naming the function."""
+            msg = "not ready"
+            raise RuntimeError(msg)
+
+        @property
+        def name(self) -> str:
+            """Name the task."""
+            return "hostile"
+
+        async def __call__(
+            self,
+            *,
+            ready: asyncio.Future[None] | None = None,
+            stop: asyncio.Event | None = None,
+        ) -> None:
+            """Run the task."""
+
+    tasks = Tasks()
+    tasks.add_task(Hostile())
+
+    assert len(tasks.tasks) == 1
+
+
+def test_a_task_whose_function_attribute_interrupts_is_never_swallowed() -> (
+    None
+):
+    """A real interrupt still gets out of the raise-proof read."""
+
+    class Interrupting:
+        """A task whose `function` interrupts."""
+
+        @property
+        def function(self) -> object:
+            """Interrupt instead of naming the function."""
+            raise KeyboardInterrupt
+
+        @property
+        def name(self) -> str:
+            """Name the task."""
+            return "interrupting"
+
+        async def __call__(
+            self,
+            *,
+            ready: asyncio.Future[None] | None = None,
+            stop: asyncio.Event | None = None,
+        ) -> None:
+            """Run the task."""
+
+    with pytest.raises(KeyboardInterrupt):
+        Tasks().add_task(Interrupting())
+
+
+def test_reading_a_hostile_mark_answers_rather_than_raising() -> None:
+    """Reading the mark runs caller code after `__self__` has answered."""
+
+    class Selective:
+        """A value that raises only on the mark's own attribute."""
+
+        __self__ = None
+
+        def __getattr__(self, name: str) -> object:
+            if name == markers.REGISTRATION:
+                msg = "unbound proxy"
+                raise RuntimeError(msg)
+            raise AttributeError(name)
+
+    assert registration_of(Selective()) is None

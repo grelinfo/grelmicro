@@ -96,7 +96,12 @@ class TaskRouter:
         if self._started:
             raise TaskAddOperationError
 
-        function = getattr(task, "function", None)
+        try:
+            function = getattr(task, "function", None)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001
+            function = None
         if callable(function):
             mark_registered(function, Registered.TASK)
         self._tasks.append(task)

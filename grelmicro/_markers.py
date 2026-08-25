@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import weakref
 from enum import Enum
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 __all__ = [
     "Registered",
@@ -75,17 +75,30 @@ class Registration(NamedTuple):
         return holder() is _underlying(function)
 
 
-def _owner(function: object) -> weakref.ref[object] | None:
-    """Return a reference to what a bound method is bound to, or None."""
+UNNAMEABLE_OWNER = object()
+"""Stands in for an owner no weak reference can name."""
+
+
+def _owner(function: object) -> weakref.ref[object] | object | None:
+    """Return a reference to what a bound method is bound to.
+
+    None for a plain function, which owns nothing. `UNNAMEABLE_OWNER`
+    for an instance no weak reference can name, which cannot be told
+    from its siblings and so is left unmarked rather than marked in a
+    way that would refuse all of them.
+    """
     try:
         instance = getattr(function, "__self__", None)
-        if instance is None:
-            return None
-        return weakref.ref(instance)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001
+        return UNNAMEABLE_OWNER
+    if instance is None:
         return None
+    try:
+        return weakref.ref(instance)
+    except TypeError:
+        return UNNAMEABLE_OWNER
 
 
 def _underlying(function: object) -> object:
@@ -116,14 +129,20 @@ def mark_registered(function: object, kind: Registered) -> None:
     except TypeError:
         holder = None
     owner = _owner(function)
+    if owner is UNNAMEABLE_OWNER:
+        return
+    owner = cast("weakref.ref[object] | None", owner)
     fresh = Registration(kind, holder, owner)
     try:
+        instance = owner() if owner is not None else None
         kept = tuple(
             existing
             for existing in _marks(target)
-            if existing.owner is not None
-            and existing.owner() is not None
-            and existing.owner() is not (owner() if owner else None)
+            if existing.owner is None
+            or (
+                existing.owner() is not None
+                and existing.owner() is not instance
+            )
         )
         setattr(target, REGISTRATION, (*kept, fresh))
     except (KeyboardInterrupt, SystemExit):
@@ -154,9 +173,13 @@ def registration_of(function: object) -> Registration | None:
 
     A mark copied onto a wrapper by `functools.wraps` still answers,
     because a decorator above that wrapper misses the registration too.
-    A copy of a bound method answers the same way, told apart from the
-    class function itself by the function the mark names. Ask
-    `Registration.holds` which of the two it is.
+    Ask `Registration.holds` to tell a copy from the function itself.
+
+    That carries only for a plain function. Wrapping drops `__self__`,
+    so a copy of a bound method cannot be told from a wrapper around
+    another instance's method, and answering for it would refuse every
+    sibling. A registrar that took a bound method is answered for that
+    instance alone.
     """
     target = _underlying(function)
     try:
@@ -180,6 +203,4 @@ def registration_of(function: object) -> Registration | None:
             continue
         if bound is bound_to:
             return registration
-        if bound_to is None and held is not None and held is not target:
-            unowned = unowned or registration
     return unowned
