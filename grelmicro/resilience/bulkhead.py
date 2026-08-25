@@ -25,7 +25,6 @@ from grelmicro._app import (
     _iter_provider_backends,
     _maybe_wrap_first_party_backend,
     _order_providers_first,
-    _share_owned_providers,
     opening_lock,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
@@ -898,19 +897,23 @@ def _lifecycle_order(
 ) -> tuple[AbstractAsyncContextManager[object], ...]:
     """Put the scope in the order it has to open in.
 
-    Moves a Provider listed after its Component ahead of it, and shares one
-    implicitly-owned Provider between the adapters that would each build
-    their own.
+    Moves a Provider listed after its Component ahead of it. That reorders
+    the list and nothing else, which is as far as a scope may go: every
+    other thing `Grelmicro(uses=[...])` does here changes the items.
 
     A Provider a Component borrows but `uses=` does not list is left alone,
-    where `Grelmicro(uses=[...])` adopts it. The scope opens on the app's
-    exit stack, above the app's own items, so adopting a Provider the app
-    already holds would open it twice and close it while the app is still
-    using it. List it here, or on the app.
+    where the app adopts it. The scope opens on the app's exit stack, above
+    the app's own items, so adopting a Provider the app already holds would
+    open it twice and close it while the app is still using it. List it
+    here, or on the app.
+
+    Nor does a scope rebind one Provider across the adapters that each
+    built their own, as the app does for its items. A Component in `uses=`
+    can be the app's too, and rebinding it there would hand the app's
+    lifecycle to an item only the scope holds.
     """
     ordered = list(items)
     _order_providers_first(ordered, strict=False)
-    _share_owned_providers(ordered)
     return tuple(ordered)
 
 

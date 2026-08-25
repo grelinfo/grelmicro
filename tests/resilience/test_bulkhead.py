@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import threading
 from contextlib import AsyncExitStack
+from types import TracebackType
 from typing import Any, Self, cast
 
 import pytest
@@ -495,19 +496,20 @@ async def test_uses_accepts_a_borrowed_provider_the_app_opens() -> None:
     assert provider.log == ["open", "close"]
 
 
-def test_uses_takes_two_adapters_that_share_one_provider(
+def test_uses_leaves_two_adapters_their_own_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sharing rebinds the later adapter, which must not read as unopened."""
+    """A scope never rebinds an adapter: the Component may be the app's too."""
     monkeypatch.setenv("GREL_ENV_LOAD", "true")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
-    bulkhead = Bulkhead(
-        "sharing", uses=[RedisLockAdapter(), RedisCacheAdapter()]
-    )
+    lock = RedisLockAdapter()
+    cache = RedisCacheAdapter()
+    Bulkhead("sharing", uses=[lock, cache])
 
-    # The second adapter was rebound onto the provider the first owns, so
-    # the owned set carries it and the ordering diagnosis reads it as open.
-    assert len(bulkhead._owned) == 1
+    # Each still owns the provider it built, where the app would share one.
+    assert lock._owns_provider is True
+    assert cache._owns_provider is True
+    assert lock._provider is not cache._provider
 
 
 async def test_uses_opens_a_shared_component_once_across_scopes() -> None:
@@ -923,6 +925,26 @@ async def test_a_scope_racing_the_app_on_one_item_opens_it_once() -> None:
         pass
 
     assert (opens, closes) == (1, 1)
+
+
+async def test_uses_does_not_rebind_a_component_the_app_also_holds() -> None:
+    """A scope leaves a shared Component alone, so the app keeps its own."""
+    shared = Cache(_OwningAdapter())
+    scoped = Cache(_OwningAdapter(), name="scoped")
+    bulkhead = Bulkhead("shared-component", uses=[scoped, shared])
+
+    held = cast("_OwningAdapter", shared.backend)
+    kept = cast("_OwningAdapter", scoped.backend)
+    # Constructing the bulkhead must not hand the app's Component over to
+    # a provider only the scope holds.
+    assert held.owned is True
+    assert held.provider is not kept.provider
+
+    async with Grelmicro(uses=[shared]), bulkhead:
+        pass
+
+    assert held.provider.log == ["open", "close"]
+    assert kept.provider.log == ["open", "close"]
 
 
 async def test_uses_skips_none_entries() -> None:
@@ -2410,6 +2432,38 @@ class _BorrowedProvider(Provider):
         adapter._provider = self  # ty: ignore[unresolved-attribute]
         adapter._owns_provider = False  # ty: ignore[unresolved-attribute]
         return adapter
+
+
+class _OwningAdapter(MemoryCacheAdapter):
+    """An adapter that owns a provider of its own, as an env-built one does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._provider = _BorrowedProvider()
+        self._owns_provider = True
+
+    @property
+    def provider(self) -> _BorrowedProvider:
+        """Return the provider this adapter built."""
+        return self._provider
+
+    @property
+    def owned(self) -> bool:
+        """Report whether this adapter still owns its provider."""
+        return self._owns_provider
+
+    async def __aenter__(self) -> Self:
+        await self._provider.__aenter__()
+        return await super().__aenter__()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        await super().__aexit__(exc_type, exc_value, traceback)
+        await self._provider.__aexit__()
 
 
 class _RefusingAdapter(MemoryCacheAdapter):
