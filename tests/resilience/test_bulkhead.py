@@ -472,14 +472,16 @@ async def test_uses_leaves_a_provider_the_app_holds_alone() -> None:
     assert provider.log == ["open", "close"]
 
 
-async def test_uses_names_a_borrowed_provider_nothing_opens() -> None:
-    """A Component borrowing a Provider no list carries says so on entry."""
-    bulkhead = Bulkhead("omitted", uses=[Cache(_BorrowedProvider())])
+async def test_uses_takes_a_provider_the_caller_owns() -> None:
+    """A Provider opened outside the app is left to whoever opened it."""
+    provider = _BorrowedProvider()
+    bulkhead = Bulkhead("caller-owned", uses=[Cache(provider, name="scoped")])
 
-    async with Grelmicro():
-        with pytest.raises(OutOfContextError, match="nothing has opened"):
-            async with bulkhead:
-                pass
+    async with provider, Grelmicro(), bulkhead:
+        pass
+
+    # Opened and closed once, by the caller, not by the scope.
+    assert provider.log == ["open", "close"]
 
 
 async def test_uses_accepts_a_borrowed_provider_the_app_opens() -> None:
@@ -504,8 +506,8 @@ def test_uses_takes_two_adapters_that_share_one_provider(
     )
 
     # The second adapter was rebound onto the provider the first owns, so
-    # it reads as a borrower. Nothing is missing: the first opens it.
-    assert bulkhead._borrowed == ()
+    # the owned set carries it and the ordering diagnosis reads it as open.
+    assert len(bulkhead._owned) == 1
 
 
 async def test_uses_opens_a_shared_component_once_across_scopes() -> None:

@@ -205,6 +205,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             TypeError: A `uses=` entry is not an async context manager.
             AmbiguousProviderError: `uses=` lists two or more bare Providers
                 with no Component, so the default for each kind is ambiguous.
+            AmbiguousBackendError: A bare backend in `uses=` matches two
+                unrelated protocols, so its Component is ambiguous.
             ComponentAlreadyRegisteredError: Two Components in `uses=` claim
                 one `(kind, name)`, or one kind only one of them may hold.
         """
@@ -242,7 +244,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._uses = _expand_uses(name, uses)
         _check_usable(name, self._uses)
         self._owned = _owned_providers(self._uses)
-        self._borrowed = _borrowed_elsewhere(self._uses, self._owned)
         self._overrides = _index_overrides(name, self._uses)
         self._scoped_to: Grelmicro | None = None
         self._scope_stack: AsyncExitStack | None = None
@@ -285,6 +286,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             TypeError: A `uses=` entry is not an async context manager.
             AmbiguousProviderError: `uses=` lists two or more bare Providers
                 with no Component, so the default for each kind is ambiguous.
+            AmbiguousBackendError: A bare backend in `uses=` matches two
+                unrelated protocols, so its Component is ambiguous.
             ComponentAlreadyRegisteredError: Two Components in `uses=` claim
                 one `(kind, name)`, or one kind only one of them may hold.
         """
@@ -435,7 +438,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 unmet_requirements(self._uses), micro.environment
             )
             scope.checked = True
-        self._check_borrowed(micro)
         for item in self._uses[scope.entered :]:
             if _opened_elsewhere(micro, item):
                 # Already open under this run, so opening it again would
@@ -510,24 +512,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             )
             return OutOfContextError(msg)
         return exc
-
-    def _check_borrowed(self, micro: Grelmicro) -> None:
-        """Refuse to open when nothing will open a Provider the scope needs.
-
-        Raises:
-            OutOfContextError: A Component in `uses=` borrows a Provider that
-                neither `uses=` nor the app opens.
-        """
-        for provider in self._borrowed:
-            if _will_be_opened(micro, provider):
-                continue
-            msg = (
-                f"Bulkhead {self._name!r} has a component in uses= that "
-                f"borrows a {type(provider).__name__} nothing has opened. "
-                f"List that provider in the bulkhead's uses=, or earlier on "
-                f"the app than whatever enters this bulkhead."
-            )
-            raise OutOfContextError(msg)
 
     def _lost_scope(self, micro: Grelmicro, exit_stack: AsyncExitStack) -> bool:
         """Report whether the app moved on from the stack this open captured.
@@ -945,29 +929,14 @@ def _opened_elsewhere(
     )
 
 
-def _will_be_opened(micro: Grelmicro, provider: Provider) -> bool:
-    """Report whether this run opens `provider` at some point.
-
-    A wider question than `_opened_elsewhere` answers, and a different one:
-    the skip decision needs what is open *now*, while this needs to know
-    that something takes care of it. An app still starting has not reached
-    the back of its own list yet, and refusing there would fail a startup
-    the app was about to complete.
-    """
-    return _opened_elsewhere(micro, provider) or any(
-        listed is provider
-        for listed in micro._items  # noqa: SLF001
-    )
-
-
 def _owned_providers(
     items: tuple[AbstractAsyncContextManager[object], ...],
 ) -> frozenset[int]:
     """Return the ids of the Providers some target in `items` owns.
 
     An owner opens its Provider from its own `__aenter__`, so nothing else
-    records it as opened. Both the borrow check and the ordering diagnosis
-    would read it as missing without this.
+    records it as opened. The ordering diagnosis would read it as missing
+    without this.
     """
     return frozenset(
         id(provider)
@@ -976,36 +945,6 @@ def _owned_providers(
         if (provider := getattr(target, "_provider", None)) is not None
         and getattr(target, "_owns_provider", True)
     )
-
-
-def _borrowed_elsewhere(
-    items: tuple[AbstractAsyncContextManager[object], ...],
-    owned: frozenset[int],
-) -> tuple[Provider, ...]:
-    """Return the Providers a listed Component borrows but the list omits.
-
-    The scope never adopts one, so something else has to open it. Which is
-    only knowable once an app is running, so they are collected here and
-    checked on open.
-
-    A Provider some item in the list owns is left out: that item opens it.
-    Sharing rebinds the later adapters to it and marks them borrowers, so
-    reading the borrow flag alone would report an owned Provider as absent.
-    """
-    borrowed: list[Provider] = []
-    for item in items:
-        for target in _iter_provider_backends(item):
-            provider = getattr(target, "_provider", None)
-            if provider is None or getattr(target, "_owns_provider", True):
-                continue
-            if id(provider) in owned:
-                continue
-            if any(listed is provider for listed in items) or any(
-                seen is provider for seen in borrowed
-            ):
-                continue
-            borrowed.append(provider)
-    return tuple(borrowed)
 
 
 def _index_overrides(
