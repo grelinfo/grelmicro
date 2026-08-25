@@ -22,6 +22,7 @@ from typing import (
     cast,
     overload,
 )
+from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
 
@@ -1536,6 +1537,14 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     return _marked(_most_specific_backend(matches, item)[2](item), item)
 
 
+_wrapped_backends: WeakKeyDictionary[Component, object] = WeakKeyDictionary()
+"""What each auto-wrapped Component stands for.
+
+Kept beside the Components rather than on them, so a Component that grows
+`__slots__` later does not turn wrapping into an `AttributeError`.
+"""
+
+
 def _marked(component: Component, backend: object) -> Component:
     """Record what `component` wraps, so one backend has one identity.
 
@@ -1544,7 +1553,7 @@ def _marked(component: Component, backend: object) -> Component:
     that backend once per wrapper, which is what this lets the callers see
     through.
     """
-    component._wrapped_backend = backend  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]  # noqa: SLF001
+    _wrapped_backends[component] = backend
     return component
 
 
@@ -1554,7 +1563,9 @@ def _opened_key(item: object) -> int:
     A Component built around a bare backend answers for the backend, so a
     second wrapper around the same one is not opened again.
     """
-    return id(getattr(item, "_wrapped_backend", item))
+    if isinstance(item, Component):
+        return id(_wrapped_backends.get(item, item))
+    return id(item)
 
 
 def _unsupported_framework_message(caller: str, app: object) -> str:

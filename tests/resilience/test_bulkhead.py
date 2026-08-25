@@ -1090,6 +1090,35 @@ async def test_two_components_around_one_backend_are_two_items() -> None:
     assert opens == LIMIT  # one per Component, which is why the docs warn
 
 
+async def test_two_runs_each_open_a_backend_two_bulkheads_list() -> None:
+    """The documented boundary: opening once holds within one run, not across.
+
+    Two bulkheads keep separate scopes, and a run only sees what it opened
+    itself, so the run that borrows nothing opens the backend again.
+    """
+    opens = 0
+
+    class Tracked(MemoryLockAdapter):
+        """A bare backend that counts its opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return await super().__aenter__()
+
+    backend = Tracked()
+    first = Bulkhead("run-a", uses=[backend])
+    second = Bulkhead("run-b", uses=[backend])
+
+    async with Grelmicro(allow_multiple=True):
+        async with first:
+            pass
+        async with Grelmicro(allow_multiple=True), second:
+            pass
+
+    assert opens == LIMIT  # one per run, which is why the docs say so
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()
