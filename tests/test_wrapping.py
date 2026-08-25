@@ -11,7 +11,7 @@ import functools
 import gc
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 
@@ -129,16 +129,6 @@ def test_every_decorator_refuses_a_registered_function(
     assert label
 
 
-def _guards(node: ast.AST) -> bool:
-    """Return whether `node` calls the guard anywhere inside it."""
-    return any(
-        isinstance(inner, ast.Call)
-        and isinstance(inner.func, ast.Name)
-        and inner.func.id == "refuse_registered"
-        for inner in ast.walk(node)
-    )
-
-
 def _is_wraps(call: ast.Call) -> bool:
     """Return whether `call` is `functools.wraps(...)` or `wraps(...)`."""
     func = call.func
@@ -147,35 +137,84 @@ def _is_wraps(call: ast.Call) -> bool:
     return isinstance(func, ast.Name) and func.id == "wraps"
 
 
+def _called_name(call: ast.Call) -> str | None:
+    """Return the name `call` calls, plain or as a method."""
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
 _Func = ast.FunctionDef | ast.AsyncFunctionDef
 
 
-def _called_names(node: ast.AST) -> set[str]:
-    """Return the names `node` calls, as a plain name or a method."""
+def _parents(tree: ast.Module) -> dict[ast.AST, ast.AST]:
+    """Return each node's parent, so a node can name what encloses it."""
+    return {
+        child: node
+        for node in ast.walk(tree)
+        for child in ast.iter_child_nodes(node)
+    }
+
+
+def _enclosing(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> set[str]:
+    """Return the names of the functions `node` sits inside."""
     names = set()
-    for inner in ast.walk(node):
-        if not isinstance(inner, ast.Call):
-            continue
-        if isinstance(inner.func, ast.Name):
-            names.add(inner.func.id)
-        elif isinstance(inner.func, ast.Attribute):
-            names.add(inner.func.attr)
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, _Func):
+            names.add(current.name)
+        current = parents.get(current)
     return names
 
 
-def _guarded_functions(functions: dict[str, _Func]) -> set[str]:
+class _Scan(NamedTuple):
+    """What one pass over a module found."""
+
+    guarded: set[str]
+    calls: dict[str, set[str]]
+    sites: list[set[str]]
+
+
+def _scan(tree: ast.Module) -> _Scan:
+    """Read the guards, the call graph, and the wrapping sites at once.
+
+    Walking each function separately re-reads every nested body once
+    per enclosing function, which is slow enough over a whole package
+    to matter under coverage.
+    """
+    parents = _parents(tree)
+    functions = {n.name for n in ast.walk(tree) if isinstance(n, _Func)}
+    scan = _Scan(set(), {name: set() for name in functions}, [])
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        chain = _enclosing(node, parents)
+        name = _called_name(node)
+        if name == "refuse_registered":
+            scan.guarded.update(chain)
+        elif name in functions:
+            for holder in chain:
+                scan.calls[holder].add(name)
+        if _is_wraps(node):
+            scan.sites.append(chain)
+    return scan
+
+
+def _covered(scan: _Scan) -> set[str]:
     """Return the functions a guard covers, directly or through a caller.
 
-    A decorator may build its wrapper in a module-level helper, as
-    `@cached` does. The helper is covered when everything that calls it
-    is covered, so the set grows until it stops changing. The call graph
-    is read once, because walking it per round is quadratic.
+    A decorator may build its wrapper in a helper, as `@cached` does.
+    The helper is covered when everything that calls it is covered, so
+    the set grows until it stops changing.
     """
-    guarded = {name for name, node in functions.items() if _guards(node)}
-    calls = {name: _called_names(node) for name, node in functions.items()}
-    callers: dict[str, set[str]] = {name: set() for name in functions}
-    for caller, called in calls.items():
-        for name in called & functions.keys():
+    guarded = set(scan.guarded)
+    callers: dict[str, set[str]] = {name: set() for name in scan.calls}
+    for caller, called in scan.calls.items():
+        for name in called:
             callers[name].add(caller)
 
     while True:
@@ -191,30 +230,12 @@ def _guarded_functions(functions: dict[str, _Func]) -> set[str]:
 
 def _unguarded_wraps_sites(source: str) -> int:
     """Count wrapping sites no guard covers."""
-    tree = ast.parse(source)
-    functions = {n.name: n for n in ast.walk(tree) if isinstance(n, _Func)}
-    guarded = _guarded_functions(functions)
-    parents: dict[ast.AST, ast.AST] = {}
-    for node in ast.walk(tree):
-        for child in ast.iter_child_nodes(node):
-            parents[child] = node
-
-    unguarded = 0
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and _is_wraps(node)):
-            continue
-        current: ast.AST | None = node
-        while current is not None:
-            if isinstance(current, _Func) and (
-                _guards(current) or current.name in guarded
-            ):
-                break
-            current = parents.get(current)
-        else:
-            unguarded += 1
-    return unguarded
+    scan = _scan(ast.parse(source))
+    guarded = _covered(scan)
+    return sum(1 for chain in scan.sites if not chain & guarded)
 
 
+@pytest.mark.timeout(60)
 def test_every_wrapping_decorator_carries_the_guard() -> None:
     """The fifteenth decorator is discovered, not remembered.
 
