@@ -116,6 +116,7 @@ class _Scope:
     lock: asyncio.Lock
     entered: int = 0
     opened: bool = False
+    checked: bool = False
     release_armed: bool = False
     drop_armed: bool = False
     borrowed_from: _Scope | None = None
@@ -426,9 +427,14 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self, micro: Grelmicro, exit_stack: AsyncExitStack, scope: _Scope
     ) -> None:
         """Enter what the scope has left to enter, in order."""
-        report_unmet_requirements(
-            unmet_requirements(self._uses), micro.environment
-        )
+        if not scope.checked:
+            # Once per run, as the borrow path does. A scope that keeps
+            # failing part way would otherwise repeat the same report on
+            # every attempt.
+            report_unmet_requirements(
+                unmet_requirements(self._uses), micro.environment
+            )
+            scope.checked = True
         self._check_borrowed(micro)
         for item in self._uses[scope.entered :]:
             if _opened_elsewhere(micro, item):

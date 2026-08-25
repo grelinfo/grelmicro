@@ -769,6 +769,50 @@ async def test_a_run_already_closing_does_not_lend_its_scope() -> None:
     assert "is closing its uses= scope" in str(refused[0])
 
 
+async def test_a_retried_open_checks_the_backends_once() -> None:
+    """A scope that keeps failing part way does not repeat its report."""
+    checks = 0
+    real = bulkhead_module.unmet_requirements
+
+    def counting(items: object) -> object:
+        nonlocal checks
+        checks += 1
+        return real(items)  # ty: ignore[invalid-argument-type]
+
+    class Flaky:
+        """A scope item that fails a set number of times."""
+
+        def __init__(self, failures: int) -> None:
+            self.failures = failures
+
+        async def __aenter__(self) -> Self:
+            if self.failures:
+                self.failures -= 1
+                msg = "server briefly down"
+                raise ConnectionError(msg)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    attempts = 4
+    bulkhead = Bulkhead("retried", uses=[Flaky(attempts)])
+
+    async with Grelmicro():
+        bulkhead_module.unmet_requirements = counting  # ty: ignore[invalid-assignment]
+        try:
+            for _ in range(attempts):
+                with pytest.raises(ConnectionError):
+                    async with bulkhead:
+                        pass
+            async with bulkhead:
+                pass
+        finally:
+            bulkhead_module.unmet_requirements = real
+
+    assert checks == 1  # once for the scope, not once per attempt
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()
