@@ -793,6 +793,12 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     ) -> Callable[P, Awaitable[R]]:
         """Decorate ``fn`` so each call runs under this bulkhead."""
         refuse_registered(fn, f"Bulkhead {self._name!r}")
+        return self._wrap(fn)
+
+    def _wrap[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]:
+        """Wrap `fn` without the guard, for composing inside a `Stack`."""
         if not iscoroutinefunction(fn):
             msg = (
                 "Bulkhead only decorates async functions. Use "

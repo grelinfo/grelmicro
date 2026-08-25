@@ -192,6 +192,37 @@ def _marks(target: object) -> tuple[Registration, ...]:
     return tuple(m for m in marks if isinstance(m, Registration))
 
 
+_DIRECT = "direct"
+"""The mark names the function being read."""
+
+_INHERITED = "inherited"
+"""The mark arrived on a wrapper around the function it names."""
+
+
+def _answers(
+    registration: Registration, target: object, bound_to: object
+) -> str | None:
+    """Return how `registration` answers for the function being read.
+
+    `_DIRECT` when it names that function, `_INHERITED` when it reached
+    it as a `functools.wraps` copy, and None when it holds nothing that
+    the function has to do with.
+    """
+    holder = registration.holder
+    held = holder() if holder is not None else None
+    if holder is not None and held is None:
+        return None
+    owner = registration.owner
+    if owner is None:
+        return _DIRECT if held is None or held is target else _INHERITED
+    bound = owner()
+    if bound is None:
+        return None
+    if bound is bound_to or (bound_to is None and held is target):
+        return _DIRECT
+    return None
+
+
 def registration_of(function: object) -> Registration | None:
     """Return the registration holding `function`, or None.
 
@@ -211,7 +242,9 @@ def registration_of(function: object) -> Registration | None:
     so a copy of a bound method cannot be told from a wrapper around
     another instance's method, and answering for it would refuse every
     sibling. A registrar that took a bound method is answered for that
-    instance alone.
+    instance, and for the class function itself, which is the one the
+    registration runs through. A sibling's method names its own
+    instance, so it stays out of both.
     """
     target = _underlying(function)
     marks = _marks(target)
@@ -225,19 +258,9 @@ def registration_of(function: object) -> Registration | None:
         return None
     inherited: Registration | None = None
     for registration in reversed(marks):
-        holder = registration.holder
-        held = holder() if holder is not None else None
-        if holder is not None and held is None:
-            continue
-        owner = registration.owner
-        if owner is None:
-            if held is None or held is target:
-                return registration
-            inherited = inherited or registration
-            continue
-        bound = owner()
-        if bound is None:
-            continue
-        if bound is bound_to:
+        answer = _answers(registration, target, bound_to)
+        if answer is _DIRECT:
             return registration
+        if answer is _INHERITED:
+            inherited = inherited or registration
     return inherited

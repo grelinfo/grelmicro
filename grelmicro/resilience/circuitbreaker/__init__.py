@@ -524,7 +524,10 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             return self
 
         refuse_registered(func, f"CircuitBreaker {self._name!r}")
+        return self._wrap(func)
 
+    def _wrap(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        """Wrap `func` without the guard, for composing inside a `Stack`."""
         if iscoroutinefunction(func):
 
             @functools.wraps(func)

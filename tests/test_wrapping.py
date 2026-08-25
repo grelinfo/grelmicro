@@ -31,6 +31,7 @@ from grelmicro.resilience import (
     Fallback,
     MemoryCircuitBreakerAdapter,
     MemoryRateLimiterAdapter,
+    Pattern,
     RateLimiter,
     Retry,
     Shield,
@@ -717,8 +718,13 @@ def test_a_sibling_instance_survives_being_wrapped_twice() -> None:
         Timeout("t", seconds=1)(registered.check)
 
 
-def test_the_class_function_of_a_registered_method_is_left_alone() -> None:
-    """The registration holds one instance's method, not the class's."""
+def test_the_class_function_of_a_registered_method_is_refused() -> None:
+    """The registration runs through the class function, so it is held too.
+
+    A bound method keeps the function it was built from, so decorating
+    the class function afterwards leaves the registration calling the
+    original. A sibling instance still names itself and stays free.
+    """
 
     class Repo:
         """An object whose method answers a probe."""
@@ -727,12 +733,13 @@ def test_the_class_function_of_a_registered_method_is_left_alone() -> None:
             """Answer a probe."""
 
     checks = HealthChecks()
-    repo = Repo()
+    repo, sibling = Repo(), Repo()
     checks.add("db", repo.ping)
 
-    assert registration_of(Repo.ping) is None
+    with pytest.raises(TypeError, match="already registered as a health check"):
+        Retry("r", when=Exception)(Repo.ping)
 
-    Retry("r", when=Exception)(Repo.ping)
+    Retry("r", when=Exception)(sibling.ping)
 
 
 def test_a_registration_whose_instance_is_gone_stops_counting() -> None:
@@ -920,3 +927,32 @@ def test_the_outermost_registrar_is_the_one_named() -> None:
     registration = registration_of(job)
     assert registration is not None
     assert registration.kind is Registered.HEALTH_CHECK
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    ["timeout", "retry", "fallback", "bulkhead", "breaker"],
+)
+async def test_every_pattern_composes_a_registered_function_in_run(
+    pattern: str,
+) -> None:
+    """`Stack.run` wraps the call it makes, whichever patterns it holds."""
+    checks = HealthChecks()
+
+    @checks.check("db")
+    async def probe() -> None:
+        """Answer a probe."""
+
+    async with MemoryCircuitBreakerAdapter() as backend:
+        patterns: dict[str, Pattern] = {
+            "timeout": Timeout("t", seconds=5),
+            "retry": Retry("r", when=Exception),
+            "fallback": Fallback("f", when=Exception, default=None),
+            "bulkhead": Bulkhead("b", max_concurrent=1),
+            "breaker": CircuitBreaker("c", backend=backend),
+        }
+        stack = Stack(pattern, patterns=[patterns[pattern]])
+
+        await stack.run(probe)
+
+        assert registration_of(probe) is not None

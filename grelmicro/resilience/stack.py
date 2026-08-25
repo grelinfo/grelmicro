@@ -560,7 +560,7 @@ def _bulkhead_layer[**P, R](
 ) -> Callable[P, Awaitable[R]]:
     """Wrap `inner` in the bulkhead, hiding its own refusal when guarded."""
     if not guard:
-        return bulkhead(inner)
+        return bulkhead._wrap(inner)  # noqa: SLF001
 
     async def layer(*args: P.args, **kwargs: P.kwargs) -> R:
         admitted = False
@@ -612,7 +612,7 @@ def _breaker_layer[**P, R](
     layer, so a carrier reaching it is always one of its own.
     """
     if not (unwrap or guard):
-        return breaker(inner)
+        return breaker._wrap(inner)  # noqa: SLF001
 
     async def layer(*args: P.args, **kwargs: P.kwargs) -> R:
         admitted = False
@@ -662,7 +662,7 @@ def _sync_breaker_layer[**P, R](
 ) -> Callable[P, R]:
     """Wrap a sync `inner` in the breaker, hiding its own refusal."""
     if not guard:
-        return breaker(inner)
+        return breaker._wrap(inner)  # noqa: SLF001
 
     def layer(*args: P.args, **kwargs: P.kwargs) -> R:
         admitted = False
