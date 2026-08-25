@@ -59,8 +59,10 @@ class TaskRouter:
             TimezoneError: If no timezone of that name can be loaded.
         """
         self._started = False
-        self._tasks: list[Any] = tasks or []
+        self._tasks: list[Any] = []
         self._routers: list[TaskRouter] = []
+        for task in tasks or []:
+            self.add_task(task)
         self._timezone = (
             normalize_timezone(timezone) if timezone is not None else None
         )

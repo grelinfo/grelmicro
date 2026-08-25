@@ -1065,7 +1065,7 @@ def test_a_foreign_wrapper_over_a_registered_task_is_refused_too() -> None:
 
     stack = Stack("job", patterns=[a_retry("job")])
 
-    with pytest.raises(TypeError, match="wraps a function already registered"):
+    with pytest.raises(TypeError, match="was applied to a wrapper around"):
         stack(foreign)
 
 

@@ -40,17 +40,25 @@ def refuse_registered(function: object, by: str) -> None:
     registration = registration_of(function)
     if registration is None:
         return
-    name = named(function)
     noun = registration.kind.value
-    subject = (
-        f"{name} is already registered as {noun}"
-        if registration.holds(function)
-        else f"{name} wraps a function already registered as {noun}"
-    )
+    if registration.holds(function):
+        name = named(function)
+        msg = (
+            f"{name} is already registered as {noun}, so the "
+            f"registration holds what it recorded and {by} would only "
+            f"wrap direct calls. Put the decorator that registers it on "
+            f"top, above {by}. To wrap direct calls alone, apply {by} to "
+            f"a function that calls {name}."
+        )
+        raise TypeError(msg)
+    holder = registration.holder
+    registered = named(holder() if holder is not None else None)
     msg = (
-        f"{subject}, so the registration holds what it recorded and "
-        f"{by} would only wrap direct calls. Put the decorator that "
-        f"registers it on top, above {by}. To wrap direct calls alone, "
-        f"apply {by} to a function that calls {name}."
+        f"{by} was applied to a wrapper around {registered}, which is "
+        f"already registered as {noun}. `functools.wraps` copies the "
+        f"name, so the wrapper reads as {registered} and the "
+        f"registration still holds what it recorded, which leaves {by} "
+        f"wrapping direct calls alone. Put the decorator that registers "
+        f"it on top, above {by}."
     )
     raise TypeError(msg)

@@ -22,6 +22,11 @@ registered.
 
 A mark whose function is gone holds nothing, since a registration keeps
 the function it recorded alive, so it stops counting.
+
+A bound method carries no attribute of its own, so the mark goes on the
+function underneath, which every instance of the class shares. The mark
+records the instance it was written for, so registering one object's
+method leaves every other object's alone.
 """
 
 from __future__ import annotations
@@ -54,6 +59,7 @@ class Registration(NamedTuple):
 
     kind: Registered
     holder: weakref.ref[object] | None
+    owner: weakref.ref[object] | None
 
     def holds(self, function: object) -> bool:
         """Return whether this mark names `function` itself.
@@ -66,6 +72,19 @@ class Registration(NamedTuple):
         if holder is None:
             return True
         return holder() is _underlying(function)
+
+
+def _owner(function: object) -> weakref.ref[object] | None:
+    """Return a reference to what a bound method is bound to, or None."""
+    try:
+        instance = getattr(function, "__self__", None)
+        if instance is None:
+            return None
+        return weakref.ref(instance)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001
+        return None
 
 
 def _underlying(function: object) -> object:
@@ -82,8 +101,9 @@ def mark_registered(function: object, kind: Registered) -> None:
     """Mark `function` as recorded by a registrar.
 
     A bound method carries no attribute of its own, so the function
-    underneath is marked instead. Every bound form of it then reads as
-    registered, which is what the registration holds either way.
+    underneath is marked instead, and the instance the method was bound
+    to is recorded beside it. Another instance of the same class shares
+    that function and is not what the registration holds.
 
     Best effort: a callable that takes no attribute goes unmarked, and
     the decorators above it keep the behaviour they had before the mark
@@ -95,7 +115,9 @@ def mark_registered(function: object, kind: Registered) -> None:
     except TypeError:
         holder = None
     try:
-        setattr(target, REGISTRATION, Registration(kind, holder))
+        setattr(
+            target, REGISTRATION, Registration(kind, holder, _owner(function))
+        )
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001, S110
@@ -106,14 +128,16 @@ def registration_of(function: object) -> Registration | None:
     """Return the registration holding `function`, or None.
 
     Answers None for a mark whose function is gone, which no
-    registration can still hold. A mark copied onto a wrapper by
-    `functools.wraps` still answers, because a decorator above that
-    wrapper misses the registration too. Ask `Registration.holds` to
-    tell the two apart.
+    registration can still hold, and for a method of an instance other
+    than the one registered, which nothing holds either. A mark copied
+    onto a wrapper by `functools.wraps` still answers, because a
+    decorator above that wrapper misses the registration too. Ask
+    `Registration.holds` to tell the two apart.
     """
     target = _underlying(function)
     try:
         registration = getattr(target, REGISTRATION, None)
+        bound_to = getattr(function, "__self__", None)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001
@@ -122,5 +146,8 @@ def registration_of(function: object) -> Registration | None:
         return None
     holder = registration.holder
     if holder is not None and holder() is None:
+        return None
+    owner = registration.owner
+    if owner is not None and owner() is not bound_to:
         return None
     return registration

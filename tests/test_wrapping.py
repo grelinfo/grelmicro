@@ -6,6 +6,7 @@ call. The guard belongs to every decorator, so the contract test here
 enumerates them rather than trusting each one to have been remembered.
 """
 
+import ast
 import functools
 import gc
 from collections.abc import AsyncIterator, Callable
@@ -21,7 +22,7 @@ from grelmicro.cache import TTLCache, cached
 from grelmicro.health import HealthChecks
 from grelmicro.idempotency import Idempotency, idempotent
 from grelmicro.metrics import measure
-from grelmicro.outbox import Message, Outbox
+from grelmicro.outbox import HandlerAlreadyRegisteredError, Message, Outbox
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.resilience import (
     Bulkhead,
@@ -56,6 +57,10 @@ async def imperative_job() -> None:
 
 
 async def wrapped_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def constructed_job() -> None:
     """Do nothing, from the module level a schedule requires."""
 
 
@@ -121,13 +126,98 @@ def test_every_decorator_refuses_a_registered_function(
     assert label
 
 
-def test_every_wrapping_module_carries_the_guard() -> None:
-    """The fifteenth decorator is discovered, not remembered."""
+def _guards(node: ast.AST) -> bool:
+    """Return whether `node` calls the guard anywhere inside it."""
+    return any(
+        isinstance(inner, ast.Call)
+        and isinstance(inner.func, ast.Name)
+        and inner.func.id == "refuse_registered"
+        for inner in ast.walk(node)
+    )
+
+
+def _is_wraps(call: ast.Call) -> bool:
+    """Return whether `call` is `functools.wraps(...)` or `wraps(...)`."""
+    func = call.func
+    if isinstance(func, ast.Attribute):
+        return func.attr == "wraps"
+    return isinstance(func, ast.Name) and func.id == "wraps"
+
+
+_Func = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+def _called_names(node: ast.AST) -> set[str]:
+    """Return the plain names `node` calls."""
+    return {
+        inner.func.id
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+    }
+
+
+def _guarded_functions(tree: ast.Module) -> set[str]:
+    """Return the functions a guard covers, directly or through a caller.
+
+    A decorator may build its wrapper in a module-level helper, as
+    `@cached` does. The helper is covered when everything that calls it
+    is covered, so the set grows until it stops changing.
+    """
+    functions = {n.name: n for n in ast.walk(tree) if isinstance(n, _Func)}
+    guarded = {name for name, n in functions.items() if _guards(n)}
+    while True:
+        callers = {
+            name: {
+                caller
+                for caller, node in functions.items()
+                if name in _called_names(node)
+            }
+            for name in functions
+            if name not in guarded
+        }
+        grown = {
+            name for name, who in callers.items() if who and who <= guarded
+        }
+        if not grown:
+            return guarded
+        guarded |= grown
+
+
+def _unguarded_wraps_sites(source: str) -> int:
+    """Count wrapping sites no guard covers."""
+    tree = ast.parse(source)
+    guarded = _guarded_functions(tree)
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    unguarded = 0
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and _is_wraps(node)):
+            continue
+        current: ast.AST | None = node
+        while current is not None:
+            if isinstance(current, _Func) and (
+                _guards(current) or current.name in guarded
+            ):
+                break
+            current = parents.get(current)
+        else:
+            unguarded += 1
+    return unguarded
+
+
+def test_every_wrapping_decorator_carries_the_guard() -> None:
+    """The fifteenth decorator is discovered, not remembered.
+
+    Counted per wrapping site rather than per module, so a second
+    decorator added to a module that already guards one is caught.
+    """
     unguarded = {
         str(path.relative_to(PACKAGE))
         for path in PACKAGE.rglob("*.py")
-        if "functools.wraps(" in path.read_text()
-        and "refuse_registered" not in path.read_text()
+        if _unguarded_wraps_sites(path.read_text())
     }
 
     assert unguarded == WRAPS_WITHOUT_GUARD
@@ -185,7 +275,7 @@ def test_a_wraps_copy_is_named_as_a_wrapper_not_as_the_registration() -> None:
     assert registration.holds(wrapped_job)
     assert not registration.holds(wrapper)
 
-    with pytest.raises(TypeError, match="wraps a function already registered"):
+    with pytest.raises(TypeError, match="was applied to a wrapper around"):
         Retry("r", when=Exception)(wrapper)
 
 
@@ -283,7 +373,7 @@ def test_the_marker_module_names_what_it_exports() -> None:
 
 def test_a_mark_that_could_not_name_its_function_still_counts() -> None:
     """A callable no weak reference can name is held by presence alone."""
-    registration = markers.Registration(Registered.TASK, None)
+    registration = markers.Registration(Registered.TASK, None, None)
 
     assert registration.holds(object()) is True
 
@@ -314,3 +404,121 @@ def test_naming_a_function_never_swallows_an_interrupt() -> None:
 
     with pytest.raises(KeyboardInterrupt):
         named(Interrupting())
+
+
+def test_the_contract_test_fails_on_an_unguarded_decorator() -> None:
+    """A guard nothing checks is a guard the next decorator skips."""
+    guarded = """
+import functools
+def decorate(fn):
+    refuse_registered(fn, "@x")
+
+    @functools.wraps(fn)
+    def wrapper(): ...
+    return wrapper
+"""
+    added = (
+        guarded
+        + """
+def decorate_too(fn):
+    @functools.wraps(fn)
+    def wrapper(): ...
+    return wrapper
+"""
+    )
+    assert _unguarded_wraps_sites(guarded) == 0
+    assert _unguarded_wraps_sites(added) == 1
+
+
+def test_a_method_of_another_instance_is_left_alone() -> None:
+    """The mark sits on the class function every instance shares."""
+
+    class Repo:
+        """Two objects of one class, one of them registered."""
+
+        async def ping(self) -> None:
+            """Answer a probe."""
+
+    checks = HealthChecks()
+    registered, other = Repo(), Repo()
+    checks.add("db", registered.ping)
+
+    assert registration_of(registered.ping) is not None
+    assert registration_of(other.ping) is None
+
+    Timeout("t", seconds=1)(other.ping)
+
+    with pytest.raises(TypeError, match="already registered as a health check"):
+        Timeout("t", seconds=1)(registered.ping)
+
+
+def test_a_handler_the_registry_refused_is_never_marked() -> None:
+    """A mark records what a registrar holds, so it follows the registry."""
+    outbox = Outbox(MemoryOutboxAdapter())
+
+    async def first(message: Message[Any]) -> None:
+        """Handle a message."""
+
+    async def second(message: Message[Any]) -> None:
+        """Lose the topic to the first handler."""
+
+    outbox.handler("topic")(first)
+
+    with pytest.raises(HandlerAlreadyRegisteredError):
+        outbox.handler("topic")(second)
+
+    assert registration_of(second) is None
+
+
+def test_a_task_passed_to_the_constructor_is_marked_too() -> None:
+    """`Tasks(tasks=[...])` reaches the schedule without `add_task`."""
+    Tasks(tasks=[IntervalTask(function=constructed_job, seconds=60)])
+
+    assert registration_of(constructed_job) is not None
+
+
+def test_reading_what_a_method_is_bound_to_never_raises() -> None:
+    """`__self__` is caller code on a proxy, so both readers answer."""
+
+    class Hostile:
+        """A value whose `__self__` raises."""
+
+        def __getattr__(self, name: str) -> object:
+            msg = "unbound proxy"
+            raise RuntimeError(msg)
+
+    mark_registered(Hostile(), Registered.TASK)
+
+    assert registration_of(Hostile()) is None
+
+
+def test_binding_a_method_to_an_unreferenceable_owner_is_survived() -> None:
+    """An owner no weak reference can name leaves the mark unowned."""
+
+    class Owner:
+        """An instance that refuses a weak reference."""
+
+        __slots__ = ()
+
+        async def ping(self) -> None:
+            """Answer a probe."""
+
+    owner = Owner()
+    mark_registered(owner.ping, Registered.TASK)
+
+    assert registration_of(owner.ping) is not None
+
+
+def test_an_interrupt_while_reading_the_owner_is_never_swallowed() -> None:
+    """A mark reads `__self__` as well, so its guard answers too."""
+
+    class Interrupting:
+        """A value that interrupts only on what it is bound to."""
+
+        def __getattr__(self, name: str) -> object:
+            if name == "__self__":
+                raise KeyboardInterrupt
+            raise AttributeError(name)
+
+    with pytest.raises(KeyboardInterrupt):
+        mark_registered(Interrupting(), Registered.TASK)
