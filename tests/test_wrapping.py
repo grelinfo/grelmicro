@@ -156,27 +156,26 @@ def _called_names(node: ast.AST) -> set[str]:
     }
 
 
-def _guarded_functions(tree: ast.Module) -> set[str]:
+def _guarded_functions(functions: dict[str, _Func]) -> set[str]:
     """Return the functions a guard covers, directly or through a caller.
 
     A decorator may build its wrapper in a module-level helper, as
     `@cached` does. The helper is covered when everything that calls it
-    is covered, so the set grows until it stops changing.
+    is covered, so the set grows until it stops changing. The call graph
+    is read once, because walking it per round is quadratic.
     """
-    functions = {n.name: n for n in ast.walk(tree) if isinstance(n, _Func)}
-    guarded = {name for name, n in functions.items() if _guards(n)}
+    guarded = {name for name, node in functions.items() if _guards(node)}
+    calls = {name: _called_names(node) for name, node in functions.items()}
+    callers: dict[str, set[str]] = {name: set() for name in functions}
+    for caller, called in calls.items():
+        for name in called & functions.keys():
+            callers[name].add(caller)
+
     while True:
-        callers = {
-            name: {
-                caller
-                for caller, node in functions.items()
-                if name in _called_names(node)
-            }
-            for name in functions
-            if name not in guarded
-        }
         grown = {
-            name for name, who in callers.items() if who and who <= guarded
+            name
+            for name, who in callers.items()
+            if name not in guarded and who and who <= guarded
         }
         if not grown:
             return guarded
@@ -186,7 +185,8 @@ def _guarded_functions(tree: ast.Module) -> set[str]:
 def _unguarded_wraps_sites(source: str) -> int:
     """Count wrapping sites no guard covers."""
     tree = ast.parse(source)
-    guarded = _guarded_functions(tree)
+    functions = {n.name: n for n in ast.walk(tree) if isinstance(n, _Func)}
+    guarded = _guarded_functions(functions)
     parents: dict[ast.AST, ast.AST] = {}
     for node in ast.walk(tree):
         for child in ast.iter_child_nodes(node):
