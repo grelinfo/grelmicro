@@ -24,9 +24,9 @@ from grelmicro._app import (
     _default_components_for_provider,
     _iter_provider_backends,
     _maybe_wrap_first_party_backend,
+    _opened_key,
     _opening_lock,
     _order_providers_first,
-    opened_key,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
@@ -514,7 +514,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             exit_stack.push_async_exit(item)
             # Every item, not only a Provider: a Component two scopes both
             # list would otherwise open, and close, twice.
-            micro._scoped_opened.add(opened_key(item))  # noqa: SLF001
+            micro._scoped_opened.add(_opened_key(item))  # noqa: SLF001
             scope.entered += 1
         finally:
             self._finish_open()
@@ -879,7 +879,7 @@ def _expand_uses(
         # already tore it down. Keyed by what the item stands for, because
         # a bare backend is wrapped fresh each time and two wrappers around
         # one backend are not two backends.
-        key = opened_key(item)
+        key = _opened_key(item)
         if key not in seen:
             seen.add(key)
             items.append(item)
@@ -972,7 +972,7 @@ def _opened_elsewhere(
     entered during startup would otherwise read an item the app has not
     reached yet as open, and skip it while nothing had opened it.
     """
-    key = opened_key(item)
+    key = _opened_key(item)
     return (
         key in micro._app_opened  # noqa: SLF001
         or key in micro._scoped_opened  # noqa: SLF001

@@ -1269,10 +1269,10 @@ class Grelmicro:
                 # otherwise pass the test while this one is still inside
                 # `__aenter__`, and open it a second time.
                 async with _opening_lock(self, item):
-                    if opened_key(item) in self._scoped_opened:
+                    if _opened_key(item) in self._scoped_opened:
                         continue
                     await self._exit_stack.enter_async_context(item)
-                    self._app_opened.add(opened_key(item))
+                    self._app_opened.add(_opened_key(item))
             self._instrument_providers()
         except BaseException:
             self._closing = True
@@ -1548,7 +1548,7 @@ def _marked(component: Component, backend: object) -> Component:
     return component
 
 
-def opened_key(item: object) -> int:
+def _opened_key(item: object) -> int:
     """Return the identity `item` is opened under.
 
     A Component built around a bare backend answers for the backend, so a
@@ -1627,7 +1627,7 @@ def _opening_lock(micro: Grelmicro, item: object) -> asyncio.Lock:
     Nothing awaits between the lookup and the store, so two tasks racing
     the first entry cannot both make a lock.
     """
-    key = opened_key(item)
+    key = _opened_key(item)
     lock = micro._opening_items.get(key)  # noqa: SLF001
     if lock is None:
         lock = asyncio.Lock()
