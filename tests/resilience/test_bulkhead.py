@@ -575,10 +575,10 @@ async def test_uses_opens_a_shared_item_the_app_has_not_reached() -> None:
     assert log == ["open", "in scope", "close"]
 
 
-async def test_uses_waits_on_a_provider_the_app_opens_later() -> None:
-    """A borrowed Provider the app has yet to reach still counts as covered."""
+async def test_uses_takes_a_lazy_borrow_the_app_opens_later() -> None:
+    """An adapter that does not read the client opens before its Provider."""
     provider = _BorrowedProvider()
-    bulkhead = Bulkhead("early", uses=[Cache(provider, name="scoped")])
+    bulkhead = Bulkhead("lazy", uses=[Cache(provider, name="scoped")])
 
     class Worker:
         """An app item that enters the bulkhead during startup."""
@@ -596,6 +596,72 @@ async def test_uses_waits_on_a_provider_the_app_opens_later() -> None:
         pass
 
     assert provider.log == ["open", "close"]
+
+
+async def test_uses_names_the_order_when_a_borrow_outruns_its_provider() -> (
+    None
+):
+    """An adapter that does read the client says what to move, not what broke."""
+    provider = _BorrowedProvider()
+    bulkhead = Bulkhead(
+        "eager", uses=[Cache(provider.cache(eager=True), name="scoped")]
+    )
+    refused: list[BaseException] = []
+
+    class Worker:
+        """An app item that enters the bulkhead before the Provider opens."""
+
+        async def __aenter__(self) -> Self:
+            try:
+                async with bulkhead:
+                    pass
+            except OutOfContextError as exc:
+                refused.append(exc)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    async with Grelmicro(uses=[Worker(), Cache(provider, name="app")]):
+        pass
+
+    assert "before the _BorrowedProvider it borrows" in str(refused[0])
+
+
+async def test_uses_keeps_an_error_that_is_not_an_ordering_problem() -> None:
+    """An item with no borrow reports its own failure, unchanged."""
+
+    class Boom:
+        """A scope item that refuses for reasons of its own."""
+
+        async def __aenter__(self) -> Self:
+            msg = "something else entirely"
+            raise OutOfContextError(msg)
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("unrelated", uses=[Boom()])
+
+    async with Grelmicro():
+        with pytest.raises(OutOfContextError, match="something else entirely"):
+            async with bulkhead:
+                pass
+
+
+async def test_uses_keeps_an_error_from_a_borrow_already_open() -> None:
+    """An open Provider rules out ordering, so the item's own error stands."""
+    provider = _BorrowedProvider()
+    adapter = _RefusingAdapter()
+    adapter._provider = provider  # ty: ignore[unresolved-attribute]
+    adapter._owns_provider = False  # ty: ignore[unresolved-attribute]
+    bulkhead = Bulkhead("open-borrow", uses=[Cache(adapter, name="scoped")])
+
+    # The app opens `provider` before anything enters the bulkhead.
+    async with Grelmicro(uses=[provider]):
+        with pytest.raises(OutOfContextError, match="adapter refused"):
+            async with bulkhead:
+                pass
 
 
 async def test_uses_skips_none_entries() -> None:
@@ -2076,11 +2142,30 @@ class _BorrowedProvider(Provider):
     async def __aexit__(self, *_: object) -> None:
         self.log.append("close")
 
-    def cache(self, **_: object) -> MemoryCacheAdapter:
-        adapter = MemoryCacheAdapter()
+    def cache(self, *, eager: bool = False, **_: object) -> MemoryCacheAdapter:
+        adapter = _EagerAdapter() if eager else MemoryCacheAdapter()
         adapter._provider = self  # ty: ignore[unresolved-attribute]
         adapter._owns_provider = False  # ty: ignore[unresolved-attribute]
         return adapter
+
+
+class _RefusingAdapter(MemoryCacheAdapter):
+    """A borrowing adapter that refuses whatever its provider is doing."""
+
+    async def __aenter__(self) -> Self:
+        msg = "adapter refused"
+        raise OutOfContextError(msg)
+
+
+class _EagerAdapter(MemoryCacheAdapter):
+    """A borrowing adapter that reads the provider client as it opens."""
+
+    async def __aenter__(self) -> Self:
+        provider = self._provider  # ty: ignore[unresolved-attribute]
+        if not provider.log:
+            msg = "provider is not open"
+            raise OutOfContextError(msg)
+        return await super().__aenter__()
 
 
 class _Gate:

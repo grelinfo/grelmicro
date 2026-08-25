@@ -436,7 +436,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             with self._owner_lock:
                 self._opening += 1
             try:
-                await item.__aenter__()
+                try:
+                    await item.__aenter__()
+                except OutOfContextError as exc:
+                    raise self._unopened_borrow(micro, item, exc) from exc
                 if self._lost_scope(micro, exit_stack):
                     # The app moved on while this item was entering, so
                     # its stack will never close it. Close it here and
@@ -459,6 +462,33 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         # the stack, because anything pushed after it would close first.
         exit_stack.callback(self._forget_scope, scope)
         scope.opened = True
+
+    def _unopened_borrow(
+        self,
+        micro: Grelmicro,
+        item: AbstractAsyncContextManager[object],
+        exc: OutOfContextError,
+    ) -> OutOfContextError:
+        """Name the ordering when an item outran the Provider it borrows.
+
+        Only some adapters read the client as they open, so this cannot be
+        refused up front without failing the ones that never do. It is
+        caught here instead, where the failure can say what to reorder.
+        """
+        for target in _iter_provider_backends(item):
+            provider = getattr(target, "_provider", None)
+            if provider is None or getattr(target, "_owns_provider", True):
+                continue
+            if _opened_elsewhere(micro, provider):
+                continue
+            msg = (
+                f"Bulkhead {self._name!r} opened a component from uses= "
+                f"before the {type(provider).__name__} it borrows. List "
+                f"that provider in the bulkhead's uses=, or earlier on the "
+                f"app than whatever enters this bulkhead."
+            )
+            return OutOfContextError(msg)
+        return exc
 
     def _check_borrowed(self, micro: Grelmicro) -> None:
         """Refuse to open when nothing will open a Provider the scope needs.
