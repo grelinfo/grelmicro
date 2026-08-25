@@ -111,7 +111,26 @@ class _State:
 
 @dataclass(slots=True, eq=False)
 class _Scope:
-    """One app run's record of the `uses=` items this bulkhead has opened."""
+    """One app run's record of the `uses=` items this bulkhead has opened.
+
+    The rules the whole scope machinery answers to, in one place, because
+    every one of them exists to keep an item from being opened twice or
+    closed while something still holds it:
+
+    1. A scope belongs to one app run, identified by that run's exit
+       stack. A `Grelmicro` object reused across runs is several runs.
+    2. One run owns the scope. It claims ownership before the first item
+       and gets it back only once its stack has unwound past the items
+       *and* no entry is still in flight, because the stack does not know
+       about an item part way through opening.
+    3. A run that overlaps the owner borrows what is open rather than
+       opening a second set. Only the owner ever enters the items, so the
+       first to exit cannot close them under the other.
+    4. The scope stops reporting itself open the moment the unwind reaches
+       its items, which is earlier than when ownership is given back.
+    5. An item this run already opened, or that the app opened, is never
+       opened again. Opened means opened, not listed.
+    """
 
     lock: asyncio.Lock
     entered: int = 0
