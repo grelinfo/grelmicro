@@ -393,11 +393,14 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         exit_stack = micro._exit_stack  # noqa: SLF001
         if exit_stack is None:
             raise OutOfContextError(self._no_scope_message(micro, None))
-        if self._borrows_open_scope(micro, exit_stack):
-            return
         scope = self._scope_for(micro)
         async with scope.lock:
             if scope.opened:
+                return
+            # Asked under the lock, because a run queued behind a failed
+            # open can wake to find another run holding the scope open and
+            # lendable, where a check taken before the wait would refuse.
+            if self._borrows_open_scope(micro, exit_stack):
                 return
             if self._lost_scope(micro, exit_stack):
                 raise OutOfContextError(

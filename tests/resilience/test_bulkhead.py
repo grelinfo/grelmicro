@@ -1457,7 +1457,9 @@ async def test_a_failing_borrow_check_records_nothing() -> None:
                 with pytest.raises(BackendScopeError):
                     async with bulkhead:
                         pass
-            assert bulkhead not in borrower._scoped_uses
+            # A record exists, but nothing on it says the borrow landed,
+            # so every entry runs the check again rather than skipping it.
+            assert borrower._scoped_uses[bulkhead].opened is False
 
         assert held.borrowers == set()
 
