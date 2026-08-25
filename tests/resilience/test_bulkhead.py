@@ -712,6 +712,63 @@ async def test_an_unrelated_error_is_never_chained_to_itself() -> None:
     assert exc.value.__cause__ is None
 
 
+async def test_a_run_already_closing_does_not_lend_its_scope() -> None:
+    """A scope still reading open while its owner unwinds is not lent out."""
+    closing = asyncio.Event()
+    release = asyncio.Event()
+    refused: list[BaseException] = []
+
+    class Track:
+        """A scope item the owner opens during startup."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("lending", uses=[Track()])
+
+    class Enterer:
+        """An app item that opens the scope while the app starts."""
+
+        async def __aenter__(self) -> Self:
+            async with bulkhead:
+                pass
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    class SlowCloser:
+        """A later app item that parks the owner inside its own teardown."""
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            closing.set()
+            await release.wait()
+
+    async def borrow() -> None:
+        await closing.wait()
+        async with Grelmicro(allow_multiple=True):
+            # The owner's scope still reads open: its forget sits below
+            # `SlowCloser`, which has not finished unwinding.
+            with pytest.raises(OutOfContextError) as exc:
+                async with bulkhead:
+                    pass
+            refused.append(exc.value)
+        release.set()
+
+    task = asyncio.create_task(borrow())
+    async with Grelmicro(allow_multiple=True, uses=[Enterer(), SlowCloser()]):
+        pass
+    await task
+
+    assert "is closing its uses= scope" in str(refused[0])
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

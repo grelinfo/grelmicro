@@ -556,7 +556,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             if holder is None or holder is micro:
                 return False
             held = holder._scoped_uses.get(self)  # noqa: SLF001
-            if held is None or not held.opened:
+            if held is None or _cannot_lend(holder, held):
                 raise OutOfContextError(self._shared_scope_message(micro))
         # Checked against this run's environment, not the owner's, and before
         # anything is recorded, so a check that fails records nothing.
@@ -568,7 +568,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         # again after the owner changed leaves nothing of the last one.
         borrowed = self._scope_for(micro)
         with self._owner_lock:
-            if not held.opened:
+            if _cannot_lend(holder, held):
                 raise OutOfContextError(self._shared_scope_message(micro))
             # Whichever scope this run last borrowed from already let go:
             # the owner clears the link as it forgets, and this run's own
@@ -904,6 +904,17 @@ def _resolve_usable[T](item: T) -> T | Component:
         return item
     wrapped = _maybe_wrap_first_party_backend(item)
     return item if wrapped is None else wrapped
+
+
+def _cannot_lend(holder: Grelmicro, held: _Scope) -> bool:
+    """Report whether the run holding the scope cannot lend it out.
+
+    A scope opened during the owner's startup sits below the items it
+    entered after, so those unwind first and the scope still reads open
+    well into the owner's shutdown. Reading the run itself closes that
+    window: what it holds is on its way out either way.
+    """
+    return not held.opened or holder._closing  # noqa: SLF001
 
 
 def _opened_elsewhere(

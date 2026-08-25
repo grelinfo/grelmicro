@@ -38,6 +38,8 @@ The bulkhead opens its `uses=` on first entry and closes them when the app shuts
 
 The scope belongs to one app run: whichever enters the bulkhead first. A later run in the same process opens every item again from the start. A run that overlaps the owner borrows the open items instead of opening a second set, and gives them up when the owner closes them. A call already inside the scope keeps the Components it resolved, so it can still reach one the owner has closed. Give overlapping apps their own `Bulkhead` when their lifetimes differ. An entry that finds no open scope, and cannot open one, raises `OutOfContextError`: the run has already gone, or is shutting down and the scope closed with it, or another run holds the scope and has not finished opening it. It raises `NoActiveAppError` when no app is active at all. Each message says what to wait for.
 
+`micro.fake()` and `micro.override(...)` swap the app's Components, and a scope answers before the app does, so neither reaches inside `uses=`. Build the bulkhead with the backends the test wants when a test needs the scope faked.
+
 These Components are not registered on the app, so the [backend check](../deployment.md#the-backend-check) cannot run at startup for them. It runs on first entry instead, with the same rules.
 
 ## Configuration
