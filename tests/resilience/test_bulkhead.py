@@ -1042,6 +1042,29 @@ async def test_two_scopes_wrapping_one_backend_open_it_once() -> None:
     assert opens == 1
 
 
+async def test_uses_takes_one_bare_backend_listed_twice() -> None:
+    """A bare backend named twice is one backend, wrappers notwithstanding."""
+    opens = 0
+
+    class Tracked(MemoryLockAdapter):
+        """A bare backend that counts its opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return await super().__aenter__()
+
+    backend = Tracked()
+    bulkhead = Bulkhead("twice", uses=[backend, backend])
+
+    assert len(bulkhead._uses) == 1
+
+    async with Grelmicro(), bulkhead:
+        pass
+
+    assert opens == 1
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

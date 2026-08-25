@@ -869,15 +869,19 @@ def _expand_uses(
             Component, so the default for each kind is ambiguous.
     """
     items: list[AbstractAsyncContextManager[object]] = []
+    seen: set[int] = set()
     for entry in uses:
         if entry is None:
             continue
         item = _resolve_usable(instantiate_if_class(entry))
-        # One instance listed twice is one item. Kept in place it would
-        # open and close a second time, the second close running after the
-        # first already tore the thing down. The app dedupes its Components
-        # this way and lets the rest through, which is the weaker rule.
-        if not any(seen is item for seen in items):
+        # One thing listed twice is one item. Kept in place it would open
+        # and close a second time, the second close running after the first
+        # already tore it down. Keyed by what the item stands for, because
+        # a bare backend is wrapped fresh each time and two wrappers around
+        # one backend are not two backends.
+        key = opened_key(item)
+        if key not in seen:
+            seen.add(key)
             items.append(item)
     providers = [item for item in items if isinstance(item, Provider)]
     claimed = {item.kind for item in items if isinstance(item, Component)}
@@ -1011,8 +1015,8 @@ def _index_overrides(
         if not isinstance(item, Component):
             continue
         key = (item.kind, item.name)
-        # Never the same instance twice: `_expand_uses` drops a repeat
-        # before this sees it, so a clash here is always two Components.
+        # Never one thing twice: `_expand_uses` drops a repeat before this
+        # sees it, so a clash here is always two separate Components.
         if overrides.get(key) is not None:
             msg = (
                 f"component {key!r} is listed twice in Bulkhead {name!r} "
