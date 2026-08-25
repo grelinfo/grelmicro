@@ -40,8 +40,9 @@ from grelmicro.resilience import (
     retry,
     shield,
 )
-from grelmicro.task import Tasks
+from grelmicro.task import Task, TaskRouter, Tasks
 from grelmicro.task._interval import IntervalTask
+from grelmicro.task.errors import TimezoneError
 from grelmicro.trace import instrument
 
 pytestmark = [pytest.mark.timeout(5)]
@@ -68,6 +69,14 @@ async def wrapped_job() -> None:
 
 
 async def constructed_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def unbuilt_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def subclassed_job() -> None:
     """Do nothing, from the module level a schedule requires."""
 
 
@@ -839,3 +848,53 @@ def test_reading_a_hostile_mark_answers_rather_than_raising() -> None:
             raise AttributeError(name)
 
     assert registration_of(Selective()) is None
+
+
+def test_a_router_that_refuses_its_timezone_marks_nothing() -> None:
+    """A mark records what a router holds, so it follows construction."""
+    with pytest.raises(TimezoneError):
+        TaskRouter(
+            tasks=[IntervalTask(function=unbuilt_job, seconds=60)],
+            timezone="Not/AZone",
+        )
+
+    assert registration_of(unbuilt_job) is None
+
+
+def test_a_router_is_whole_before_it_adds_a_task() -> None:
+    """`add_task` is public, so a subclass sees a finished instance."""
+
+    class Recording(TaskRouter):
+        """A router whose `add_task` reads the state it was built with."""
+
+        def __init__(
+            self, *, tasks: list[Task], timezone: str | None = None
+        ) -> None:
+            self.seen: list[str | None] = []
+            super().__init__(tasks=tasks, timezone=timezone)
+
+        def add_task(self, task: Task) -> None:
+            """Read the timezone the router was built with, then add."""
+            self.seen.append(self.timezone)
+            super().add_task(task)
+
+    router = Recording(
+        tasks=[IntervalTask(function=subclassed_job, seconds=60)],
+        timezone="Europe/Zurich",
+    )
+
+    assert router.seen == ["Europe/Zurich"]
+
+
+def test_the_outermost_registrar_is_the_one_named() -> None:
+    """Decorators apply upwards, so the last registrar is the one read."""
+
+    async def job() -> None:
+        """Stand in for a function two registrars hold."""
+
+    mark_registered(job, Registered.TASK)
+    mark_registered(job, Registered.HEALTH_CHECK)
+
+    registration = registration_of(job)
+    assert registration is not None
+    assert registration.kind is Registered.HEALTH_CHECK

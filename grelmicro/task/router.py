@@ -61,11 +61,11 @@ class TaskRouter:
         self._started = False
         self._tasks: list[Any] = []
         self._routers: list[TaskRouter] = []
-        for task in tasks or []:
-            self.add_task(task)
         self._timezone = (
             normalize_timezone(timezone) if timezone is not None else None
         )
+        for task in tasks or []:
+            self.add_task(task)
 
     @property
     def tasks(self) -> list["Task"]:

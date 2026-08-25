@@ -195,6 +195,10 @@ def registration_of(function: object) -> Registration | None:
     instance is gone, and for a method of an instance other than the
     one registered, none of which a registration still holds.
 
+    Two registrars holding one function are read most recent first,
+    which is the one written outermost, because decorators apply
+    upwards and that is the one the reader is looking at.
+
     A mark copied onto a wrapper by `functools.wraps` still answers,
     because a decorator above that wrapper misses the registration too.
     Ask `Registration.holds` to tell a copy from the function itself.
@@ -216,7 +220,7 @@ def registration_of(function: object) -> Registration | None:
     except BaseException:  # noqa: BLE001
         return None
     inherited: Registration | None = None
-    for registration in marks:
+    for registration in reversed(marks):
         holder = registration.holder
         held = holder() if holder is not None else None
         if holder is not None and held is None:

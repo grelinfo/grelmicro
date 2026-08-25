@@ -445,9 +445,10 @@ class Stack:
         Raises:
             TypeError: If `fn` is a generator function, `fn` is sync
                 and a pattern in the stack decorates async functions
-                only, or a registrar already holds `fn`. Use
-                `Stack.run` to call a registered function under the
-                stack.
+                only, or a registrar already holds `fn`. To run a
+                registered async function under the stack, call
+                `Stack.run`. For a sync one, decorate a function that
+                calls it.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
