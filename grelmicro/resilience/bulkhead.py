@@ -240,7 +240,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._executor: ThreadPoolExecutor | None = None
         self._uses = _expand_uses(name, uses)
         _check_usable(name, self._uses)
-        self._borrowed = _borrowed_elsewhere(self._uses)
+        self._owned = _owned_providers(self._uses)
+        self._borrowed = _borrowed_elsewhere(self._uses, self._owned)
         self._overrides = _index_overrides(name, self._uses)
         self._scoped_to: Grelmicro | None = None
         self._scope_stack: AsyncExitStack | None = None
@@ -439,7 +440,10 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 try:
                     await item.__aenter__()
                 except OutOfContextError as exc:
-                    raise self._unopened_borrow(micro, item, exc) from exc
+                    named = self._unopened_borrow(micro, item, exc)
+                    if named is exc:
+                        raise
+                    raise named from exc
                 if self._lost_scope(micro, exit_stack):
                     # The app moved on while this item was entering, so
                     # its stack will never close it. Close it here and
@@ -474,12 +478,17 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         Only some adapters read the client as they open, so this cannot be
         refused up front without failing the ones that never do. It is
         caught here instead, where the failure can say what to reorder.
+
+        Returns `exc` unchanged when the item borrows nothing unopened, so
+        an error of the item's own keeps its own message.
         """
         for target in _iter_provider_backends(item):
             provider = getattr(target, "_provider", None)
             if provider is None or getattr(target, "_owns_provider", True):
                 continue
-            if _opened_elsewhere(micro, provider):
+            if id(provider) in self._owned or _opened_elsewhere(
+                micro, provider
+            ):
                 continue
             msg = (
                 f"Bulkhead {self._name!r} opened a component from uses= "
@@ -928,8 +937,27 @@ def _will_be_opened(micro: Grelmicro, provider: Provider) -> bool:
     )
 
 
+def _owned_providers(
+    items: tuple[AbstractAsyncContextManager[object], ...],
+) -> frozenset[int]:
+    """Return the ids of the Providers some target in `items` owns.
+
+    An owner opens its Provider from its own `__aenter__`, so nothing else
+    records it as opened. Both the borrow check and the ordering diagnosis
+    would read it as missing without this.
+    """
+    return frozenset(
+        id(provider)
+        for item in items
+        for target in _iter_provider_backends(item)
+        if (provider := getattr(target, "_provider", None)) is not None
+        and getattr(target, "_owns_provider", True)
+    )
+
+
 def _borrowed_elsewhere(
     items: tuple[AbstractAsyncContextManager[object], ...],
+    owned: frozenset[int],
 ) -> tuple[Provider, ...]:
     """Return the Providers a listed Component borrows but the list omits.
 
@@ -941,13 +969,6 @@ def _borrowed_elsewhere(
     Sharing rebinds the later adapters to it and marks them borrowers, so
     reading the borrow flag alone would report an owned Provider as absent.
     """
-    owned = {
-        id(provider)
-        for item in items
-        for target in _iter_provider_backends(item)
-        if (provider := getattr(target, "_provider", None)) is not None
-        and getattr(target, "_owns_provider", True)
-    }
     borrowed: list[Provider] = []
     for item in items:
         for target in _iter_provider_backends(item):

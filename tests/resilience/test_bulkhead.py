@@ -664,6 +664,54 @@ async def test_uses_keeps_an_error_from_a_borrow_already_open() -> None:
                 pass
 
 
+async def test_uses_keeps_an_error_from_a_sibling_owned_borrow() -> None:
+    """A Provider a sibling in the list owns is open, so the item speaks."""
+    monkeyed = _RefusingAdapter()
+    owning = _BorrowedProvider()
+    monkeyed._provider = owning  # ty: ignore[unresolved-attribute]
+    monkeyed._owns_provider = False  # ty: ignore[unresolved-attribute]
+    holder = MemoryCacheAdapter()
+    holder._provider = owning  # ty: ignore[unresolved-attribute]
+    holder._owns_provider = True  # ty: ignore[unresolved-attribute]
+
+    bulkhead = Bulkhead(
+        "sibling",
+        uses=[Cache(holder, name="owner"), Cache(monkeyed, name="borrower")],
+    )
+
+    async with Grelmicro():
+        with pytest.raises(OutOfContextError, match="adapter refused") as exc:
+            async with bulkhead:
+                pass
+
+    # Chained to nothing, because nothing replaced it.
+    assert exc.value.__cause__ is None
+
+
+async def test_an_unrelated_error_is_never_chained_to_itself() -> None:
+    """A pass-through keeps a walkable cause chain, not a cycle."""
+
+    class Boom:
+        """A scope item that refuses for reasons of its own."""
+
+        async def __aenter__(self) -> Self:
+            msg = "its own reason"
+            raise OutOfContextError(msg)
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    bulkhead = Bulkhead("cycle", uses=[Boom()])
+
+    async with Grelmicro():
+        with pytest.raises(OutOfContextError, match="its own reason") as exc:
+            async with bulkhead:
+                pass
+
+    assert exc.value.__cause__ is not exc.value
+    assert exc.value.__cause__ is None
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()
