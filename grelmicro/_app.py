@@ -1540,8 +1540,10 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
 _wrapped_backends: WeakKeyDictionary[Component, object] = WeakKeyDictionary()
 """What each auto-wrapped Component stands for.
 
-Kept beside the Components rather than on them, so a Component that grows
-`__slots__` later does not turn wrapping into an `AttributeError`.
+Kept beside the Components rather than on them, so wrapping adds no
+attribute to an object the caller can see, and cannot collide with a name a
+Component already uses. A Component has to be weak-referenceable for this,
+which every one of them is.
 """
 
 

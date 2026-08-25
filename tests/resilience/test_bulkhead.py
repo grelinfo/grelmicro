@@ -410,7 +410,9 @@ def test_uses_opens_a_provider_listed_after_its_component() -> None:
 
 def test_uses_refuses_two_components_with_one_key() -> None:
     """A shadowed Component would open a pool nothing could resolve to."""
-    with pytest.raises(ComponentAlreadyRegisteredError, match="listed twice"):
+    with pytest.raises(
+        ComponentAlreadyRegisteredError, match="two components claim"
+    ):
         Bulkhead(
             "reports",
             uses=[
@@ -1117,6 +1119,15 @@ async def test_two_runs_each_open_a_backend_two_bulkheads_list() -> None:
             pass
 
     assert opens == LIMIT  # one per run, which is why the docs say so
+
+
+def test_uses_names_junk_before_reading_the_rest() -> None:
+    """An entry that is not a scope is named as such, whatever else is listed."""
+    with pytest.raises(TypeError, match="not an async context manager"):
+        Bulkhead(
+            "wired-wrong",
+            uses=[MemoryProvider(), MemoryProvider(), 42],  # ty: ignore[invalid-argument-type]
+        )
 
 
 async def test_uses_skips_none_entries() -> None:

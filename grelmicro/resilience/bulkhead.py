@@ -266,7 +266,6 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._reconfigure_lock = asyncio.Lock()
         self._executor: ThreadPoolExecutor | None = None
         self._uses = _expand_uses(name, uses)
-        _check_usable(name, self._uses)
         self._owned = _owned_providers(self._uses)
         self._overrides = _index_overrides(name, self._uses)
         self._scoped_to: Grelmicro | None = None
@@ -873,7 +872,12 @@ def _expand_uses(
     for entry in uses:
         if entry is None:
             continue
-        item = _resolve_usable(instantiate_if_class(entry))
+        # Checked before anything reads the entry, so junk in the list is
+        # named as junk rather than surfacing as whatever the next rule
+        # makes of it.
+        item = _resolve_usable(
+            _checked_usable(name, instantiate_if_class(entry))
+        )
         # One thing listed twice is one item. Kept in place it would open
         # and close a second time, the second close running after the first
         # already tore it down. Keyed by what the item stands for, because
@@ -1019,8 +1023,8 @@ def _index_overrides(
         # sees it, so a clash here is always two separate Components.
         if overrides.get(key) is not None:
             msg = (
-                f"component {key!r} is listed twice in Bulkhead {name!r} "
-                f"uses=. Pick a different name."
+                f"two components claim {key!r} in Bulkhead {name!r} uses=. "
+                f"Pick a different name for one of them."
             )
             raise ComponentAlreadyRegisteredError(msg)
         _check_singleton(name, item, overrides)
@@ -1058,23 +1062,25 @@ def _check_singleton(
             raise ComponentAlreadyRegisteredError(msg)
 
 
-def _check_usable(name: str, items: tuple[Usable, ...]) -> None:
-    """Refuse a `uses=` entry that does not carry the async context protocol.
+def _checked_usable[T](name: str, item: T) -> T:
+    """Return `item` if it carries the async context protocol, else refuse.
 
     Checks the same names on the type that `async with` resolves. An entry
     that carries them and still cannot be awaited is left to fail on open,
     because only calling it would tell them apart.
+
+    Raises:
+        TypeError: The entry is not an async context manager.
     """
-    for item in items:
-        kind = type(item)
-        if hasattr(kind, "__aenter__") and hasattr(kind, "__aexit__"):
-            continue
-        msg = (
-            f"Bulkhead {name!r} got a {kind.__name__} in uses=, which "
-            "is not an async context manager. Pass a Provider, a Component, "
-            "or an object with __aenter__ and __aexit__."
-        )
-        raise TypeError(msg)
+    kind = type(item)
+    if hasattr(kind, "__aenter__") and hasattr(kind, "__aexit__"):
+        return item
+    msg = (
+        f"Bulkhead {name!r} got a {kind.__name__} in uses=, which is not "
+        "an async context manager. Pass a Provider, a Component, or an "
+        "object with __aenter__ and __aexit__."
+    )
+    raise TypeError(msg)
 
 
 def _build_semaphore(config: BulkheadConfig) -> asyncio.Semaphore | None:
