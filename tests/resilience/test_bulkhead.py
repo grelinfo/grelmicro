@@ -815,6 +815,43 @@ async def test_a_retried_open_checks_the_backends_once() -> None:
     assert checks == 1  # once for the scope, not once per attempt
 
 
+async def test_a_borrower_that_becomes_owner_checks_once() -> None:
+    """A run that borrows, then claims, does not report its backends twice."""
+    checks = 0
+    real = bulkhead_module.unmet_requirements
+
+    def counting(items: object) -> object:
+        nonlocal checks
+        checks += 1
+        return real(items)  # ty: ignore[invalid-argument-type]
+
+    bulkhead = Bulkhead(
+        "handover", uses=[Coordination(lock=MemoryLockAdapter())]
+    )
+    survivor = Grelmicro(allow_multiple=True)
+
+    async with survivor:
+        bulkhead_module.unmet_requirements = counting  # ty: ignore[invalid-assignment]
+        try:
+            async with Grelmicro(allow_multiple=True) as owner:
+                async with bulkhead:
+                    pass
+                token = bulkhead_module._current_micro.set(survivor)
+                try:
+                    async with bulkhead:  # borrows, and checks
+                        pass
+                finally:
+                    bulkhead_module._current_micro.reset(token)
+                assert owner._scoped_uses[bulkhead].opened is True
+            # The owner is gone, so this run opens the scope for itself.
+            async with bulkhead:
+                pass
+        finally:
+            bulkhead_module.unmet_requirements = real
+
+    assert checks == LIMIT  # once for the owner, once for this run
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

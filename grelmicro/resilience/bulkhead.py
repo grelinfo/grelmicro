@@ -589,6 +589,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             # the owner clears the link as it forgets, and this run's own
             # drop clears it too, so there is never a second one to unpick.
             borrowed.opened = True
+            # The check just ran for this run, so a later claim of its own
+            # does not repeat it.
+            borrowed.checked = True
             borrowed.borrowed_from = held
             held.borrowers.add(borrowed)
             armed = borrowed.drop_armed
