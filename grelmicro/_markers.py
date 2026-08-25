@@ -148,12 +148,15 @@ def _marks(target: object) -> tuple[Registration, ...]:
 def registration_of(function: object) -> Registration | None:
     """Return the registration holding `function`, or None.
 
-    Answers None for a mark whose function is gone, which no
-    registration can still hold, and for a method of an instance other
-    than the one registered, which nothing holds either. A mark copied
-    onto a wrapper by `functools.wraps` still answers, because a
-    decorator above that wrapper misses the registration too. Ask
-    `Registration.holds` to tell the two apart.
+    Answers None for a mark whose function is gone, for one whose
+    instance is gone, and for a method of an instance other than the
+    one registered, none of which a registration still holds.
+
+    A mark copied onto a wrapper by `functools.wraps` still answers,
+    because a decorator above that wrapper misses the registration too.
+    A copy of a bound method answers the same way, told apart from the
+    class function itself by the function the mark names. Ask
+    `Registration.holds` which of the two it is.
     """
     target = _underlying(function)
     try:
@@ -165,11 +168,18 @@ def registration_of(function: object) -> Registration | None:
     unowned: Registration | None = None
     for registration in _marks(target):
         holder = registration.holder
-        if holder is not None and holder() is None:
+        held = holder() if holder is not None else None
+        if holder is not None and held is None:
             continue
         owner = registration.owner
         if owner is None:
-            unowned = registration
-        elif owner() is bound_to:
+            unowned = unowned or registration
+            continue
+        bound = owner()
+        if bound is None:
+            continue
+        if bound is bound_to:
             return registration
+        if bound_to is None and held is not None and held is not target:
+            unowned = unowned or registration
     return unowned

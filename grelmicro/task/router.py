@@ -87,15 +87,17 @@ class TaskRouter:
     def add_task(self, task: "Task") -> None:
         """Add a task to the scheduler.
 
-        Marks the function the task holds, so a decorator applied below
-        the one that registered it is refused instead of wrapping calls
-        the schedule will never make.
+        Marks the function a task exposes as `function`, so a decorator
+        applied below the one that registered it is refused instead of
+        wrapping calls the schedule will never make. `IntervalTask` and
+        `CronTask` both expose it. A `Task` of your own is marked when
+        it does the same, and left alone when it does not.
         """
         if self._started:
             raise TaskAddOperationError
 
         function = getattr(task, "function", None)
-        if function is not None:
+        if callable(function):
             mark_registered(function, Registered.TASK)
         self._tasks.append(task)
 

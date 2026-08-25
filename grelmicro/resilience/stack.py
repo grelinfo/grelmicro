@@ -15,7 +15,7 @@ from typing_extensions import Doc
 from grelmicro._async import is_async_callable
 from grelmicro._guards import is_class, is_instance, name_of
 from grelmicro._markers import registration_of
-from grelmicro._wrapping import refuse_registered
+from grelmicro._wrapping import named, refuse_registered
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import CircuitBreakerError
@@ -240,18 +240,13 @@ def _refuse_generator(fn: object, name: str) -> None:
     if not _is_generator(fn):
         return
     msg = (
-        f"Stack {name!r} does not wrap {_named(fn)}, because a "
+        f"Stack {name!r} does not wrap {named(fn)}, because a "
         "generator runs its body while it is iterated and not when it "
         "is called, so every pattern would wrap building the generator "
         "and nothing else. Wrap the function that consumes it, or the "
         "call inside the body."
     )
     raise TypeError(msg)
-
-
-def _named(fn: object) -> str:
-    """Return the name of a decorated function, for a message."""
-    return getattr(fn, "__qualname__", None) or repr(fn)
 
 
 def _name_of_pattern(item: Pattern) -> str:
@@ -467,7 +462,7 @@ class Stack:
             msg = (
                 f"Stack {self._name!r} only decorates async functions, "
                 f"because {names} {'do' if plural else 'does'}. Make "
-                f"{_named(fn)} async, or drop "
+                f"{named(fn)} async, or drop "
                 f"{'those patterns' if plural else 'that pattern'} "
                 "from the stack."
             )

@@ -23,7 +23,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_instance
-from grelmicro._wrapping import refuse_registered
+from grelmicro._wrapping import named, refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.errors import OutOfContextError
@@ -823,11 +823,6 @@ _DEFAULT_KEY = "default"
 """Bucket a call is metered under when no key is given."""
 
 
-def _named(fn: object) -> str:
-    """Return the name of a decorated function, for a message."""
-    return getattr(fn, "__qualname__", None) or repr(fn)
-
-
 def _template_fields(template: str) -> list[str]:
     """Return the parameter names a key template reads.
 
@@ -1033,11 +1028,11 @@ class RateLimiterBinding:
             names = ", ".join(unknown)
             msg = (
                 f"Rate limiter key template {key!r} names "
-                f"{names}, which {_named(fn)} does not take."
+                f"{names}, which {named(fn)} does not take."
             )
             raise ValueError(msg)
 
-        name = _named(fn)
+        name = named(fn)
 
         def render(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
             try:

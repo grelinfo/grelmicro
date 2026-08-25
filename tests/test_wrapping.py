@@ -7,6 +7,7 @@ enumerates them rather than trusting each one to have been remembered.
 """
 
 import ast
+import asyncio
 import functools
 import gc
 from collections.abc import AsyncIterator, Callable
@@ -600,3 +601,86 @@ async def test_a_stack_runs_a_registered_function_imperatively() -> None:
 
     with pytest.raises(TypeError, match="already registered as a health check"):
         stack(probe)
+
+
+def test_a_wraps_copy_of_a_registered_method_is_caught_too() -> None:
+    """A bound registration is still a registration a copy misses."""
+
+    class Repo:
+        """An object whose method answers a probe."""
+
+        async def ping(self) -> None:
+            """Answer a probe."""
+
+    checks = HealthChecks()
+    repo = Repo()
+    checks.add("db", repo.ping)
+
+    @functools.wraps(repo.ping)
+    async def foreign() -> None:
+        """Stand in for a decorator grelmicro does not own."""
+
+    with pytest.raises(TypeError, match="was applied to a wrapper around"):
+        Retry("r", when=Exception)(foreign)
+
+
+def test_the_class_function_of_a_registered_method_is_left_alone() -> None:
+    """The registration holds one instance's method, not the class's."""
+
+    class Repo:
+        """An object whose method answers a probe."""
+
+        async def ping(self) -> None:
+            """Answer a probe."""
+
+    checks = HealthChecks()
+    repo = Repo()
+    checks.add("db", repo.ping)
+
+    assert registration_of(Repo.ping) is None
+
+    Retry("r", when=Exception)(Repo.ping)
+
+
+def test_a_registration_whose_instance_is_gone_stops_counting() -> None:
+    """Nothing holds a method of an object that no longer exists."""
+
+    class Repo:
+        """An object whose method answers a probe."""
+
+        async def ping(self) -> None:
+            """Answer a probe."""
+
+    repo = Repo()
+    mark_registered(repo.ping, Registered.HEALTH_CHECK)
+    del repo
+    gc.collect()
+
+    assert registration_of(Repo.ping) is None
+
+
+def test_a_task_exposing_no_function_is_added_unmarked() -> None:
+    """A `Task` of your own is marked when it exposes one, not otherwise."""
+
+    class Custom:
+        """A task that runs no function of its own."""
+
+        function = "not callable"
+
+        @property
+        def name(self) -> str:
+            """Name the task."""
+            return "custom"
+
+        async def __call__(
+            self,
+            *,
+            ready: asyncio.Future[None] | None = None,
+            stop: asyncio.Event | None = None,
+        ) -> None:
+            """Run the task."""
+
+    tasks = Tasks()
+    tasks.add_task(Custom())
+
+    assert len(tasks.tasks) == 1
