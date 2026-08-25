@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
@@ -286,6 +287,7 @@ class Grelmicro:
         self._scoped_uses: dict[object, Any] = {}
         self._scoped_opened: set[int] = set()
         self._app_opened: set[int] = set()
+        self._opening_items: dict[int, asyncio.Lock] = {}
         self._closing = False
         self._token: Any = None
         self._strict = strict
@@ -1249,6 +1251,7 @@ class Grelmicro:
         self._scoped_uses.clear()
         self._scoped_opened.clear()
         self._app_opened.clear()
+        self._opening_items.clear()
         self._closing = False
         try:
             self._discover_shared_providers()
@@ -1261,13 +1264,15 @@ class Grelmicro:
             await self._exit_stack.__aenter__()
             self._token = _current_micro.set(self)
             for item in self._items:
-                if id(item) in self._scoped_opened:
-                    # A `Bulkhead` scope opened during startup got here
-                    # first, on this same stack. Opening it again would
-                    # close it twice.
-                    continue
-                await self._exit_stack.enter_async_context(item)
-                self._app_opened.add(id(item))
+                # Held across the entry, not just the test: a `Bulkhead`
+                # scope opening the same item from another task would
+                # otherwise pass the test while this one is still inside
+                # `__aenter__`, and open it a second time.
+                async with opening_lock(self, item):
+                    if id(item) in self._scoped_opened:
+                        continue
+                    await self._exit_stack.enter_async_context(item)
+                    self._app_opened.add(id(item))
             self._instrument_providers()
         except BaseException:
             self._closing = True
@@ -1287,6 +1292,7 @@ class Grelmicro:
                 self._scoped_uses.clear()
                 self._scoped_opened.clear()
                 self._app_opened.clear()
+                self._opening_items.clear()
             raise
         return self
 
@@ -1315,6 +1321,7 @@ class Grelmicro:
             self._scoped_uses.clear()
             self._scoped_opened.clear()
             self._app_opened.clear()
+            self._opening_items.clear()
 
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.
@@ -1587,6 +1594,24 @@ def _fake_components(
         for component in components
         if component.kind in _FAKEABLE_KINDS
     ]
+
+
+def opening_lock(micro: Grelmicro, item: object) -> asyncio.Lock:
+    """Return the lock that serializes opening `item` on this app run.
+
+    One item can be listed by the app and by any number of `Bulkhead`
+    scopes. Whoever opens it first owns it, which only holds if the test
+    and the entry happen under the same lock.
+
+    Nothing awaits between the lookup and the store, so two tasks racing
+    the first entry cannot both make a lock.
+    """
+    key = id(item)
+    lock = micro._opening_items.get(key)  # noqa: SLF001
+    if lock is None:
+        lock = asyncio.Lock()
+        micro._opening_items[key] = lock  # noqa: SLF001
+    return lock
 
 
 def _with_shared_providers(

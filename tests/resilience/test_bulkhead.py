@@ -852,6 +852,79 @@ async def test_a_borrower_that_becomes_owner_checks_once() -> None:
     assert checks == LIMIT  # once for the owner, once for this run
 
 
+async def test_two_scopes_racing_one_item_open_it_once() -> None:
+    """The test and the entry hold one lock, so a race has one opener."""
+    opens = 0
+    closes = 0
+
+    class Slow:
+        """A scope item that takes a moment to open, as a connect does."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            await asyncio.sleep(0)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            nonlocal closes
+            closes += 1
+
+    shared = Slow()
+    first = Bulkhead("first", uses=[shared])
+    second = Bulkhead("second", uses=[shared])
+
+    async def enter(bulkhead: Bulkhead) -> None:
+        async with bulkhead:
+            pass
+
+    async with Grelmicro():
+        await asyncio.gather(enter(first), enter(second))
+
+    assert (opens, closes) == (1, 1)
+
+
+async def test_a_scope_racing_the_app_on_one_item_opens_it_once() -> None:
+    """A scope opening during startup does not race the app's own entry."""
+    opens = 0
+    closes = 0
+
+    class Slow:
+        """An item both the app and the bulkhead list."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            await asyncio.sleep(0)
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            nonlocal closes
+            closes += 1
+
+    shared = Slow()
+    bulkhead = Bulkhead("racing-app", uses=[shared])
+
+    class Starter:
+        """An app item that enters the bulkhead from its own task."""
+
+        async def __aenter__(self) -> Self:
+            self.task = asyncio.create_task(self.enter())
+            return self
+
+        async def enter(self) -> None:
+            async with bulkhead:
+                pass
+
+        async def __aexit__(self, *_: object) -> None:
+            await self.task
+
+    async with Grelmicro(uses=[Starter(), shared]):
+        pass
+
+    assert (opens, closes) == (1, 1)
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

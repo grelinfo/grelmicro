@@ -26,6 +26,7 @@ from grelmicro._app import (
     _maybe_wrap_first_party_backend,
     _order_providers_first,
     _share_owned_providers,
+    opening_lock,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
@@ -458,47 +459,61 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             )
             scope.checked = True
         for item in self._uses[scope.entered :]:
-            if _opened_elsewhere(micro, item):
-                # Already open under this run, so opening it again would
-                # close it twice, the first close landing while the other
-                # holder is still using it.
-                scope.entered += 1
-                continue
-            # Counted for as long as the entry is in flight. The exit
-            # stack does not know about an item still being entered, so
-            # this is what keeps the scope from changing hands under it.
-            with self._owner_lock:
-                self._opening += 1
-            try:
-                try:
-                    await item.__aenter__()
-                except OutOfContextError as exc:
-                    named = self._unopened_borrow(micro, item, exc)
-                    if named is exc:
-                        raise
-                    raise named from exc
-                if self._lost_scope(micro, exit_stack):
-                    # The app moved on while this item was entering, so
-                    # its stack will never close it. Close it here and
-                    # leave the scope for the next app to open.
-                    msg = self._no_scope_message(micro, exit_stack)
-                    try:
-                        await item.__aexit__(None, None, None)
-                    except Exception as exc:
-                        raise OutOfContextError(msg) from exc
-                    raise OutOfContextError(msg)
-                exit_stack.push_async_exit(item)
-                # Every item, not only a Provider: a Component two scopes
-                # both list would otherwise open, and close, twice.
-                micro._scoped_opened.add(id(item))  # noqa: SLF001
-                scope.entered += 1
-            finally:
-                self._finish_open()
+            # Held across the entry, not just the test: another scope, or
+            # the app itself, could otherwise pass the test while this one
+            # is inside `__aenter__`, and open the same item twice.
+            async with opening_lock(micro, item):
+                await self._enter_item(micro, exit_stack, scope, item)
         # Sits above every item, so the scope stops reporting itself open
         # before anything it holds closes. Pushed once the last item is on
         # the stack, because anything pushed after it would close first.
         exit_stack.callback(self._forget_scope, scope)
         scope.opened = True
+
+    async def _enter_item(
+        self,
+        micro: Grelmicro,
+        exit_stack: AsyncExitStack,
+        scope: _Scope,
+        item: AbstractAsyncContextManager[object],
+    ) -> None:
+        """Open one `uses=` item, unless this run already has it open."""
+        if _opened_elsewhere(micro, item):
+            # Already open under this run, so opening it again would close
+            # it twice, the first close landing while the other holder is
+            # still using it.
+            scope.entered += 1
+            return
+        # Counted for as long as the entry is in flight. The exit stack
+        # does not know about an item still being entered, so this is what
+        # keeps the scope from changing hands under it.
+        with self._owner_lock:
+            self._opening += 1
+        try:
+            try:
+                await item.__aenter__()
+            except OutOfContextError as exc:
+                named = self._unopened_borrow(micro, item, exc)
+                if named is exc:
+                    raise
+                raise named from exc
+            if self._lost_scope(micro, exit_stack):
+                # The app moved on while this item was entering, so its
+                # stack will never close it. Close it here and leave the
+                # scope for the next app to open.
+                msg = self._no_scope_message(micro, exit_stack)
+                try:
+                    await item.__aexit__(None, None, None)
+                except Exception as exc:
+                    raise OutOfContextError(msg) from exc
+                raise OutOfContextError(msg)
+            exit_stack.push_async_exit(item)
+            # Every item, not only a Provider: a Component two scopes both
+            # list would otherwise open, and close, twice.
+            micro._scoped_opened.add(id(item))  # noqa: SLF001
+            scope.entered += 1
+        finally:
+            self._finish_open()
 
     def _unopened_borrow(
         self,
