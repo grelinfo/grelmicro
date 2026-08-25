@@ -397,15 +397,18 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         async with scope.lock:
             if scope.opened:
                 return
+            # Asked first, because the stack was captured before the wait.
+            # A run that shut down and started again while this waited
+            # would otherwise borrow onto the stack it has left.
+            if self._lost_scope(micro, exit_stack):
+                raise OutOfContextError(
+                    self._no_scope_message(micro, exit_stack)
+                )
             # Asked under the lock, because a run queued behind a failed
             # open can wake to find another run holding the scope open and
             # lendable, where a check taken before the wait would refuse.
             if self._borrows_open_scope(micro, exit_stack):
                 return
-            if self._lost_scope(micro, exit_stack):
-                raise OutOfContextError(
-                    self._no_scope_message(micro, exit_stack)
-                )
             if self._claim_scope(micro, exit_stack) and not scope.release_armed:
                 # Sits below every item, so it runs once they have all
                 # closed and the next run is free to take the scope. Armed
