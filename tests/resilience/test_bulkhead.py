@@ -1065,6 +1065,31 @@ async def test_uses_takes_one_bare_backend_listed_twice() -> None:
     assert opens == 1
 
 
+async def test_two_components_around_one_backend_are_two_items() -> None:
+    """The documented boundary: separate Components each open the backend.
+
+    Deduping sees through a wrapper this code built, not through one the
+    caller built, so this is what the docs tell people to avoid.
+    """
+    opens = 0
+
+    class Tracked(MemoryLockAdapter):
+        """A bare backend that counts its opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return await super().__aenter__()
+
+    adapter = Tracked()
+    bulkhead = Bulkhead("wrapped-here", uses=[adapter])
+
+    async with Grelmicro(uses=[Coordination(lock=adapter)]), bulkhead:
+        pass
+
+    assert opens == LIMIT  # one per Component, which is why the docs warn
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()
