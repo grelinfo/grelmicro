@@ -983,6 +983,65 @@ async def test_borrowing_across_owner_turnover_checks_once() -> None:
     assert checks == turnovers + 1
 
 
+async def test_uses_opens_a_bare_backend_once_across_wrappers() -> None:
+    """One backend wrapped twice is one backend, not two."""
+    opens = 0
+    closes = 0
+
+    class Tracked(MemoryLockAdapter):
+        """A bare backend that counts its own lifecycle."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return await super().__aenter__()
+
+        async def __aexit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_value: BaseException | None,
+            traceback: TracebackType | None,
+        ) -> None:
+            nonlocal closes
+            closes += 1
+            await super().__aexit__(exc_type, exc_value, traceback)
+
+    backend = Tracked()
+    bulkhead = Bulkhead("wrapped", uses=[backend])
+
+    # The app wraps it in one Component, the scope in another. Both stand
+    # for the same backend, so only one of them opens it.
+    async with Grelmicro(uses=[backend]), bulkhead:
+        pass
+
+    assert (opens, closes) == (1, 1)
+
+
+async def test_two_scopes_wrapping_one_backend_open_it_once() -> None:
+    """Two scopes each wrap the same bare backend, and it opens once."""
+    opens = 0
+
+    class Tracked(MemoryLockAdapter):
+        """A bare backend that counts its opens."""
+
+        async def __aenter__(self) -> Self:
+            nonlocal opens
+            opens += 1
+            return await super().__aenter__()
+
+    shared = Tracked()
+    first = Bulkhead("first-wrap", uses=[shared])
+    second = Bulkhead("second-wrap", uses=[shared])
+
+    async with Grelmicro():
+        async with first:
+            pass
+        async with second:
+            pass
+
+    assert opens == 1
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

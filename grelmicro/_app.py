@@ -1268,11 +1268,11 @@ class Grelmicro:
                 # scope opening the same item from another task would
                 # otherwise pass the test while this one is still inside
                 # `__aenter__`, and open it a second time.
-                async with opening_lock(self, item):
-                    if id(item) in self._scoped_opened:
+                async with _opening_lock(self, item):
+                    if opened_key(item) in self._scoped_opened:
                         continue
                     await self._exit_stack.enter_async_context(item)
-                    self._app_opened.add(id(item))
+                    self._app_opened.add(opened_key(item))
             self._instrument_providers()
         except BaseException:
             self._closing = True
@@ -1532,8 +1532,29 @@ def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     if not matches:
         return None
     if len(matches) == 1:
-        return matches[0][2](item)
-    return _most_specific_backend(matches, item)[2](item)
+        return _marked(matches[0][2](item), item)
+    return _marked(_most_specific_backend(matches, item)[2](item), item)
+
+
+def _marked(component: Component, backend: object) -> Component:
+    """Record what `component` wraps, so one backend has one identity.
+
+    Wrapping happens once per list, so the app and every `Bulkhead` build
+    their own Component around one backend. Opening each of them would open
+    that backend once per wrapper, which is what this lets the callers see
+    through.
+    """
+    component._wrapped_backend = backend  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]  # noqa: SLF001
+    return component
+
+
+def opened_key(item: object) -> int:
+    """Return the identity `item` is opened under.
+
+    A Component built around a bare backend answers for the backend, so a
+    second wrapper around the same one is not opened again.
+    """
+    return id(getattr(item, "_wrapped_backend", item))
 
 
 def _unsupported_framework_message(caller: str, app: object) -> str:
@@ -1596,7 +1617,7 @@ def _fake_components(
     ]
 
 
-def opening_lock(micro: Grelmicro, item: object) -> asyncio.Lock:
+def _opening_lock(micro: Grelmicro, item: object) -> asyncio.Lock:
     """Return the lock that serializes opening `item` on this app run.
 
     One item can be listed by the app and by any number of `Bulkhead`
@@ -1606,7 +1627,7 @@ def opening_lock(micro: Grelmicro, item: object) -> asyncio.Lock:
     Nothing awaits between the lookup and the store, so two tasks racing
     the first entry cannot both make a lock.
     """
-    key = id(item)
+    key = opened_key(item)
     lock = micro._opening_items.get(key)  # noqa: SLF001
     if lock is None:
         lock = asyncio.Lock()

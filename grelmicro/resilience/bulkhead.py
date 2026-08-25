@@ -24,8 +24,9 @@ from grelmicro._app import (
     _default_components_for_provider,
     _iter_provider_backends,
     _maybe_wrap_first_party_backend,
+    _opening_lock,
     _order_providers_first,
-    opening_lock,
+    opened_key,
 )
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
@@ -192,7 +193,11 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             Doc(
                 """
                 Providers and Components, in the same shape as
-                `Grelmicro(uses=[...])`, scoped to this bulkhead. Inside
+                `Grelmicro(uses=[...])`, scoped to this bulkhead. A bare
+                backend becomes its Component, and a bare Provider fills a
+                default Component for every kind it serves. Two bare
+                Providers fill none, and raise `AmbiguousProviderError`
+                when no Component is listed beside them. Inside
                 the scope, a Pattern that resolves its default backend
                 (a bare `Lock("k")`, `cache.get(...)`, ...) picks up the
                 matching Component here instead of the app's. A Pattern
@@ -430,7 +435,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             # Asked under the lock, because a run queued behind a failed
             # open can wake to find another run holding the scope open and
             # lendable, where a check taken before the wait would refuse.
-            if self._borrows_open_scope(micro, exit_stack):
+            if self._borrows_open_scope(micro, exit_stack, scope):
                 return
             if self._claim_scope(micro, exit_stack) and not scope.release_armed:
                 # Sits below every item, so it runs once they have all
@@ -461,7 +466,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             # Held across the entry, not just the test: another scope, or
             # the app itself, could otherwise pass the test while this one
             # is inside `__aenter__`, and open the same item twice.
-            async with opening_lock(micro, item):
+            async with _opening_lock(micro, item):
                 await self._enter_item(micro, exit_stack, scope, item)
         # Sits above every item, so the scope stops reporting itself open
         # before anything it holds closes. Pushed once the last item is on
@@ -509,7 +514,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             exit_stack.push_async_exit(item)
             # Every item, not only a Provider: a Component two scopes both
             # list would otherwise open, and close, twice.
-            micro._scoped_opened.add(id(item))  # noqa: SLF001
+            micro._scoped_opened.add(opened_key(item))  # noqa: SLF001
             scope.entered += 1
         finally:
             self._finish_open()
@@ -568,7 +573,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         return scope
 
     def _borrows_open_scope(
-        self, micro: Grelmicro, exit_stack: AsyncExitStack
+        self, micro: Grelmicro, exit_stack: AsyncExitStack, scope: _Scope
     ) -> bool:
         """Report whether another run holds this scope open for `micro`.
 
@@ -587,18 +592,16 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             held = holder._scoped_uses.get(self)  # noqa: SLF001
             if held is None or _cannot_lend(holder, held):
                 raise OutOfContextError(self._shared_scope_message(micro))
-        recorded = micro._scoped_uses.get(self)  # noqa: SLF001
-        if recorded is None or not recorded.checked:
+        if not scope.checked:
             # Checked against this run's environment, not the owner's, and
-            # before anything is recorded, so a check that fails records
-            # nothing. Once per run, including across owner turnover.
+            # before the borrow is recorded, so a check that fails leaves
+            # nothing to skip. Once per run, across owner turnover too.
             report_unmet_requirements(
                 unmet_requirements(self._uses), micro.environment
             )
-        # Recorded on this run so the check runs once rather than per entry.
         # The same record is reused each time this run borrows, so borrowing
         # again after the owner changed leaves nothing of the last one.
-        borrowed = self._scope_for(micro)
+        borrowed = scope
         with self._owner_lock:
             if _cannot_lend(holder, held):
                 raise OutOfContextError(self._shared_scope_message(micro))
@@ -965,7 +968,7 @@ def _opened_elsewhere(
     entered during startup would otherwise read an item the app has not
     reached yet as open, and skip it while nothing had opened it.
     """
-    key = id(item)
+    key = opened_key(item)
     return (
         key in micro._app_opened  # noqa: SLF001
         or key in micro._scoped_opened  # noqa: SLF001
