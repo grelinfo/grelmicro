@@ -575,6 +575,29 @@ async def test_uses_opens_a_shared_item_the_app_has_not_reached() -> None:
     assert log == ["open", "in scope", "close"]
 
 
+async def test_uses_waits_on_a_provider_the_app_opens_later() -> None:
+    """A borrowed Provider the app has yet to reach still counts as covered."""
+    provider = _BorrowedProvider()
+    bulkhead = Bulkhead("early", uses=[Cache(provider, name="scoped")])
+
+    class Worker:
+        """An app item that enters the bulkhead during startup."""
+
+        async def __aenter__(self) -> Self:
+            async with bulkhead:
+                pass
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            """Leave the scope."""
+
+    # The app opens `provider` for its own Cache, at the back of the list.
+    async with Grelmicro(uses=[Worker(), Cache(provider, name="app")]):
+        pass
+
+    assert provider.log == ["open", "close"]
+
+
 async def test_uses_skips_none_entries() -> None:
     """A `None` entry is skipped, matching `Grelmicro(uses=[...])`."""
     default = MemoryLockAdapter()

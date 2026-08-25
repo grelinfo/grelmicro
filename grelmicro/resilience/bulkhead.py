@@ -468,7 +468,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 neither `uses=` nor the app opens.
         """
         for provider in self._borrowed:
-            if _opened_elsewhere(micro, provider):
+            if _will_be_opened(micro, provider):
                 continue
             msg = (
                 f"Bulkhead {self._name!r} has a component in uses= that "
@@ -880,6 +880,21 @@ def _opened_elsewhere(
     return (
         key in micro._app_opened  # noqa: SLF001
         or key in micro._scoped_opened  # noqa: SLF001
+    )
+
+
+def _will_be_opened(micro: Grelmicro, provider: Provider) -> bool:
+    """Report whether this run opens `provider` at some point.
+
+    A wider question than `_opened_elsewhere` answers, and a different one:
+    the skip decision needs what is open *now*, while this needs to know
+    that something takes care of it. An app still starting has not reached
+    the back of its own list yet, and refusing there would fail a startup
+    the app was about to complete.
+    """
+    return _opened_elsewhere(micro, provider) or any(
+        listed is provider
+        for listed in micro._items  # noqa: SLF001
     )
 
 
