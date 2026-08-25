@@ -65,8 +65,7 @@ class IntervalTask(Task):
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
         self._seconds = seconds
-        self.function = function
-        """The function the task runs, as it was registered."""
+        self._function = function
         self._async_function = self._prepare_async_function(function)
 
         distributed = lock is not None or leader is not None
@@ -117,6 +116,16 @@ class IntervalTask(Task):
         if lock.name == "default":
             return lock._with_name(self._name)  # noqa: SLF001
         return lock
+
+    @property
+    def function(self) -> "Callable[..., Any]":
+        """The function the task runs, as it was registered.
+
+        `Tasks.add_task` reads it to mark the function, so a decorator
+        applied below the one that registered the task is refused
+        rather than silently absent from every run.
+        """
+        return self._function
 
     @property
     def name(self) -> str:

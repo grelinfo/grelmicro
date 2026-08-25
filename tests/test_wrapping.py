@@ -51,6 +51,9 @@ PACKAGE = Path(__file__).parent.parent / "grelmicro"
 ATTEMPTS = 3
 """Retry attempts the imperative form has to make on a registered function."""
 
+KINDS = 2
+"""Registrars holding one function, each of which keeps its own mark."""
+
 
 async def scheduled_job() -> None:
     """Do nothing, from the module level a schedule requires."""
@@ -563,21 +566,59 @@ def test_a_mark_attribute_that_is_not_a_mark_is_ignored() -> None:
     assert registration_of(job) is None
 
 
+def _marked(kind: Registered = Registered.TASK) -> tuple[markers.Registration]:
+    """Return a mark naming nothing, so only the read under test matters."""
+    return (markers.Registration(kind, None, None),)
+
+
 def test_an_interrupt_while_reading_the_owner_of_a_mark_is_never_swallowed() -> (
     None
 ):
-    """Reading a registration reads `__self__`, so its guard answers too."""
+    """A marked value still has its `__self__` read, so that guard answers."""
 
     class Interrupting:
-        """A value that interrupts only on what it is bound to."""
+        """A marked value that interrupts on what it is bound to."""
 
         def __getattr__(self, name: str) -> object:
             if name == "__self__":
                 raise KeyboardInterrupt
             raise AttributeError(name)
 
+    setattr(Interrupting, markers.REGISTRATION, _marked())
+
     with pytest.raises(KeyboardInterrupt):
         registration_of(Interrupting())
+
+
+def test_a_hostile_owner_on_a_marked_value_answers_rather_than_raising() -> (
+    None
+):
+    """`__self__` is caller code, so a marked value cannot raise out of it."""
+
+    class Hostile:
+        """A marked value whose `__self__` raises."""
+
+        def __getattr__(self, name: str) -> object:
+            if name == "__self__":
+                msg = "unbound proxy"
+                raise RuntimeError(msg)
+            raise AttributeError(name)
+
+    setattr(Hostile, markers.REGISTRATION, _marked())
+
+    assert registration_of(Hostile()) is None
+
+
+def test_a_mark_of_another_kind_is_never_superseded() -> None:
+    """Two registrars holding one function each keep their own mark."""
+
+    async def job() -> None:
+        """Stand in for a function two registrars hold."""
+
+    mark_registered(job, Registered.TASK)
+    mark_registered(job, Registered.OUTBOX_HANDLER)
+
+    assert len(getattr(job, markers.REGISTRATION)) == KINDS
 
 
 async def test_a_stack_runs_a_registered_function_imperatively() -> None:

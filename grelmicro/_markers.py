@@ -138,11 +138,7 @@ def mark_registered(function: object, kind: Registered) -> None:
         kept = tuple(
             existing
             for existing in _marks(target)
-            if existing.owner is None
-            or (
-                existing.owner() is not None
-                and existing.owner() is not instance
-            )
+            if not _gone(existing) and not _superseded(existing, kind, instance)
         )
         setattr(target, REGISTRATION, (*kept, fresh))
     except (KeyboardInterrupt, SystemExit):
@@ -151,15 +147,43 @@ def mark_registered(function: object, kind: Registered) -> None:
         pass
 
 
+def _gone(registration: Registration) -> bool:
+    """Return whether the instance a mark names no longer exists."""
+    owner = registration.owner
+    return owner is not None and owner() is None
+
+
+def _superseded(
+    registration: Registration, kind: Registered, instance: object
+) -> bool:
+    """Return whether a fresh mark says what `registration` already said.
+
+    One function registered twice the same way needs one mark, or a
+    module-level function re-registered on every app build accumulates
+    them for the life of the process. Registered two different ways, it
+    keeps both, so the refusal can name a registrar that really holds it.
+    """
+    if registration.kind is not kind:
+        return False
+    owner = registration.owner
+    if owner is None:
+        return instance is None
+    return instance is not None and owner() is instance
+
+
 def _marks(target: object) -> tuple[Registration, ...]:
-    """Return the marks on `target`, and never raise reading them."""
+    """Return the marks on `target`, and never raise reading them.
+
+    Answers the unmarked function without building anything, because
+    every decorated call site reads this and almost none carry a mark.
+    """
     try:
         marks = getattr(target, REGISTRATION, ())
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001
         return ()
-    if not isinstance(marks, tuple):
+    if not marks or not isinstance(marks, tuple):
         return ()
     return tuple(m for m in marks if isinstance(m, Registration))
 
@@ -182,25 +206,30 @@ def registration_of(function: object) -> Registration | None:
     instance alone.
     """
     target = _underlying(function)
+    marks = _marks(target)
+    if not marks:
+        return None
     try:
         bound_to = getattr(function, "__self__", None)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001
         return None
-    unowned: Registration | None = None
-    for registration in _marks(target):
+    inherited: Registration | None = None
+    for registration in marks:
         holder = registration.holder
         held = holder() if holder is not None else None
         if holder is not None and held is None:
             continue
         owner = registration.owner
         if owner is None:
-            unowned = unowned or registration
+            if held is None or held is target:
+                return registration
+            inherited = inherited or registration
             continue
         bound = owner()
         if bound is None:
             continue
         if bound is bound_to:
             return registration
-    return unowned
+    return inherited
