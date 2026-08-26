@@ -105,6 +105,14 @@ async def unowned_job() -> None:
     """Do nothing, from the module level a schedule requires."""
 
 
+async def immortal_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def rogue_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
 WRAPS_WITHOUT_GUARD = {
     # Records calls on a fake backend's own methods, never a user function.
     "testing.py",
@@ -1132,19 +1140,6 @@ def test_a_mark_answers_while_its_registry_is_alive() -> None:
     assert registry is not None
 
 
-def test_a_registry_no_reference_can_name_still_marks() -> None:
-    """A registrar that refuses a weak reference is one that never dies."""
-
-    class Registry:
-        """A registrar with no `__weakref__` of its own."""
-
-        __slots__ = ()
-
-    mark_registered(unreferenced_job, Registered.TASK, Registry())
-
-    assert registration_of(unreferenced_job) is not None
-
-
 def test_a_second_registry_never_evicts_a_live_one() -> None:
     """Two registries holding one function each keep their own mark."""
     live = Tasks()
@@ -1200,3 +1195,38 @@ class Forgotten:
         return wrapper
 """
     assert _unguarded_wraps_sites(both) == 1
+
+
+def test_a_registry_no_reference_can_name_leaves_no_mark() -> None:
+    """A mark that cannot be dropped would refuse for the whole process."""
+
+    class Registry:
+        """A registrar with no `__weakref__` of its own."""
+
+        __slots__ = ()
+
+    for _ in range(3):
+        mark_registered(immortal_job, Registered.TASK, Registry())
+
+    assert getattr(immortal_job, markers.REGISTRATION, ()) == ()
+    assert registration_of(immortal_job) is None
+
+    Retry("r", when=Exception)(immortal_job)
+
+
+def test_a_task_decorator_marks_whatever_the_router_does_with_it() -> None:
+    """The guard does not rest on how a subclass routes the task."""
+
+    class Rogue(TaskRouter):
+        """A router that schedules without the inherited adder."""
+
+        def add_task(self, task: Task) -> None:
+            """Schedule by another route entirely."""
+            self._tasks.append(task)
+
+    router = Rogue()
+    router.every(seconds=60)(rogue_job)
+
+    assert registration_of(rogue_job) is not None
+    assert len(getattr(rogue_job, markers.REGISTRATION)) == 1
+    assert router.tasks

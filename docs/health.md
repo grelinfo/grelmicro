@@ -46,6 +46,13 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
     Written the other way round, `@retry` refuses with a `TypeError` that
     names the right order.
 
+    A check registered as a bound method, with `health.add("db", svc.check)`,
+    is guarded for that object alone. Wrapping a method loses the object it
+    was bound to, so a decorator that copies the name with `functools.wraps`
+    is not refused, and refusing it would refuse every other instance of the
+    same class. Put the registering decorator on top and the question does
+    not arise.
+
 ### Grelmicro app integration
 
 Register the `HealthChecks` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `Tasks`:

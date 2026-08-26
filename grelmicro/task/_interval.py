@@ -118,7 +118,7 @@ class IntervalTask(Task):
         return lock
 
     @property
-    def function(self) -> "Callable[..., Any]":
+    def function(self) -> Callable[..., Any]:
         """The function the task runs, as it was registered.
 
         `Tasks.add_task` reads it to mark the function, so a decorator

@@ -89,6 +89,25 @@ class Registration(NamedTuple):
 UNNAMEABLE_OWNER = object()
 """Stands in for an owner no weak reference can name."""
 
+UNNAMEABLE_REGISTRAR = object()
+"""Stands in for a registrar no weak reference can name."""
+
+
+def _reference(registrar: object) -> weakref.ref[object] | object | None:
+    """Return a reference to `registrar`, or say it cannot be named.
+
+    A mark whose registrar cannot be named can never be dropped when
+    that registrar goes, so it would refuse the function it names for
+    the rest of the process. Leaving it unmarked keeps the behaviour
+    the function had before, which is the safer of the two.
+    """
+    if registrar is None:
+        return None
+    try:
+        return weakref.ref(registrar)
+    except TypeError:
+        return UNNAMEABLE_REGISTRAR
+
 
 def _owner(function: object) -> weakref.ref[object] | object | None:
     """Return a reference to what a bound method is bound to.
@@ -141,12 +160,10 @@ def mark_registered(
         holder: weakref.ref[object] | None = weakref.ref(target)
     except TypeError:
         holder = None
-    try:
-        held_by: weakref.ref[object] | None = (
-            weakref.ref(registrar) if registrar is not None else None
-        )
-    except TypeError:
-        held_by = None
+    held_by = _reference(registrar)
+    if held_by is UNNAMEABLE_REGISTRAR:
+        return
+    held_by = cast("weakref.ref[object] | None", held_by)
     owner = _owner(function)
     if owner is UNNAMEABLE_OWNER:
         return
