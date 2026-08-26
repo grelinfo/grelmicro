@@ -5,7 +5,7 @@ the same one, so a decorator applied below it wraps a name nothing will
 call. Refusing that order is the same check in every decorator, and a
 check pasted once per decorator is one the next decorator forgets.
 
-Read more in the [composition](../resilience/composition.md) docs.
+The order the guard names is the one the composition docs give.
 """
 
 from __future__ import annotations

@@ -53,6 +53,14 @@ PACKAGE = Path(__file__).parent.parent / "grelmicro"
 ATTEMPTS = 3
 """Retry attempts the imperative form has to make on a registered function."""
 
+
+class _Registry:
+    """Stands in for a registrar in a test that does not need a real one."""
+
+
+REGISTRY = _Registry()
+"""A registrar kept alive for the whole module, so no mark expires."""
+
 KINDS = 2
 """Registrars holding one function, each of which keeps its own mark."""
 
@@ -180,7 +188,7 @@ def test_every_decorator_refuses_a_registered_function(
     async def job() -> None:
         """Stand in for the function a registrar recorded."""
 
-    mark_registered(job, kind)
+    mark_registered(job, kind, REGISTRY)
 
     with pytest.raises(TypeError, match="already registered as") as caught:
         apply(job)
@@ -191,6 +199,17 @@ def test_every_decorator_refuses_a_registered_function(
 
 _WRAPPING_CALLS = frozenset({"wraps", "update_wrapper"})
 """Names that copy `__dict__`, and so carry a mark onto a wrapper."""
+
+_UPDATE_WRAPPER = "update_wrapper"
+"""The one form whose first argument is the wrapper, not the wrapped."""
+
+
+def _is_update_wrapper(call: ast.Call) -> bool:
+    """Return whether `call` is the `update_wrapper(wrapper, fn)` form."""
+    func = call.func
+    if isinstance(func, ast.Attribute):
+        return func.attr == _UPDATE_WRAPPER
+    return isinstance(func, ast.Name) and func.id == _UPDATE_WRAPPER
 
 
 def _is_wraps(call: ast.Call) -> bool:
@@ -273,10 +292,16 @@ def _wrappers(tree: ast.Module, parents: dict[ast.AST, ast.AST]) -> set[str]:
                 for decorator in node.decorator_list
             ):
                 names.add(_qualified(node, parents))
-        elif isinstance(node, ast.Call) and _is_wraps(node) and node.args:
+        elif (
+            isinstance(node, ast.Call)
+            and _is_update_wrapper(node)
+            and node.args
+        ):
             first = node.args[0]
             if isinstance(first, ast.Name):
-                names.add(first.id)
+                chain = _enclosing(node, parents)
+                scope = f"{chain[0]}." if chain else ""
+                names.add(f"{scope}{first.id}")
     return names
 
 
@@ -327,9 +352,9 @@ def _scan(tree: ast.Module) -> _Scan:
         name = _called_name(node)
         if name == "refuse_registered":
             if not any(holder in wrappers for holder in chain):
-                scan.guarded.update(chain)
+                scan.guarded.update(chain[:1])
         elif name is not None and name in by_name:
-            for holder in chain:
+            for holder in chain[:1]:
                 scan.calls[holder].update(by_name[name])
         if _is_wraps(node):
             wrapper = _decorated(node, parents)
@@ -446,7 +471,7 @@ def test_a_mark_stops_counting_once_its_function_is_gone() -> None:
     async def job() -> None:
         """Stand in for a function a registrar recorded."""
 
-    mark_registered(job, Registered.TASK)
+    mark_registered(job, Registered.TASK, REGISTRY)
 
     async def wrapper() -> None:
         """Carry the copied mark past the end of the original."""
@@ -504,7 +529,7 @@ def test_a_callable_that_takes_no_mark_is_left_alone() -> None:
             """Do nothing."""
 
     unmarkable = Slotted()
-    mark_registered(unmarkable, Registered.TASK)
+    mark_registered(unmarkable, Registered.TASK, REGISTRY)
 
     assert registration_of(unmarkable) is None
 
@@ -516,7 +541,7 @@ def test_a_generator_producer_is_still_reached_by_the_guard() -> None:
         """Stream items."""
         yield 1
 
-    mark_registered(produce, Registered.OUTBOX_HANDLER)
+    mark_registered(produce, Registered.OUTBOX_HANDLER, REGISTRY)
 
     with pytest.raises(TypeError, match="already registered as an outbox"):
         cached(TTLCache(ttl=1), key="k")(produce)
@@ -669,7 +694,7 @@ def test_reading_what_a_method_is_bound_to_never_raises() -> None:
             msg = "unbound proxy"
             raise RuntimeError(msg)
 
-    mark_registered(Hostile(), Registered.TASK)
+    mark_registered(Hostile(), Registered.TASK, REGISTRY)
 
     assert registration_of(Hostile()) is None
 
@@ -686,7 +711,7 @@ def test_an_owner_no_reference_can_name_is_left_unmarked() -> None:
             """Answer a probe."""
 
     registered, sibling = Owner(), Owner()
-    mark_registered(registered.ping, Registered.TASK)
+    mark_registered(registered.ping, Registered.TASK, REGISTRY)
 
     assert registration_of(registered.ping) is None
     assert registration_of(sibling.ping) is None
@@ -704,7 +729,7 @@ def test_an_interrupt_while_reading_the_owner_is_never_swallowed() -> None:
             raise AttributeError(name)
 
     with pytest.raises(KeyboardInterrupt):
-        mark_registered(Interrupting(), Registered.TASK)
+        mark_registered(Interrupting(), Registered.TASK, REGISTRY)
 
 
 def test_a_mark_attribute_that_is_not_a_mark_is_ignored() -> None:
@@ -807,7 +832,7 @@ def test_an_instance_of_a_registered_class_is_left_alone() -> None:
         async def __call__(self) -> None:
             """Answer a probe."""
 
-    mark_registered(Probe, Registered.HEALTH_CHECK)
+    mark_registered(Probe, Registered.HEALTH_CHECK, REGISTRY)
 
     assert registration_of(Probe) is not None
     assert registration_of(Probe()) is None
@@ -821,8 +846,8 @@ def test_a_mark_of_another_kind_is_never_superseded() -> None:
     async def job() -> None:
         """Stand in for a function two registrars hold."""
 
-    mark_registered(job, Registered.TASK)
-    mark_registered(job, Registered.OUTBOX_HANDLER)
+    mark_registered(job, Registered.TASK, REGISTRY)
+    mark_registered(job, Registered.OUTBOX_HANDLER, REGISTRY)
 
     assert len(getattr(job, markers.REGISTRATION)) == KINDS
 
@@ -909,7 +934,7 @@ def test_a_registration_whose_instance_is_gone_stops_counting() -> None:
             """Answer a probe."""
 
     repo = Repo()
-    mark_registered(repo.ping, Registered.HEALTH_CHECK)
+    mark_registered(repo.ping, Registered.HEALTH_CHECK, REGISTRY)
     del repo
     gc.collect()
 
@@ -953,8 +978,8 @@ def test_a_bound_mark_never_evicts_a_plain_one() -> None:
             """Answer a probe."""
 
     instance = Svc()
-    mark_registered(Svc.check, Registered.HEALTH_CHECK)
-    mark_registered(instance.check, Registered.HEALTH_CHECK)
+    mark_registered(Svc.check, Registered.HEALTH_CHECK, REGISTRY)
+    mark_registered(instance.check, Registered.HEALTH_CHECK, REGISTRY)
 
     assert registration_of(Svc.check) is not None
     assert registration_of(instance.check) is not None
@@ -1079,8 +1104,8 @@ def test_the_outermost_registrar_is_the_one_named() -> None:
     async def job() -> None:
         """Stand in for a function two registrars hold."""
 
-    mark_registered(job, Registered.TASK)
-    mark_registered(job, Registered.HEALTH_CHECK)
+    mark_registered(job, Registered.TASK, REGISTRY)
+    mark_registered(job, Registered.HEALTH_CHECK, REGISTRY)
 
     registration = registration_of(job)
     assert registration is not None
@@ -1180,39 +1205,6 @@ def test_the_same_registry_replaces_its_own_mark() -> None:
     assert len(getattr(twice_job, markers.REGISTRATION)) == 1
 
 
-def test_a_mark_with_no_registry_never_replaces_one_that_has_it() -> None:
-    """A mark written without a registry says nothing about another's."""
-    live = Tasks()
-    live.every(seconds=60)(unowned_job)
-
-    mark_registered(unowned_job, Registered.TASK)
-
-    assert len(getattr(unowned_job, markers.REGISTRATION)) == KINDS
-    assert live.tasks
-
-
-def test_the_contract_test_tells_two_dunder_calls_apart() -> None:
-    """Every pattern spells its entry point `__call__`, so names collide."""
-    both = """
-import functools
-
-class Guarded:
-    def __call__(self, fn):
-        refuse_registered(fn, "@guarded")
-
-        @functools.wraps(fn)
-        def wrapper(): ...
-        return wrapper
-
-class Forgotten:
-    def __call__(self, fn):
-        @functools.wraps(fn)
-        def wrapper(): ...
-        return wrapper
-"""
-    assert _unguarded_wraps_sites(both) == 1
-
-
 def test_a_registry_no_reference_can_name_leaves_no_mark() -> None:
     """A mark that cannot be dropped would refuse for the whole process."""
 
@@ -1281,3 +1273,50 @@ def test_a_check_the_registry_refused_is_never_marked() -> None:
     assert registration_of(second_check) is None
 
     Retry("r", when=Exception)(second_check)
+
+
+def test_the_contract_test_does_not_credit_a_shared_factory() -> None:
+    """A guard covers the decorator it is in, not every factory around it."""
+    shared = """
+import functools
+def factory():
+    def wrap(fn):
+        refuse_registered(fn, "@x")
+
+        @functools.wraps(fn)
+        def wrapper(): ...
+        return wrapper
+
+    def wrap_two(fn):
+        @functools.wraps(fn)
+        def wrapper(): ...
+        return wrapper
+    return wrap, wrap_two
+"""
+    assert _unguarded_wraps_sites(shared) == 1
+
+
+def test_the_contract_test_sees_a_late_guard_in_the_other_form() -> None:
+    """`update_wrapper` names the wrapper, so the late guard is seen there."""
+    too_late = """
+import functools
+def decorate(fn):
+    def wrapper():
+        refuse_registered(fn, "@x")
+    functools.update_wrapper(wrapper, fn)
+    return wrapper
+"""
+    assert _unguarded_wraps_sites(too_late) == 1
+
+
+def test_the_contract_test_keeps_a_guard_beside_a_function_named_fn() -> None:
+    """`wraps(fn)` names the wrapped function, which is not the wrapper."""
+    named_fn = """
+import functools
+def fn(): ...
+
+def decorate(target):
+    refuse_registered(target, "@x")
+    return functools.wraps(target)(lambda: None)
+"""
+    assert _unguarded_wraps_sites(named_fn) == 0

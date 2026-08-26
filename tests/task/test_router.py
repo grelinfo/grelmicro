@@ -328,5 +328,10 @@ def test_an_interrupt_while_marking_a_task_is_never_swallowed() -> None:
         def __setattr__(self, name: str, value: object) -> None:
             raise KeyboardInterrupt
 
+    class Registry:
+        """Stands in for the registrar that would hold it."""
+
     with pytest.raises(KeyboardInterrupt):
-        markers.mark_registered(Interrupting(), markers.Registered.TASK)
+        markers.mark_registered(
+            Interrupting(), markers.Registered.TASK, Registry()
+        )

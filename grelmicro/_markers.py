@@ -101,8 +101,6 @@ def _reference(registrar: object) -> weakref.ref[object] | object | None:
     the rest of the process. Leaving it unmarked keeps the behaviour
     the function had before, which is the safer of the two.
     """
-    if registrar is None:
-        return None
     try:
         return weakref.ref(registrar)
     except TypeError:
@@ -142,7 +140,7 @@ def _underlying(function: object) -> object:
 
 
 def mark_registered(
-    function: object, kind: Registered, registrar: object = None
+    function: object, kind: Registered, registrar: object
 ) -> None:
     """Mark `function` as recorded by a registrar.
 
@@ -150,6 +148,10 @@ def mark_registered(
     underneath is marked instead, and the instance the method was bound
     to is recorded beside it. Another instance of the same class shares
     that function and is not what the registration holds.
+
+    `registrar` is what holds the registration, and is required: a mark
+    with nothing to outlive would refuse the function it names for the
+    rest of the process, with no way to clear it.
 
     Best effort: a callable that takes no attribute goes unmarked, and
     the decorators above it keep the behaviour they had before the mark
@@ -214,12 +216,9 @@ def _superseded(
     """
     if registration.kind is not kind:
         return False
-    if registration.registrar is not None or registrar is not None:
-        if registrar is None:
-            return False
-        existing = registration.registrar
-        if existing is None or existing() is not registrar:
-            return False
+    existing = registration.registrar
+    if existing is None or existing() is not registrar:
+        return False
     owner = registration.owner
     if owner is None:
         return instance is None
