@@ -165,12 +165,21 @@ def test_every_decorator_refuses_a_registered_function(
     assert label
 
 
+_WRAPPING_CALLS = frozenset({"wraps", "update_wrapper"})
+"""Names that copy `__dict__`, and so carry a mark onto a wrapper."""
+
+
 def _is_wraps(call: ast.Call) -> bool:
-    """Return whether `call` is `functools.wraps(...)` or `wraps(...)`."""
+    """Return whether `call` copies a function onto a wrapper.
+
+    `functools.update_wrapper` copies the same `__dict__` that `wraps`
+    does, so a decorator written with it has the same hole and has to
+    be seen the same way.
+    """
     func = call.func
     if isinstance(func, ast.Attribute):
-        return func.attr == "wraps"
-    return isinstance(func, ast.Name) and func.id == "wraps"
+        return func.attr in _WRAPPING_CALLS
+    return isinstance(func, ast.Name) and func.id in _WRAPPING_CALLS
 
 
 def _called_name(call: ast.Call) -> str | None:
@@ -195,15 +204,52 @@ def _parents(tree: ast.Module) -> dict[ast.AST, ast.AST]:
     }
 
 
-def _enclosing(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> set[str]:
-    """Return the names of the functions `node` sits inside."""
-    names = set()
+def _enclosing(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> list[str]:
+    """Return the functions `node` sits inside, innermost first."""
+    names: list[str] = []
     current = parents.get(node)
     while current is not None:
         if isinstance(current, _Func):
-            names.add(current.name)
+            names.append(current.name)
         current = parents.get(current)
     return names
+
+
+def _wrappers(tree: ast.Module) -> set[str]:
+    """Return the functions built as a copy of the one they wrap.
+
+    A guard inside one of these runs per call, long after the
+    registration has taken the function it was handed, so it is not a
+    guard on the decorator at all.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, _Func):
+            names.update(
+                node.name
+                for decorator in node.decorator_list
+                if isinstance(decorator, ast.Call) and _is_wraps(decorator)
+            )
+        elif isinstance(node, ast.Call) and _is_wraps(node) and node.args:
+            first = node.args[0]
+            if isinstance(first, ast.Name):
+                names.add(first.id)
+    return names
+
+
+def _decorated(node: ast.Call, parents: dict[ast.AST, ast.AST]) -> str | None:
+    """Return the function `node` decorates, when it is a decorator.
+
+    The runtime wrapper is not where a guard belongs. A guard inside it
+    runs per call, long after the registration has taken the function
+    it was handed, so the wrapper is dropped from the chain that counts.
+    """
+    parent = parents.get(node)
+    if isinstance(parent, _Func) and any(
+        decorator is node for decorator in parent.decorator_list
+    ):
+        return parent.name
+    return None
 
 
 class _Scan(NamedTuple):
@@ -223,6 +269,7 @@ def _scan(tree: ast.Module) -> _Scan:
     """
     parents = _parents(tree)
     functions = {n.name for n in ast.walk(tree) if isinstance(n, _Func)}
+    wrappers = _wrappers(tree)
     scan = _Scan(set(), {name: set() for name in functions}, [])
 
     for node in ast.walk(tree):
@@ -231,12 +278,14 @@ def _scan(tree: ast.Module) -> _Scan:
         chain = _enclosing(node, parents)
         name = _called_name(node)
         if name == "refuse_registered":
-            scan.guarded.update(chain)
+            if not any(holder in wrappers for holder in chain):
+                scan.guarded.update(chain)
         elif name in functions:
             for holder in chain:
                 scan.calls[holder].add(name)
         if _is_wraps(node):
-            scan.sites.append(chain)
+            wrapper = _decorated(node, parents)
+            scan.sites.append({holder for holder in chain if holder != wrapper})
     return scan
 
 
@@ -477,6 +526,41 @@ def decorate_too(fn):
     )
     assert _unguarded_wraps_sites(guarded) == 0
     assert _unguarded_wraps_sites(added) == 1
+
+
+def test_the_contract_test_sees_a_guard_that_runs_too_late() -> None:
+    """A guard inside the wrapper fires per call, after the registration."""
+    too_late = """
+import functools
+def decorate(fn):
+    @functools.wraps(fn)
+    def wrapper():
+        refuse_registered(fn, "@x")
+    return wrapper
+"""
+    assert _unguarded_wraps_sites(too_late) == 1
+
+
+def test_the_contract_test_sees_update_wrapper_too() -> None:
+    """`update_wrapper` copies the same `__dict__` that `wraps` does."""
+    unguarded = """
+import functools
+def decorate(fn):
+    def wrapper(): ...
+    functools.update_wrapper(wrapper, fn)
+    return wrapper
+"""
+    guarded = """
+import functools
+def decorate(fn):
+    refuse_registered(fn, "@x")
+
+    def wrapper(): ...
+    functools.update_wrapper(wrapper, fn)
+    return wrapper
+"""
+    assert _unguarded_wraps_sites(unguarded) == 1
+    assert _unguarded_wraps_sites(guarded) == 0
 
 
 def test_a_method_of_another_instance_is_left_alone() -> None:
