@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Breaking
+* 💥 Every grelmicro decorator refuses a function a registrar already holds. A `@retry(attempts=3)` under `@tasks.every` made one attempt on every scheduled run and three on a direct call, silently. Put the registering decorator on top. ([#788](https://github.com/grelinfo/grelmicro/issues/788))
+* 💥 To wrap a registered function for a direct call, use `Stack.run` or `Shield.run`, or apply the decorator to a function that calls it. ([#788](https://github.com/grelinfo/grelmicro/issues/788))
+* 💥 `IntervalTask` and `CronTask` gain a read-only `function` property, which is what `Tasks.add_task` marks. A `Task` of your own is covered when it exposes one too. ([#788](https://github.com/grelinfo/grelmicro/issues/788))
+* 💥 `TaskRouter(tasks=[...])` and `Tasks(tasks=[...])` copy the list they are given, so changing it afterwards no longer changes the router. ([#788](https://github.com/grelinfo/grelmicro/issues/788))
 * 💥 `CircuitBreakerStrategy` gains `abandon()`, the counterpart of `try_acquire()`. A custom backend has to implement it: it gives back a half-open probe slot when the admitted call produced no outcome. The four shipped adapters implement it, and the Postgres one does it with a plain statement, so no migration is needed. ([#789](https://github.com/grelinfo/grelmicro/issues/789))
 
 * 💥 `GrelmicroMiddleware` is imported from the top level: `from grelmicro import GrelmicroMiddleware`. It is pure ASGI and belongs to no framework, so it no longer ships from one named after FastAPI or Starlette. ([#771](https://github.com/grelinfo/grelmicro/issues/771))

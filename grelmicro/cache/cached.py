@@ -36,6 +36,7 @@ from grelmicro._async import (
     raise_backend_not_open,
     raise_event_loop_deadlock,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
     AsyncStampedeGuard,
@@ -551,6 +552,7 @@ def cached(  # noqa: PLR0913, C901
     def decorator(
         func: Callable[P, R],
     ) -> Any:  # noqa: ANN401
+        refuse_registered(func, "@cached")
         if inspect.isgeneratorfunction(func):
             name = getattr(func, "__qualname__", repr(func))
             msg = (

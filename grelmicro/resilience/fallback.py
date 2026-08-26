@@ -43,6 +43,7 @@ from grelmicro._guards import (
     type_name,
 )
 from grelmicro._json import json_loads
+from grelmicro._wrapping import refuse_registered
 from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
@@ -483,7 +484,17 @@ class Fallback(Reconfigurable[FallbackConfig]):
     def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
 
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
-        """Decorate ``fn`` so each call runs through this fallback policy."""
+        """Decorate ``fn`` so each call runs through this fallback policy.
+
+        Raises:
+            TypeError: If a registrar already holds `fn`, so this would
+                wrap direct calls alone.
+        """
+        refuse_registered(fn, f"Fallback {self._name!r}")
+        return self._wrap(fn)
+
+    def _wrap(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
+        """Wrap `fn` without the guard, for composing inside a `Stack`."""
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)
@@ -539,6 +550,7 @@ def fallback(
     matcher: Matcher = config.when
 
     def wrap(fn: F) -> F:
+        refuse_registered(fn, "@fallback")
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)

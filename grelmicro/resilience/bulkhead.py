@@ -38,6 +38,7 @@ from grelmicro._environment import (
     report_unmet_requirements,
     unmet_requirements,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.providers._base import Provider
@@ -790,7 +791,19 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     def __call__[**P, R](
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
-        """Decorate ``fn`` so each call runs under this bulkhead."""
+        """Decorate ``fn`` so each call runs under this bulkhead.
+
+        Raises:
+            TypeError: If `fn` is not async, or a registrar already
+                holds it, so this would wrap direct calls alone.
+        """
+        refuse_registered(fn, f"Bulkhead {self._name!r}")
+        return self._wrap(fn)
+
+    def _wrap[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]:
+        """Wrap `fn` without the guard, for composing inside a `Stack`."""
         if not iscoroutinefunction(fn):
             msg = (
                 "Bulkhead only decorates async functions. Use "

@@ -1,6 +1,7 @@
 """Tests for the Stack composition pattern."""
 
 import asyncio
+import functools
 import gc
 import time
 import weakref
@@ -10,7 +11,7 @@ from typing import Any, cast
 
 import pytest
 
-from grelmicro._markers import is_scheduled
+from grelmicro._markers import registration_of
 from grelmicro.cache import TTLCache
 from grelmicro.coordination import LeaderElection, Lock, ReadWriteLock
 from grelmicro.errors import EventLoopDeadlockError
@@ -1044,15 +1045,28 @@ def test_one_pattern_without_a_list_says_so() -> None:
         Stack("recs", patterns=a_retry())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
-def test_a_wrapper_over_a_registered_task_is_refused_too() -> None:
-    """The schedule still holds the original, so the stack misses it."""
+def test_a_pattern_over_a_registered_task_is_refused_at_the_mistake() -> None:
+    """Every pattern refuses, so the error names the decorator that erred."""
     tasks = Tasks()
     registered = tasks.every(seconds=INTERVAL)(scheduled_job)
-    wrapped = Fallback("job", when=Exception, default=None)(registered)
-    stack = Stack("job", patterns=[a_retry("job")])
 
     with pytest.raises(TypeError, match="already registered as a task"):
-        stack(wrapped)
+        Fallback("job", when=Exception, default=None)(registered)
+
+
+def test_a_foreign_wrapper_over_a_registered_task_is_refused_too() -> None:
+    """A decorator grelmicro does not own still leaves the schedule behind."""
+    tasks = Tasks()
+    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+
+    @functools.wraps(registered)
+    async def foreign() -> None:
+        """Stand in for a third-party decorator that wraps and returns."""
+
+    stack = Stack("job", patterns=[a_retry("job")])
+
+    with pytest.raises(TypeError, match="was applied to a wrapper around"):
+        stack(foreign)
 
 
 def test_the_scheduled_and_generator_refusals_are_named_by_what_was_passed() -> (
@@ -1264,7 +1278,7 @@ def test_a_decorated_callable_object_keeps_its_name() -> None:
     assert stack(Client()).__qualname__ == "Client"  # ty: ignore[unresolved-attribute]
 
 
-def test_reading_the_scheduled_mark_never_raises() -> None:
+def test_reading_the_registration_mark_never_raises() -> None:
     """A value that refuses attribute access is refused, not propagated."""
 
     class Hostile:
@@ -1274,7 +1288,7 @@ def test_reading_the_scheduled_mark_never_raises() -> None:
             msg = "unbound proxy"
             raise RuntimeError(msg)
 
-    assert is_scheduled(Hostile()) is False
+    assert registration_of(Hostile()) is None
 
 
 def test_an_interrupt_while_reading_the_mark_is_never_swallowed() -> None:
@@ -1287,7 +1301,7 @@ def test_an_interrupt_while_reading_the_mark_is_never_swallowed() -> None:
             raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        is_scheduled(Interrupting())
+        registration_of(Interrupting())
 
 
 async def test_a_cancellation_is_never_turned_into_a_refusal() -> None:

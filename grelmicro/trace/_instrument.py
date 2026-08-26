@@ -19,6 +19,7 @@ from typing_extensions import Doc
 
 from grelmicro._context import pop_context as _pop_context
 from grelmicro._context import push_context as _push_context
+from grelmicro._wrapping import refuse_registered
 from grelmicro.trace._otel import get as _get_otel
 
 if TYPE_CHECKING:
@@ -186,6 +187,7 @@ def instrument[**P, R](
     skip_set = skip or frozenset()
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
+        refuse_registered(fn, "@instrument")
         span_name = name or str(getattr(fn, "__qualname__", fn))
         extract = _make_extract_fields(
             inspect.signature(fn), skip_set, skip_all=skip_all

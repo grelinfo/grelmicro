@@ -23,6 +23,15 @@ async def send_welcome(message: Message[WelcomeEmail]) -> None:
 Delivery is at least once, so a handler must be idempotent. See
 [Delivery semantics](index.md#delivery-semantics).
 
+!!! warning "The handler decorator goes on top"
+
+    `@outbox.handler` registers the function it is handed and returns that
+    same one. A decorator written below it wraps the module-level name,
+    while the registry keeps holding the original, so it applies to direct
+    calls and never to a delivered message. Put `@outbox.handler` on top.
+    Written the other way round, the decorator below refuses with a
+    `TypeError` that names the right order.
+
 ## Publishing to a broker
 
 grelmicro has no publish/subscribe primitive and talks to no broker. Reach for [FastStream](https://faststream.airt.ai/), which covers Kafka, RabbitMQ, NATS, Redis, and MQTT. The two fit together in the handler:

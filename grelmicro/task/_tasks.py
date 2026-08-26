@@ -203,13 +203,15 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         tasks: list[Task] | None,
     ) -> None:
         """Wire the validated config and runtime state onto the instance."""
-        TaskRouter.__init__(self, tasks=tasks, timezone=config.timezone)
+        TaskRouter.__init__(self, timezone=config.timezone)
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._auto_start = auto_start
         self._task_group: asyncio.TaskGroup | None = None
         self._task_handles: list[asyncio.Task[None]] = []
         self._stop = asyncio.Event()
+        for task in tasks or []:
+            self._add_task(task)
 
     @property
     def timezone(self) -> str:

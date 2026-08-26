@@ -135,7 +135,7 @@ A `Stack` composes the six patterns that wrap a call. Anything else is refused a
 |---|---|
 | [`Shield`](shield.md) | On its own. It is already a stack, with its own timeout, retries, and adaptive throttling. |
 | [`@cached`](../cache/cached.md) | Above the Stack, so a hit answers without entering it. |
-| A task decorator (`@tasks.every`, `@tasks.cron`) | Above the Stack. It registers the function it is handed, so a Stack below it would wrap only direct calls and leave every scheduled run unprotected. Written the wrong way round, the Stack refuses. |
+| A registering decorator (`@tasks.every`, `@tasks.cron`, `@health.check`, `@outbox.handler`) | Above the Stack. It records the function it is handed and returns that same one, so a Stack below it would wrap only direct calls and leave every registered run unprotected. Written the wrong way round, every grelmicro decorator refuses. |
 | [`LeaderElection`](../coordination/leader-election.md) | Nowhere in the order. It runs as a service. Gate the work on `leader.is_leader`. |
 | [`Lock`](../coordination/lock.md), [`ReadWriteLock`](../coordination/read-write-lock.md) | Inside the function. Both are keyed and held around a block. |
 | A generator function | Around the code that consumes it, or around the call inside its body. A generator runs its body while it is iterated, so a Stack would wrap building it and nothing else. Refused. |

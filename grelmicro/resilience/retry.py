@@ -46,6 +46,7 @@ from grelmicro._guards import (
     items_of,
     type_name,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.metrics import _emit
@@ -810,7 +811,17 @@ class Retry(Reconfigurable[RetryConfig]):
     def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
 
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
-        """Decorate ``fn`` so each call runs through this retry policy."""
+        """Decorate ``fn`` so each call runs through this retry policy.
+
+        Raises:
+            TypeError: If a registrar already holds `fn`, so this would
+                wrap direct calls alone.
+        """
+        refuse_registered(fn, f"Retry {self._name!r}")
+        return self._wrap(fn)
+
+    def _wrap(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
+        """Wrap `fn` without the guard, for composing inside a `Stack`."""
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)
@@ -854,6 +865,7 @@ def _decorator(
     matcher: Matcher = config.when
 
     def wrap(fn: F) -> F:
+        refuse_registered(fn, "@retry")
         if iscoroutinefunction(fn):
 
             @functools.wraps(fn)

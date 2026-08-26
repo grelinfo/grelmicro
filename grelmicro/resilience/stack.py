@@ -14,7 +14,7 @@ from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
 from grelmicro._guards import is_class, is_instance, name_of
-from grelmicro._markers import is_scheduled
+from grelmicro._wrapping import named, refuse_registered
 from grelmicro.resilience.bulkhead import Bulkhead
 from grelmicro.resilience.circuitbreaker import CircuitBreaker
 from grelmicro.resilience.errors import CircuitBreakerError
@@ -194,9 +194,9 @@ def _as_coroutine_function[**P, R](
     async def target(*args: P.args, **kwargs: P.kwargs) -> R:
         return await fn(*args, **kwargs)
 
-    named = name_of(fn)
-    target.__name__ = named
-    target.__qualname__ = named
+    label = name_of(fn)
+    target.__name__ = label
+    target.__qualname__ = label
     return target
 
 
@@ -219,18 +219,13 @@ def _refuse_generator(fn: object, name: str) -> None:
     if not _is_generator(fn):
         return
     msg = (
-        f"Stack {name!r} does not wrap {_named(fn)}, because a "
+        f"Stack {name!r} does not wrap {named(fn)}, because a "
         "generator runs its body while it is iterated and not when it "
         "is called, so every pattern would wrap building the generator "
         "and nothing else. Wrap the function that consumes it, or the "
         "call inside the body."
     )
     raise TypeError(msg)
-
-
-def _named(fn: object) -> str:
-    """Return the name of a decorated function, for a message."""
-    return getattr(fn, "__qualname__", None) or repr(fn)
 
 
 def _name_of_pattern(item: Pattern) -> str:
@@ -429,20 +424,15 @@ class Stack:
         Raises:
             TypeError: If `fn` is a generator function, `fn` is sync
                 and a pattern in the stack decorates async functions
-                only, or `fn` is already registered as a task.
+                only, or a registrar already holds `fn`. To run a
+                registered async function under the stack, call
+                `Stack.run`. For a sync one, decorate a function that
+                calls it.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
         """
         _refuse_generator(fn, self._name)
-        if is_scheduled(fn):
-            msg = (
-                f"{_named(fn)} is already registered as a task, so the "
-                f"schedule holds it as it is and Stack {self._name!r} "
-                "would only wrap direct calls. Put the task decorator "
-                "on top, above the stack, so it registers the wrapped "
-                "function."
-            )
-            raise TypeError(msg)
+        refuse_registered(fn, f"Stack {self._name!r}")
         if is_async_callable(fn):
             return functools.wraps(fn)(self._build_async(fn))
         blocking = self._async_only()
@@ -452,7 +442,7 @@ class Stack:
             msg = (
                 f"Stack {self._name!r} only decorates async functions, "
                 f"because {names} {'do' if plural else 'does'}. Make "
-                f"{_named(fn)} async, or drop "
+                f"{named(fn)} async, or drop "
                 f"{'those patterns' if plural else 'that pattern'} "
                 "from the stack."
             )
@@ -479,6 +469,9 @@ class Stack:
             TypeError: If `fn` is a generator function or is not async.
             ValueError: If a rate limiter key template names a
                 parameter `fn` does not take.
+
+        A function a registrar holds is accepted here, because this
+        form wraps the call it is making rather than the registration.
         """
         _refuse_generator(fn, self._name)
         if not is_async_callable(fn):
@@ -507,7 +500,7 @@ class Stack:
         call = _as_coroutine_function(fn)
         timeout = members.get(_TIMEOUT)
         if isinstance(timeout, Timeout):
-            call = timeout(call)
+            call = timeout._wrap(call)  # noqa: SLF001
         bulkhead = members.get(_BULKHEAD)
         if isinstance(bulkhead, Bulkhead):
             call = _bulkhead_layer(bulkhead, call, guard=guard_refusal)
@@ -528,12 +521,12 @@ class Stack:
             )
         retry = members.get(_RETRY)
         if isinstance(retry, Retry):
-            call = retry(call)
+            call = retry._wrap(call)  # noqa: SLF001
             if guard_breaker:
                 call = _unwrap_layer(call)
         fallback = members.get(_FALLBACK)
         if isinstance(fallback, Fallback):
-            call = fallback(call)
+            call = fallback._wrap(call)  # noqa: SLF001
         return call
 
     def _build_sync[**P, R](self, fn: Callable[P, R]) -> Callable[P, R]:
@@ -550,12 +543,12 @@ class Stack:
             call = _sync_breaker_layer(breaker, call, guard=guard_breaker)
         retry = members.get(_RETRY)
         if isinstance(retry, Retry):
-            call = retry(call)
+            call = retry._wrap(call)  # noqa: SLF001
             if guard_breaker:
                 call = _sync_unwrap_layer(call)
         fallback = members.get(_FALLBACK)
         if isinstance(fallback, Fallback):
-            call = fallback(call)
+            call = fallback._wrap(call)  # noqa: SLF001
         return call
 
 
@@ -567,7 +560,7 @@ def _bulkhead_layer[**P, R](
 ) -> Callable[P, Awaitable[R]]:
     """Wrap `inner` in the bulkhead, hiding its own refusal when guarded."""
     if not guard:
-        return bulkhead(inner)
+        return bulkhead._wrap(inner)  # noqa: SLF001
 
     async def layer(*args: P.args, **kwargs: P.kwargs) -> R:
         admitted = False
@@ -619,7 +612,7 @@ def _breaker_layer[**P, R](
     layer, so a carrier reaching it is always one of its own.
     """
     if not (unwrap or guard):
-        return breaker(inner)
+        return breaker._wrap(inner)  # noqa: SLF001
 
     async def layer(*args: P.args, **kwargs: P.kwargs) -> R:
         admitted = False
@@ -669,7 +662,7 @@ def _sync_breaker_layer[**P, R](
 ) -> Callable[P, R]:
     """Wrap a sync `inner` in the breaker, hiding its own refusal."""
     if not guard:
-        return breaker(inner)
+        return breaker._wrap(inner)  # noqa: SLF001
 
     def layer(*args: P.args, **kwargs: P.kwargs) -> R:
         admitted = False

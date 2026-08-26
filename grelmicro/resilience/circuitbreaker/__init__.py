@@ -29,6 +29,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic
 from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
@@ -518,10 +519,20 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
     def __call__(
         self, func: Callable[..., Any] | None = None
     ) -> Callable[..., Any] | Self:
-        """Return a decorator that protects a function with the circuit breaker."""
+        """Return a decorator that protects a function with the circuit breaker.
+
+        Raises:
+            TypeError: If a registrar already holds `func`, so this
+                would wrap direct calls alone.
+        """
         if func is None:
             return self
 
+        refuse_registered(func, f"CircuitBreaker {self._name!r}")
+        return self._wrap(func)
+
+    def _wrap(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        """Wrap `func` without the guard, for composing inside a `Stack`."""
         if iscoroutinefunction(func):
 
             @functools.wraps(func)

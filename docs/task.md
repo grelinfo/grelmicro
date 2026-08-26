@@ -52,6 +52,25 @@ Choose the entry point by the job:
 | Run a cron task at most once across replicas | `@tasks.cron(...)` with a [`Coordination`](coordination/index.md) component |
 | Run only on the leader | `@tasks.every(..., leader=leader_election)` |
 
+!!! warning "The task decorator goes on top"
+
+    `@tasks.every` and `@tasks.cron` register the function they are handed
+    and return that same one. A decorator written below one of them wraps
+    the module-level name, while the schedule keeps holding the original,
+    so it applies to direct calls and never to a scheduled run. Put the
+    task decorator on top:
+
+    ```python
+    @tasks.every(seconds=60)
+    @retry(when=Exception, attempts=3)
+    async def refresh_catalog() -> None: ...
+    ```
+
+    Written the other way round, `@retry` refuses with a `TypeError` that
+    names the right order. The same holds for every grelmicro decorator,
+    and for [`@health.check`](health.md) and
+    [`@outbox.handler`](outbox/consumer.md), which register the same way.
+
 Start it standalone using the application lifespan:
 
 === "FastAPI"

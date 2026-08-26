@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
-from grelmicro._markers import mark_scheduled
+from grelmicro._markers import Registered, mark_registered
 from grelmicro.task._utils import normalize_timezone
 from grelmicro.task.errors import TaskAddOperationError
 
@@ -59,11 +59,13 @@ class TaskRouter:
             TimezoneError: If no timezone of that name can be loaded.
         """
         self._started = False
-        self._tasks: list[Any] = tasks or []
+        self._tasks: list[Any] = []
         self._routers: list[TaskRouter] = []
         self._timezone = (
             normalize_timezone(timezone) if timezone is not None else None
         )
+        for task in tasks or []:
+            self._add_task(task)
 
     @property
     def tasks(self) -> list["Task"]:
@@ -83,10 +85,34 @@ class TaskRouter:
         return self._timezone
 
     def add_task(self, task: "Task") -> None:
-        """Add a task to the scheduler."""
+        """Add a task to the scheduler.
+
+        Marks the function a task exposes as `function`, so a decorator
+        applied below the one that registered it is refused instead of
+        wrapping calls the schedule will never make. `IntervalTask` and
+        `CronTask` both expose it. A `Task` of your own is marked when
+        it does the same, and left alone when it does not.
+        """
+        self._add_task(task)
+
+    def _add_task(self, task: "Task") -> None:
+        """Add a task without going through the overridable entry point.
+
+        The constructor adds this way, because a subclass that overrides
+        `add_task` would otherwise run it against a half-built instance
+        of its own.
+        """
         if self._started:
             raise TaskAddOperationError
 
+        try:
+            function = getattr(task, "function", None)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001
+            function = None
+        if callable(function):
+            mark_registered(function, Registered.TASK, self)
         self._tasks.append(task)
 
     def _resolve_timezones(self, inherited: str) -> None:
@@ -209,7 +235,9 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
-            mark_scheduled(function)
+            # `add_task` marks the same function already. This covers a
+            # subclass that overrides it and schedules another way.
+            mark_registered(function, Registered.TASK, self)
             return function
 
         return decorator
@@ -335,7 +363,9 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
-            mark_scheduled(function)
+            # `add_task` marks the same function already. This covers a
+            # subclass that overrides it and schedules another way.
+            mark_registered(function, Registered.TASK, self)
             return function
 
         return decorator

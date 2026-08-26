@@ -23,7 +23,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_instance
-from grelmicro._markers import is_scheduled
+from grelmicro._wrapping import named, refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
 from grelmicro.errors import OutOfContextError
@@ -823,11 +823,6 @@ _DEFAULT_KEY = "default"
 """Bucket a call is metered under when no key is given."""
 
 
-def _named(fn: object) -> str:
-    """Return the name of a decorated function, for a message."""
-    return getattr(fn, "__qualname__", None) or repr(fn)
-
-
 def _template_fields(template: str) -> list[str]:
     """Return the parameter names a key template reads.
 
@@ -1033,11 +1028,11 @@ class RateLimiterBinding:
             names = ", ".join(unknown)
             msg = (
                 f"Rate limiter key template {key!r} names "
-                f"{names}, which {_named(fn)} does not take."
+                f"{names}, which {named(fn)} does not take."
             )
             raise ValueError(msg)
 
-        name = _named(fn)
+        name = named(fn)
 
         def render(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
             try:
@@ -1084,20 +1079,12 @@ class RateLimiterBinding:
         """Decorate `fn` so each call consumes tokens first.
 
         Raises:
-            TypeError: If `fn` is not async, or is already registered
-                as a task.
+            TypeError: If `fn` is not async, or a registrar already
+                holds it.
             ValueError: If a `key` template names a parameter `fn` has
                 not.
         """
-        if is_scheduled(fn):
-            msg = (
-                f"{_named(fn)} is already registered as a task, so the "
-                "schedule holds it as it is and this rate limiter would "
-                "only meter direct calls. Put the task decorator on "
-                "top, above the limiter, so it registers the metered "
-                "function."
-            )
-            raise TypeError(msg)
+        refuse_registered(fn, f"RateLimiter {self._limiter.name!r}")
         if not is_async_callable(fn):
             msg = (
                 "RateLimiter only decorates async functions. Consuming "

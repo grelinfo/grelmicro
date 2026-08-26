@@ -30,6 +30,30 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
 
 `HealthDetails` is a type alias for `dict[str, JSONEncodable]`. Both sync and async check functions are supported. Sync functions run in a worker thread via `asyncio.to_thread` so they never block the event loop.
 
+!!! warning "The check decorator goes on top"
+
+    `@health.check` registers the function it is handed and returns that
+    same one. A decorator written below it wraps the module-level name,
+    while the registry keeps holding the original, so it applies to direct
+    calls and never to a probe. Put `@health.check` on top:
+
+    ```python
+    @health.check("database")
+    @retry(when=TimeoutError, attempts=3)
+    async def check_db() -> None: ...
+    ```
+
+    Written the other way round, `@retry` refuses with a `TypeError` that
+    names the right order.
+
+    A check registered as a bound method, with `health.add("db", svc.check)`,
+    guards that object's method and the class function it runs through.
+    Another instance of the same class is left alone. Wrapping a method
+    loses the object it was bound to, so a decorator that copies the name
+    with `functools.wraps` is not refused, because refusing it would refuse
+    every other instance too. Put the registering decorator on top and the
+    question does not arise.
+
 ### Grelmicro app integration
 
 Register the `HealthChecks` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `Tasks`:

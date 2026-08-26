@@ -402,6 +402,7 @@ class CronTask(Task):
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
+        self._function = function
         self._async_function = self._prepare_async_function(function)
 
         self._misfire_grace_seconds = misfire_grace_seconds
@@ -413,6 +414,16 @@ class CronTask(Task):
         # Whether the body started on the current tick. A failure raised
         # after it started is already counted by `_run_body`.
         self._body_started = False
+
+    @property
+    def function(self) -> Callable[..., Any]:
+        """The function the task runs, as it was registered.
+
+        `Tasks.add_task` reads it to mark the function, so a decorator
+        applied below the one that registered the task is refused
+        rather than silently absent from every run.
+        """
+        return self._function
 
     @property
     def name(self) -> str:

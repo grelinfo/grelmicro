@@ -22,6 +22,7 @@ from grelmicro._config import (
     env_prefixes,
     warn_ignored_env,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic, sleep
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
@@ -596,7 +597,13 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             Doc("Async function to decorate."),
         ],
     ) -> Callable[P, Awaitable[R]]:
-        """Decorate `fn` so each call runs through this Shield."""
+        """Decorate `fn` so each call runs through this Shield.
+
+        Raises:
+            TypeError: If `fn` is not async, or a registrar already
+                holds it, so this would wrap direct calls alone.
+        """
+        refuse_registered(fn, f"Shield {self._name!r}")
         if not inspect.iscoroutinefunction(fn):
             msg = (
                 "Shield only decorates async functions. "

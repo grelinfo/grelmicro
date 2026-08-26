@@ -16,6 +16,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import DeadlineExceededError
 
@@ -196,7 +197,19 @@ class Timeout(Reconfigurable[TimeoutConfig]):
     def __call__[**P, R](
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
-        """Decorate ``fn`` so each call runs under this timeout."""
+        """Decorate ``fn`` so each call runs under this timeout.
+
+        Raises:
+            TypeError: If `fn` is not async, or a registrar already
+                holds it, so this would wrap direct calls alone.
+        """
+        refuse_registered(fn, f"Timeout {self._name!r}")
+        return self._wrap(fn)
+
+    def _wrap[**P, R](
+        self, fn: Callable[P, Awaitable[R]], /
+    ) -> Callable[P, Awaitable[R]]:
+        """Wrap `fn` without the guard, for composing inside a `Stack`."""
         if not iscoroutinefunction(fn):
             msg = (
                 "Timeout only decorates async functions. asyncio cannot "

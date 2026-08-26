@@ -9,6 +9,11 @@ class Task(Protocol):
     """Task Protocol.
 
     A task that runs in background in the async event loop.
+
+    A task that runs a function of its own may expose it as a
+    `function` attribute. `Tasks.add_task` marks what it finds there,
+    so a resilience decorator written below the one that registered the
+    task is refused rather than silently absent from every run.
     """
 
     @property

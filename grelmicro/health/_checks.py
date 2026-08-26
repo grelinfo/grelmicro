@@ -18,6 +18,7 @@ from grelmicro._config import (
     default_env_prefix,
     resolve_config,
 )
+from grelmicro._markers import Registered, mark_registered
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -352,6 +353,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             critical=critical,
             timeout=timeout if timeout is not None else config.timeout,
         )
+        mark_registered(func, Registered.HEALTH_CHECK, self)
         self._entries = dict(sorted(self._entries.items()))
 
     def check[FuncT: HealthCheckFunc](
