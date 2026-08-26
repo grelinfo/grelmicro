@@ -204,18 +204,37 @@ def _parents(tree: ast.Module) -> dict[ast.AST, ast.AST]:
     }
 
 
+_Scoped = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+
+
+def _qualified(node: _Scoped, parents: dict[ast.AST, ast.AST]) -> str:
+    """Return `node`'s dotted path, so two `__call__`s are told apart.
+
+    Every pattern class spells its decorator entry point `__call__`, so
+    a bare name would let a guarded one cover an unguarded one in the
+    same module.
+    """
+    parts = [node.name]
+    current = parents.get(node)
+    while current is not None:
+        if isinstance(current, _Scoped):
+            parts.append(current.name)
+        current = parents.get(current)
+    return ".".join(reversed(parts))
+
+
 def _enclosing(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> list[str]:
     """Return the functions `node` sits inside, innermost first."""
     names: list[str] = []
     current = parents.get(node)
     while current is not None:
         if isinstance(current, _Func):
-            names.append(current.name)
+            names.append(_qualified(current, parents))
         current = parents.get(current)
     return names
 
 
-def _wrappers(tree: ast.Module) -> set[str]:
+def _wrappers(tree: ast.Module, parents: dict[ast.AST, ast.AST]) -> set[str]:
     """Return the functions built as a copy of the one they wrap.
 
     A guard inside one of these runs per call, long after the
@@ -225,11 +244,11 @@ def _wrappers(tree: ast.Module) -> set[str]:
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, _Func):
-            names.update(
-                node.name
+            if any(
+                isinstance(decorator, ast.Call) and _is_wraps(decorator)
                 for decorator in node.decorator_list
-                if isinstance(decorator, ast.Call) and _is_wraps(decorator)
-            )
+            ):
+                names.add(_qualified(node, parents))
         elif isinstance(node, ast.Call) and _is_wraps(node) and node.args:
             first = node.args[0]
             if isinstance(first, ast.Name):
@@ -248,7 +267,7 @@ def _decorated(node: ast.Call, parents: dict[ast.AST, ast.AST]) -> str | None:
     if isinstance(parent, _Func) and any(
         decorator is node for decorator in parent.decorator_list
     ):
-        return parent.name
+        return _qualified(parent, parents)
     return None
 
 
@@ -268,8 +287,13 @@ def _scan(tree: ast.Module) -> _Scan:
     to matter under coverage.
     """
     parents = _parents(tree)
-    functions = {n.name for n in ast.walk(tree) if isinstance(n, _Func)}
-    wrappers = _wrappers(tree)
+    functions = {
+        _qualified(n, parents) for n in ast.walk(tree) if isinstance(n, _Func)
+    }
+    by_name: dict[str, set[str]] = {}
+    for qualified in functions:
+        by_name.setdefault(qualified.rsplit(".", 1)[-1], set()).add(qualified)
+    wrappers = _wrappers(tree, parents)
     scan = _Scan(set(), {name: set() for name in functions}, [])
 
     for node in ast.walk(tree):
@@ -280,9 +304,9 @@ def _scan(tree: ast.Module) -> _Scan:
         if name == "refuse_registered":
             if not any(holder in wrappers for holder in chain):
                 scan.guarded.update(chain)
-        elif name in functions:
+        elif name is not None and name in by_name:
             for holder in chain:
-                scan.calls[holder].add(name)
+                scan.calls[holder].update(by_name[name])
         if _is_wraps(node):
             wrapper = _decorated(node, parents)
             scan.sites.append({holder for holder in chain if holder != wrapper})
@@ -999,29 +1023,30 @@ def test_a_router_that_refuses_its_timezone_marks_nothing() -> None:
     assert registration_of(unbuilt_job) is None
 
 
-def test_a_router_is_whole_before_it_adds_a_task() -> None:
-    """`add_task` is public, so a subclass sees a finished instance."""
+def test_a_subclass_keeps_its_own_construction_order() -> None:
+    """The constructor never runs an override against a half-built object."""
 
-    class Recording(TaskRouter):
-        """A router whose `add_task` reads the state it was built with."""
+    class Audited(TaskRouter):
+        """A router that records what it was asked to add."""
 
-        def __init__(
-            self, *, tasks: list[Task], timezone: str | None = None
-        ) -> None:
-            self.seen: list[str | None] = []
-            super().__init__(tasks=tasks, timezone=timezone)
+        def __init__(self, *, tasks: list[Task]) -> None:
+            super().__init__(tasks=tasks)
+            self.seen: list[Task] = []
 
         def add_task(self, task: Task) -> None:
-            """Read the timezone the router was built with, then add."""
-            self.seen.append(self.timezone)
+            """Record the task, then add it."""
+            self.seen.append(task)
             super().add_task(task)
 
-    router = Recording(
-        tasks=[IntervalTask(function=subclassed_job, seconds=60)],
-        timezone="Europe/Zurich",
-    )
+    router = Audited(tasks=[IntervalTask(function=subclassed_job, seconds=60)])
 
-    assert router.seen == ["Europe/Zurich"]
+    assert router.seen == []
+    assert len(router.tasks) == 1
+    assert registration_of(subclassed_job) is not None
+
+    router.add_task(IntervalTask(function=constructed_job, seconds=30))
+
+    assert len(router.seen) == 1
 
 
 def test_the_outermost_registrar_is_the_one_named() -> None:
@@ -1153,3 +1178,25 @@ def test_a_mark_with_no_registry_never_replaces_one_that_has_it() -> None:
 
     assert len(getattr(unowned_job, markers.REGISTRATION)) == KINDS
     assert live.tasks
+
+
+def test_the_contract_test_tells_two_dunder_calls_apart() -> None:
+    """Every pattern spells its entry point `__call__`, so names collide."""
+    both = """
+import functools
+
+class Guarded:
+    def __call__(self, fn):
+        refuse_registered(fn, "@guarded")
+
+        @functools.wraps(fn)
+        def wrapper(): ...
+        return wrapper
+
+class Forgotten:
+    def __call__(self, fn):
+        @functools.wraps(fn)
+        def wrapper(): ...
+        return wrapper
+"""
+    assert _unguarded_wraps_sites(both) == 1

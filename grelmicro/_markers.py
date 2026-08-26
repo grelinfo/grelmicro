@@ -32,6 +32,7 @@ object's alone.
 
 from __future__ import annotations
 
+import threading
 import weakref
 from enum import Enum
 from typing import NamedTuple, cast
@@ -45,6 +46,15 @@ __all__ = [
 
 REGISTRATION = "__grelmicro_registration__"
 """Attribute a registrar leaves on a function it has recorded."""
+
+_WRITING = threading.Lock()
+"""Serialises the read of a function's marks and the write back.
+
+Two threads building an app each register the same module-level
+function, and both read the marks before either writes. Without this
+the second write drops the first registrar's mark, which is the silent
+absence the mark exists to refuse.
+"""
 
 
 class Registered(Enum):
@@ -144,13 +154,14 @@ def mark_registered(
     fresh = Registration(kind, holder, owner, held_by)
     try:
         instance = owner() if owner is not None else None
-        kept = tuple(
-            existing
-            for existing in _marks(target)
-            if not _gone(existing)
-            and not _superseded(existing, kind, instance, registrar)
-        )
-        setattr(target, REGISTRATION, (*kept, fresh))
+        with _WRITING:
+            kept = tuple(
+                existing
+                for existing in _marks(target)
+                if not _gone(existing)
+                and not _superseded(existing, kind, instance, registrar)
+            )
+            setattr(target, REGISTRATION, (*kept, fresh))
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001, S110

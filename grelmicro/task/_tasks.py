@@ -202,11 +202,7 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         auto_start: bool,
         tasks: list[Task] | None,
     ) -> None:
-        """Wire the validated config and runtime state onto the instance.
-
-        The tasks go on last, because `add_task` is public and a
-        subclass that overrides it reads state this sets.
-        """
+        """Wire the validated config and runtime state onto the instance."""
         TaskRouter.__init__(self, timezone=config.timezone)
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
@@ -215,7 +211,7 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         self._task_handles: list[asyncio.Task[None]] = []
         self._stop = asyncio.Event()
         for task in tasks or []:
-            self.add_task(task)
+            self._add_task(task)
 
     @property
     def timezone(self) -> str:

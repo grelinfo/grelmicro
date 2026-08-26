@@ -55,11 +55,6 @@ class TaskRouter:
     ) -> None:
         """Initialize the task router.
 
-        Anything in `tasks` goes through `add_task`, so a subclass that
-        overrides it sees those tasks too. The router is whole before
-        the first one is added, so an override reads a built instance.
-        A subclass of its own has to set its state before it calls this.
-
         Raises:
             TimezoneError: If no timezone of that name can be loaded.
         """
@@ -70,7 +65,7 @@ class TaskRouter:
             normalize_timezone(timezone) if timezone is not None else None
         )
         for task in tasks or []:
-            self.add_task(task)
+            self._add_task(task)
 
     @property
     def tasks(self) -> list["Task"]:
@@ -97,6 +92,15 @@ class TaskRouter:
         wrapping calls the schedule will never make. `IntervalTask` and
         `CronTask` both expose it. A `Task` of your own is marked when
         it does the same, and left alone when it does not.
+        """
+        self._add_task(task)
+
+    def _add_task(self, task: "Task") -> None:
+        """Add a task without going through the overridable entry point.
+
+        The constructor adds this way, because a subclass that overrides
+        `add_task` would otherwise run it against a half-built instance
+        of its own.
         """
         if self._started:
             raise TaskAddOperationError
