@@ -93,6 +93,18 @@ async def unreferenced_job() -> None:
     """Do nothing, from the module level a schedule requires."""
 
 
+async def shared_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def twice_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def unowned_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
 WRAPS_WITHOUT_GUARD = {
     # Records calls on a fake backend's own methods, never a user function.
     "testing.py",
@@ -1022,3 +1034,38 @@ def test_a_registry_no_reference_can_name_still_marks() -> None:
     mark_registered(unreferenced_job, Registered.TASK, Registry())
 
     assert registration_of(unreferenced_job) is not None
+
+
+def test_a_second_registry_never_evicts_a_live_one() -> None:
+    """Two registries holding one function each keep their own mark."""
+    live = Tasks()
+    live.every(seconds=60)(shared_job)
+
+    _mark_from_a_passing_registry(shared_job)
+    gc.collect()
+
+    assert registration_of(shared_job) is not None
+    assert live.tasks
+
+    with pytest.raises(TypeError, match="already registered as a task"):
+        Retry("r", when=Exception)(shared_job)
+
+
+def test_the_same_registry_replaces_its_own_mark() -> None:
+    """One registry registering twice needs one mark, not two."""
+    tasks = Tasks()
+    tasks.every(seconds=60)(twice_job)
+    tasks.every(seconds=30)(twice_job)
+
+    assert len(getattr(twice_job, markers.REGISTRATION)) == 1
+
+
+def test_a_mark_with_no_registry_never_replaces_one_that_has_it() -> None:
+    """A mark written without a registry says nothing about another's."""
+    live = Tasks()
+    live.every(seconds=60)(unowned_job)
+
+    mark_registered(unowned_job, Registered.TASK)
+
+    assert len(getattr(unowned_job, markers.REGISTRATION)) == KINDS
+    assert live.tasks

@@ -147,7 +147,8 @@ def mark_registered(
         kept = tuple(
             existing
             for existing in _marks(target)
-            if not _gone(existing) and not _superseded(existing, kind, instance)
+            if not _gone(existing)
+            and not _superseded(existing, kind, instance, registrar)
         )
         setattr(target, REGISTRATION, (*kept, fresh))
     except (KeyboardInterrupt, SystemExit):
@@ -171,17 +172,26 @@ def _gone(registration: Registration) -> bool:
 
 
 def _superseded(
-    registration: Registration, kind: Registered, instance: object
+    registration: Registration,
+    kind: Registered,
+    instance: object,
+    registrar: object,
 ) -> bool:
     """Return whether a fresh mark says what `registration` already said.
 
-    One function registered twice the same way needs one mark, or a
-    module-level function re-registered on every app build accumulates
-    them for the life of the process. Registered two different ways, it
-    keeps both, so the refusal can name a registrar that really holds it.
+    Only the registrar that wrote a mark replaces it. Two of them
+    holding one function each keep their own, so the one that outlives
+    the other still refuses. A mark whose registrar is gone is dropped
+    by `_gone` instead, which is what bounds them.
     """
     if registration.kind is not kind:
         return False
+    if registration.registrar is not None or registrar is not None:
+        if registrar is None:
+            return False
+        existing = registration.registrar
+        if existing is None or existing() is not registrar:
+            return False
     owner = registration.owner
     if owner is None:
         return instance is None

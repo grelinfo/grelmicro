@@ -55,6 +55,11 @@ class TaskRouter:
     ) -> None:
         """Initialize the task router.
 
+        Anything in `tasks` goes through `add_task`, so a subclass that
+        overrides it sees those tasks too. The router is whole before
+        the first one is added, so an override reads a built instance.
+        A subclass of its own has to set its state before it calls this.
+
         Raises:
             TimezoneError: If no timezone of that name can be loaded.
         """
