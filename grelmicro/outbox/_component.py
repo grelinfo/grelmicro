@@ -312,7 +312,7 @@ class Outbox:
             fn: Callable[[Message[Any]], Awaitable[None]],
         ) -> Callable[[Message[Any]], Awaitable[None]]:
             self._registry.register(target, fn, topic=topic)
-            mark_registered(fn, Registered.OUTBOX_HANDLER)
+            mark_registered(fn, Registered.OUTBOX_HANDLER, self)
             return fn
 
         return decorator

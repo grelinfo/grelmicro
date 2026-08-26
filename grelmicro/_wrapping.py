@@ -59,6 +59,9 @@ def refuse_registered(function: object, by: str) -> None:
         f"name, so the wrapper reads as {registered} and the "
         f"registration still holds what it recorded, which leaves {by} "
         f"wrapping direct calls alone. Put the decorator that registers "
-        f"it on top, above {by}."
+        f"it on top, above {by}. To wrap direct calls alone, apply {by} "
+        f"to a function that calls {registered} without copying its "
+        f"name, so `functools.wraps` does not carry the registration "
+        f"across."
     )
     raise TypeError(msg)

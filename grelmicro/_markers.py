@@ -61,6 +61,7 @@ class Registration(NamedTuple):
     kind: Registered
     holder: weakref.ref[object] | None
     owner: weakref.ref[object] | None
+    registrar: weakref.ref[object] | None
 
     def holds(self, function: object) -> bool:
         """Return whether this mark names `function` itself.
@@ -111,7 +112,9 @@ def _underlying(function: object) -> object:
         return function
 
 
-def mark_registered(function: object, kind: Registered) -> None:
+def mark_registered(
+    function: object, kind: Registered, registrar: object = None
+) -> None:
     """Mark `function` as recorded by a registrar.
 
     A bound method carries no attribute of its own, so the function
@@ -128,11 +131,17 @@ def mark_registered(function: object, kind: Registered) -> None:
         holder: weakref.ref[object] | None = weakref.ref(target)
     except TypeError:
         holder = None
+    try:
+        held_by: weakref.ref[object] | None = (
+            weakref.ref(registrar) if registrar is not None else None
+        )
+    except TypeError:
+        held_by = None
     owner = _owner(function)
     if owner is UNNAMEABLE_OWNER:
         return
     owner = cast("weakref.ref[object] | None", owner)
-    fresh = Registration(kind, holder, owner)
+    fresh = Registration(kind, holder, owner, held_by)
     try:
         instance = owner() if owner is not None else None
         kept = tuple(
@@ -148,9 +157,17 @@ def mark_registered(function: object, kind: Registered) -> None:
 
 
 def _gone(registration: Registration) -> bool:
-    """Return whether the instance a mark names no longer exists."""
-    owner = registration.owner
-    return owner is not None and owner() is None
+    """Return whether a mark names something that no longer exists.
+
+    A registration lives as long as the registrar holding it, so a mark
+    written by a router or a registry that has since been collected
+    holds nothing. That is what lets an app factory build the same
+    module-level function into a fresh app again.
+    """
+    for reference in (registration.owner, registration.registrar):
+        if reference is not None and reference() is None:
+            return True
+    return False
 
 
 def _superseded(
@@ -208,6 +225,8 @@ def _answers(
     it as a `functools.wraps` copy, and None when it holds nothing that
     the function has to do with.
     """
+    if _gone(registration):
+        return None
     holder = registration.holder
     held = holder() if holder is not None else None
     if holder is not None and held is None:
@@ -216,8 +235,6 @@ def _answers(
     if owner is None:
         return _DIRECT if held is None or held is target else _INHERITED
     bound = owner()
-    if bound is None:
-        return None
     if bound is bound_to or (bound_to is None and held is target):
         return _DIRECT
     return None

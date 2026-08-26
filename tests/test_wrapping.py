@@ -81,6 +81,18 @@ async def subclassed_job() -> None:
     """Do nothing, from the module level a schedule requires."""
 
 
+async def rebuilt_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def live_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def unreferenced_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
 WRAPS_WITHOUT_GUARD = {
     # Records calls on a fake backend's own methods, never a user function.
     "testing.py",
@@ -413,7 +425,7 @@ def test_the_marker_module_names_what_it_exports() -> None:
 
 def test_a_mark_that_could_not_name_its_function_still_counts() -> None:
     """A callable no weak reference can name is held by presence alone."""
-    registration = markers.Registration(Registered.TASK, None, None)
+    registration = markers.Registration(Registered.TASK, None, None, None)
 
     assert registration.holds(object()) is True
 
@@ -497,9 +509,10 @@ def test_a_handler_the_registry_refused_is_never_marked() -> None:
 
 def test_a_task_passed_to_the_constructor_is_marked_too() -> None:
     """`Tasks(tasks=[...])` reaches the schedule without `add_task`."""
-    Tasks(tasks=[IntervalTask(function=constructed_job, seconds=60)])
+    tasks = Tasks(tasks=[IntervalTask(function=constructed_job, seconds=60)])
 
     assert registration_of(constructed_job) is not None
+    assert tasks.tasks
 
 
 def test_reading_what_a_method_is_bound_to_never_raises() -> None:
@@ -563,7 +576,7 @@ def test_a_mark_attribute_that_is_not_a_mark_is_ignored() -> None:
 
 def _marked(kind: Registered = Registered.TASK) -> tuple[markers.Registration]:
     """Return a mark naming nothing, so only the read under test matters."""
-    return (markers.Registration(kind, None, None),)
+    return (markers.Registration(kind, None, None, None),)
 
 
 def test_an_interrupt_while_reading_the_owner_of_a_mark_is_never_swallowed() -> (
@@ -956,3 +969,56 @@ async def test_every_pattern_composes_a_registered_function_in_run(
         await stack.run(probe)
 
         assert registration_of(probe) is not None
+
+
+def _mark_from_a_passing_registry(function: object) -> None:
+    """Mark `function` from a registrar that does not outlive this call.
+
+    The registrar is built and dropped inside this frame, so it is gone
+    by the time the caller looks, with no reliance on when a collection
+    happens to run.
+    """
+
+    class Registry:
+        """Stand in for a `Tasks`, a `HealthChecks`, or an `Outbox`."""
+
+    mark_registered(function, Registered.TASK, Registry())
+
+
+def test_a_mark_dies_with_the_registry_that_wrote_it() -> None:
+    """An app factory builds one module-level function into a fresh app."""
+    _mark_from_a_passing_registry(rebuilt_job)
+    gc.collect()
+
+    assert registration_of(rebuilt_job) is None
+
+    tasks = Tasks()
+    tasks.every(seconds=60)(Retry("r", when=Exception)(rebuilt_job))
+
+    assert tasks.tasks
+
+
+def test_a_mark_answers_while_its_registry_is_alive() -> None:
+    """The mark holds only as long as something can still run it."""
+
+    class Registry:
+        """Stand in for a `Tasks`, a `HealthChecks`, or an `Outbox`."""
+
+    registry = Registry()
+    mark_registered(live_job, Registered.TASK, registry)
+
+    assert registration_of(live_job) is not None
+    assert registry is not None
+
+
+def test_a_registry_no_reference_can_name_still_marks() -> None:
+    """A registrar that refuses a weak reference is one that never dies."""
+
+    class Registry:
+        """A registrar with no `__weakref__` of its own."""
+
+        __slots__ = ()
+
+    mark_registered(unreferenced_job, Registered.TASK, Registry())
+
+    assert registration_of(unreferenced_job) is not None

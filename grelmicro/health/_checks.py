@@ -347,7 +347,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         if name in self._entries:
             msg = f"Health check '{name}' is already registered"
             raise ValueError(msg)
-        mark_registered(func, Registered.HEALTH_CHECK)
+        mark_registered(func, Registered.HEALTH_CHECK, self)
         self._entries[name] = _Entry(
             name=name,
             func=_normalize(func),

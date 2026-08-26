@@ -484,7 +484,12 @@ class Fallback(Reconfigurable[FallbackConfig]):
     def __call__[**P, R](self, fn: Callable[P, R], /) -> Callable[P, R]: ...
 
     def __call__(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
-        """Decorate ``fn`` so each call runs through this fallback policy."""
+        """Decorate ``fn`` so each call runs through this fallback policy.
+
+        Raises:
+            TypeError: If a registrar already holds `fn`, so this would
+                wrap direct calls alone.
+        """
         refuse_registered(fn, f"Fallback {self._name!r}")
         return self._wrap(fn)
 

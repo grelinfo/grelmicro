@@ -197,7 +197,12 @@ class Timeout(Reconfigurable[TimeoutConfig]):
     def __call__[**P, R](
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
-        """Decorate ``fn`` so each call runs under this timeout."""
+        """Decorate ``fn`` so each call runs under this timeout.
+
+        Raises:
+            TypeError: If `fn` is not async, or a registrar already
+                holds it, so this would wrap direct calls alone.
+        """
         refuse_registered(fn, f"Timeout {self._name!r}")
         return self._wrap(fn)
 

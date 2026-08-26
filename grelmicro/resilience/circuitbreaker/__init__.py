@@ -519,7 +519,12 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
     def __call__(
         self, func: Callable[..., Any] | None = None
     ) -> Callable[..., Any] | Self:
-        """Return a decorator that protects a function with the circuit breaker."""
+        """Return a decorator that protects a function with the circuit breaker.
+
+        Raises:
+            TypeError: If a registrar already holds `func`, so this
+                would wrap direct calls alone.
+        """
         if func is None:
             return self
 

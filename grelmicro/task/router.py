@@ -103,7 +103,7 @@ class TaskRouter:
         except BaseException:  # noqa: BLE001
             function = None
         if callable(function):
-            mark_registered(function, Registered.TASK)
+            mark_registered(function, Registered.TASK, self)
         self._tasks.append(task)
 
     def _resolve_timezones(self, inherited: str) -> None:
