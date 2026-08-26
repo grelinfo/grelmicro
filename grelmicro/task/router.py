@@ -235,6 +235,8 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
+            # `add_task` marks the same function already. This covers a
+            # subclass that overrides it and schedules another way.
             mark_registered(function, Registered.TASK, self)
             return function
 
@@ -361,6 +363,8 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
+            # `add_task` marks the same function already. This covers a
+            # subclass that overrides it and schedules another way.
             mark_registered(function, Registered.TASK, self)
             return function
 
