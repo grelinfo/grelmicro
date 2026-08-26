@@ -121,6 +121,14 @@ async def refused_cron_job() -> None:
     """Do nothing, from the module level a schedule requires."""
 
 
+async def first_check() -> None:
+    """Answer a probe, from the module level."""
+
+
+async def second_check() -> None:
+    """Lose the name to the first check."""
+
+
 WRAPS_WITHOUT_GUARD = {
     # Records calls on a fake backend's own methods, never a user function.
     "testing.py",
@@ -1260,3 +1268,16 @@ def test_a_cron_the_router_refused_is_never_marked() -> None:
         tasks.cron("not a cron expression")(refused_cron_job)
 
     assert registration_of(refused_cron_job) is None
+
+
+def test_a_check_the_registry_refused_is_never_marked() -> None:
+    """Every registrar marks only once it holds what it was handed."""
+    checks = HealthChecks()
+    checks.add("db", first_check)
+
+    with pytest.raises(ValueError, match="already registered"):
+        checks.add("db", second_check)
+
+    assert registration_of(second_check) is None
+
+    Retry("r", when=Exception)(second_check)

@@ -47,11 +47,12 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
     names the right order.
 
     A check registered as a bound method, with `health.add("db", svc.check)`,
-    is guarded for that object alone. Wrapping a method loses the object it
-    was bound to, so a decorator that copies the name with `functools.wraps`
-    is not refused, and refusing it would refuse every other instance of the
-    same class. Put the registering decorator on top and the question does
-    not arise.
+    guards that object's method and the class function it runs through.
+    Another instance of the same class is left alone. Wrapping a method
+    loses the object it was bound to, so a decorator that copies the name
+    with `functools.wraps` is not refused, because refusing it would refuse
+    every other instance too. Put the registering decorator on top and the
+    question does not arise.
 
 ### Grelmicro app integration
 
