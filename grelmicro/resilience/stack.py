@@ -194,9 +194,9 @@ def _as_coroutine_function[**P, R](
     async def target(*args: P.args, **kwargs: P.kwargs) -> R:
         return await fn(*args, **kwargs)
 
-    named = name_of(fn)
-    target.__name__ = named
-    target.__qualname__ = named
+    label = name_of(fn)
+    target.__name__ = label
+    target.__qualname__ = label
     return target
 
 
