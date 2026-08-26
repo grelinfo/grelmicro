@@ -113,6 +113,14 @@ async def rogue_job() -> None:
     """Do nothing, from the module level a schedule requires."""
 
 
+async def refused_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
+async def refused_cron_job() -> None:
+    """Do nothing, from the module level a schedule requires."""
+
+
 WRAPS_WITHOUT_GUARD = {
     # Records calls on a fake backend's own methods, never a user function.
     "testing.py",
@@ -1230,3 +1238,25 @@ def test_a_task_decorator_marks_whatever_the_router_does_with_it() -> None:
     assert registration_of(rogue_job) is not None
     assert len(getattr(rogue_job, markers.REGISTRATION)) == 1
     assert router.tasks
+
+
+def test_a_task_the_router_refused_is_never_marked() -> None:
+    """A mark records what a registrar holds, so it follows the schedule."""
+    tasks = Tasks()
+
+    with pytest.raises(ValueError, match="seconds must be greater than 0"):
+        tasks.every(seconds=-1)(refused_job)
+
+    assert registration_of(refused_job) is None
+
+    Retry("r", when=Exception)(refused_job)
+
+
+def test_a_cron_the_router_refused_is_never_marked() -> None:
+    """The same holds for the other task decorator."""
+    tasks = Tasks()
+
+    with pytest.raises(ValueError, match=r"[Cc]ron"):
+        tasks.cron("not a cron expression")(refused_cron_job)
+
+    assert registration_of(refused_cron_job) is None

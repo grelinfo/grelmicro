@@ -225,7 +225,6 @@ class TaskRouter:
         def decorator(
             function: Callable[[], Awaitable[None] | None],
         ) -> Callable[[], Awaitable[None] | None]:
-            mark_registered(function, Registered.TASK, self)
             self.add_task(
                 IntervalTask(
                     name=name,
@@ -236,6 +235,7 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
+            mark_registered(function, Registered.TASK, self)
             return function
 
         return decorator
@@ -350,7 +350,6 @@ class TaskRouter:
         def decorator(
             function: Callable[[], Awaitable[None] | None],
         ) -> Callable[[], Awaitable[None] | None]:
-            mark_registered(function, Registered.TASK, self)
             self.add_task(
                 CronTask(
                     name=name,
@@ -362,6 +361,7 @@ class TaskRouter:
                     sync=sync,
                 ),
             )
+            mark_registered(function, Registered.TASK, self)
             return function
 
         return decorator
