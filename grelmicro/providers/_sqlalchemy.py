@@ -10,9 +10,15 @@ database sees one pool.
 
 from __future__ import annotations
 
+import asyncio
+from logging import getLogger
 from typing import TYPE_CHECKING, Any, cast
 
+from asyncpg import InterfaceError
+
 from grelmicro.errors import SettingsValidationError
+
+logger = getLogger("grelmicro.providers")
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
@@ -106,15 +112,24 @@ class EnginePool:
     commits is never rolled back by a transaction the caller opened.
     """
 
-    __slots__ = ("_borrowed", "_engine")
+    __slots__ = ("_borrowed", "_closed", "_engine")
 
     def __init__(self, engine: AsyncEngine) -> None:
         """Initialize the facade over an already validated engine."""
         self._engine = engine
         self._borrowed: dict[Connection, AsyncConnection] = {}
+        self._closed = False
 
     async def checkout(self) -> Connection:
-        """Borrow a connection from the engine and unwrap it to asyncpg."""
+        """Borrow a connection from the engine and unwrap it to asyncpg.
+
+        Raises:
+            InterfaceError: When the pool has been closed, matching what
+                a closed `asyncpg.Pool` raises.
+        """
+        if self._closed:
+            msg = "pool is closed"
+            raise InterfaceError(msg)
         connection = await self._engine.connect().start()
         try:
             raw = await connection.get_raw_connection()
@@ -126,9 +141,41 @@ class EnginePool:
         return driver
 
     async def release(self, conn: Connection) -> None:
-        """Return a borrowed connection to the engine's pool."""
+        """Reset a borrowed connection and give it back to the engine.
+
+        The connection goes back into the application's pool, so it is
+        reset first: an open transaction, a `LISTEN`, a session setting,
+        or an advisory lock left by grelmicro would otherwise be found by
+        whichever part of the application checks it out next. The reset
+        is shielded, because a caller cancelled mid-statement would
+        otherwise return a connection with a cancel still in flight.
+
+        A connection that cannot be reset is invalidated rather than
+        pooled, so a broken one is never handed to the application.
+        """
         connection = self._borrowed.pop(conn, None)
-        if connection is not None:
+        if connection is None:
+            return
+        try:
+            await asyncio.shield(conn.reset())
+        except asyncio.CancelledError:
+            await self._discard(connection)
+            raise
+        except Exception:
+            logger.warning(
+                "Could not reset a Postgres connection, dropping it instead "
+                "of returning it to the engine.",
+                exc_info=True,
+            )
+            await self._discard(connection)
+        else:
+            await connection.close()
+
+    async def _discard(self, connection: AsyncConnection) -> None:
+        """Invalidate a connection so the engine never pools it again."""
+        try:
+            await connection.invalidate()
+        finally:
             await connection.close()
 
     def acquire(self) -> _Acquire:
@@ -163,12 +210,24 @@ class EnginePool:
             return await conn.fetchval(query, *args)
 
     async def release_all(self) -> None:
-        """Give every outstanding connection back, keeping the engine open."""
+        """Give every outstanding connection back, keeping the engine open.
+
+        One connection that refuses to close never strands the rest: this
+        runs from the provider's shutdown, where a raise would also
+        replace whatever error was already on its way out.
+        """
         while self._borrowed:
-            _, connection = self._borrowed.popitem()
-            await connection.close()
+            conn = next(iter(self._borrowed))
+            try:
+                await self.release(conn)
+            except Exception:
+                logger.warning(
+                    "Could not return a Postgres connection to the engine.",
+                    exc_info=True,
+                )
 
     async def close(self) -> None:
         """Give every outstanding connection back and dispose the engine."""
+        self._closed = True
         await self.release_all()
         await self._engine.dispose()

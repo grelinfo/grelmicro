@@ -1,5 +1,6 @@
 """Tests for `PostgresProvider`."""
 
+import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
 from typing import Any, cast
@@ -287,9 +288,9 @@ class TestFromEngine:
 
         provider = PostgresProvider.from_engine(engine)
 
-        assert provider.url == ASYNCPG_URL
+        assert provider.url == URL
         assert provider.safe_url == (
-            "postgresql+asyncpg://test_user:***@test_host:1234/test_db"
+            "postgresql://test_user:***@test_host:1234/test_db"
         )
 
     def test_session_refused(self) -> None:
@@ -946,6 +947,7 @@ class _FakeSAConnection:
         self.driver = driver
         self.raw_error = raw_error
         self.closed = False
+        self.invalidated = False
 
     async def start(self) -> "_FakeSAConnection":
         """Return the started connection, as SQLAlchemy does."""
@@ -960,6 +962,10 @@ class _FakeSAConnection:
         raw.driver_connection = self.driver
         return raw
 
+    async def invalidate(self) -> None:
+        """Mark the connection as never to be pooled again."""
+        self.invalidated = True
+
     async def close(self) -> None:
         """Return the connection to the engine's pool."""
         self.closed = True
@@ -968,8 +974,11 @@ class _FakeSAConnection:
 class _FakeEngine:
     """Stand in for an `AsyncEngine`, handing out fake checkouts."""
 
-    def __init__(self, *, raw_error: bool = False) -> None:
+    def __init__(
+        self, *, raw_error: bool = False, reset_error: bool = False
+    ) -> None:
         self.raw_error = raw_error
+        self.reset_error = reset_error
         self.connections: list[_FakeSAConnection] = []
         self.disposed = False
 
@@ -981,6 +990,11 @@ class _FakeEngine:
         driver.fetch = AsyncMock(return_value=["row"])
         driver.fetchrow = AsyncMock(return_value="row")
         driver.fetchval = AsyncMock(return_value=1)
+        driver.reset = AsyncMock(
+            side_effect=ConnectionError("reset failed")
+            if self.reset_error
+            else None
+        )
         connection = _FakeSAConnection(driver, raw_error=self.raw_error)
         self.connections.append(connection)
         return connection
@@ -994,11 +1008,13 @@ class _FakeEngine:
 class TestEnginePool:
     """The pool surface `from_engine` serves to the adapters."""
 
-    def make(self, *, raw_error: bool = False) -> tuple[Any, _FakeEngine]:
+    def make(
+        self, *, raw_error: bool = False, reset_error: bool = False
+    ) -> tuple[Any, _FakeEngine]:
         """Build a pool over a fake engine."""
         from grelmicro.providers._sqlalchemy import EnginePool  # noqa: PLC0415
 
-        engine = _FakeEngine(raw_error=raw_error)
+        engine = _FakeEngine(raw_error=raw_error, reset_error=reset_error)
         return EnginePool(cast("AsyncEngine", engine)), engine
 
     async def test_acquire_awaited_hands_the_connection_over(self) -> None:
@@ -1061,6 +1077,76 @@ class TestEnginePool:
         await pool.executemany("SELECT $1", [(1,), (2,)])
 
         assert len(engine.connections) == statements
+        assert all(connection.closed for connection in engine.connections)
+
+    async def test_release_resets_the_connection(self) -> None:
+        """A connection is reset before it goes back to the application."""
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+        await pool.release(conn)
+
+        conn.reset.assert_awaited_once()
+        assert engine.connections[0].closed
+        assert not engine.connections[0].invalidated
+
+    async def test_unresettable_connection_is_not_pooled(self) -> None:
+        """A connection that cannot be reset is dropped, never handed back."""
+        pool, engine = self.make(reset_error=True)
+
+        conn = await pool.acquire()
+        await pool.release(conn)
+
+        assert engine.connections[0].invalidated
+
+    async def test_checkout_after_close_is_refused(self) -> None:
+        """A closed pool refuses to open a fresh connection."""
+        from asyncpg import InterfaceError  # noqa: PLC0415
+
+        pool, _ = self.make()
+        await pool.close()
+
+        with pytest.raises(InterfaceError, match="pool is closed"):
+            await pool.checkout()
+
+    async def test_release_all_survives_one_failure(self) -> None:
+        """One connection that will not reset never strands the others."""
+        pool, engine = self.make(reset_error=True)
+        borrowed = 2
+
+        for _ in range(borrowed):
+            await pool.acquire()
+
+        await pool.release_all()
+
+        assert len(engine.connections) == borrowed
+        assert all(c.invalidated for c in engine.connections)
+
+    async def test_cancelled_reset_drops_and_propagates(self) -> None:
+        """A cancelled reset drops the connection and keeps the cancel."""
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+        conn.reset = AsyncMock(side_effect=asyncio.CancelledError)
+
+        with pytest.raises(asyncio.CancelledError):
+            await pool.release(conn)
+
+        assert engine.connections[0].invalidated
+
+    async def test_release_all_survives_a_failing_discard(self) -> None:
+        """A connection that cannot even be dropped never stalls shutdown."""
+        pool, engine = self.make(reset_error=True)
+
+        await pool.acquire()
+        await pool.acquire()
+        for connection in engine.connections:
+            connection.invalidate = AsyncMock(  # type: ignore[method-assign]
+                side_effect=ConnectionError("gone")
+            )
+
+        await pool.release_all()
+
         assert all(connection.closed for connection in engine.connections)
 
     async def test_close_disposes_the_engine(self) -> None:

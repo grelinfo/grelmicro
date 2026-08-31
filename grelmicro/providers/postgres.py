@@ -301,6 +301,14 @@ class PostgresProvider(Provider):
         grelmicro runs inside it disappears when that transaction rolls
         back.
 
+        `client` then serves the part of the `asyncpg.Pool` surface the
+        adapters use: `acquire`, `release`, `execute`, `executemany`,
+        `fetch`, `fetchrow`, `fetchval`, and `close`. The pool-management
+        calls (`terminate`, `get_size`, `expire_connections`,
+        `copy_records_to_table`, and `acquire(timeout=...)`) belong to a
+        pool grelmicro opened, so they are absent here. Reach for the
+        engine for anything beyond running a statement.
+
         Raises:
             SettingsValidationError: When the argument is not an
                 `AsyncEngine`, or its dialect is not `postgresql+asyncpg`.
@@ -308,7 +316,9 @@ class PostgresProvider(Provider):
         validated = validate_engine(engine)
         self = cls.__new__(cls)
         self._env_prefix = "POSTGRES_"
-        self._url = validated.url.render_as_string(hide_password=False)
+        self._url = _normalize_scheme(
+            validated.url.render_as_string(hide_password=False)
+        )
         self._command_timeout = None
         self._pool = cast("Pool", EnginePool(validated))
         self._own = own

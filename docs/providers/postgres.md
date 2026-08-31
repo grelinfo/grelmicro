@@ -70,10 +70,17 @@ back. The database sees one pool, sized by the settings the app already
 chose, and the app keeps ownership: the provider never disposes an engine
 it was handed.
 
-Leave room for grelmicro when sizing the engine. A lock, a cache, and a
-rate limiter each borrow a connection for the length of one call, and the
-[outbox](../outbox/index.md) listener holds one for as long as the app
-runs.
+Size the engine for two connections per request, not one. A request that
+already holds a connection, inside `async with session.begin()`, needs a
+second one the moment it takes a lock or reads the cache. With
+`pool_size=10` and no overflow, ten such requests at once each hold one
+connection and wait for another, and every one of them blocks for
+`pool_timeout` before failing. Raise `pool_size`, or leave `max_overflow`
+room, so grelmicro is never queued behind the request that is calling it.
+
+Budget one more for the [outbox](../outbox/index.md) listener, which holds
+a connection for as long as the app runs. A lock, a cache, and a rate
+limiter each borrow one only for the length of a call.
 
 The engine has to use the `postgresql+asyncpg` dialect, because grelmicro
 runs asyncpg statements. Another driver is refused at construction:
