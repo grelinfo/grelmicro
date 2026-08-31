@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 
 from asyncpg import Pool, create_pool
 from pydantic import (
@@ -19,11 +19,14 @@ from typing_extensions import Doc
 from grelmicro._redact import redact_url
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers._base import Provider
+from grelmicro.providers._sqlalchemy import EnginePool, validate_engine
 from grelmicro.providers._url import validate_url
 from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
     from types import TracebackType
+
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
     from grelmicro.cache.postgres import PostgresCacheAdapter
     from grelmicro.coordination.postgres import (
@@ -116,6 +119,7 @@ class PostgresProvider(Provider):
     PostgresProvider(env_prefix="WRITE_POSTGRES_")       # custom env prefix
     PostgresProvider.from_config(PostgresConfig(...))    # from a config object
     PostgresProvider.from_client(pool)                   # bring-your-own pool
+    PostgresProvider.from_engine(engine)                 # share a SQLAlchemy engine
     ```
 
     The provider is an async context manager: enter it to open the
@@ -264,9 +268,57 @@ class PostgresProvider(Provider):
         self._own = own
         return self
 
+    @classmethod
+    def from_engine(
+        cls,
+        engine: Annotated[
+            AsyncEngine,
+            Doc(
+                "A SQLAlchemy `AsyncEngine` on the `postgresql+asyncpg` dialect."
+            ),
+        ],
+        *,
+        own: Annotated[
+            bool,
+            Doc(
+                """
+                When True, the provider disposes the engine on `__aexit__`.
+                When False (default), the caller keeps ownership and
+                must dispose the engine themselves.
+                """,
+            ),
+        ] = False,
+    ) -> Self:
+        """Build a provider that borrows a SQLAlchemy engine's pool.
+
+        Every operation takes a connection from the engine, unwraps it to
+        the asyncpg connection underneath, and gives it back, so the
+        database sees one pool instead of two.
+
+        The engine must use the `postgresql+asyncpg` dialect. Pass an
+        `AsyncEngine`, never an `AsyncSession` or an `AsyncConnection`:
+        those carry a transaction the caller has open, and a statement
+        grelmicro runs inside it disappears when that transaction rolls
+        back.
+
+        Raises:
+            SettingsValidationError: When the argument is not an
+                `AsyncEngine`, or its dialect is not `postgresql+asyncpg`.
+        """
+        validated = validate_engine(engine)
+        self = cls.__new__(cls)
+        self._env_prefix = "POSTGRES_"
+        self._url = validated.url.render_as_string(hide_password=False)
+        self._command_timeout = None
+        self._pool = cast("Pool", EnginePool(validated))
+        self._own = own
+        return self
+
     @property
     def url(self) -> str:
         """Resolved Postgres URL (empty for `from_client` providers).
+
+        A `from_engine` provider reports the engine's URL.
 
         !!! warning
             The string may contain the password in the userinfo section
@@ -299,8 +351,9 @@ class PostgresProvider(Provider):
     def command_timeout(self) -> float | None:
         """Per-operation timeout in seconds for pooled connections.
 
-        Always None for a `from_client` provider: the caller's pool carries
-        its own timeout, which this provider does not read.
+        Always None for a `from_client` or `from_engine` provider: the
+        caller's pool carries its own timeout, which this provider does
+        not read.
         """
         return self._command_timeout
 
@@ -434,10 +487,16 @@ class PostgresProvider(Provider):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the pool when the provider owns it."""
+        """Close the pool when the provider owns it.
+
+        A borrowed engine is left open, and anything still checked out of
+        it is handed back so the application can dispose it cleanly.
+        """
         if self._own and self._pool is not None:
             await self._pool.close()
             self._pool = None
+        elif isinstance(self._pool, EnginePool):
+            await self._pool.release_all()
 
 
 def _resolve_command_timeout(

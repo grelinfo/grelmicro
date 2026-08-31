@@ -18,6 +18,7 @@ from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox.errors import OutboxHandleError, OutboxTransactionError
+from grelmicro.providers._sqlalchemy import EnginePool
 from grelmicro.providers.postgres import PostgresProvider
 
 logger = getLogger("grelmicro.outbox")
@@ -339,7 +340,7 @@ class PostgresOutboxAdapter(OutboxBackend):
         payload = json_dumps_str(dict(record.payload))
         headers = json_dumps_str(dict(record.headers))
         delay = _available_in_seconds(record)
-        if isinstance(handle, asyncpg.Pool):
+        if isinstance(handle, (asyncpg.Pool, EnginePool)):
             msg = (
                 "publish needs a connection inside a transaction, not a pool. "
                 "A pool hands out a fresh connection, so the message would "

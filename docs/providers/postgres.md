@@ -47,6 +47,61 @@ postgres = PostgresProvider("postgresql://localhost/app", command_timeout=5)
 This matters most for the [outbox](../outbox/producer.md), where `publish` runs
 inside your business transaction.
 
+## Share a SQLAlchemy engine
+
+An app that already has a SQLAlchemy engine hands it over instead of
+opening a second pool:
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from grelmicro import Grelmicro
+from grelmicro.providers.postgres import PostgresProvider
+
+engine = create_async_engine("postgresql+asyncpg://localhost/app")
+
+postgres = PostgresProvider.from_engine(engine)
+
+micro = Grelmicro(uses=[postgres])
+```
+
+Every operation borrows a connection from the engine's pool and gives it
+back. The database sees one pool, sized by the settings the app already
+chose, and the app keeps ownership: the provider never disposes an engine
+it was handed.
+
+Leave room for grelmicro when sizing the engine. A lock, a cache, and a
+rate limiter each borrow a connection for the length of one call, and the
+[outbox](../outbox/index.md) listener holds one for as long as the app
+runs.
+
+The engine has to use the `postgresql+asyncpg` dialect, because grelmicro
+runs asyncpg statements. Another driver is refused at construction:
+
+```python
+engine = create_async_engine("postgresql+psycopg://localhost/app")
+
+PostgresProvider.from_engine(engine)
+# SettingsValidationError: Could not validate settings:
+# - engine: driver should be 'asyncpg', got 'psycopg'
+```
+
+Pass the URL instead to open a separate asyncpg pool alongside that
+engine:
+
+```python
+postgres = PostgresProvider(engine.url.render_as_string(hide_password=False))
+```
+
+!!! warning "Pass the engine, never a live session"
+    `from_engine` takes an `AsyncEngine`. An `AsyncSession` or an
+    `AsyncConnection` is refused, because grelmicro would then write
+    inside whatever transaction the caller has open. A lock released in a
+    request that later rolls back would come back locked.
+
+    `outbox.publish()` is the one call that takes your session, and it
+    takes it on purpose. See [Producing](../outbox/producer.md).
+
 ## Two pools
 
 For a writer and a reader, split by env prefix:
@@ -74,4 +129,5 @@ PostgresProvider(env_prefix="WRITE_POSTGRES_")  # custom env prefix
 PostgresProvider(env_load=False)                # kwargs only, no env
 PostgresProvider.from_config(PostgresConfig(...))
 PostgresProvider.from_client(pool)              # bring-your-own pool
+PostgresProvider.from_engine(engine)            # share a SQLAlchemy engine
 ```

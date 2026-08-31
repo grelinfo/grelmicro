@@ -1,6 +1,10 @@
 """Tests for `PostgresProvider`."""
 
+import contextlib
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -20,9 +24,29 @@ from grelmicro.resilience.circuitbreaker.postgres import (
 from grelmicro.resilience.ratelimiter.postgres import PostgresRateLimiterAdapter
 from tests._postgres import mock_pool as make_pool
 
+try:
+    from sqlalchemy import create_engine
+    from sqlalchemy.ext.asyncio import (
+        AsyncConnection,
+        AsyncEngine,
+        AsyncSession,
+        create_async_engine,
+    )
+except ImportError:  # pragma: no cover
+    HAS_SQLALCHEMY = False
+else:
+    HAS_SQLALCHEMY = True
+
+requires_sqlalchemy = pytest.mark.skipif(
+    not HAS_SQLALCHEMY, reason="sqlalchemy is not installed"
+)
+
 pytestmark = [pytest.mark.timeout(1)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
+ASYNCPG_URL = (
+    "postgresql+asyncpg://test_user:test_password@test_host:1234/test_db"
+)
 
 
 class TestConstruction:
@@ -251,6 +275,68 @@ class TestFromClient:
             pass
 
         pool.close.assert_awaited_once()
+
+
+@requires_sqlalchemy
+class TestFromEngine:
+    """Tests for `PostgresProvider.from_engine` argument validation."""
+
+    def test_async_engine_accepted(self) -> None:
+        """A `postgresql+asyncpg` engine builds a provider."""
+        engine = create_async_engine(ASYNCPG_URL)
+
+        provider = PostgresProvider.from_engine(engine)
+
+        assert provider.url == ASYNCPG_URL
+        assert provider.safe_url == (
+            "postgresql+asyncpg://test_user:***@test_host:1234/test_db"
+        )
+
+    def test_session_refused(self) -> None:
+        """An `AsyncSession` carries the caller's transaction, so it is refused."""
+        session: Any = AsyncSession(create_async_engine(ASYNCPG_URL))
+
+        with pytest.raises(SettingsValidationError, match="AsyncSession"):
+            PostgresProvider.from_engine(session)
+
+    def test_connection_refused(self) -> None:
+        """An `AsyncConnection` is refused for the same reason."""
+        connection: Any = AsyncConnection(create_async_engine(ASYNCPG_URL))
+
+        with pytest.raises(SettingsValidationError, match="AsyncConnection"):
+            PostgresProvider.from_engine(connection)
+
+    def test_sync_engine_refused(self) -> None:
+        """A sync `Engine` cannot serve an asyncpg connection."""
+        engine: Any = create_engine("sqlite://")
+
+        with pytest.raises(SettingsValidationError, match="AsyncEngine"):
+            PostgresProvider.from_engine(engine)
+
+    def test_non_engine_refused(self) -> None:
+        """Anything else is refused by type, naming what arrived."""
+        url: Any = "postgresql+asyncpg://host/db"
+
+        with pytest.raises(SettingsValidationError, match="got str"):
+            PostgresProvider.from_engine(url)
+
+    def test_other_backend_refused(self) -> None:
+        """A non-Postgres engine is refused by backend."""
+        engine: Any = create_async_engine("sqlite+aiosqlite://")
+
+        with pytest.raises(SettingsValidationError, match="backend should be"):
+            PostgresProvider.from_engine(engine)
+
+    def test_refusal_never_quotes_the_url(self) -> None:
+        """A rejected engine never carries its URL into the message."""
+        session: Any = AsyncSession(
+            create_async_engine("sqlite+aiosqlite:///file.db")
+        )
+
+        with pytest.raises(SettingsValidationError) as error:
+            PostgresProvider.from_engine(session)
+
+        assert "file.db" not in str(error.value)
 
 
 class TestCheck:
@@ -745,3 +831,281 @@ class TestSQLAlchemyDsn:
         # Assert
         assert "test_password" not in provider.safe_url
         assert provider.safe_url.startswith("postgresql://")
+
+
+@requires_sqlalchemy
+@pytest.mark.integration
+@pytest.mark.timeout(120)
+class TestFromEngineAgainstPostgres:
+    """`from_engine` against a real server, where the sharing has to hold."""
+
+    @pytest.fixture
+    async def engine(self) -> AsyncGenerator["AsyncEngine"]:
+        """Provide an app-owned async engine pointing at a container."""
+        from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+
+        with PostgresContainer() as container:
+            port = container.get_exposed_port(5432)
+            engine = create_async_engine(
+                f"postgresql+asyncpg://test:test@localhost:{port}/test",
+                pool_size=5,
+            )
+            try:
+                yield engine
+            finally:
+                await engine.dispose()
+
+    async def test_lock_round_trip(self, engine: "AsyncEngine") -> None:
+        """A lock acquires and releases through the borrowed engine."""
+        provider = PostgresProvider.from_engine(engine)
+
+        async with provider, PostgresLockAdapter(provider=provider) as backend:
+            name = "engine-lock-" + uuid4().hex
+            token = uuid4().hex
+
+            assert await backend.acquire(name=name, token=token, duration=30)
+            assert await backend.owned(name=name, token=token)
+            assert await backend.release(name=name, token=token)
+            assert not await backend.locked(name=name)
+
+    async def test_opens_no_second_pool(self, engine: "AsyncEngine") -> None:
+        """Every statement runs on the engine, so the server sees one pool."""
+        provider = PostgresProvider.from_engine(engine)
+
+        async with provider:
+            await provider.check()
+            before = await provider.client.fetchval(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = 'test'"
+            )
+            for _ in range(4):
+                await provider.check()
+            after = await provider.client.fetchval(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = 'test'"
+            )
+
+        assert after <= before + 1
+
+    async def test_borrowed_engine_survives_the_app(
+        self, engine: "AsyncEngine"
+    ) -> None:
+        """`own=False` leaves the engine open for the application to use."""
+        async with PostgresProvider.from_engine(engine) as provider:
+            await provider.check()
+
+        async with engine.connect() as connection:
+            raw = await connection.get_raw_connection()
+            driver = raw.driver_connection
+            assert driver is not None
+            assert await driver.fetchval("SELECT 1") == 1
+
+    async def test_owned_engine_is_disposed(
+        self, engine: "AsyncEngine"
+    ) -> None:
+        """`own=True` disposes the engine on exit."""
+        pool = engine.pool
+
+        async with PostgresProvider.from_engine(engine, own=True) as provider:
+            await provider.check()
+
+        assert engine.pool is not pool
+
+    async def test_lock_survives_a_caller_rollback(
+        self, engine: "AsyncEngine"
+    ) -> None:
+        """A lock taken during a caller transaction outlives its rollback.
+
+        The provider takes its own connection rather than the one the
+        caller holds, so grelmicro never writes inside a transaction it
+        does not control. Riding the caller's connection would turn the
+        acquire into a savepoint and give the lock back on rollback.
+        """
+        from sqlalchemy import text  # noqa: PLC0415
+
+        provider = PostgresProvider.from_engine(engine)
+        name = "engine-rollback-" + uuid4().hex
+        token = uuid4().hex
+
+        async with provider, PostgresLockAdapter(provider=provider) as backend:
+            with contextlib.suppress(RuntimeError):
+                async with engine.begin() as connection:
+                    await connection.execute(text("SELECT 1"))
+                    assert await backend.acquire(
+                        name=name, token=token, duration=30
+                    )
+                    msg = "the caller transaction fails"
+                    raise RuntimeError(msg)
+
+            assert await backend.locked(name=name)
+            assert await backend.owned(name=name, token=token)
+
+
+class _FakeSAConnection:
+    """Stand in for a SQLAlchemy `AsyncConnection` checkout."""
+
+    def __init__(self, driver: object, *, raw_error: bool = False) -> None:
+        self.driver = driver
+        self.raw_error = raw_error
+        self.closed = False
+
+    async def start(self) -> "_FakeSAConnection":
+        """Return the started connection, as SQLAlchemy does."""
+        return self
+
+    async def get_raw_connection(self) -> MagicMock:
+        """Return the DBAPI wrapper carrying the asyncpg connection."""
+        if self.raw_error:
+            msg = "connection is gone"
+            raise ConnectionError(msg)
+        raw = MagicMock()
+        raw.driver_connection = self.driver
+        return raw
+
+    async def close(self) -> None:
+        """Return the connection to the engine's pool."""
+        self.closed = True
+
+
+class _FakeEngine:
+    """Stand in for an `AsyncEngine`, handing out fake checkouts."""
+
+    def __init__(self, *, raw_error: bool = False) -> None:
+        self.raw_error = raw_error
+        self.connections: list[_FakeSAConnection] = []
+        self.disposed = False
+
+    def connect(self) -> _FakeSAConnection:
+        """Hand out a fresh checkout and remember it."""
+        driver = MagicMock()
+        driver.execute = AsyncMock(return_value="EXECUTE 1")
+        driver.executemany = AsyncMock()
+        driver.fetch = AsyncMock(return_value=["row"])
+        driver.fetchrow = AsyncMock(return_value="row")
+        driver.fetchval = AsyncMock(return_value=1)
+        connection = _FakeSAConnection(driver, raw_error=self.raw_error)
+        self.connections.append(connection)
+        return connection
+
+    async def dispose(self) -> None:
+        """Record that the engine was disposed."""
+        self.disposed = True
+
+
+@requires_sqlalchemy
+class TestEnginePool:
+    """The pool surface `from_engine` serves to the adapters."""
+
+    def make(self, *, raw_error: bool = False) -> tuple[Any, _FakeEngine]:
+        """Build a pool over a fake engine."""
+        from grelmicro.providers._sqlalchemy import EnginePool  # noqa: PLC0415
+
+        engine = _FakeEngine(raw_error=raw_error)
+        return EnginePool(cast("AsyncEngine", engine)), engine
+
+    async def test_acquire_awaited_hands_the_connection_over(self) -> None:
+        """The outbox listener awaits a connection and holds it."""
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+
+        assert conn is engine.connections[0].driver
+        assert not engine.connections[0].closed
+
+        await pool.release(conn)
+        assert engine.connections[0].closed
+
+    async def test_acquire_entered_releases_on_exit(self) -> None:
+        """The context manager form gives the connection back."""
+        pool, engine = self.make()
+
+        async with pool.acquire() as conn:
+            assert conn is engine.connections[0].driver
+
+        assert engine.connections[0].closed
+
+    async def test_exit_without_enter_releases_nothing(self) -> None:
+        """A context manager exited without entering holds no connection."""
+        pool, engine = self.make()
+        acquire = pool.acquire()
+
+        await acquire.__aexit__(None, None, None)
+
+        assert engine.connections == []
+
+    async def test_release_ignores_an_unknown_connection(self) -> None:
+        """Releasing something never borrowed is a no-op."""
+        pool, engine = self.make()
+
+        await pool.release(MagicMock())
+
+        assert engine.connections == []
+
+    async def test_checkout_returns_the_connection_on_failure(self) -> None:
+        """A failed unwrap gives the checkout back instead of leaking it."""
+        pool, engine = self.make(raw_error=True)
+
+        with pytest.raises(ConnectionError):
+            await pool.checkout()
+
+        assert engine.connections[0].closed
+
+    async def test_statements_run_on_a_borrowed_connection(self) -> None:
+        """Every pool-level statement borrows, runs, and releases."""
+        pool, engine = self.make()
+
+        statements = 5
+
+        assert await pool.execute("SELECT $1", 1) == "EXECUTE 1"
+        assert await pool.fetch("SELECT $1", 1) == ["row"]
+        assert await pool.fetchrow("SELECT $1", 1) == "row"
+        assert await pool.fetchval("SELECT $1", 1) == 1
+        await pool.executemany("SELECT $1", [(1,), (2,)])
+
+        assert len(engine.connections) == statements
+        assert all(connection.closed for connection in engine.connections)
+
+    async def test_close_disposes_the_engine(self) -> None:
+        """`close` hands everything back and disposes the engine."""
+        pool, engine = self.make()
+        await pool.acquire()
+
+        await pool.close()
+
+        assert engine.connections[0].closed
+        assert engine.disposed
+
+    async def test_release_all_keeps_the_engine(self) -> None:
+        """`release_all` hands everything back but leaves the engine open."""
+        pool, engine = self.make()
+        await pool.acquire()
+
+        await pool.release_all()
+
+        assert engine.connections[0].closed
+        assert not engine.disposed
+
+    async def test_borrowed_engine_released_on_provider_exit(self) -> None:
+        """A provider that does not own the engine still gives connections back."""
+        pool, engine = self.make()
+        provider = PostgresProvider.from_client(pool)
+        await pool.acquire()
+
+        async with provider:
+            pass
+
+        assert engine.connections[0].closed
+        assert not engine.disposed
+
+
+@requires_sqlalchemy
+class TestEngineDriver:
+    """`from_engine` checks the driver, not just the backend."""
+
+    def test_non_asyncpg_driver_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A Postgres engine on another driver cannot serve asyncpg."""
+        engine = create_async_engine(ASYNCPG_URL)
+        monkeypatch.setattr(engine.sync_engine.dialect, "driver", "psycopg")
+
+        with pytest.raises(SettingsValidationError, match="driver should be"):
+            PostgresProvider.from_engine(engine)

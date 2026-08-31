@@ -170,6 +170,32 @@ RedisProvider.from_config(RedisConfig(...))  # from a config object
 RedisProvider.from_client(client)            # bring-your-own client
 ```
 
+### Which one to reach for
+
+Four doors, and only one of them is right for a given app. Read down the
+first column and stop at the first row that describes you.
+
+| You have | Use | grelmicro opens |
+|---|---|---|
+| Nothing yet, and the deployment sets `REDIS_URL`, `POSTGRES_URL`, ... | `RedisProvider()` | Its own pool |
+| A URL in hand | `RedisProvider(url)` | Its own pool |
+| A config object built elsewhere | `RedisProvider.from_config(config)` | Its own pool |
+| A native client already open | `RedisProvider.from_client(client)` | Nothing, it borrows yours |
+| A SQLAlchemy `AsyncEngine` (Postgres only) | `PostgresProvider.from_engine(engine)` | Nothing, it borrows the engine's pool |
+
+The env-driven form is the shortest path and the one to prefer when
+nothing rules it out. It keeps the connection string out of the code, and
+the deployment already sets those variables for every other tool that
+talks to the same server.
+
+Reach past it only for a reason the environment cannot express: a client
+you tuned yourself (custom retry, sentinel, a TLS context), a config
+object your own settings class produced, or an engine your ORM owns.
+
+The last two rows are the ones that avoid a second pool. `from_client`
+and `from_engine` both leave the connection's lifecycle with you: the
+provider does not close what it did not open, unless you pass `own=True`.
+
 ## URL validation
 
 A URL reaches a provider from three places: the constructor, the
