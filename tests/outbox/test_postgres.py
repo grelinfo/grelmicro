@@ -734,3 +734,32 @@ async def test_postgres_enqueue_via_sqlmodel() -> None:
                     await engine.dispose()
 
             assert seen[0].payload == {"name": "Deadpond"}
+
+
+class TestLoadObject:
+    """`_load_object` reads a jsonb column however the driver decoded it."""
+
+    def test_decodes_a_json_string(self) -> None:
+        """A plain asyncpg connection hands back a JSON string."""
+        from grelmicro.outbox.postgres import _load_object  # noqa: PLC0415
+
+        assert _load_object('{"a": 1}') == {"a": 1}
+
+    def test_passes_a_mapping_through(self) -> None:
+        """A borrowed engine registers a codec that decodes jsonb for you."""
+        from grelmicro.outbox.postgres import _load_object  # noqa: PLC0415
+
+        assert _load_object({"a": 1}) == {"a": 1}
+
+    def test_reads_null_as_empty(self) -> None:
+        """A NULL column reads as an empty mapping."""
+        from grelmicro.outbox.postgres import _load_object  # noqa: PLC0415
+
+        assert _load_object(None) == {}
+
+    def test_reads_a_non_object_as_empty(self) -> None:
+        """A jsonb value that is not an object carries nothing to read."""
+        from grelmicro.outbox.postgres import _load_object  # noqa: PLC0415
+
+        assert _load_object("[1, 2]") == {}
+        assert _load_object(42) == {}

@@ -910,6 +910,89 @@ class TestFromEngineAgainstPostgres:
 
         assert engine.pool is not pool
 
+    async def test_session_state_survives_a_loan(
+        self, engine: "AsyncEngine"
+    ) -> None:
+        """The application's own session state outlives grelmicro's use.
+
+        SQLAlchemy applies session state once per physical connection, in
+        a `connect` event, and never re-applies it on checkout. A full
+        `RESET ALL` on release would clear it and leave the application
+        querying the wrong schema.
+        """
+        from sqlalchemy import event  # noqa: PLC0415
+
+        @event.listens_for(engine.sync_engine, "connect")
+        def _set_search_path(dbapi_connection: Any, _record: object) -> None:  # noqa: ANN401
+            dbapi_connection.await_(
+                dbapi_connection.driver_connection.execute(
+                    "SET search_path TO grelmicro_probe, public"
+                )
+            )
+
+        provider = PostgresProvider.from_engine(engine)
+
+        async with provider:
+            await provider.check()
+
+        async with engine.connect() as connection:
+            raw = await connection.get_raw_connection()
+            driver = raw.driver_connection
+            assert driver is not None
+            search_path = await driver.fetchval("SHOW search_path")
+
+        assert "grelmicro_probe" in search_path
+
+    async def test_outbox_round_trip(self, engine: "AsyncEngine") -> None:
+        """A jsonb payload survives the engine's own type codecs.
+
+        The engine registers a `jsonb` codec, so a borrowed connection
+        hands back a decoded mapping where a plain asyncpg pool hands back
+        a string. The outbox has to read both.
+        """
+        from sqlalchemy.ext.asyncio import async_sessionmaker  # noqa: PLC0415
+
+        from grelmicro.outbox._message import OutboxRecord  # noqa: PLC0415
+        from grelmicro.outbox.postgres import (  # noqa: PLC0415
+            PostgresOutboxAdapter,
+        )
+
+        provider = PostgresProvider.from_engine(engine)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        topic = "orders-" + uuid4().hex
+        payload = {"amount": 42, "nested": {"x": [1, 2]}}
+
+        async with provider, PostgresOutboxAdapter(provider=provider) as outbox:
+            record = OutboxRecord(
+                id=uuid4(),
+                topic=topic,
+                key="k1",
+                payload=payload,
+                headers={"trace": "abc"},
+            )
+            async with session_factory() as session, session.begin():
+                assert await outbox.enqueue(session, record)
+
+            claimed = await outbox.claim(topics=[topic], limit=10, lease=30)
+
+        assert len(claimed) == 1
+        assert claimed[0].payload == payload
+        assert claimed[0].headers == {"trace": "abc"}
+
+    async def test_reentry_reuses_the_engine(
+        self, engine: "AsyncEngine"
+    ) -> None:
+        """A provider entered twice never opens a private pool."""
+        from grelmicro.providers._sqlalchemy import EnginePool  # noqa: PLC0415
+
+        provider = PostgresProvider.from_engine(engine, own=True)
+
+        async with provider:
+            await provider.check()
+        async with provider:
+            await provider.check()
+            assert isinstance(provider.client, EnginePool)
+
     async def test_lock_survives_a_caller_rollback(
         self, engine: "AsyncEngine"
     ) -> None:
@@ -990,11 +1073,11 @@ class _FakeEngine:
         driver.fetch = AsyncMock(return_value=["row"])
         driver.fetchrow = AsyncMock(return_value="row")
         driver.fetchval = AsyncMock(return_value=1)
-        driver.reset = AsyncMock(
-            side_effect=ConnectionError("reset failed")
-            if self.reset_error
-            else None
-        )
+        driver.is_in_transaction = MagicMock(return_value=False)
+        if self.reset_error:
+            driver.execute = AsyncMock(
+                side_effect=ConnectionError("clean failed")
+            )
         connection = _FakeSAConnection(driver, raw_error=self.raw_error)
         self.connections.append(connection)
         return connection
@@ -1079,14 +1162,14 @@ class TestEnginePool:
         assert len(engine.connections) == statements
         assert all(connection.closed for connection in engine.connections)
 
-    async def test_release_resets_the_connection(self) -> None:
-        """A connection is reset before it goes back to the application."""
+    async def test_release_cleans_the_connection(self) -> None:
+        """A connection is cleaned before it goes back to the application."""
         pool, engine = self.make()
 
         conn = await pool.acquire()
         await pool.release(conn)
 
-        conn.reset.assert_awaited_once()
+        conn.execute.assert_awaited_with("UNLISTEN *; CLOSE ALL")
         assert engine.connections[0].closed
         assert not engine.connections[0].invalidated
 
@@ -1122,12 +1205,22 @@ class TestEnginePool:
         assert len(engine.connections) == borrowed
         assert all(c.invalidated for c in engine.connections)
 
-    async def test_cancelled_reset_drops_and_propagates(self) -> None:
-        """A cancelled reset drops the connection and keeps the cancel."""
+    async def test_clean_rolls_back_an_open_transaction(self) -> None:
+        """A connection left in a transaction is rolled back before pooling."""
+        pool, _ = self.make()
+
+        conn = await pool.acquire()
+        conn.is_in_transaction = MagicMock(return_value=True)
+        await pool.release(conn)
+
+        conn.execute.assert_awaited_with("ROLLBACK; UNLISTEN *; CLOSE ALL")
+
+    async def test_cancelled_clean_drops_the_connection(self) -> None:
+        """A connection whose cleanup is cancelled is dropped, not pooled."""
         pool, engine = self.make()
 
         conn = await pool.acquire()
-        conn.reset = AsyncMock(side_effect=asyncio.CancelledError)
+        conn.execute = AsyncMock(side_effect=asyncio.CancelledError)
 
         with pytest.raises(asyncio.CancelledError):
             await pool.release(conn)

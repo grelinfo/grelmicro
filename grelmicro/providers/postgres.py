@@ -201,6 +201,7 @@ class PostgresProvider(Provider):
             command_timeout, env_prefix=env_prefix, env_load=env_load
         )
         self._pool: Pool | None = None
+        self._engine: AsyncEngine | None = None
         self._own = True
 
     @classmethod
@@ -265,6 +266,7 @@ class PostgresProvider(Provider):
         self._url = ""
         self._command_timeout = None
         self._pool = client
+        self._engine = None
         self._own = own
         return self
 
@@ -321,6 +323,7 @@ class PostgresProvider(Provider):
         )
         self._command_timeout = None
         self._pool = cast("Pool", EnginePool(validated))
+        self._engine = validated
         self._own = own
         return self
 
@@ -484,11 +487,20 @@ class PostgresProvider(Provider):
         PostgresProvider._asyncpg_instrumented = False
 
     async def __aenter__(self) -> Self:
-        """Open the asyncpg pool when the provider owns it."""
-        if self._pool is None:
-            self._pool = await create_pool(
-                self._url, command_timeout=self._command_timeout
-            )
+        """Open the asyncpg pool when the provider owns it.
+
+        A provider built from an engine rebuilds its facade over that
+        same engine, so re-entering it never opens the private pool
+        `from_engine` exists to avoid.
+        """
+        if self._pool is not None:
+            return self
+        if self._engine is not None:
+            self._pool = cast("Pool", EnginePool(self._engine))
+            return self
+        self._pool = await create_pool(
+            self._url, command_timeout=self._command_timeout
+        )
         return self
 
     async def __aexit__(

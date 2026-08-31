@@ -141,35 +141,65 @@ class EnginePool:
         return driver
 
     async def release(self, conn: Connection) -> None:
-        """Reset a borrowed connection and give it back to the engine.
+        """Clean a borrowed connection and give it back to the engine.
 
-        The connection goes back into the application's pool, so it is
-        reset first: an open transaction, a `LISTEN`, a session setting,
-        or an advisory lock left by grelmicro would otherwise be found by
-        whichever part of the application checks it out next. The reset
-        is shielded, because a caller cancelled mid-statement would
-        otherwise return a connection with a cancel still in flight.
+        The connection goes back into the application's pool, so what
+        grelmicro left on it is undone first: an open transaction, a
+        `LISTEN`, or an open cursor would otherwise be found by whichever
+        part of the application checks it out next.
 
-        A connection that cannot be reset is invalidated rather than
+        Only grelmicro's own leftovers are cleared. `RESET ALL` is not
+        run, because the application sets its session state once per
+        physical connection and never again: a `search_path` or a
+        `statement_timeout` it applied on connect has to survive the
+        loan.
+
+        A connection that cannot be cleaned is invalidated rather than
         pooled, so a broken one is never handed to the application.
         """
         connection = self._borrowed.pop(conn, None)
         if connection is None:
             return
+        # Hand the work to a task and keep waiting through repeated
+        # cancellations. asyncio.shield only protects the inner task from
+        # the awaiter's cancel, and under a cancel scope that re-delivers,
+        # every await in the cleanup would raise straight away and strand
+        # the checkout for the garbage collector to drop.
+        task = asyncio.ensure_future(self._release(conn, connection))
+        cancelled: asyncio.CancelledError | None = None
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as error:  # pragma: no cover
+                cancelled = error
+        if cancelled is not None:  # pragma: no cover
+            raise cancelled
+
+    async def _release(
+        self, conn: Connection, connection: AsyncConnection
+    ) -> None:
+        """Clean the connection, then close or invalidate the checkout."""
         try:
-            await asyncio.shield(conn.reset())
+            await self._clean(conn)
         except asyncio.CancelledError:
             await self._discard(connection)
             raise
         except Exception:
             logger.warning(
-                "Could not reset a Postgres connection, dropping it instead "
+                "Could not clean a Postgres connection, dropping it instead "
                 "of returning it to the engine.",
                 exc_info=True,
             )
             await self._discard(connection)
         else:
             await connection.close()
+
+    async def _clean(self, conn: Connection) -> None:
+        """Undo what grelmicro leaves on a connection, and nothing else."""
+        statements = ["UNLISTEN *", "CLOSE ALL"]
+        if conn.is_in_transaction():
+            statements.insert(0, "ROLLBACK")
+        await conn.execute("; ".join(statements))
 
     async def _discard(self, connection: AsyncConnection) -> None:
         """Invalidate a connection so the engine never pools it again."""

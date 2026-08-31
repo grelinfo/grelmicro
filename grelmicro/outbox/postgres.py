@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from functools import partial
 from logging import getLogger
@@ -564,7 +565,17 @@ def _rows_affected(status: str) -> int:
     return int(parts[-1]) if parts and parts[-1].isdigit() else 0
 
 
-def _load_object(value: str | bytes) -> dict[str, Any]:
-    """Decode a jsonb column value into a plain dict."""
-    loaded = json_loads(value)
-    return loaded if isinstance(loaded, dict) else {}
+def _load_object(value: object) -> dict[str, Any]:
+    """Decode a jsonb column value into a plain dict.
+
+    asyncpg returns jsonb as a JSON string unless a codec is registered,
+    and a borrowed connection carries whatever codecs its owner installed:
+    a SQLAlchemy engine registers one that hands back a decoded object. A
+    mapping is passed through unchanged.
+    """
+    if value is None:
+        return {}
+    if isinstance(value, (str, bytes)):
+        loaded = json_loads(value)
+        return loaded if isinstance(loaded, dict) else {}
+    return dict(value) if isinstance(value, Mapping) else {}
