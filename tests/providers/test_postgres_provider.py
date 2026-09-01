@@ -1088,9 +1088,16 @@ class _FakeEngine:
         self.reset_error = reset_error
         self.connections: list[_FakeSAConnection] = []
         self.disposed = False
+        self.closing: Any = None
 
     def connect(self) -> _FakeSAConnection:
-        """Hand out a fresh checkout and remember it."""
+        """Hand out a fresh checkout and remember it.
+
+        When `closing` is set, the pool is closed part way through, which
+        is the race a real `close()` runs against an opening checkout.
+        """
+        if self.closing is not None:
+            self.closing._closed = True
         driver = MagicMock()
         driver.execute = AsyncMock(return_value="EXECUTE 1")
         driver.executemany = AsyncMock()
@@ -1098,6 +1105,9 @@ class _FakeEngine:
         driver.fetchrow = AsyncMock(return_value="row")
         driver.fetchval = AsyncMock(return_value=1)
         driver.is_in_transaction = MagicMock(return_value=False)
+        driver._top_xact = None
+        driver._listeners = {}
+        driver._log_listeners = set()
         if self.reset_error:
             driver.execute = AsyncMock(
                 side_effect=ConnectionError("clean failed")
@@ -1229,6 +1239,52 @@ class TestEnginePool:
         assert len(engine.connections) == borrowed
         assert all(c.invalidated for c in engine.connections)
 
+    async def test_clean_clears_a_stale_transaction_marker(self) -> None:
+        """A cancel between the marker and `BEGIN` leaves it set.
+
+        asyncpg records the transaction before it sends `BEGIN`, so the
+        marker can outlive a cancelled start with no transaction open.
+        The next `transaction()` would then read as a nested one.
+        """
+        pool, _ = self.make()
+
+        conn = await pool.acquire()
+        conn._top_xact = object()
+        await pool.release(conn)
+
+        assert conn._top_xact is None
+        conn.execute.assert_awaited_with("ROLLBACK; UNLISTEN *; CLOSE ALL")
+
+    async def test_held_clean_forgets_listeners_on_the_client(self) -> None:
+        """`UNLISTEN` on the server has to be matched on the client.
+
+        `add_listener` skips the round trip for a channel it believes is
+        subscribed, so a registry left behind makes a later `LISTEN`
+        silently do nothing.
+        """
+        pool, _ = self.make()
+
+        conn = await pool.acquire()
+        conn._listeners["outbox"] = object()
+        conn._log_listeners.add(object())
+        await pool.release(conn)
+
+        assert not conn._listeners
+        assert not conn._log_listeners
+
+    async def test_checkout_racing_close_is_refused(self) -> None:
+        """A checkout that lands after `close()` drained is never stranded."""
+        from asyncpg import InterfaceError  # noqa: PLC0415
+
+        pool, engine = self.make()
+        engine.closing = pool
+
+        with pytest.raises(InterfaceError, match="pool is closed"):
+            await pool.checkout()
+
+        assert not pool._borrowed
+        assert engine.connections[0].closed
+
     async def test_block_release_sends_nothing(self) -> None:
         """A connection borrowed for a block leaves nothing to undo.
 
@@ -1293,6 +1349,26 @@ class TestEnginePool:
         await pool.release(conn)
 
         conn.execute.assert_awaited_with("ROLLBACK; UNLISTEN *; CLOSE ALL")
+
+    async def test_a_cancelled_caller_still_sees_the_cancel(self) -> None:
+        """The cleanup finishes, and the caller's own cancel survives it."""
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+
+        async def slow_clean(*_: object, **__: object) -> None:
+            await asyncio.sleep(0.05)
+
+        conn.execute = AsyncMock(side_effect=slow_clean)
+        task = asyncio.create_task(pool.release(conn))
+        await asyncio.sleep(0)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert engine.connections[0].closed
+        assert not engine.connections[0].invalidated
 
     async def test_cancelled_clean_drops_the_connection(self) -> None:
         """A cleanup cancelled by the connection never cancels the caller.

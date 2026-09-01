@@ -160,6 +160,11 @@ class EnginePool:
         try:
             raw = await connection.get_raw_connection()
             driver = cast("Connection", raw.driver_connection)
+            if self._closed:
+                # `close()` drained the checkouts while this one was still
+                # opening, so it would never be cleaned or given back.
+                msg = "pool is closed"
+                raise InterfaceError(msg)  # noqa: TRY301
         except BaseException:
             await connection.close()
             raise
@@ -212,7 +217,14 @@ class EnginePool:
                 "The cleanup of a Postgres connection was cancelled, so the "
                 "connection was dropped instead of returned to the engine."
             )
-        elif cancelled is not None:  # pragma: no cover
+        # A caller that is itself being cancelled still has to see it, even
+        # when the cleanup task was cancelled in the same breath, which is
+        # what the loop does when it tears every task down at once.
+        current = asyncio.current_task()
+        if cancelled is not None and (
+            not task.cancelled()
+            or (current is not None and current.cancelling())
+        ):
             raise cancelled
 
     async def _release(
@@ -241,10 +253,27 @@ class EnginePool:
         A connection the caller held may carry a listener, so it is told
         to forget them. One borrowed for the length of a block cannot,
         and pays no round trip for the question.
+
+        The two markers asyncpg keeps on the client are cleared the way
+        its own pool clears them, because the server answering `ROLLBACK`
+        and `UNLISTEN` does not tell the driver anything.
         """
-        statements = ["UNLISTEN *", "CLOSE ALL"] if held else []
-        if conn.is_in_transaction():
-            statements.insert(0, "ROLLBACK")
+        statements = []
+        # asyncpg records the transaction it is starting before it sends
+        # `BEGIN`, so a cancel in between leaves the marker set with no
+        # transaction open. Left there, the next `transaction()` on this
+        # connection reads as a nested one and sends `SAVEPOINT` outside a
+        # transaction block.
+        if conn.is_in_transaction() or conn._top_xact is not None:  # noqa: SLF001
+            conn._top_xact = None  # noqa: SLF001
+            statements.append("ROLLBACK")
+        if held:
+            # `add_listener` skips the round trip for a channel it believes
+            # is already subscribed, so a registry left behind would make a
+            # later `LISTEN` silently do nothing.
+            conn._listeners.clear()  # noqa: SLF001
+            conn._log_listeners.clear()  # noqa: SLF001
+            statements += ["UNLISTEN *", "CLOSE ALL"]
         if statements:
             await conn.execute("; ".join(statements))
 
