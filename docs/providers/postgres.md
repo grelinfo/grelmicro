@@ -90,7 +90,7 @@ engine = create_async_engine("postgresql+psycopg://localhost/app")
 
 PostgresProvider.from_engine(engine)
 # SettingsValidationError: Could not validate settings:
-# - engine: driver should be 'asyncpg', got 'psycopg'
+# engine: driver should be 'asyncpg', got 'psycopg'
 ```
 
 Pass the URL instead to open a separate asyncpg pool alongside that

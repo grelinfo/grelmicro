@@ -979,6 +979,30 @@ class TestFromEngineAgainstPostgres:
         assert claimed[0].payload == payload
         assert claimed[0].headers == {"trace": "abc"}
 
+    async def test_leader_election_metadata_round_trip(
+        self, engine: "AsyncEngine"
+    ) -> None:
+        """The other jsonb writer reads back what it wrote over an engine."""
+        from grelmicro.coordination.postgres import (  # noqa: PLC0415
+            PostgresLeaderElectionAdapter,
+        )
+
+        provider = PostgresProvider.from_engine(engine)
+        metadata = {"region": "eu", "pod": "a-1"}
+
+        async with (
+            provider,
+            PostgresLeaderElectionAdapter(provider=provider) as backend,
+        ):
+            record = await backend.acquire_or_renew(
+                name="svc-" + uuid4().hex,
+                token=uuid4().hex,
+                duration=30,
+                metadata=metadata,
+            )
+
+        assert record.metadata == metadata
+
     async def test_reentry_reuses_the_engine(
         self, engine: "AsyncEngine"
     ) -> None:
@@ -1205,8 +1229,63 @@ class TestEnginePool:
         assert len(engine.connections) == borrowed
         assert all(c.invalidated for c in engine.connections)
 
-    async def test_clean_rolls_back_an_open_transaction(self) -> None:
-        """A connection left in a transaction is rolled back before pooling."""
+    async def test_block_release_sends_nothing(self) -> None:
+        """A connection borrowed for a block leaves nothing to undo.
+
+        The statement helpers and every `async with acquire()` run on
+        this path, so the clean must cost no round trip.
+        """
+        pool, engine = self.make()
+
+        async with pool.acquire() as conn:
+            pass
+
+        conn.execute.assert_not_awaited()
+        assert engine.connections[0].closed
+
+    async def test_helper_release_sends_nothing(self) -> None:
+        """A pool-level statement pays for itself and nothing more."""
+        pool, engine = self.make()
+
+        await pool.fetchval("SELECT 1")
+
+        driver = cast("Any", engine.connections[0].driver)
+        driver.execute.assert_not_awaited()
+
+    async def test_block_release_rolls_back_an_open_transaction(self) -> None:
+        """A block that left a transaction open is still rolled back."""
+        pool, engine = self.make()
+
+        async with pool.acquire() as conn:
+            conn.is_in_transaction = MagicMock(return_value=True)
+
+        conn.execute.assert_awaited_once_with("ROLLBACK")
+        assert not engine.connections[0].invalidated
+
+    async def test_clean_that_never_answers_is_dropped(self) -> None:
+        """A server that stops answering never holds the release open."""
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+        conn.execute = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        await pool.release(conn)
+
+        assert engine.connections[0].invalidated
+
+    async def test_a_refused_close_is_reported_not_raised(self) -> None:
+        """A failed check-in never replaces the caller's own error."""
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+        engine.connections[0].close = AsyncMock(  # type: ignore[method-assign]
+            side_effect=ConnectionError("gone")
+        )
+
+        await pool.release(conn)
+
+    async def test_held_clean_rolls_back_an_open_transaction(self) -> None:
+        """A held connection in a transaction is rolled back and forgets listeners."""
         pool, _ = self.make()
 
         conn = await pool.acquire()
@@ -1241,6 +1320,20 @@ class TestEnginePool:
         await pool.release_all()
 
         assert all(connection.closed for connection in engine.connections)
+
+    async def test_release_all_survives_a_cancelled_release(self) -> None:
+        """A shutdown cancelled part way still hands back the rest."""
+        pool, engine = self.make()
+        borrowed = 2
+
+        for _ in range(borrowed):
+            conn = await pool.acquire()
+            conn.execute = AsyncMock(side_effect=asyncio.CancelledError)
+
+        await pool.release_all()
+
+        assert len(engine.connections) == borrowed
+        assert all(c.invalidated for c in engine.connections)
 
     async def test_close_disposes_the_engine(self) -> None:
         """`close` hands everything back and disposes the engine."""

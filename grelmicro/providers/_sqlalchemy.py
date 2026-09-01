@@ -30,6 +30,29 @@ if TYPE_CHECKING:
 _DRIVER = "asyncpg"
 _BACKEND = "postgresql"
 
+_CLEAN_TIMEOUT = 10.0
+"""Seconds a connection gets to answer the cleanup before it is dropped.
+
+A server that accepts the socket and then stops answering would otherwise
+hold the release open, and the release runs where a caller cannot cancel
+it.
+"""
+
+
+async def _close(connection: AsyncConnection) -> None:
+    """Return a checkout to the engine, reporting a refusal rather than raising.
+
+    A release runs from `__aexit__`, so an error raised here would replace
+    whatever the caller's block was already raising.
+    """
+    try:
+        await connection.close()
+    except Exception:
+        logger.warning(
+            "Could not return a Postgres connection to the engine.",
+            exc_info=True,
+        )
+
 
 def validate_engine(engine: object) -> AsyncEngine:
     """Return the engine when it can serve asyncpg connections.
@@ -78,8 +101,10 @@ class _Acquire:
     """Stand in for `Pool.acquire()`, awaited or entered.
 
     asyncpg returns one object that serves both call styles, and adapters
-    use both: a lock takes the connection inside `async with`, while the
-    outbox listener awaits one and holds it until shutdown.
+    use both. The two are not equivalent here: a block that borrows a
+    connection cannot outlive its own statements, while a caller that
+    awaits one holds it and may add a listener to it, so only the awaited
+    form needs the full clean on the way back.
     """
 
     __slots__ = ("_conn", "_pool")
@@ -90,7 +115,7 @@ class _Acquire:
 
     def __await__(self) -> Generator[Any, None, Connection]:
         """Check a connection out and hand it to the caller to release."""
-        return self._pool.checkout().__await__()
+        return self._pool.checkout(held=True).__await__()
 
     async def __aenter__(self) -> Connection:
         """Check a connection out for the length of the block."""
@@ -112,15 +137,16 @@ class EnginePool:
     commits is never rolled back by a transaction the caller opened.
     """
 
-    __slots__ = ("_borrowed", "_closed", "_engine")
+    __slots__ = ("_borrowed", "_closed", "_engine", "_held")
 
     def __init__(self, engine: AsyncEngine) -> None:
         """Initialize the facade over an already validated engine."""
         self._engine = engine
         self._borrowed: dict[Connection, AsyncConnection] = {}
+        self._held: set[Connection] = set()
         self._closed = False
 
-    async def checkout(self) -> Connection:
+    async def checkout(self, *, held: bool = False) -> Connection:
         """Borrow a connection from the engine and unwrap it to asyncpg.
 
         Raises:
@@ -138,26 +164,31 @@ class EnginePool:
             await connection.close()
             raise
         self._borrowed[driver] = connection
+        if held:
+            self._held.add(driver)
         return driver
 
     async def release(self, conn: Connection) -> None:
         """Clean a borrowed connection and give it back to the engine.
 
         The connection goes back into the application's pool, so what
-        grelmicro left on it is undone first: an open transaction, a
-        `LISTEN`, or an open cursor would otherwise be found by whichever
-        part of the application checks it out next.
+        grelmicro left on it is undone first. Only grelmicro's own
+        leftovers are cleared: `RESET ALL` is never run, because the
+        application sets its session state once per physical connection
+        and never again, so a `search_path` or a `statement_timeout` it
+        applied on connect has to survive the loan.
 
-        Only grelmicro's own leftovers are cleared. `RESET ALL` is not
-        run, because the application sets its session state once per
-        physical connection and never again: a `search_path` or a
-        `statement_timeout` it applied on connect has to survive the
-        loan.
+        Nothing is sent when there is nothing to undo, which is the
+        common case: a statement run through this pool leaves no
+        transaction and no listener, and both checks are answered from
+        the client without a round trip.
 
         A connection that cannot be cleaned is invalidated rather than
         pooled, so a broken one is never handed to the application.
         """
         connection = self._borrowed.pop(conn, None)
+        held = conn in self._held
+        self._held.discard(conn)
         if connection is None:
             return
         # Hand the work to a task and keep waiting through repeated
@@ -165,7 +196,7 @@ class EnginePool:
         # the awaiter's cancel, and under a cancel scope that re-delivers,
         # every await in the cleanup would raise straight away and strand
         # the checkout for the garbage collector to drop.
-        task = asyncio.ensure_future(self._release(conn, connection))
+        task = asyncio.ensure_future(self._release(conn, connection, held=held))
         cancelled: asyncio.CancelledError | None = None
         while not task.done():
             try:
@@ -176,11 +207,12 @@ class EnginePool:
             raise cancelled
 
     async def _release(
-        self, conn: Connection, connection: AsyncConnection
+        self, conn: Connection, connection: AsyncConnection, *, held: bool
     ) -> None:
         """Clean the connection, then close or invalidate the checkout."""
         try:
-            await self._clean(conn)
+            async with asyncio.timeout(_CLEAN_TIMEOUT):
+                await self._clean(conn, held=held)
         except asyncio.CancelledError:
             await self._discard(connection)
             raise
@@ -192,21 +224,30 @@ class EnginePool:
             )
             await self._discard(connection)
         else:
-            await connection.close()
+            await _close(connection)
 
-    async def _clean(self, conn: Connection) -> None:
-        """Undo what grelmicro leaves on a connection, and nothing else."""
-        statements = ["UNLISTEN *", "CLOSE ALL"]
+    async def _clean(self, conn: Connection, *, held: bool) -> None:
+        """Undo what grelmicro leaves on a connection, and nothing else.
+
+        A connection the caller held may carry a listener, so it is told
+        to forget them. One borrowed for the length of a block cannot,
+        and pays no round trip for the question.
+        """
+        statements = ["UNLISTEN *", "CLOSE ALL"] if held else []
         if conn.is_in_transaction():
             statements.insert(0, "ROLLBACK")
-        await conn.execute("; ".join(statements))
+        if statements:
+            await conn.execute("; ".join(statements))
 
     async def _discard(self, connection: AsyncConnection) -> None:
         """Invalidate a connection so the engine never pools it again."""
         try:
             await connection.invalidate()
-        finally:
-            await connection.close()
+        except Exception:
+            logger.warning(
+                "Could not invalidate a Postgres connection.", exc_info=True
+            )
+        await _close(connection)
 
     def acquire(self) -> _Acquire:
         """Borrow a connection, awaited or entered as a context manager."""
@@ -250,7 +291,7 @@ class EnginePool:
             conn = next(iter(self._borrowed))
             try:
                 await self.release(conn)
-            except Exception:
+            except BaseException:
                 logger.warning(
                     "Could not return a Postgres connection to the engine.",
                     exc_info=True,
