@@ -46,6 +46,10 @@ RedisProvider.from_config(RedisConfig(...))  # from a config object
 RedisProvider.from_client(client)            # bring-your-own client
 ```
 
+`from_client` takes any `redis.asyncio.Redis`, including the subclass an
+ORM or ODM layer hands back. The provider uses the client as it is, so it
+shares the connection pool that layer already opened.
+
 ## Sentinel and Cluster
 
 `RedisProvider` switches topology from the URL scheme. The scheme rides
