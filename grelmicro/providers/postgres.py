@@ -524,6 +524,11 @@ class PostgresProvider(Provider):
             self._pool = None
         elif isinstance(self._pool, EnginePool):
             await self._pool.shutdown(dispose=False)
+            # A closed facade never serves again, so the next `__aenter__`
+            # has to build a fresh one over the same engine rather than
+            # find this one and hand back a pool that refuses everything.
+            if self._engine is not None:
+                self._pool = None
 
 
 def _resolve_command_timeout(

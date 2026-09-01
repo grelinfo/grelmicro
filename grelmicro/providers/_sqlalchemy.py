@@ -120,17 +120,28 @@ def _forget_transaction(conn: Connection) -> bool:
     return True
 
 
-def _forget_listeners(conn: Connection) -> None:
-    """Clear asyncpg's record of the channels it believes are subscribed.
+def _channels(conn: Connection) -> frozenset[str]:
+    """Return the channels asyncpg believes this connection listens on."""
+    try:
+        return frozenset(conn._listeners)  # noqa: SLF001
+    except AttributeError:
+        _report_driver_change("listener")
+        return frozenset()
+
+
+def _forget_channels(conn: Connection, channels: frozenset[str]) -> None:
+    """Drop asyncpg's record of the given channels.
 
     `add_listener` skips the round trip for a channel already in the
     record, so one left behind would make a later `LISTEN` silently do
     nothing.
     """
+    if not channels:
+        return
     try:
-        conn._listeners.clear()  # noqa: SLF001
-        conn._log_listeners.clear()  # noqa: SLF001
-    except AttributeError:
+        for channel in channels:
+            conn._listeners.pop(channel, None)  # noqa: SLF001
+    except AttributeError:  # pragma: no cover
         _report_driver_change("listener")
 
 
@@ -199,13 +210,19 @@ class EnginePool:
     commits is never rolled back by a transaction the caller opened.
     """
 
-    __slots__ = ("_borrowed", "_closed", "_engine", "_held", "_releasing")
+    __slots__ = (
+        "_borrowed",
+        "_closed",
+        "_engine",
+        "_held",
+        "_releasing",
+    )
 
     def __init__(self, engine: AsyncEngine) -> None:
         """Initialize the facade over an already validated engine."""
         self._engine = engine
         self._borrowed: dict[Connection, AsyncConnection] = {}
-        self._held: set[Connection] = set()
+        self._held: dict[Connection, frozenset[str]] = {}
         self._releasing: set[asyncio.Task[None]] = set()
         self._closed = False
 
@@ -244,7 +261,8 @@ class EnginePool:
             raise SettingsValidationError(msg)
         self._borrowed[driver] = connection
         if held:
-            self._held.add(driver)
+            # What it already listens on is the application's, and stays.
+            self._held[driver] = _channels(driver)
         return driver
 
     async def release(self, conn: Connection, *, discard: bool = False) -> None:
@@ -266,8 +284,7 @@ class EnginePool:
         pooled, so a broken one is never handed to the application.
         """
         connection = self._borrowed.pop(conn, None)
-        held = conn in self._held
-        self._held.discard(conn)
+        listening = self._held.pop(conn, None)
         if connection is None:
             return
         # Hand the work to a task and keep waiting through repeated
@@ -276,7 +293,9 @@ class EnginePool:
         # every await in the cleanup would raise straight away and strand
         # the checkout for the garbage collector to drop.
         task = asyncio.ensure_future(
-            self._release(conn, connection, held=held, discard=discard)
+            self._release(
+                conn, connection, listening=listening, discard=discard
+            )
         )
         self._releasing.add(task)
         task.add_done_callback(self._releasing.discard)
@@ -310,7 +329,7 @@ class EnginePool:
         conn: Connection,
         connection: AsyncConnection,
         *,
-        held: bool,
+        listening: frozenset[str] | None,
         discard: bool = False,
     ) -> None:
         """Clean the connection, then close or invalidate the checkout."""
@@ -319,7 +338,7 @@ class EnginePool:
             return
         try:
             async with asyncio.timeout(_CLEAN_TIMEOUT):
-                await self._clean(conn, held=held)
+                await self._clean(conn, listening=listening)
         except asyncio.CancelledError:
             await self._discard(connection)
             raise
@@ -333,16 +352,19 @@ class EnginePool:
         else:
             await _close(connection)
 
-    async def _clean(self, conn: Connection, *, held: bool) -> None:
+    async def _clean(
+        self, conn: Connection, *, listening: frozenset[str] | None
+    ) -> None:
         """Undo what grelmicro leaves on a connection, and nothing else.
 
-        A connection the caller held may carry a listener, so it is told
-        to forget them. One borrowed for the length of a block cannot,
-        and pays no round trip for the question.
+        Only what this loan added is undone. The channels the connection
+        already listened on belong to the application, which registers
+        them once per physical connection and never again, so a blanket
+        `UNLISTEN *` would silence its notifications for good. grelmicro
+        declares no cursors, so none are closed either.
 
-        The two markers asyncpg keeps on the client are cleared the way
-        its own pool clears them, because the server answering `ROLLBACK`
-        and `UNLISTEN` does not tell the driver anything.
+        The record asyncpg keeps on the client is corrected to match,
+        because the server answering does not tell the driver anything.
         """
         statements = []
         # `_forget_transaction` is what clears the marker, so it runs before
@@ -351,11 +373,13 @@ class EnginePool:
         forgotten = _forget_transaction(conn)
         if conn.is_in_transaction() or forgotten:
             statements.append("ROLLBACK")
-        if held:
-            _forget_listeners(conn)
-            statements += ["UNLISTEN *", "CLOSE ALL"]
+        added: frozenset[str] = frozenset()
+        if listening is not None:
+            added = _channels(conn) - listening
+            statements += [f'UNLISTEN "{c}"' for c in sorted(added)]
         if statements:
             await conn.execute("; ".join(statements))
+        _forget_channels(conn, added)
 
     async def _discard(self, connection: AsyncConnection) -> None:
         """Invalidate a connection so the engine never pools it again."""

@@ -1030,13 +1030,17 @@ class TestFromEngineAgainstPostgres:
         """A provider entered twice never opens a private pool."""
         from grelmicro.providers._sqlalchemy import EnginePool  # noqa: PLC0415
 
-        provider = PostgresProvider.from_engine(engine, own=True)
+        for own in (False, True):
+            provider = PostgresProvider.from_engine(engine, own=own)
 
-        async with provider:
-            await provider.check()
-        async with provider:
-            await provider.check()
-            assert isinstance(provider.client, EnginePool)
+            async with provider:
+                await provider.check()
+            # The borrowed default is the form that broke: its facade is
+            # closed on exit, so a second enter has to build a fresh one
+            # rather than hand back the closed one.
+            async with provider:
+                await provider.check()
+                assert isinstance(provider.client, EnginePool)
 
     async def test_lock_survives_a_caller_rollback(
         self, engine: "AsyncEngine"
@@ -1108,6 +1112,7 @@ class _FakeEngine:
         self.raw_error = raw_error
         self.reset_error = reset_error
         self.alias: Any = None
+        self.channels: set[str] = set()
         self.connections: list[_FakeSAConnection] = []
         self.disposed = False
         self.closing: Any = None
@@ -1128,7 +1133,7 @@ class _FakeEngine:
         driver.fetchval = AsyncMock(return_value=1)
         driver.is_in_transaction = MagicMock(return_value=False)
         driver._top_xact = None
-        driver._listeners = {}
+        driver._listeners = dict.fromkeys(self.channels, object())
         driver._log_listeners = set()
         if self.reset_error:
             driver.execute = AsyncMock(
@@ -1225,9 +1230,10 @@ class TestEnginePool:
         pool, engine = self.make()
 
         conn = await pool.acquire()
+        conn._listeners["grelmicro_outbox"] = object()
         await pool.release(conn)
 
-        conn.execute.assert_awaited_with("UNLISTEN *; CLOSE ALL")
+        conn.execute.assert_awaited_with('UNLISTEN "grelmicro_outbox"')
         assert engine.connections[0].closed
         assert not engine.connections[0].invalidated
 
@@ -1236,6 +1242,7 @@ class TestEnginePool:
         pool, engine = self.make(reset_error=True)
 
         conn = await pool.acquire()
+        conn.is_in_transaction = MagicMock(return_value=True)
         await pool.release(conn)
 
         assert engine.connections[0].invalidated
@@ -1308,7 +1315,7 @@ class TestEnginePool:
         await pool.release(conn)
 
         assert conn._top_xact is None
-        conn.execute.assert_awaited_with("ROLLBACK; UNLISTEN *; CLOSE ALL")
+        conn.execute.assert_awaited_with("ROLLBACK")
 
     async def test_held_clean_forgets_listeners_on_the_client(self) -> None:
         """`UNLISTEN` on the server has to be matched on the client.
@@ -1317,15 +1324,16 @@ class TestEnginePool:
         subscribed, so a registry left behind makes a later `LISTEN`
         silently do nothing.
         """
-        pool, _ = self.make()
+        pool, engine = self.make()
+        engine.channels = {"app_channel"}
 
         conn = await pool.acquire()
         conn._listeners["outbox"] = object()
-        conn._log_listeners.add(object())
         await pool.release(conn)
 
-        assert not conn._listeners
-        assert not conn._log_listeners
+        # The app's own subscription survives the loan, grelmicro's does not.
+        assert "app_channel" in conn._listeners
+        assert "outbox" not in conn._listeners
 
     async def test_checkout_racing_close_is_refused(self) -> None:
         """A checkout that lands after `close()` drained is never stranded."""
@@ -1383,6 +1391,7 @@ class TestEnginePool:
         pool, engine = self.make()
 
         conn = await pool.acquire()
+        conn.is_in_transaction = MagicMock(return_value=True)
         conn.execute = AsyncMock(side_effect=asyncio.TimeoutError)
 
         await pool.release(conn)
@@ -1401,14 +1410,15 @@ class TestEnginePool:
         await pool.release(conn)
 
     async def test_held_clean_rolls_back_an_open_transaction(self) -> None:
-        """A held connection in a transaction is rolled back and forgets listeners."""
+        """A held connection rolls back and drops the channels it added."""
         pool, _ = self.make()
 
         conn = await pool.acquire()
         conn.is_in_transaction = MagicMock(return_value=True)
+        conn._listeners["outbox"] = object()
         await pool.release(conn)
 
-        conn.execute.assert_awaited_with("ROLLBACK; UNLISTEN *; CLOSE ALL")
+        conn.execute.assert_awaited_with('ROLLBACK; UNLISTEN "outbox"')
 
     async def test_a_cancelled_caller_still_sees_the_cancel(self) -> None:
         """The cleanup finishes, and the caller's own cancel survives it."""
@@ -1440,6 +1450,7 @@ class TestEnginePool:
         pool, engine = self.make()
 
         conn = await pool.acquire()
+        conn.is_in_transaction = MagicMock(return_value=True)
         conn.execute = AsyncMock(side_effect=asyncio.CancelledError)
 
         await pool.release(conn)
