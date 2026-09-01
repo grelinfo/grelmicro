@@ -105,18 +105,21 @@ refused at construction rather than reaching the wire as a broken header.
 
 _RESERVED_REPLAY_HEADERS = frozenset(
     {
-        "content-length",
-        "transfer-encoding",
         "connection",
         "content-encoding",
+        "content-length",
+        "content-type",
+        "location",
         "set-cookie",
+        "transfer-encoding",
     }
 )
 """Names `replay_header` is refused.
 
-Each one already means something on the response the middleware sends. The
-marker would go out beside it, framing the body twice or declaring an
-encoding the body does not have.
+Each one directs the client on the response the middleware sends, so the
+marker taking its place would frame the body twice, mislabel it, or point
+a client at `true`. Any other name the handler also sets is logged when
+the marker replaces it.
 """
 
 
@@ -128,13 +131,13 @@ _KEY_SEPARATOR = "\x1f"
 """Separator joining the parts of a stored key."""
 
 
-def _field_name(value: str, argument: str) -> str:
+def _field_name(value: str, argument: str, example: str) -> str:
     """Return `value`, or raise when it is not an HTTP field name."""
     if not _FIELD_NAME.fullmatch(value):
         msg = (
             f"{argument} is not an HTTP field name. Use letters, digits, "
             f"and the punctuation a header name takes, such as "
-            f"'Idempotency-Key'."
+            f"{example!r}."
         )
         raise SettingsValidationError(msg)
     return value
@@ -142,7 +145,7 @@ def _field_name(value: str, argument: str) -> str:
 
 def _replay_name(value: str) -> str:
     """Return `value`, or raise when it cannot carry the replay marker."""
-    _field_name(value, "replay_header")
+    _field_name(value, "replay_header", _DEFAULT_REPLAY_HEADER)
     if value.lower() in _RESERVED_REPLAY_HEADERS:
         msg = (
             "replay_header cannot name a header the response already "
@@ -374,7 +377,9 @@ class IdempotencyMiddleware:
         self.app = app
         self._idempotency = idempotency
         self._header = (
-            _field_name(key_header, "key_header").lower().encode("ascii")
+            _field_name(key_header, "key_header", "Idempotency-Key")
+            .lower()
+            .encode("ascii")
         )
         self._header_name = key_header
         self._replay_header = (
@@ -743,17 +748,25 @@ async def _send_stored(
 
     Content-Length is recomputed from the stored body, and left off the
     statuses that carry no content, so a replay stays a valid response. A
-    stored header carrying the replay name is dropped, so the marker is
-    the only value under it.
+    stored header carrying the replay name is dropped and logged, so the
+    marker is the only value under it.
     """
     body = stored["body"].encode("latin-1")
     status = stored["status"]
     headers = []
+    replaced = False
     for name, value in stored["headers"]:
         encoded = name.encode("latin-1")
         if encoded.lower() == replay_header:
+            replaced = True
             continue
         headers.append((encoded, value.encode("latin-1")))
+    if replaced:
+        _logger.warning(
+            "Replay marker replaced the %s header the handler set. Give "
+            "replay_header a name of its own to keep both.",
+            replay_header.decode("ascii"),
+        )
     if status >= _MIN_CONTENT_STATUS and status not in BODYLESS_STATUSES:
         headers.append((b"content-length", str(len(body)).encode("latin-1")))
     headers.append((replay_header, b"true"))
@@ -967,7 +980,9 @@ class IdempotentRequests:
         self._openapi = openapi
         self._options: dict[str, Any] = {
             "idempotency": Idempotency(namespace, ttl=ttl, cache=cache),
-            "key_header": _field_name(key_header, "key_header"),
+            "key_header": _field_name(
+                key_header, "key_header", "Idempotency-Key"
+            ),
             "replay_header": _replay_name(replay_header),
             "methods": methods,
             "key_maker": key_maker,

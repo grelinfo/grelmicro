@@ -164,6 +164,10 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
             lambda: IdempotentRequests(replay_header="Content-Length"),
             id="frames-the-response",
         ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Content-Type"),
+            id="labels-the-response",
+        ),
     ],
 )
 def test_a_header_name_that_cannot_reach_the_wire_is_refused(
@@ -189,7 +193,9 @@ def test_the_middleware_refuses_a_broken_header_name_of_its_own() -> None:
         )
 
 
-def test_the_replay_marker_replaces_a_header_of_the_same_name() -> None:
+def test_the_replay_marker_replaces_a_header_of_the_same_name(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A handler setting that name leaves one value on the replay, not two."""
     # Arrange
     micro = Grelmicro(
@@ -212,6 +218,7 @@ def test_the_replay_marker_replaces_a_header_of_the_same_name() -> None:
     # Assert
     assert first.headers["x-cache"] == "MISS"
     assert second.headers["x-cache"] == "true"
+    assert "Replay marker replaced the x-cache header" in caplog.text
 
 
 def test_install_documents_the_middleware_in_the_schema() -> None:
