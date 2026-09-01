@@ -103,6 +103,23 @@ refused at construction rather than reaching the wire as a broken header.
 """
 
 
+_RESERVED_REPLAY_HEADERS = frozenset(
+    {
+        "content-length",
+        "transfer-encoding",
+        "connection",
+        "content-encoding",
+        "set-cookie",
+    }
+)
+"""Names `replay_header` is refused.
+
+Each one already means something on the response the middleware sends. The
+marker would go out beside it, framing the body twice or declaring an
+encoding the body does not have.
+"""
+
+
 _MIN_CONTENT_STATUS = 200
 """Lowest status that may carry content."""
 
@@ -112,16 +129,25 @@ _KEY_SEPARATOR = "\x1f"
 
 
 def _field_name(value: str, argument: str) -> str:
-    """Return `value`, or raise when it is not an HTTP field name.
-
-    The message repeats the name, which is a literal the caller wrote in
-    code rather than a value read from the environment.
-    """
+    """Return `value`, or raise when it is not an HTTP field name."""
     if not _FIELD_NAME.fullmatch(value):
         msg = (
-            f"{argument}={value!r} is not an HTTP field name. Use letters, "
-            f"digits, and the punctuation a header name takes, such as "
+            f"{argument} is not an HTTP field name. Use letters, digits, "
+            f"and the punctuation a header name takes, such as "
             f"'Idempotency-Key'."
+        )
+        raise SettingsValidationError(msg)
+    return value
+
+
+def _replay_name(value: str) -> str:
+    """Return `value`, or raise when it cannot carry the replay marker."""
+    _field_name(value, "replay_header")
+    if value.lower() in _RESERVED_REPLAY_HEADERS:
+        msg = (
+            "replay_header cannot name a header the response already "
+            "carries, such as Content-Length or Set-Cookie. Pick a name of "
+            "your own, such as 'Idempotent-Replayed'."
         )
         raise SettingsValidationError(msg)
     return value
@@ -352,7 +378,7 @@ class IdempotencyMiddleware:
         )
         self._header_name = key_header
         self._replay_header = (
-            _field_name(replay_header, "replay_header").lower().encode("ascii")
+            _replay_name(replay_header).lower().encode("ascii")
         )
         self._methods = frozenset(method.upper() for method in methods)
         self._key_maker = key_maker
@@ -942,7 +968,7 @@ class IdempotentRequests:
         self._options: dict[str, Any] = {
             "idempotency": Idempotency(namespace, ttl=ttl, cache=cache),
             "key_header": _field_name(key_header, "key_header"),
-            "replay_header": _field_name(replay_header, "replay_header"),
+            "replay_header": _replay_name(replay_header),
             "methods": methods,
             "key_maker": key_maker,
             "skip": skip,

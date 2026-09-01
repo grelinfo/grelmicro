@@ -143,7 +143,7 @@ IdempotentRequests(
 )
 ```
 
-Both take an HTTP field name. A name holding a space, a colon, a newline, or a non-ASCII character is refused when the component is built, rather than reaching the wire as a broken header.
+Both take an HTTP field name. A name holding a space, a colon, a newline, or a non-ASCII character is refused when the component is built, rather than reaching the wire as a broken header. `replay_header` also refuses a name the response already carries, such as `Content-Length` or `Set-Cookie`.
 
 A stored header carrying the replay name is dropped on the way out, so a handler that sets that name itself leaves one value on the replay rather than two.
 

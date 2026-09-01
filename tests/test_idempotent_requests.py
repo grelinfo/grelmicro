@@ -160,6 +160,10 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
             lambda: IdempotentRequests(key_header="Idempotency-Key\n"),
             id="trailing-newline",
         ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Content-Length"),
+            id="frames-the-response",
+        ),
     ],
 )
 def test_a_header_name_that_cannot_reach_the_wire_is_refused(
