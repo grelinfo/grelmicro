@@ -288,10 +288,10 @@ class TestFromEngine:
 
         provider = PostgresProvider.from_engine(engine)
 
-        assert provider.url == URL
-        assert provider.safe_url == (
-            "postgresql://test_user:***@test_host:1234/test_db"
-        )
+        redacted = "postgresql://test_user:***@test_host:1234/test_db"
+        assert provider.url == redacted
+        assert provider.safe_url == redacted
+        assert "test_password" not in repr(provider)
 
     def test_session_refused(self) -> None:
         """An `AsyncSession` carries the caller's transaction, so it is refused."""
@@ -1295,14 +1295,18 @@ class TestEnginePool:
         conn.execute.assert_awaited_with("ROLLBACK; UNLISTEN *; CLOSE ALL")
 
     async def test_cancelled_clean_drops_the_connection(self) -> None:
-        """A connection whose cleanup is cancelled is dropped, not pooled."""
+        """A cleanup cancelled by the connection never cancels the caller.
+
+        The cancel says the connection went away, not that the caller
+        asked to stop, so reporting it upwards would cancel the siblings
+        of a task nobody interrupted.
+        """
         pool, engine = self.make()
 
         conn = await pool.acquire()
         conn.execute = AsyncMock(side_effect=asyncio.CancelledError)
 
-        with pytest.raises(asyncio.CancelledError):
-            await pool.release(conn)
+        await pool.release(conn)
 
         assert engine.connections[0].invalidated
 
@@ -1320,6 +1324,35 @@ class TestEnginePool:
         await pool.release_all()
 
         assert all(connection.closed for connection in engine.connections)
+
+    async def test_release_all_survives_a_raising_release(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A release that refuses never strands the connections behind it."""
+        pool, _ = self.make()
+        borrowed = 2
+
+        for _ in range(borrowed):
+            await pool.acquire()
+
+        calls = 0
+        real = type(pool).release
+
+        async def refuse_once(this: Any, conn: object) -> None:  # noqa: ANN401
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                this._borrowed.pop(conn, None)
+                msg = "check-in refused"
+                raise ConnectionError(msg)
+            await real(this, conn)
+
+        monkeypatch.setattr(type(pool), "release", refuse_once)
+
+        await pool.release_all()
+
+        assert calls == borrowed
+        assert not pool._borrowed
 
     async def test_release_all_survives_a_cancelled_release(self) -> None:
         """A shutdown cancelled part way still hands back the rest."""

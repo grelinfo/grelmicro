@@ -203,7 +203,16 @@ class EnginePool:
                 await asyncio.shield(task)
             except asyncio.CancelledError as error:  # pragma: no cover
                 cancelled = error
-        if cancelled is not None:  # pragma: no cover
+        if task.cancelled():
+            # The cleanup itself was cancelled, which says the connection
+            # went away, not that the caller did. It has been dropped
+            # already, and reporting a cancel here would cancel siblings
+            # of a caller nobody asked to stop.
+            logger.warning(
+                "The cleanup of a Postgres connection was cancelled, so the "
+                "connection was dropped instead of returned to the engine."
+            )
+        elif cancelled is not None:  # pragma: no cover
             raise cancelled
 
     async def _release(
@@ -285,17 +294,29 @@ class EnginePool:
 
         One connection that refuses to close never strands the rest: this
         runs from the provider's shutdown, where a raise would also
-        replace whatever error was already on its way out.
+        replace whatever error was already on its way out. A cancel is
+        the exception, and is re-raised once every connection is back.
         """
+        if self._borrowed:
+            logger.warning(
+                "Returning %d Postgres connection(s) still checked out of the "
+                "engine. A component held one past its own shutdown.",
+                len(self._borrowed),
+            )
+        cancelled: asyncio.CancelledError | None = None
         while self._borrowed:
             conn = next(iter(self._borrowed))
             try:
                 await self.release(conn)
-            except BaseException:
+            except asyncio.CancelledError as error:  # pragma: no cover
+                cancelled = error
+            except Exception:
                 logger.warning(
                     "Could not return a Postgres connection to the engine.",
                     exc_info=True,
                 )
+        if cancelled is not None:  # pragma: no cover
+            raise cancelled
 
     async def close(self) -> None:
         """Give every outstanding connection back and dispose the engine."""

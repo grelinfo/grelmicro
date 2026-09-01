@@ -318,9 +318,10 @@ class PostgresProvider(Provider):
         validated = validate_engine(engine)
         self = cls.__new__(cls)
         self._env_prefix = "POSTGRES_"
-        self._url = _normalize_scheme(
-            validated.url.render_as_string(hide_password=False)
-        )
+        # The password stays with the engine. This provider never opens a
+        # connection of its own here, so holding the application's
+        # credential would add a place for it to leak from and nothing else.
+        self._url = _normalize_scheme(validated.url.render_as_string())
         self._command_timeout = None
         self._pool = cast("Pool", EnginePool(validated))
         self._engine = validated
@@ -331,7 +332,9 @@ class PostgresProvider(Provider):
     def url(self) -> str:
         """Resolved Postgres URL (empty for `from_client` providers).
 
-        A `from_engine` provider reports the engine's URL.
+        A `from_engine` provider reports the engine's URL with no
+        password in it: it borrows the engine rather than connecting,
+        so it never holds one.
 
         !!! warning
             The string may contain the password in the userinfo section
