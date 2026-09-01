@@ -1003,6 +1003,27 @@ class TestFromEngineAgainstPostgres:
 
         assert record.metadata == metadata
 
+    async def test_a_static_pool_engine_is_refused(
+        self, engine: "AsyncEngine"
+    ) -> None:
+        """`StaticPool` shares one connection, so two checkouts collide."""
+        from sqlalchemy.pool import StaticPool  # noqa: PLC0415
+
+        static = create_async_engine(
+            engine.url.render_as_string(hide_password=False),
+            poolclass=StaticPool,
+        )
+        provider = PostgresProvider.from_engine(static)
+
+        try:
+            async with provider:
+                await provider.check()
+                async with provider.client.acquire():
+                    with pytest.raises(SettingsValidationError, match="two"):
+                        await provider.client.acquire().__aenter__()
+        finally:
+            await static.dispose()
+
     async def test_reentry_reuses_the_engine(
         self, engine: "AsyncEngine"
     ) -> None:
@@ -1086,6 +1107,7 @@ class _FakeEngine:
     ) -> None:
         self.raw_error = raw_error
         self.reset_error = reset_error
+        self.alias: Any = None
         self.connections: list[_FakeSAConnection] = []
         self.disposed = False
         self.closing: Any = None
@@ -1112,6 +1134,8 @@ class _FakeEngine:
             driver.execute = AsyncMock(
                 side_effect=ConnectionError("clean failed")
             )
+        if self.alias is not None:
+            driver = self.alias
         connection = _FakeSAConnection(driver, raw_error=self.raw_error)
         self.connections.append(connection)
         return connection
@@ -1484,6 +1508,41 @@ class TestEnginePool:
 
         assert len(engine.connections) == borrowed
         assert all(c.invalidated for c in engine.connections)
+
+    async def test_an_aliasing_pool_is_refused(self) -> None:
+        """A pool that hands one connection to two checkouts cannot be shared.
+
+        `StaticPool` does exactly this. Whichever checkout released first
+        would clean and return the other one's connection, and the other
+        would find nothing left to give back.
+        """
+        pool, engine = self.make()
+
+        first = await pool.acquire()
+        engine.alias = first
+
+        with pytest.raises(SettingsValidationError, match="two"):
+            await pool.acquire()
+
+        assert engine.connections[1].closed
+        assert pool._borrowed
+
+    async def test_shutdown_stops_serving_a_borrowed_engine(self) -> None:
+        """A borrowed engine stops answering once the app has shut down.
+
+        Nothing hands a connection back after the drain, so a task that
+        outlived the app must not keep taking them from the application's
+        engine.
+        """
+        from asyncpg import InterfaceError  # noqa: PLC0415
+
+        pool, engine = self.make()
+
+        await pool.shutdown(dispose=False)
+
+        assert not engine.disposed
+        with pytest.raises(InterfaceError, match="pool is closed"):
+            await pool.checkout()
 
     async def test_close_waits_for_a_release_in_flight(self) -> None:
         """A release already running is finished before the engine goes.

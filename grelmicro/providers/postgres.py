@@ -523,7 +523,7 @@ class PostgresProvider(Provider):
             await self._pool.close()
             self._pool = None
         elif isinstance(self._pool, EnginePool):
-            await self._pool.release_all()
+            await self._pool.shutdown(dispose=False)
 
 
 def _resolve_command_timeout(

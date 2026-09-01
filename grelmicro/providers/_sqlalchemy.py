@@ -231,6 +231,17 @@ class EnginePool:
         except BaseException:
             await _close(connection)
             raise
+        if driver in self._borrowed:
+            # Two checkouts, one driver connection. Whichever released
+            # first would clean and return the other one's, and the other
+            # would find nothing to give back.
+            await _close(connection)
+            msg = (
+                "engine: its pool hands the same connection to two "
+                "checkouts at once, which cannot be shared safely. Give "
+                "grelmicro a pooled engine, or its own."
+            )
+            raise SettingsValidationError(msg)
         self._borrowed[driver] = connection
         if held:
             self._held.add(driver)
@@ -423,16 +434,26 @@ class EnginePool:
         if cancelled is not None:  # pragma: no cover
             raise cancelled
 
-    async def close(self) -> None:
-        """Give every outstanding connection back and dispose the engine.
+    async def shutdown(self, *, dispose: bool) -> None:
+        """Stop serving, hand everything back, and wait for what is in flight.
 
-        A release already in flight has popped its connection out of the
+        A release already running has popped its connection out of the
         record, so it is waited on by its task rather than found in there.
-        Disposing the engine under it would fail its cleanup and cost the
-        application a connection.
+        Disposing the engine under it, or handing it back to an
+        application about to dispose its own, would fail its cleanup and
+        cost a connection.
+
+        Refusing new checkouts first matters as much as draining: without
+        it, a task that outlived the app keeps borrowing from the
+        application's engine with nothing left to give them back.
         """
         self._closed = True
         await self.release_all()
         if self._releasing:
             await asyncio.gather(*self._releasing, return_exceptions=True)
-        await self._engine.dispose()
+        if dispose:
+            await self._engine.dispose()
+
+    async def close(self) -> None:
+        """Give every outstanding connection back and dispose the engine."""
+        await self.shutdown(dispose=True)

@@ -125,6 +125,13 @@ its own copy of the lock table, and a lock meant to be shared stops being
 shared. Qualify the table names, or give grelmicro its own engine, if the
 schema moves per request.
 
+**Tracing covers the whole engine.** The asyncpg instrumentor patches the
+driver for the process, not one pool, so turning on grelmicro's tracing also
+traces every query the application runs through that engine. If the app already
+installs `opentelemetry-instrumentation-sqlalchemy`, each query gets a span from
+both. Pick one, with `Trace(instrument={"asyncpg": False})` or by dropping the
+SQLAlchemy instrumentor.
+
 !!! warning "Pass the engine, never a live session"
     `from_engine` takes an `AsyncEngine`. An `AsyncSession` or an
     `AsyncConnection` is refused, because grelmicro would then write
