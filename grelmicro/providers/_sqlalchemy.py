@@ -47,7 +47,10 @@ async def _close(connection: AsyncConnection) -> None:
     """
     try:
         await connection.close()
-    except Exception:
+    except BaseException:
+        # Including a cancel. This is the last step that puts the checkout
+        # back, so letting one through here is the leak the shielded task
+        # exists to prevent.
         logger.warning(
             "Could not return a Postgres connection to the engine.",
             exc_info=True,
@@ -131,13 +134,23 @@ def _forget_listeners(conn: Connection) -> None:
         _report_driver_change("listener")
 
 
+_reported_driver_changes: set[str] = set()
+"""Records already reported missing, so the warning is said once."""
+
+
 def _report_driver_change(what: str) -> None:
     """Say that asyncpg no longer keeps a record where grelmicro looked.
 
     These records are private to asyncpg, and a release that renames one
     must not turn every check-in into a dropped connection. The server-side
     cleanup still runs, so the connection goes back either way.
+
+    Said once per record. Every release would otherwise report it, which is
+    once per request for an app that takes one lock.
     """
+    if what in _reported_driver_changes:
+        return
+    _reported_driver_changes.add(what)
     logger.warning(
         "This asyncpg keeps no %s record where grelmicro looks for one, so "
         "it cannot be cleared on the client. Upgrade grelmicro if a newer "

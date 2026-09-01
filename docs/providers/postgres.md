@@ -67,8 +67,9 @@ micro = Grelmicro(uses=[postgres])
 
 Every operation borrows a connection from the engine's pool and gives it
 back. The database sees one pool, sized by the settings the app already
-chose, and the app keeps ownership: the provider never disposes an engine
-it was handed.
+chose, and the app keeps ownership: the provider does not dispose an
+engine it was handed. Pass `own=True` to hand that over, and the provider
+disposes the engine when it exits.
 
 Size the engine for two connections per request, not one. A request that
 already holds a connection, inside `async with session.begin()`, needs a

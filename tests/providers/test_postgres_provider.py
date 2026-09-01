@@ -1248,6 +1248,10 @@ class TestEnginePool:
         """
         pool, engine = self.make()
 
+        from grelmicro.providers import _sqlalchemy  # noqa: PLC0415
+
+        _sqlalchemy._reported_driver_changes.clear()
+
         conn = await pool.acquire()
         del conn._top_xact
         del conn._listeners
@@ -1256,6 +1260,15 @@ class TestEnginePool:
 
         assert engine.connections[0].closed
         assert not engine.connections[0].invalidated
+
+        # Said once per record, not once per release: an app taking one
+        # lock per request would otherwise warn on every request.
+        reported = set(_sqlalchemy._reported_driver_changes)
+        second = await pool.acquire()
+        del second._top_xact
+        await pool.release(second)
+
+        assert set(_sqlalchemy._reported_driver_changes) == reported
 
     async def test_clean_clears_a_stale_transaction_marker(self) -> None:
         """A cancel between the marker and `BEGIN` leaves it set.
