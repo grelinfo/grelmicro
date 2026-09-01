@@ -24,7 +24,7 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._guards import is_instance, type_name
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
@@ -86,8 +86,21 @@ A longer key is answered with `400`.
 """
 
 
-_REPLAY_HEADER = b"idempotent-replayed"
-"""Response header marking a replayed response."""
+_DEFAULT_REPLAY_HEADER = "Idempotent-Replayed"
+"""Response header marking a replayed response.
+
+No standard names one. The Idempotency-Key header draft registers the
+request header alone, so this is the name most APIs answer a replay with.
+`replay_header` takes another.
+"""
+
+
+_FIELD_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+"""What an HTTP field name may hold, as RFC 9110 spells a token.
+
+A name holding anything else, a space, a colon, or a newline above all, is
+refused at construction rather than reaching the wire as a broken header.
+"""
 
 
 _MIN_CONTENT_STATUS = 200
@@ -96,6 +109,22 @@ _MIN_CONTENT_STATUS = 200
 
 _KEY_SEPARATOR = "\x1f"
 """Separator joining the parts of a stored key."""
+
+
+def _field_name(value: str, argument: str) -> str:
+    """Return `value`, or raise when it is not an HTTP field name.
+
+    The message repeats the name, which is a literal the caller wrote in
+    code rather than a value read from the environment.
+    """
+    if not _FIELD_NAME.fullmatch(value):
+        msg = (
+            f"{argument}={value!r} is not an HTTP field name. Use letters, "
+            f"digits, and the punctuation a header name takes, such as "
+            f"'Idempotency-Key'."
+        )
+        raise SettingsValidationError(msg)
+    return value
 
 
 class StoredResponse(TypedDict):
@@ -127,9 +156,9 @@ class IdempotencyMiddleware:
     """Replay a stored HTTP response when a request repeats its idempotency key.
 
     A request whose method is listed in `methods` and which carries the
-    `header` runs once. A retry with the same key replays the stored
+    `key_header` runs once. A retry with the same key replays the stored
     status, headers, and body without reaching the handler, and carries
-    `idempotent-replayed: true`. A request without the header passes
+    `Idempotent-Replayed: true`. A request without the header passes
     straight through, so adding the middleware changes nothing until a
     client opts in.
 
@@ -195,10 +224,21 @@ class IdempotencyMiddleware:
                 "how long a key replays."
             ),
         ],
-        header: Annotated[
+        key_header: Annotated[
             str,
             Doc("Request header carrying the idempotency key."),
         ] = "Idempotency-Key",
+        replay_header: Annotated[
+            str,
+            Doc(
+                """
+                Response header marking a replayed response.
+
+                No standard names one, so pick what the clients already
+                read. `Idempotent-Replayed` is what most APIs answer with.
+                """
+            ),
+        ] = _DEFAULT_REPLAY_HEADER,
         methods: Annotated[
             Collection[str],
             Doc(
@@ -307,8 +347,13 @@ class IdempotencyMiddleware:
         """Initialize the middleware with the idempotency store and policy."""
         self.app = app
         self._idempotency = idempotency
-        self._header = header.lower().encode("latin-1")
-        self._header_name = header
+        self._header = (
+            _field_name(key_header, "key_header").lower().encode("ascii")
+        )
+        self._header_name = key_header
+        self._replay_header = (
+            _field_name(replay_header, "replay_header").lower().encode("ascii")
+        )
         self._methods = frozenset(method.upper() for method in methods)
         self._key_maker = key_maker
         self._skip = skip
@@ -430,7 +475,10 @@ class IdempotencyMiddleware:
         try:
             if operation.replayed:
                 await _send_stored(
-                    send, operation.result(), head=scope["method"] == "HEAD"
+                    send,
+                    operation.result(),
+                    head=scope["method"] == "HEAD",
+                    replay_header=self._replay_header,
                 )
             else:
                 capture = _ResponseCapture(
@@ -662,21 +710,27 @@ async def _buffer_request(
     return (b"".join(chunks) if complete else None), False, replay_receive
 
 
-async def _send_stored(send: Send, stored: _Entry, *, head: bool) -> None:
+async def _send_stored(
+    send: Send, stored: _Entry, *, head: bool, replay_header: bytes
+) -> None:
     """Send a stored response, marked as a replay.
 
     Content-Length is recomputed from the stored body, and left off the
-    statuses that carry no content, so a replay stays a valid response.
+    statuses that carry no content, so a replay stays a valid response. A
+    stored header carrying the replay name is dropped, so the marker is
+    the only value under it.
     """
     body = stored["body"].encode("latin-1")
     status = stored["status"]
-    headers = [
-        (name.encode("latin-1"), value.encode("latin-1"))
-        for name, value in stored["headers"]
-    ]
+    headers = []
+    for name, value in stored["headers"]:
+        encoded = name.encode("latin-1")
+        if encoded.lower() == replay_header:
+            continue
+        headers.append((encoded, value.encode("latin-1")))
     if status >= _MIN_CONTENT_STATUS and status not in BODYLESS_STATUSES:
         headers.append((b"content-length", str(len(body)).encode("latin-1")))
-    headers.append((_REPLAY_HEADER, b"true"))
+    headers.append((replay_header, b"true"))
     await send(
         {
             "type": "http.response.start",
@@ -787,10 +841,17 @@ class IdempotentRequests:
                 "registered `Cache` component."
             ),
         ] = None,
-        header: Annotated[
+        key_header: Annotated[
             str,
             Doc("Request header carrying the idempotency key."),
         ] = "Idempotency-Key",
+        replay_header: Annotated[
+            str,
+            Doc(
+                "Response header marking a replayed response. No standard "
+                "names one, so pick what the clients already read."
+            ),
+        ] = _DEFAULT_REPLAY_HEADER,
         methods: Annotated[
             Collection[str],
             Doc(
@@ -880,7 +941,8 @@ class IdempotentRequests:
         self._openapi = openapi
         self._options: dict[str, Any] = {
             "idempotency": Idempotency(namespace, ttl=ttl, cache=cache),
-            "header": header,
+            "key_header": _field_name(key_header, "key_header"),
+            "replay_header": _field_name(replay_header, "replay_header"),
             "methods": methods,
             "key_maker": key_maker,
             "skip": skip,

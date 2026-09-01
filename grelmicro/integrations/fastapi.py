@@ -674,7 +674,7 @@ def _annotate_schema(
 ) -> None:
     """Add the header and the middleware's responses to covered operations."""
     methods = {method.lower() for method in options["methods"]}
-    header = options["header"]
+    header = options["key_header"]
     fingerprint_body = options["fingerprint_body"]
     parameter = {
         "name": header,

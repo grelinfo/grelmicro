@@ -264,10 +264,10 @@
       ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/errors/', name='default') -> 'Self'"
     },
     "IdempotencyMiddleware": {
-      "()": "(app, *, idempotency, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422) -> 'None'"
+      "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422) -> 'None'"
     },
     "IdempotentRequests": {
-      "()": "(*, ttl=None, namespace='http', cache=None, header='Idempotency-Key', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, openapi=True, name='default') -> 'None'"
+      "()": "(*, ttl=None, namespace='http', cache=None, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, openapi=True, name='default') -> 'None'"
     },
     "PROBLEM_MEDIA_TYPE": null,
     "PreconditionError": null,

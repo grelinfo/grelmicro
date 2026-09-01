@@ -126,7 +126,26 @@ idempotent-replayed: true
 
 Same status, same body, and the same headers the handler set. The `idempotent-replayed` header is the one addition, so a client can tell a replay from a fresh run.
 
-A request without the header passes straight through. Adding the middleware changes nothing until a client opts in.
+A request without the `Idempotency-Key` header passes straight through. Adding the middleware changes nothing until a client opts in.
+
+### The two header names
+
+`Idempotency-Key` is the request header the [Idempotency-Key header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) registers.
+
+`Idempotent-Replayed` is not standard. The draft names no response header for a replay, so every API picked its own. `Idempotent-Replayed: true` is the one most of them answer with, including Stripe and Increase, which is why it is the default here. Others read `Idempotency-Replayed`, and a few carry a vendor prefix.
+
+Rename either one when your clients already read another:
+
+```python
+IdempotentRequests(
+    key_header="X-Idempotency-Key",
+    replay_header="X-Idempotent-Replayed",
+)
+```
+
+Both take an HTTP field name. A name holding a space, a colon, a newline, or a non-ASCII character is refused when the component is built, rather than reaching the wire as a broken header.
+
+A stored header carrying the replay name is dropped on the way out, so a handler that sets that name itself leaves one value on the replay rather than two.
 
 ## Errors replay too
 
@@ -316,7 +335,8 @@ A background task runs after the response is sent, so the response is stored and
 | `namespace` | `"http"` | Namespace the stored keys sit under. Component only. |
 | `cache` | the registered `Cache` | The `TTLCache` responses are stored in. Component only. |
 | `idempotency` | required on the middleware | The `Idempotency` it stores through. The component builds one from `ttl`, `namespace` and `cache`. |
-| `header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
+| `key_header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
+| `replay_header` | `"Idempotent-Replayed"` | Response header marking a replay. No standard names one, so pick what your clients read. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
 | `key_maker` | `None` | Build the stored key from the scope and the client key. Set it in any multi-tenant app. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |
