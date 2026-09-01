@@ -100,6 +100,30 @@ engine:
 postgres = PostgresProvider(engine.url.render_as_string(hide_password=False))
 ```
 
+Two things the engine decides for you.
+
+**The timeout is the engine's.** `command_timeout` bounds a hung server on a
+provider that opens its own pool. A borrowed engine connects on its own terms,
+so pass the timeout there instead:
+
+```python
+engine = create_async_engine(
+    "postgresql+asyncpg://localhost/app",
+    connect_args={"command_timeout": 5},
+)
+```
+
+Without it, a statement grelmicro runs waits as long as the engine's
+connections do.
+
+**The schema is the engine's too.** grelmicro names its tables unqualified, so
+they resolve through whatever `search_path` the connection carries. That is
+what lets an app keep its own `search_path` across the loan. An app that
+switches `search_path` per checkout, one schema per tenant, gives each tenant
+its own copy of the lock table, and a lock meant to be shared stops being
+shared. Qualify the table names, or give grelmicro its own engine, if the
+schema moves per request.
+
 !!! warning "Pass the engine, never a live session"
     `from_engine` takes an `AsyncEngine`. An `AsyncSession` or an
     `AsyncConnection` is refused, because grelmicro would then write

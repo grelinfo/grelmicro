@@ -97,6 +97,55 @@ def validate_engine(engine: object) -> AsyncEngine:
     return engine
 
 
+def _forget_transaction(conn: Connection) -> bool:
+    """Clear asyncpg's record of the transaction it was starting.
+
+    asyncpg notes the transaction before it sends `BEGIN`, so a cancel in
+    between leaves the note with no transaction open. Left there, the next
+    `transaction()` on this connection reads as a nested one and sends
+    `SAVEPOINT` outside a transaction block.
+
+    Returns whether a note was found, so the caller rolls back with it.
+    """
+    try:
+        if conn._top_xact is None:  # noqa: SLF001
+            return False
+        conn._top_xact = None  # noqa: SLF001
+    except AttributeError:
+        _report_driver_change("transaction")
+        return False
+    return True
+
+
+def _forget_listeners(conn: Connection) -> None:
+    """Clear asyncpg's record of the channels it believes are subscribed.
+
+    `add_listener` skips the round trip for a channel already in the
+    record, so one left behind would make a later `LISTEN` silently do
+    nothing.
+    """
+    try:
+        conn._listeners.clear()  # noqa: SLF001
+        conn._log_listeners.clear()  # noqa: SLF001
+    except AttributeError:
+        _report_driver_change("listener")
+
+
+def _report_driver_change(what: str) -> None:
+    """Say that asyncpg no longer keeps a record where grelmicro looked.
+
+    These records are private to asyncpg, and a release that renames one
+    must not turn every check-in into a dropped connection. The server-side
+    cleanup still runs, so the connection goes back either way.
+    """
+    logger.warning(
+        "This asyncpg keeps no %s record where grelmicro looks for one, so "
+        "it cannot be cleared on the client. Upgrade grelmicro if a newer "
+        "one supports this asyncpg.",
+        what,
+    )
+
+
 class _Acquire:
     """Stand in for `Pool.acquire()`, awaited or entered.
 
@@ -137,13 +186,14 @@ class EnginePool:
     commits is never rolled back by a transaction the caller opened.
     """
 
-    __slots__ = ("_borrowed", "_closed", "_engine", "_held")
+    __slots__ = ("_borrowed", "_closed", "_engine", "_held", "_releasing")
 
     def __init__(self, engine: AsyncEngine) -> None:
         """Initialize the facade over an already validated engine."""
         self._engine = engine
         self._borrowed: dict[Connection, AsyncConnection] = {}
         self._held: set[Connection] = set()
+        self._releasing: set[asyncio.Task[None]] = set()
         self._closed = False
 
     async def checkout(self, *, held: bool = False) -> Connection:
@@ -166,14 +216,14 @@ class EnginePool:
                 msg = "pool is closed"
                 raise InterfaceError(msg)  # noqa: TRY301
         except BaseException:
-            await connection.close()
+            await _close(connection)
             raise
         self._borrowed[driver] = connection
         if held:
             self._held.add(driver)
         return driver
 
-    async def release(self, conn: Connection) -> None:
+    async def release(self, conn: Connection, *, discard: bool = False) -> None:
         """Clean a borrowed connection and give it back to the engine.
 
         The connection goes back into the application's pool, so what
@@ -201,7 +251,11 @@ class EnginePool:
         # the awaiter's cancel, and under a cancel scope that re-delivers,
         # every await in the cleanup would raise straight away and strand
         # the checkout for the garbage collector to drop.
-        task = asyncio.ensure_future(self._release(conn, connection, held=held))
+        task = asyncio.ensure_future(
+            self._release(conn, connection, held=held, discard=discard)
+        )
+        self._releasing.add(task)
+        task.add_done_callback(self._releasing.discard)
         cancelled: asyncio.CancelledError | None = None
         while not task.done():
             try:
@@ -228,9 +282,17 @@ class EnginePool:
             raise cancelled
 
     async def _release(
-        self, conn: Connection, connection: AsyncConnection, *, held: bool
+        self,
+        conn: Connection,
+        connection: AsyncConnection,
+        *,
+        held: bool,
+        discard: bool = False,
     ) -> None:
         """Clean the connection, then close or invalidate the checkout."""
+        if discard:
+            await self._discard(connection)
+            return
         try:
             async with asyncio.timeout(_CLEAN_TIMEOUT):
                 await self._clean(conn, held=held)
@@ -259,20 +321,14 @@ class EnginePool:
         and `UNLISTEN` does not tell the driver anything.
         """
         statements = []
-        # asyncpg records the transaction it is starting before it sends
-        # `BEGIN`, so a cancel in between leaves the marker set with no
-        # transaction open. Left there, the next `transaction()` on this
-        # connection reads as a nested one and sends `SAVEPOINT` outside a
-        # transaction block.
-        if conn.is_in_transaction() or conn._top_xact is not None:  # noqa: SLF001
-            conn._top_xact = None  # noqa: SLF001
+        # `_forget_transaction` is what clears the marker, so it runs before
+        # the test rather than behind an `or` that skips it exactly when the
+        # connection is in a transaction.
+        forgotten = _forget_transaction(conn)
+        if conn.is_in_transaction() or forgotten:
             statements.append("ROLLBACK")
         if held:
-            # `add_listener` skips the round trip for a channel it believes
-            # is already subscribed, so a registry left behind would make a
-            # later `LISTEN` silently do nothing.
-            conn._listeners.clear()  # noqa: SLF001
-            conn._log_listeners.clear()  # noqa: SLF001
+            _forget_listeners(conn)
             statements += ["UNLISTEN *", "CLOSE ALL"]
         if statements:
             await conn.execute("; ".join(statements))
@@ -281,7 +337,9 @@ class EnginePool:
         """Invalidate a connection so the engine never pools it again."""
         try:
             await connection.invalidate()
-        except Exception:
+        except BaseException:
+            # Including a cancel: the checkout still has to go back, which
+            # is the whole reason this runs inside a shielded task.
             logger.warning(
                 "Could not invalidate a Postgres connection.", exc_info=True
             )
@@ -328,15 +386,20 @@ class EnginePool:
         """
         if self._borrowed:
             logger.warning(
-                "Returning %d Postgres connection(s) still checked out of the "
-                "engine. A component held one past its own shutdown.",
+                "Dropping %d Postgres connection(s) still checked out of the "
+                "engine. A component held one past its own shutdown, and its "
+                "connection is not safe to hand back while it may still be "
+                "running statements on it.",
                 len(self._borrowed),
             )
         cancelled: asyncio.CancelledError | None = None
         while self._borrowed:
             conn = next(iter(self._borrowed))
             try:
-                await self.release(conn)
+                # Whoever holds this never gave it back, so it may still be
+                # driving it. Handing it to the application now would put two
+                # coroutines on one connection.
+                await self.release(conn, discard=True)
             except asyncio.CancelledError as error:  # pragma: no cover
                 cancelled = error
             except Exception:
@@ -348,7 +411,15 @@ class EnginePool:
             raise cancelled
 
     async def close(self) -> None:
-        """Give every outstanding connection back and dispose the engine."""
+        """Give every outstanding connection back and dispose the engine.
+
+        A release already in flight has popped its connection out of the
+        record, so it is waited on by its task rather than found in there.
+        Disposing the engine under it would fail its cleanup and cost the
+        application a connection.
+        """
         self._closed = True
         await self.release_all()
+        if self._releasing:
+            await asyncio.gather(*self._releasing, return_exceptions=True)
         await self._engine.dispose()

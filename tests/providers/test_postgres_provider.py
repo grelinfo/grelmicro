@@ -1239,6 +1239,24 @@ class TestEnginePool:
         assert len(engine.connections) == borrowed
         assert all(c.invalidated for c in engine.connections)
 
+    async def test_a_driver_without_the_records_still_returns_it(self) -> None:
+        """An asyncpg that renamed its private records never burns the pool.
+
+        The records are private to the driver. Reaching for one that has
+        gone must leave the connection returnable, because the server-side
+        cleanup still runs.
+        """
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+        del conn._top_xact
+        del conn._listeners
+
+        await pool.release(conn)
+
+        assert engine.connections[0].closed
+        assert not engine.connections[0].invalidated
+
     async def test_clean_clears_a_stale_transaction_marker(self) -> None:
         """A cancel between the marker and `BEGIN` leaves it set.
 
@@ -1314,8 +1332,13 @@ class TestEnginePool:
 
         async with pool.acquire() as conn:
             conn.is_in_transaction = MagicMock(return_value=True)
+            conn._top_xact = object()
 
         conn.execute.assert_awaited_once_with("ROLLBACK")
+        # The marker has to be cleared in this case above all: an `or` that
+        # short-circuits past the clear leaves it set on a connection the
+        # application pools next.
+        assert conn._top_xact is None
         assert not engine.connections[0].invalidated
 
     async def test_clean_that_never_answers_is_dropped(self) -> None:
@@ -1414,14 +1437,19 @@ class TestEnginePool:
         calls = 0
         real = type(pool).release
 
-        async def refuse_once(this: Any, conn: object) -> None:  # noqa: ANN401
+        async def refuse_once(
+            this: Any,  # noqa: ANN401
+            conn: object,
+            *,
+            discard: bool = False,
+        ) -> None:
             nonlocal calls
             calls += 1
             if calls == 1:
                 this._borrowed.pop(conn, None)
                 msg = "check-in refused"
                 raise ConnectionError(msg)
-            await real(this, conn)
+            await real(this, conn, discard=discard)
 
         monkeypatch.setattr(type(pool), "release", refuse_once)
 
@@ -1444,6 +1472,30 @@ class TestEnginePool:
         assert len(engine.connections) == borrowed
         assert all(c.invalidated for c in engine.connections)
 
+    async def test_close_waits_for_a_release_in_flight(self) -> None:
+        """A release already running is finished before the engine goes.
+
+        `release` pops its connection out of the record before it awaits,
+        so `release_all` cannot see it. Disposing the engine underneath
+        would fail its cleanup and cost the application a connection.
+        """
+        pool, engine = self.make()
+
+        conn = await pool.acquire()
+
+        async def slow_clean(*_: object, **__: object) -> None:
+            await asyncio.sleep(0.05)
+
+        conn.execute = AsyncMock(side_effect=slow_clean)
+        releasing = asyncio.create_task(pool.release(conn))
+        await asyncio.sleep(0)
+
+        await pool.close()
+
+        assert releasing.done()
+        assert engine.connections[0].closed
+        assert engine.disposed
+
     async def test_close_disposes_the_engine(self) -> None:
         """`close` hands everything back and disposes the engine."""
         pool, engine = self.make()
@@ -1454,14 +1506,19 @@ class TestEnginePool:
         assert engine.connections[0].closed
         assert engine.disposed
 
-    async def test_release_all_keeps_the_engine(self) -> None:
-        """`release_all` hands everything back but leaves the engine open."""
+    async def test_release_all_drops_a_leaked_checkout(self) -> None:
+        """A connection nobody gave back is dropped, never pooled.
+
+        Its holder may still be running statements on it, and handing it
+        to the application would put two coroutines on one connection.
+        """
         pool, engine = self.make()
         await pool.acquire()
 
         await pool.release_all()
 
         assert engine.connections[0].closed
+        assert engine.connections[0].invalidated
         assert not engine.disposed
 
     async def test_borrowed_engine_released_on_provider_exit(self) -> None:

@@ -332,9 +332,10 @@ class PostgresProvider(Provider):
     def url(self) -> str:
         """Resolved Postgres URL (empty for `from_client` providers).
 
-        A `from_engine` provider reports the engine's URL with no
-        password in it: it borrows the engine rather than connecting,
-        so it never holds one.
+        A `from_engine` provider reports the engine's URL with the
+        userinfo password masked. A credential the engine carries as a
+        query parameter is rendered as it is, so treat this as a
+        credential and use `safe_url`, which redacts both.
 
         !!! warning
             The string may contain the password in the userinfo section
