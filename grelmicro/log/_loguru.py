@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
 from grelmicro.log._shared import (
+    LOGURU_JSON_FORMAT,
+    LOGURU_LOGFMT_FORMAT,
     _stdlib_json_dumps,
     get_otel_trace_context,
     load_settings,
@@ -15,6 +17,7 @@ from grelmicro.log._shared import (
     render_pretty_lines,
     render_text_line,
 )
+from grelmicro.log._stdlib import build_formatter, install_root
 from grelmicro.log.config import LogConfig, LogFormatType
 from grelmicro.log.types import ErrorDict
 
@@ -35,8 +38,8 @@ _LOGURU_INTERNAL_KEYS = frozenset(
     }
 )
 
-JSON_FORMAT = "{extra[serialized]}"
-LOGFMT_FORMAT = "{extra[logfmt_serialized]}"
+JSON_FORMAT = LOGURU_JSON_FORMAT
+LOGFMT_FORMAT = LOGURU_LOGFMT_FORMAT
 
 
 def _build_loguru_record(
@@ -303,4 +306,19 @@ def configure(config: LogConfig | None = None) -> None:
         sys.stdout,
         level=settings.level,
         format=log_format,
+    )
+
+    # Standard library records render through the same writers, so a
+    # dependency logging through `logging` reads like the app's own lines
+    # instead of falling through to `logging.lastResort`.
+    install_root(
+        build_formatter(
+            resolved_format,
+            timezone=timezone,
+            json_dumps=json_dumps,
+            colors=colors,
+            caller_enabled=caller,
+            otel_enabled=settings.otel_enabled,
+        ),
+        level=settings.level,
     )

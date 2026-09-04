@@ -40,6 +40,20 @@ grelmicro supports three logging backends. All backends produce **identical outp
 | **[Loguru](https://loguru.readthedocs.io/)** | `loguru` | Developer ergonomics |
 | **[structlog](https://www.structlog.org/)** | `structlog` | High-throughput services |
 
+The backend is how your own code writes a record. Whichever one you pick,
+anything logging through the standard library renders in the same format on
+the same stream: grelmicro's own components, and every dependency you run,
+httpx, SQLAlchemy and redis among them. One process, one format.
+
+`configure()` owns the root logger, so a handler attached to it beforehand is
+replaced. Attach yours afterwards, or to a logger of its own.
+
+The exception is a loguru format template of your own. `JSON`, `LOGFMT`,
+`TEXT` and `PRETTY` are formats grelmicro renders on both sides, and a
+template asking for the serialized record is read as one of them. Any other
+template is loguru's alone, so records from the standard library are written
+in grelmicro's text format instead.
+
 === "stdlib"
     ```python
     import logging

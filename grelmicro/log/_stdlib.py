@@ -14,6 +14,7 @@ from grelmicro.log._shared import (
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
+    resolve_template_format,
 )
 from grelmicro.log.config import LogConfig, LogFormatType
 from grelmicro.log.types import ErrorDict
@@ -222,40 +223,92 @@ def configure(config: LogConfig | None = None) -> None:
     settings, timezone, resolved_format, json_dumps, colors = load_settings(
         config
     )
-    caller = settings.caller_enabled
-    otel = settings.otel_enabled
+    install_root(
+        build_formatter(
+            resolved_format,
+            timezone=timezone,
+            json_dumps=json_dumps,
+            colors=colors,
+            caller_enabled=settings.caller_enabled,
+            otel_enabled=settings.otel_enabled,
+        ),
+        level=settings.level,
+    )
+
+
+def build_formatter(
+    resolved_format: LogFormatType | str,
+    *,
+    timezone: tzinfo,
+    json_dumps: Callable[[Mapping[str, Any]], str],
+    colors: bool,
+    caller_enabled: bool,
+    otel_enabled: bool,
+) -> logging.Formatter:
+    """Return the formatter that renders a record in `resolved_format`.
+
+    Every backend renders standard library records with this one, so a
+    record written through `logging` reads the same whichever backend the
+    app writes its own records through.
+    """
+    # A loguru template is read as the format it renders, here rather
+    # than at each call site, so no backend can forget to ask.
+    resolved_format = resolve_template_format(resolved_format)
 
     formatter: logging.Formatter
     if resolved_format == LogFormatType.JSON:
         formatter = _JSONFormatter(
             timezone=timezone,
             json_dumps=json_dumps,
-            caller_enabled=caller,
-            otel_enabled=otel,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
         )
     elif resolved_format == LogFormatType.LOGFMT:
         formatter = _LogfmtFormatter(
-            timezone=timezone, caller_enabled=caller, otel_enabled=otel
+            timezone=timezone,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
         )
     elif resolved_format == LogFormatType.PRETTY:
         formatter = _PrettyFormatter(
             timezone=timezone,
-            caller_enabled=caller,
-            otel_enabled=otel,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
             colors=colors,
         )
     else:
         formatter = _TextFormatter(
             timezone=timezone,
-            caller_enabled=caller,
-            otel_enabled=otel,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
             colors=colors,
         )
+    return formatter
 
+
+def install_root(formatter: logging.Formatter, *, level: int | str) -> None:
+    """Render every standard library record through `formatter`.
+
+    The root logger is where a record ends up when nothing else claimed
+    it, which is every record grelmicro's own components write, and every
+    record a dependency writes: httpx, SQLAlchemy, redis. Each backend
+    installs this, so a service that logs through loguru or structlog
+    still reads its dependencies in the format it configured rather than
+    watching them fall through to `logging.lastResort`.
+
+    Uvicorn's own records are left where they are. Its default logging
+    config gives its loggers their own handlers with propagation off, and
+    `grelmicro.log.uvicorn` reformats those in place, so a request line
+    renders once. A service that hands uvicorn a `log_config` of its own
+    and leaves propagation on is outside that, and would read every
+    uvicorn line twice.
+    """
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
-    root_logger.addHandler(handler)
-    root_logger.setLevel(settings.level)
+    # Replaced in one assignment rather than cleared and added to. The
+    # list is what `callHandlers` walks, and emptying it first leaves a
+    # window where a record from another thread reaches no handler at all.
+    root_logger.handlers = [handler]
+    root_logger.setLevel(level)

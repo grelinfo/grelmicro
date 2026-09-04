@@ -48,9 +48,11 @@ class Log:
         ```
 
     On exit, the previous stdlib root handlers and level are restored so
-    sequential `Grelmicro(...)` blocks do not pile handlers up. The
-    `loguru` and `structlog` backends keep the configuration installed on
-    enter (no restore).
+    sequential `Grelmicro(...)` blocks do not pile handlers up. Every
+    backend installs a root handler, so every backend gives the root
+    logger back. What each one installs for its own records, loguru's sink
+    and structlog's processors, stays configured: those are process-wide
+    settings of libraries the app chose, not state this component took.
 
     The stdlib root logger is a single global. `Log.__aenter__` and
     `Log.__aexit__` serialize on a class-level `threading.Lock` so the

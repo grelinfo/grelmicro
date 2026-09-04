@@ -10,6 +10,7 @@ from grelmicro.log._shared import (
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
+    resolve_template_format,
 )
 from grelmicro.log._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
 from grelmicro.log.config import LogConfig, LogFormatType
@@ -91,7 +92,10 @@ class UvicornFormatter(_UvicornBaseFormatter):
         )
 
         self._format_record: Callable[[Mapping[str, Any]], str]
-        match resolved_format:
+        # A loguru template is read as the format it renders, so uvicorn's
+        # records do not land in JSON while the rest of the process reads
+        # in something else.
+        match resolve_template_format(resolved_format):
             case LogFormatType.LOGFMT:
                 self._format_record = logfmt_dumps
             case LogFormatType.PRETTY:
@@ -102,7 +106,7 @@ class UvicornFormatter(_UvicornBaseFormatter):
                 self._format_record = lambda r: render_text_line(
                     r, colors=colors
                 )
-            case _:  # JSON and custom strings
+            case _:  # JSON
                 self._format_record = json_dumps
 
     def format(self, record: logging.LogRecord) -> str:
