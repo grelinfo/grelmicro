@@ -242,20 +242,28 @@ def install_middleware(
         if isinstance(entry.cls, type)
     }
     added = [
-        Middleware(middleware, **options)
-        for middleware, options in (
-            component.asgi_middleware() for component in components
+        (Middleware(middleware, **options), _observes(component))
+        for component, (middleware, options) in (
+            (component, component.asgi_middleware()) for component in components
         )
         # One is enough. An app that added it by hand placed it where it
         # wanted, and a second would store, tag and answer twice.
         if middleware not in wired
     ]
-    # Innermost, behind every middleware the app added itself. One of ours
-    # that answers a request without calling the app, such as an idempotent
-    # replay, must never be the reason a request skipped the authentication
-    # the app put in front of its handlers. `add_middleware` prepends,
-    # which would do exactly that.
-    app.user_middleware = _binding_first([*app.user_middleware, *added])
+    watching = [entry for entry, observes in added if observes]
+    answering = [entry for entry, observes in added if not observes]
+    # Answering middleware goes innermost, behind every middleware the app
+    # added itself. One of ours that answers a request without calling the
+    # app, such as an idempotent replay, must never be the reason a request
+    # skipped the authentication the app put in front of its handlers.
+    # `add_middleware` prepends, which would do exactly that.
+    #
+    # Watching middleware goes the other way, outside the app's own, so an
+    # access log sees the request an outer layer refused and times what the
+    # caller waited for. It answers nothing, so it cannot skip anything.
+    app.user_middleware = _binding_first(
+        [*watching, *app.user_middleware, *answering]
+    )
     for component in components:
         _answer_for(app, component)
 
@@ -334,6 +342,11 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
     for klass in handled():
         if klass not in app.exception_handlers:
             app.add_exception_handler(klass, handler)
+
+
+def _observes(component: Any) -> bool:  # noqa: ANN401
+    """Return whether this component's middleware only watches a request."""
+    return bool(getattr(component, "asgi_observes", False))
 
 
 def _binding_first(

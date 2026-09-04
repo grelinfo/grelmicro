@@ -9,6 +9,7 @@ trace context, so the line and the span it belongs to say the same words.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self
@@ -131,17 +132,21 @@ class AccessLogMiddleware:
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Time the request, then write what it did."""
-        if scope["type"] != "http" or (
-            self._filtering
-            and not selects(
-                route_path(scope),
-                include=self.include,
-                exclude=self.exclude,
-            )
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        # Read before the app runs, and kept. A router rewrites `path` in
+        # place on some frameworks and a mount rewrites `root_path`, so
+        # reading either afterwards answers for a different request than
+        # the one that arrived, and the two matches would disagree.
+        asked = scope.get("path", "")
+        route = route_path(scope)
+        if self._filtering and not selects(
+            route, include=self.include, exclude=self.exclude
         ):
             await self.app(scope, receive, send)
             return
-        status = _SERVER_ERROR
+        status: int | None = None
         error: BaseException | None = None
         started = time.perf_counter()
 
@@ -162,6 +167,8 @@ class AccessLogMiddleware:
         finally:
             self._write(
                 scope,
+                asked=asked,
+                route=route,
                 status=status,
                 error=error,
                 duration=time.perf_counter() - started,
@@ -171,30 +178,67 @@ class AccessLogMiddleware:
         self,
         scope: Scope,
         *,
-        status: int,
+        asked: str,
+        route: str,
+        status: int | None,
         error: BaseException | None,
         duration: float,
     ) -> None:
-        """Write the record for one finished request."""
-        path = route_path(scope)
-        level = _level_of(status, quiet=self._is_quiet(path))
+        """Write the record for one finished request.
+
+        A request that raised before any response started is recorded as
+        the `500` the framework will send, because that is what the caller
+        receives. A cancelled one is recorded with no status at all: the
+        caller hung up or the process is stopping, and nothing was sent.
+        """
+        if (
+            status is None
+            and error is not None
+            and not isinstance(error, asyncio.CancelledError)
+        ):
+            status = _SERVER_ERROR
+        level = _level_of(status, error=error, quiet=self._is_quiet(route))
         if not logger.isEnabledFor(level):
             return
+        fields = self._fields(
+            scope, asked=asked, status=status, error=error, duration=duration
+        )
         method = scope.get("method", "")
-        # What the caller asked for, prefix and all, which is what an
-        # access log is read for. The prefix comes off for matching alone,
-        # so a pattern is the same wherever the app is mounted.
-        asked = scope.get("path", path)
+        logger.log(
+            level,
+            "%s %s %s",
+            method,
+            asked,
+            status if status is not None else "-",
+            extra=fields,
+        )
+
+    def _fields(
+        self,
+        scope: Scope,
+        *,
+        asked: str,
+        status: int | None,
+        error: BaseException | None,
+        duration: float,
+    ) -> dict[str, Any]:
+        """Build the record's fields, leaving out what there is none of.
+
+        A field nothing answered is absent rather than null, the way the
+        health report leaves one out, so reading a key means the request
+        carried it.
+        """
         fields: dict[str, Any] = {
-            "http.request.method": method,
+            "http.request.method": scope.get("method", ""),
             "url.path": asked,
             "url.scheme": scope.get("scheme", "http"),
-            "http.response.status_code": status,
             "http.server.request.duration": round(duration, 6),
         }
-        route = _route_template(scope)
-        if route is not None:
-            fields["http.route"] = route
+        if status is not None:
+            fields["http.response.status_code"] = status
+        template = _route_template(scope)
+        if template is not None:
+            fields["http.route"] = template
         client = _client_address(scope)
         if client is not None:
             fields["client.address"] = client
@@ -211,7 +255,7 @@ class AccessLogMiddleware:
                 fields["user_agent.original"] = agent
         if error is not None:
             fields["error.type"] = type(error).__qualname__
-        logger.log(level, "%s %s %s", method, asked, status, extra=fields)
+        return fields
 
     def _is_quiet(self, path: str) -> bool:
         """Return whether this path only speaks up when it fails."""
@@ -247,6 +291,7 @@ class AccessLog:
 
     kind: ClassVar[str] = "access_log"
     singleton: ClassVar[bool] = True
+    asgi_observes: ClassVar[bool] = True
     singleton_reason: ClassVar[str] = (
         "One access log answers for the whole app, so two would write every "
         "request twice"
@@ -305,6 +350,7 @@ class AccessLog:
             "user_agent": user_agent,
         }
         self._silence = _Silence()
+        self._wired = False
 
     @property
     def name(self) -> str:
@@ -312,12 +358,26 @@ class AccessLog:
         return self._name
 
     def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
-        """Return the middleware class and the arguments to build it with."""
+        """Return the middleware class and the arguments to build it with.
+
+        Being asked is what says this app serves HTTP, which is what makes
+        uvicorn's access log worth silencing. A FastStream app serves
+        none, so `install` never asks, and its uvicorn access log is left
+        exactly where it was.
+        """
+        self._wired = True
         return AccessLogMiddleware, dict(self._options)
 
     async def __aenter__(self) -> Self:
-        """Silence uvicorn's access log for as long as this one is open."""
-        logging.getLogger(_UVICORN_ACCESS_LOGGER).addFilter(self._silence)
+        """Silence uvicorn's access log for as long as this one is open.
+
+        Only once the middleware has been wired, which `micro.install(app)`
+        does for a framework that serves HTTP. An app that serves none
+        keeps whatever it had, because nothing here is going to write an
+        access record in its place.
+        """
+        if self._wired:
+            logging.getLogger(_UVICORN_ACCESS_LOGGER).addFilter(self._silence)
         return self
 
     async def __aexit__(
@@ -330,13 +390,26 @@ class AccessLog:
         logging.getLogger(_UVICORN_ACCESS_LOGGER).removeFilter(self._silence)
 
 
-def _level_of(status: int, *, quiet: bool) -> int:
+def _level_of(
+    status: int | None, *, error: BaseException | None, quiet: bool
+) -> int:
     """Return the level a finished request is written at.
 
     The answer decides it: a `5xx` is the service failing, a `4xx` is the
-    caller being turned away, and anything else is what the service is for.
-    A quiet path that answered says nothing at info.
+    caller being turned away, and anything else is what the service is
+    for. A quiet path that answered says nothing at info.
+
+    A request that broke after its headers went out carries a status that
+    reads fine and an exception that does not, and the exception is the
+    part worth reading. A cancelled one is neither: the caller hung up, or
+    the process is stopping, and that is debug on a busy port.
     """
+    if isinstance(error, asyncio.CancelledError):
+        return logging.DEBUG
+    if error is not None:
+        return logging.ERROR
+    if status is None:
+        return logging.DEBUG
     if status >= _SERVER_ERROR:
         return logging.ERROR
     if status >= _CLIENT_ERROR:

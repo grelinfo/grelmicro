@@ -109,7 +109,19 @@ trace context.
 Nothing else about uvicorn's logging changes: its error and startup records
 still go through the [formatting](integrations.md) grelmicro applies. Without
 `AccessLog()`, uvicorn's access log is untouched and
-[`ProbeFilter`](filters.md) is still the way to drop probe noise from it.
+[`ProbeFilter`](filters.md#dropping-probe-noise) is still the way to drop
+probe noise from it.
+
+An app that serves no HTTP is never asked for the middleware, so its uvicorn
+access log is left alone: taking it away would leave that app with neither.
+
+## Where it sits
+
+The middleware wraps outside the middleware your app added itself, so a
+request an outer layer refuses is still recorded, with the status it was
+refused with, and `http.server.request.duration` covers what the caller
+waited for rather than what the handler took. It answers no request of its
+own, so it cannot be the reason one skipped a layer.
 
 ## Sampling
 

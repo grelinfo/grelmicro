@@ -87,6 +87,13 @@ class Component(
             an OTel provider), and on any pair that cannot both be active:
             two components share a `kind` exactly when only one of them may
             answer. Absent means `False`.
+        asgi_observes: Optional class flag. `True` on a middleware that
+            only watches a request, an access log above all. Those wrap
+            outside the app's own middleware, so a request an outer layer
+            refuses is still seen and still timed. Absent means `False`,
+            which is where a middleware that may answer a request belongs:
+            inside everything the app put in front of its handlers, so it
+            can never be the reason a request skipped them.
         singleton_reason: Optional class string saying why a second
             registration is refused, rendered into the error. Defaults to
             the process-global-state explanation, which is wrong for a pair
