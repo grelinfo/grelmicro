@@ -576,3 +576,25 @@ async def test_two_servers_run_on_two_ports(health: HealthChecks) -> None:
         for port in (first, second):
             response = await client.get(f"http://127.0.0.1:{port}/livez")
             assert response.status_code == HTTP_200_OK
+
+
+@pytest.mark.usefixtures("serving")
+async def test_two_lengths_that_disagree_are_refused(port: int) -> None:
+    """A pair of `Content-Length` headers is how a request is smuggled."""
+    answer = await raw(
+        port,
+        b"GET /livez HTTP/1.1\r\ncontent-length: 0\r\ncontent-length: 5\r\n\r\n",
+    )
+
+    assert status_of(answer) == HTTP_BAD_REQUEST
+
+
+@pytest.mark.usefixtures("serving")
+async def test_the_same_length_twice_is_read_once(port: int) -> None:
+    """Repeated and agreeing is not malformed, so the request answers."""
+    answer = await raw(
+        port,
+        b"GET /livez HTTP/1.1\r\ncontent-length: 2\r\ncontent-length: 2\r\n\r\nhi",
+    )
+
+    assert status_of(answer) == HTTP_200_OK

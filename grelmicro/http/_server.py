@@ -600,14 +600,18 @@ async def _drop_body(
     Raises:
         _RefuseRequest: If the body is chunked, unmeasurable, or too large.
     """
-    values = dict(headers)
-    if b"transfer-encoding" in values:
+    if any(name == b"transfer-encoding" for name, _ in headers):
         raise _RefuseRequest(_HTTP_NOT_IMPLEMENTED)
-    raw = values.get(b"content-length")
-    if raw is None:
+    lengths = {value for name, value in headers if name == b"content-length"}
+    if not lengths:
         return
+    if len(lengths) > 1:
+        # Two lengths that disagree is a malformed request (RFC 9112), and
+        # the pair is how a request is smuggled past whatever reads only
+        # the other one.
+        raise _RefuseRequest(_HTTP_BAD_REQUEST)
     try:
-        length = int(raw)
+        length = int(next(iter(lengths)))
     except ValueError as exc:
         raise _RefuseRequest(_HTTP_BAD_REQUEST) from exc
     if length < 0:

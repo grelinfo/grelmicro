@@ -56,7 +56,7 @@ from inside the pod.
 | `port` | `8080` | The port it listens on. |
 | `host` | every interface | The address it binds. |
 | `show_details` | `False` | Whether `/healthz` carries each check's `details`. |
-| `request_timeout` | `10.0` | Seconds one request may take, first byte to last. |
+| `request_timeout` | `10.0` | Seconds one request may take, first byte to last. Keep it above the `HealthChecks` timeout, or a slow check answers `408` where it would have answered `503`. |
 | `shutdown_timeout` | `5.0` | Seconds in-flight requests get to finish on shutdown. |
 | `max_connections` | `32` | Connections served at once. |
 
@@ -84,8 +84,9 @@ requests finish within `shutdown_timeout`, and cancels what is still running.
 ## What it is, and what it is not
 
 It is a small HTTP/1.1 server on the standard library. It reads a request line
-and its headers, answers, and closes. It reads no request body, keeps no
-connection alive, and speaks no TLS.
+and its headers, answers, and closes. It uses no request body, keeps no
+connection alive, and speaks no TLS. A small body is read and dropped so the
+connection closes cleanly, and a large one is refused.
 
 That is enough for a kubelet, a load balancer, and a Prometheus scrape, and it
 is deliberately not enough for anything else. Give it the pod network, not an
@@ -93,7 +94,7 @@ ingress. A request it cannot read gets the status that says why:
 
 | Answer | When |
 |---|---|
-| `400` | The request line or a header is malformed. |
+| `400` | The request line or a header is malformed, or two `Content-Length` headers disagree. |
 | `404` | The path is not one it serves. |
 | `405` | The method is not `GET` or `HEAD`. |
 | `408` | The request stopped mid-way and `request_timeout` elapsed. |
