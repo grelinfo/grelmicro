@@ -56,6 +56,7 @@ from grelmicro.integrations.starlette import (
 )
 
 if TYPE_CHECKING:
+    import inspect
     from collections.abc import Callable, Collection, Sequence
 
     from fastapi import APIRouter, FastAPI
@@ -706,7 +707,7 @@ def _every_middleware_options(
     """
     import inspect  # noqa: PLC0415
 
-    signature = inspect.signature(middleware)
+    base = inspect.signature(middleware)
     found = []
     for entry in app.user_middleware:
         cls = entry.cls
@@ -714,19 +715,31 @@ def _every_middleware_options(
             # Every parameter after `app` is keyword-only, so
             # `add_middleware` can only have passed them by keyword. A
             # subclass may take keywords of its own, which say nothing
-            # about what this describes.
-            bound = signature.bind_partial(
-                **{
-                    name: value
-                    for name, value in entry.kwargs.items()
-                    if name in signature.parameters
-                }
-            )
-            bound.apply_defaults()
-            found.append(dict(bound.arguments))
+            # about what this describes, and may declare a default of its
+            # own for one of these, which is what the wire then carries.
+            own = inspect.signature(cls)
+            options = _bound_options(own, entry.kwargs)
+            for name, value in _bound_options(base, entry.kwargs).items():
+                options.setdefault(name, value)
+            found.append(options)
     if not found:
         raise TypeError(missing)
     return found
+
+
+def _bound_options(
+    signature: "inspect.Signature", kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """Return what a signature makes of these arguments, defaults filled in."""
+    bound = signature.bind_partial(
+        **{
+            name: value
+            for name, value in kwargs.items()
+            if name in signature.parameters
+        }
+    )
+    bound.apply_defaults()
+    return dict(bound.arguments)
 
 
 def _idempotency_options(app: "FastAPI") -> list[dict[str, Any]]:

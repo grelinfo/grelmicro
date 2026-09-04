@@ -49,9 +49,11 @@ IdempotentRequests(
 matches exactly, unless the pattern ends with `*`, which matches as a prefix.
 It is the same word and the same matching on every grelmicro middleware.
 
-A pattern names the route, not the path the wire carries. An app mounted under
-`/sub`, or served behind a `root_path`, still names `/charge`, because the
-prefix is taken off before the patterns are read.
+A pattern names the route of the app the middleware runs on. An app mounted
+under `/sub`, or served behind a `root_path`, still names `/charge`, because
+that prefix is taken off before the patterns are read. A middleware registered
+on the app that does the mounting sees the whole path instead, so a pattern
+there names `/sub/charge`.
 
 The OpenAPI schema is annotated by the same patterns, matched against the same
 route, so what the schema publishes is what the middleware covers. Keep a

@@ -226,7 +226,8 @@ def test_the_replay_marker_is_the_only_value_under_its_name(
 
     @app.post("/charge")
     async def charge(response: Response) -> dict[str, int]:
-        response.headers["X-Cache"] = "MISS"
+        # The marker's own value, which is what a handler cannot claim.
+        response.headers["X-Cache"] = "true"
         return {"amount": 100}
 
     micro.install(app)

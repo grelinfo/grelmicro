@@ -1189,6 +1189,40 @@ def test_document_idempotency_reads_a_subclass_of_its_own() -> None:
     assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
 
 
+def test_document_idempotency_reads_a_subclass_default() -> None:
+    """A subclass naming its own header is described under that name."""
+
+    # Arrange
+    class RenamedIdempotencyMiddleware(IdempotencyMiddleware):
+        def __init__(
+            self,
+            app: Any,  # noqa: ANN401
+            *,
+            key_header: str = "X-Request-Key",
+            **options: Any,  # noqa: ANN401
+        ) -> None:
+            super().__init__(app, key_header=key_header, **options)
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        RenamedIdempotencyMiddleware, idempotency=Idempotency("http")
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["X-Request-Key"]
+
+
 def test_a_root_path_shortens_only_a_whole_segment() -> None:
     """`/api` is a prefix of `/api/keys`, and not of `/apikeys`."""
     # Arrange

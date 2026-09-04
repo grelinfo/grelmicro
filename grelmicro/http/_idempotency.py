@@ -146,6 +146,14 @@ _REPLAY_MARK = _REPLAY_VALUE.encode("ascii")
 """What the replay marker carries, as it goes on the wire."""
 
 
+_REPLAYED_SCOPE_KEY = "grelmicro.idempotency.replayed"
+"""Set on the scope by the middleware that answers a request with a replay.
+
+A middleware of this kind running above that one reads it to tell a marker
+of ours from one a handler wrote, which look the same on the wire.
+"""
+
+
 _MIN_CONTENT_STATUS = 200
 """Lowest status that may carry content."""
 
@@ -570,6 +578,9 @@ class IdempotencyMiddleware:
 
         try:
             if operation.replayed:
+                # Read by a middleware of this kind running above this one,
+                # which would otherwise take the marker for a handler's.
+                scope[_REPLAYED_SCOPE_KEY] = True
                 await _send_stored(
                     send,
                     operation.result(),
@@ -582,6 +593,7 @@ class IdempotencyMiddleware:
                     self._max_body_size,
                     self._skip,
                     self._replay_header,
+                    scope,
                 )
                 await self.app(scope, receive, capture)
                 self._report_collision(replaced=capture.replaced)
@@ -614,6 +626,9 @@ class IdempotencyMiddleware:
         """Build the stored key, scoped by route unless `key_maker` says otherwise."""
         if self._key_maker is not None:
             return _checked_key(self._key_maker(scope, key), key)
+        # The whole path, where `include` and `exclude` read the route: two
+        # apps mounted side by side declare the same routes, and a key
+        # without the prefix would have them replay each other.
         parts = [scope["method"], scope["path"]]
         query = scope.get("query_string", b"")
         if query:
@@ -693,12 +708,14 @@ class _ResponseCapture:
         max_body_size: int,
         skip: Callable[[StoredResponse], bool] | None = None,
         replay_header: bytes = b"",
+        scope: Scope | None = None,
     ) -> None:
         """Initialize the capture around the downstream `send`."""
         self._send = send
         self._max_body_size = max_body_size
         self._skip = skip
         self._replay_header = replay_header
+        self._scope = scope if scope is not None else {}
         self.replaced = False
         self._status = 0
         self._headers: list[tuple[str, str]] = []
@@ -718,25 +735,25 @@ class _ResponseCapture:
     def _start(self, message: Message) -> None:
         """Record the status and headers, and decide whether to store."""
         blockers: list[str] = []
+        replayed_below = self._scope.get(_REPLAYED_SCOPE_KEY, False)
         for name, _value in message["headers"]:
             lowered = name.lower()
             if lowered == b"set-cookie":
                 blockers.append("Set-Cookie")
             elif lowered == b"content-encoding":
                 blockers.append("Content-Encoding")
-            elif lowered == self._replay_header and _value != _REPLAY_MARK:
-                # The marker says a response is a replay, and a value that
-                # is not the marker does not. A handler setting the name
-                # would have every fresh response read as a replay, so its
-                # value makes way. A marker put there by a middleware of
-                # this kind running under this one says what it means, and
-                # travels.
+            elif lowered == self._replay_header and not replayed_below:
+                # The marker says a response is a replay, and this one is
+                # not: a middleware of this kind under this one would have
+                # said so on the scope. A handler writing the name would
+                # have every fresh response read as a replay, so its value
+                # makes way.
                 self.replaced = True
         if self.replaced:
             message["headers"] = [
                 (name, value)
                 for name, value in message["headers"]
-                if name.lower() != self._replay_header or value == _REPLAY_MARK
+                if name.lower() != self._replay_header
             ]
         if message.get("trailers"):
             blockers.append("trailers")
