@@ -286,7 +286,7 @@ def document_idempotency(
             for entry in installed
             if idempotency is None or entry[1]["idempotency"] is idempotency
         ]
-        described, refusals = _annotation_state(app, schema)
+        described = _described(app, schema)
         for index, options in named or installed:
             if index in described:
                 continue
@@ -296,7 +296,6 @@ def document_idempotency(
                 options,
                 PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
                 ProblemDetail if errors is None else errors.model,
-                refusals,
             )
         return schema
 
@@ -666,23 +665,18 @@ def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
         raise TypeError(msg)
 
 
-def _annotation_state(
-    app: "FastAPI", schema: dict[str, Any]
-) -> tuple[set[int], dict[int, set[str]]]:
-    """Return what this build of the schema already carries.
+def _described(app: "FastAPI", schema: dict[str, Any]) -> set[int]:
+    """Return which installed middlewares this schema already describes.
 
     FastAPI caches the schema it builds and hands back the same object,
-    and two components leave two wrappers over it. The first set holds the
-    middlewares already described, so each is described once by whichever
-    wrapper reaches the schema first. The second holds the refusals this
-    annotation added to an operation, which the app never answers itself
-    and no replay ever carries.
+    and two components leave two wrappers over it, so a middleware is
+    described once, by whichever wrapper reaches the schema first.
     """
-    current = getattr(app.state, "grelmicro_idempotency_state", None)
+    current = getattr(app.state, "grelmicro_idempotency_described", None)
     if current is None or current[0] is not schema:
-        current = (schema, set(), {})
-        app.state.grelmicro_idempotency_state = current
-    return cast("tuple[set[int], dict[int, set[str]]]", current[1:])
+        current = (schema, set())
+        app.state.grelmicro_idempotency_described = current
+    return cast("set[int]", current[1])
 
 
 def _middleware_options(
@@ -750,7 +744,6 @@ def _annotate_schema(
     options: dict[str, Any],
     media_type: str,
     model: type[BaseModel],
-    refusals: dict[int, set[str]],
 ) -> None:
     """Add the header and the middleware's responses to covered operations."""
     methods = {method.lower() for method in options["methods"]}
@@ -806,15 +799,18 @@ def _annotate_schema(
         for path, path_item, operation in serves
         if selects(path, include=include, exclude=exclude)
     ]
-    if not covered and include:
-        # The patterns match what the request carries, which holds the
-        # prefix a mount or a `root_path` adds and the schema does not. An
-        # `include` written for the wire therefore selects nothing here,
-        # and dropping every annotation would leave a client with no
-        # header at all. Describing what `exclude` leaves is the answer
-        # that is wrong in the safe direction. An `exclude` that empties
-        # the selection on its own is a service naming its own routes, and
-        # is followed.
+    if include and not any(
+        selects(path, include=include, exclude=())
+        for path in schema.get("paths", {})
+    ):
+        # No declared path matches at all, which is what a mount or a
+        # `root_path` leads to: the patterns hold the prefix the request
+        # carries and the schema does not. Dropping every annotation would
+        # leave a client with no header, so what `exclude` leaves is
+        # described instead, which is wrong in the safe direction. An
+        # `include` that matches a path under another method, or an
+        # `exclude` that empties the selection, is a service naming its
+        # own routes and is followed.
         covered = [
             (path_item, operation)
             for path, path_item, operation in serves
@@ -825,16 +821,9 @@ def _annotate_schema(
     ref = add_error_schema(schema, model)
     for path_item, operation in covered:
         _add_parameter(operation, path_item, parameter)
-        added = refusals.setdefault(id(operation), set())
-        # Before the refusals below are merged in, and never on one an
-        # earlier pass merged: a refusal is answered before the app runs,
-        # so no replay ever carries it.
-        _add_replay_header(operation, options["replay_header"], added)
-        answered = set(operation.get("responses", {}))
         for status, description in responses.items():
-            if status not in answered:
-                added.add(status)
             _merge_response(operation, status, description, ref, media_type)
+        _add_replay_header(operation, options["replay_header"])
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
@@ -1062,23 +1051,22 @@ def _merge_response(
         )
 
 
-def _add_replay_header(
-    operation: dict[str, Any], name: str, refusals: set[str]
-) -> None:
+def _add_replay_header(operation: dict[str, Any], name: str) -> None:
     """Describe the replay marker on every response of an operation.
 
     The name is a service's to pick, so the schema is where a client
     author reads it. Every status the app answers is stored and replayed,
-    errors included, so the marker is described on all of them. Which
-    statuses those are is a property of the middleware order at runtime,
-    not of the schema, so the header is described as one that may appear
-    rather than one that always does. A response that declares the header
-    itself, under any casing, keeps its own.
+    errors included, and which statuses those are is decided by the
+    middleware order at runtime rather than by anything the schema holds:
+    a handler raising `HTTPException(400)` declares no `400`, and one
+    middleware's refusal is stored and replayed by another above it. The
+    marker is therefore published as a header that may appear, never as
+    one that always does, which is the reading that costs a client
+    nothing when it does not. A response that declares the header itself,
+    under any casing, keeps its own.
     """
     lowered = name.lower()
-    for status, response in operation.get("responses", {}).items():
-        if status in refusals:
-            continue
+    for response in operation.get("responses", {}).values():
         headers = response.setdefault("headers", {})
         if any(declared.lower() == lowered for declared in headers):
             continue

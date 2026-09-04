@@ -1017,8 +1017,8 @@ def test_document_idempotency_annotates_a_schema_once() -> None:
 
     # Assert
     assert list(responses["200"]["headers"]) == ["Idempotent-Replayed"]
-    # What the middleware answers before the app runs never replays.
-    assert "headers" not in responses["409"]
+    # Declared once, whatever the number of wrappers over the schema.
+    assert list(responses["409"]["headers"]) == ["Idempotent-Replayed"]
 
 
 def test_document_idempotency_describes_every_installed_middleware() -> None:
@@ -1092,9 +1092,38 @@ def test_document_idempotency_marks_overlapping_rules_once_each() -> None:
 
     # Assert
     assert set(responses["200"]["headers"]) == {"X-A", "X-B"}
-    # Neither middleware's marker reaches the other's refusals.
-    assert "headers" not in responses["400"]
-    assert "headers" not in responses["409"]
+    # A refusal one answers is stored and replayed by the other above it.
+    assert set(responses["409"]["headers"]) == {"X-A", "X-B"}
+
+
+def test_document_idempotency_leaves_another_method_alone() -> None:
+    """An `include` that matches a path under another verb is followed."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        include=("/payments/*",),
+    )
+
+    @app.post("/orders")
+    async def order() -> dict[str, int]:
+        return {"amount": 100}
+
+    @app.get("/payments/{payment_id}")
+    async def payment(payment_id: int) -> dict[str, int]:
+        return {"amount": payment_id}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/orders"]["post"]
+
+    # Assert
+    assert "parameters" not in operation
+    assert "409" not in operation["responses"]
 
 
 def test_document_idempotency_follows_an_exclude_that_empties_it() -> None:
