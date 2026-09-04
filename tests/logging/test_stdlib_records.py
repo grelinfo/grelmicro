@@ -8,9 +8,9 @@ its own records through.
 
 from __future__ import annotations
 
-import copy
+import io
 import logging
-import logging.config
+from typing import TYPE_CHECKING
 
 import pytest
 from uvicorn.config import LOGGING_CONFIG
@@ -19,12 +19,50 @@ from grelmicro.log import configure_with
 from grelmicro.log.config import LogConfig, LogFormatType
 from tests.logging.conftest import BACKENDS, parse_json_log
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 COMPONENT_LOGGER = "grelmicro.health"
 
 
-def uvicorn_logging_config() -> dict[str, object]:
-    """Return uvicorn's own logging config, as uvicorn installs it."""
-    return copy.deepcopy(LOGGING_CONFIG)
+@pytest.fixture
+def uvicorn_loggers() -> Iterator[io.StringIO]:
+    """Give the uvicorn loggers what uvicorn's own config gives them.
+
+    Read from `uvicorn.config.LOGGING_CONFIG`, so the propagation this
+    rests on is uvicorn's rather than a guess, and built by hand rather
+    than through `dictConfig`, which reconfigures logging process-wide
+    and would tear down the handler `caplog` installs for every later
+    test.
+
+    The handler writes to a buffer of its own rather than to whatever
+    stream it finds, so what uvicorn wrote is read from the buffer and
+    what the root handler wrote from the captured stream, with no
+    ordering between fixtures to get right.
+    """
+    names = ("uvicorn", "uvicorn.access")
+    before = {
+        name: (
+            list(logging.getLogger(name).handlers),
+            logging.getLogger(name).propagate,
+            logging.getLogger(name).level,
+        )
+        for name in names
+    }
+    sink = io.StringIO()
+    for name in names:
+        logger = logging.getLogger(name)
+        logger.handlers = [logging.StreamHandler(sink)]
+        logger.propagate = LOGGING_CONFIG["loggers"][name]["propagate"]
+        logger.setLevel(logging.INFO)
+    try:
+        yield sink
+    finally:
+        for name, (handlers, propagate, level) in before.items():
+            logger = logging.getLogger(name)
+            logger.handlers = handlers
+            logger.propagate = propagate
+            logger.setLevel(level)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -101,19 +139,23 @@ def test_an_exception_is_rendered_as_the_error_field(
 @pytest.mark.usefixtures("reset_backend")
 def test_a_uvicorn_record_is_written_once(
     backend: str,
+    uvicorn_loggers: io.StringIO,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Uvicorn keeps its own handlers, so the root must not answer too.
+    """A request line stays one line.
 
-    Driven through uvicorn's real logging config rather than a stand-in,
-    because what keeps a request line to one line is what that config
-    says: its loggers carry their own handlers and do not propagate. A
-    root handler catching the record as well would write every request
-    twice.
+    What keeps it to one is uvicorn's own config: its access logger
+    carries a handler and does not propagate, so the root handler this
+    change installs never sees the record. The guard is against grelmicro
+    routing those records to the root as well, by turning propagation on
+    or by adding an interceptor of its own.
+
+    A service that hands uvicorn a `log_config` leaving propagation on is
+    outside this, and reads every request line twice, which is what
+    `install_root` documents.
     """
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
-    logging.config.dictConfig(uvicorn_logging_config())
     access = logging.getLogger("uvicorn.access")
     configure_with(
         LogConfig(backend=backend, format=LogFormatType.JSON, level="INFO")
@@ -123,14 +165,15 @@ def test_a_uvicorn_record_is_written_once(
         '%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/x", "1.1", 200
     )
 
-    # Both streams: uvicorn writes its access records to stdout and the
-    # root handler writes there too, so a duplicate cannot hide on the
-    # stream an assertion about one of them would never read.
+    # Uvicorn's own handler and the root handler both, so a duplicate
+    # cannot hide on the one an assertion about the other never reads.
     captured = capsys.readouterr()
     written = [
         line
-        for line in (captured.out + captured.err).splitlines()
-        if line.strip()
+        for line in (
+            uvicorn_loggers.getvalue() + captured.out + captured.err
+        ).splitlines()
+        if line.strip() and "Logging error" not in line
     ]
     assert len(written) == 1
 
@@ -168,3 +211,36 @@ def test_a_loguru_template_renders_both_sides_the_same(
         assert parse_json_log(written)["msg"] == "a component record"
     else:
         assert 'msg="a component record"' in written
+
+
+def test_a_loguru_template_reaches_uvicorns_records_too(
+    uvicorn_loggers: io.StringIO,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    reset_backend: None,  # noqa: ARG001
+) -> None:
+    """Three writers, one format.
+
+    The app writes through loguru, its dependencies through the standard
+    library, and uvicorn through handlers of its own. A template that is
+    one of our formats has to reach all three, or the process emits two
+    shapes and the reader has to know which line came from where.
+    """
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    configure_with(
+        LogConfig(
+            backend="loguru", format="{extra[logfmt_serialized]}", level="INFO"
+        )
+    )
+
+    logging.getLogger(COMPONENT_LOGGER).info("a dependency record")
+    logging.getLogger("uvicorn.access").info(
+        '%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/x", "1.1", 200
+    )
+
+    dependency = capsys.readouterr().out.strip()
+    uvicorn_line = uvicorn_loggers.getvalue().strip()
+
+    assert dependency.startswith("time=")
+    assert uvicorn_line.startswith("time=")
+    assert "logger=uvicorn.access" in uvicorn_line

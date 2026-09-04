@@ -153,6 +153,39 @@ _LEVEL_COLORS: dict[str, str] = {
 _CALLER_COLOR = "\033[36m"  # Cyan
 
 
+LOGURU_JSON_FORMAT = "{extra[serialized]}"
+"""Loguru template that renders the serialized record, and nothing else."""
+
+LOGURU_LOGFMT_FORMAT = "{extra[logfmt_serialized]}"
+"""Loguru template that renders the logfmt record, and nothing else."""
+
+
+def resolve_template_format(
+    resolved_format: LogFormatType | str,
+) -> LogFormatType:
+    """Return the format a loguru template renders, as one of ours.
+
+    A loguru template is loguru's, and nothing else in the process can
+    read one: not a `logging.Formatter`, not the uvicorn formatter. Two
+    templates render exactly what a format of ours renders, and a template
+    that is one of those is read as that format, so every writer in the
+    process agrees.
+
+    A template that merely mentions the serialized record renders it
+    inside something else, `"{time} | {extra[serialized]}"` for one, and
+    nothing else here produces that. It reads as text, which is a format
+    of ours rather than half of the app's.
+    """
+    if isinstance(resolved_format, LogFormatType):
+        return resolved_format
+    template = resolved_format.strip()
+    if template == LOGURU_JSON_FORMAT:
+        return LogFormatType.JSON
+    if template == LOGURU_LOGFMT_FORMAT:
+        return LogFormatType.LOGFMT
+    return LogFormatType.TEXT
+
+
 def should_colorize() -> bool:
     """Determine whether output should use ANSI colors.
 
