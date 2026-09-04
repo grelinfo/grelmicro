@@ -12,6 +12,7 @@ uv run python benchmarks/circuitbreaker_benchmark.py
 uv run python benchmarks/cache_benchmark.py
 uv run python benchmarks/lock_benchmark.py
 uv run python benchmarks/logging_benchmark.py
+uv run python benchmarks/access_log_benchmark.py
 ```
 
 Each script measures the in-memory backend so the numbers reflect grelmicro's own overhead, not a network round-trip. Distributed backends (Redis, Postgres, SQLite) add their transport and storage cost on top.

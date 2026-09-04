@@ -107,6 +107,7 @@ nav:
     - Logging:
         - logging/index.md
         - logging/integrations.md
+        - logging/access.md
         - logging/filters.md
     - tracing.md
     - metrics.md

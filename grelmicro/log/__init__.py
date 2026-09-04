@@ -6,6 +6,7 @@ from typing_extensions import Doc
 
 from grelmicro._config import resolve_config
 from grelmicro._timezone import SHARED_TIMEZONE_ENV
+from grelmicro.log._access import AccessLog, AccessLogMiddleware
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log._component import Log
 from grelmicro.log._dedup import DuplicateFilter, DuplicateFilterConfig
@@ -154,6 +155,8 @@ def configure_with(
 
 
 __all__ = [
+    "AccessLog",
+    "AccessLogMiddleware",
     "DuplicateFilter",
     "DuplicateFilterConfig",
     "ErrorDict",

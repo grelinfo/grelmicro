@@ -86,6 +86,29 @@ A lock acquire and release cycle on the in-memory backend costs about 1.9 micros
 !!! note "Ambient is the right default"
     Ambient resolution is what makes `micro.override(...)` and `micro.fake()` work, because the lookup happens per call rather than once. Reach for `backend=` on the few call sites a profile actually points at, not everywhere.
 
+## What the access log costs
+
+`AccessLog()` adds one middleware, and what a request pays depends on whether
+it writes a record:
+
+| Request | Cost over a bare app |
+|---|---|
+| A record is written | about 4.7 microseconds |
+| A quiet path that answered, so the level drops it | about 490 nanoseconds |
+| A path named in `exclude` | about 500 nanoseconds |
+
+Most of the first row is the standard library emitting a record at all, which
+is the same cost uvicorn's own access log pays, and the [logging
+backend](logging/index.md) is the lever on it. The other two rows are the
+middleware deciding it has nothing to write, which is why the probe paths are
+quiet by default: a pod polled every few seconds pays nanoseconds for it
+rather than microseconds.
+
+The matching is decided once, when the middleware is built, so a plain path
+costs a set lookup rather than a walk through the patterns.
+
+Measure it on your own hardware with `python benchmarks/access_log_benchmark.py`.
+
 ## Skip the ambient binding
 
 `micro.install(app)` adds one middleware that binds the app around each request. It costs about 165 nanoseconds per request. Drop it when nothing needs it:
