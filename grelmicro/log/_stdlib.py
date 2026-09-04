@@ -236,10 +236,10 @@ def configure(config: LogConfig | None = None) -> None:
 
 
 def build_formatter(
-    resolved_format: Any,  # noqa: ANN401
+    resolved_format: LogFormatType | str,
     *,
     timezone: tzinfo,
-    json_dumps: Any,  # noqa: ANN401
+    json_dumps: Callable[[Mapping[str, Any]], str],
     colors: bool,
     caller_enabled: bool,
     otel_enabled: bool,
@@ -302,6 +302,8 @@ def install_root(formatter: logging.Formatter, *, level: int | str) -> None:
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
-    root_logger.handlers.clear()
-    root_logger.addHandler(handler)
+    # Replaced in one assignment rather than cleared and added to. The
+    # list is what `callHandlers` walks, and emptying it first leaves a
+    # window where a record from another thread reaches no handler at all.
+    root_logger.handlers = [handler]
     root_logger.setLevel(level)

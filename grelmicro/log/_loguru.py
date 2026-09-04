@@ -14,6 +14,7 @@ from grelmicro.log._shared import (
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
+    should_colorize,
 )
 from grelmicro.log._stdlib import build_formatter, install_root
 from grelmicro.log.config import LogConfig, LogFormatType
@@ -238,25 +239,26 @@ def _make_pretty_formatter(
 
 def _root_format(
     resolved_format: LogFormatType | str,
-    *,
-    json: bool,
-    logfmt: bool,
-) -> LogFormatType | str:
+) -> LogFormatType:
     """Return the format standard library records render in.
 
     A loguru format template is loguru's, and a `logging.Formatter` cannot
-    read it. What it renders is known all the same, because `configure`
-    already worked it out to install the patcher: a template asking for
-    the serialized record is JSON, one asking for the logfmt record is
-    logfmt, and anything else is read as text rather than rendered in a
-    format the app did not ask for.
+    read one. Two templates render exactly what a format of ours renders,
+    and a template that is one of those is read as that format, so both
+    sides of the process write the same shape.
+
+    A template that merely mentions the serialized record renders it
+    inside something else, `"{time} | {extra[serialized]}"` for one, and
+    nothing a `logging.Formatter` produces matches that. It reads as text,
+    which is a format of ours rather than half of the app's.
     """
-    if json:
-        return LogFormatType.JSON
-    if logfmt:
-        return LogFormatType.LOGFMT
     if isinstance(resolved_format, LogFormatType):
         return resolved_format
+    template = resolved_format.strip()
+    if template == JSON_FORMAT:
+        return LogFormatType.JSON
+    if template == LOGFMT_FORMAT:
+        return LogFormatType.LOGFMT
     return LogFormatType.TEXT
 
 
@@ -332,13 +334,19 @@ def configure(config: LogConfig | None = None) -> None:
 
     # Standard library records render through the same writers, so a
     # dependency logging through `logging` reads like the app's own lines
-    # instead of falling through to `logging.lastResort`.
+    # instead of falling through to `logging.lastResort`. A template of
+    # your own that reads as text is colorized on its own terms, because
+    # `load_settings` only answers that question for the two formats it
+    # knows are text.
+    root_format = _root_format(resolved_format)
     install_root(
         build_formatter(
-            _root_format(resolved_format, json=needs_json, logfmt=needs_logfmt),
+            root_format,
             timezone=timezone,
             json_dumps=json_dumps,
-            colors=colors,
+            colors=colors
+            if isinstance(resolved_format, LogFormatType)
+            else should_colorize(),
             caller_enabled=caller,
             otel_enabled=settings.otel_enabled,
         ),

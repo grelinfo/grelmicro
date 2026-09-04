@@ -8,15 +8,23 @@ its own records through.
 
 from __future__ import annotations
 
+import copy
 import logging
+import logging.config
 
 import pytest
+from uvicorn.config import LOGGING_CONFIG
 
 from grelmicro.log import configure_with
 from grelmicro.log.config import LogConfig, LogFormatType
 from tests.logging.conftest import BACKENDS, parse_json_log
 
 COMPONENT_LOGGER = "grelmicro.health"
+
+
+def uvicorn_logging_config() -> dict[str, object]:
+    """Return uvicorn's own logging config, as uvicorn installs it."""
+    return copy.deepcopy(LOGGING_CONFIG)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -98,31 +106,26 @@ def test_a_uvicorn_record_is_written_once(
 ) -> None:
     """Uvicorn keeps its own handlers, so the root must not answer too.
 
-    Uvicorn installs a handler on its access logger and turns propagation
-    off, and grelmicro reformats that handler in place. A root handler that
-    also caught the record would write every request line twice.
+    Driven through uvicorn's real logging config rather than a stand-in,
+    because what keeps a request line to one line is what that config
+    says: its loggers carry their own handlers and do not propagate. A
+    root handler catching the record as well would write every request
+    twice.
     """
-    monkeypatch.setenv("GREL_LOG_BACKEND", backend)
     monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    logging.config.dictConfig(uvicorn_logging_config())
     access = logging.getLogger("uvicorn.access")
-    access.handlers = [logging.StreamHandler()]
-    access.propagate = False
-    access.setLevel(logging.INFO)
-    try:
-        configure_with(
-            LogConfig(backend=backend, format=LogFormatType.JSON, level="INFO")
-        )
+    configure_with(
+        LogConfig(backend=backend, format=LogFormatType.JSON, level="INFO")
+    )
 
-        access.info(
-            '%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/x", "1.1", 200
-        )
-    finally:
-        access.handlers = []
-        access.propagate = True
+    access.info(
+        '%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/x", "1.1", 200
+    )
 
-    # Both streams: uvicorn's handler writes to stderr and the root
-    # handler to stdout, so a duplicate lands on the stream an assertion
-    # about one of them would never read.
+    # Both streams: uvicorn writes its access records to stdout and the
+    # root handler writes there too, so a duplicate cannot hide on the
+    # stream an assertion about one of them would never read.
     captured = capsys.readouterr()
     written = [
         line
