@@ -7,7 +7,9 @@ is that a process running no web framework still answers an orchestrator.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+import logging
+from typing import TYPE_CHECKING, Any, Self
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -16,8 +18,8 @@ from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 from grelmicro import Grelmicro
 from grelmicro.health import HealthChecks
 from grelmicro.http import OpsServer, OpsServerConfig, OpsServerError
-from grelmicro.http._server import _call_app
-from grelmicro.metrics import Metrics, MetricsExporterType
+from grelmicro.http._server import _Answer, _call_app
+from grelmicro.metrics import Metrics, MetricsConfig, MetricsExporterType
 from tests.health.conftest import (
     healthy,
     healthy_with_details,
@@ -393,15 +395,46 @@ async def test_a_request_that_never_finishes_times_out(
     assert status_of(answer) == HTTP_REQUEST_TIMEOUT
 
 
-async def test_a_failing_endpoint_answers_500(port: int) -> None:
-    """An endpoint that raises is logged and answered, not left hanging."""
+async def test_an_exporter_that_renders_nothing_serves_no_metrics(
+    port: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only the prometheus exporter has an exposition to serve."""
     micro = Grelmicro(
         uses=[
             Metrics(exporter=MetricsExporterType.NONE),
             OpsServer(host="127.0.0.1", port=port),
         ]
     )
+    with caplog.at_level(logging.WARNING, logger="grelmicro.http"):
+        async with micro:
+            assert micro.get("ops", "default").paths == ()
+            answer = await raw(
+                port, b"GET /metrics HTTP/1.1\r\nhost: probe\r\n\r\n"
+            )
+
+    assert status_of(answer) == HTTP_NOT_FOUND
+    assert "only 'prometheus' renders an exposition" in caplog.text
+
+
+async def test_a_failing_endpoint_answers_500(
+    port: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An endpoint that raises is logged and answered, not left hanging."""
+    micro = Grelmicro(
+        uses=[
+            Metrics(exporter=MetricsExporterType.PROMETHEUS),
+            OpsServer(host="127.0.0.1", port=port),
+        ]
+    )
     async with micro:
+        assert micro.get("ops", "default").paths == ("/metrics",)
+        # The component the route resolves per request stops being able to
+        # render, which is every way an endpoint raises at request time.
+        monkeypatch.setattr(
+            micro.metrics,
+            "_resolved",
+            MetricsConfig(exporter=MetricsExporterType.NONE),
+        )
         answer = await raw(
             port, b"GET /metrics HTTP/1.1\r\nhost: probe\r\n\r\n"
         )
@@ -598,3 +631,136 @@ async def test_the_same_length_twice_is_read_once(port: int) -> None:
     )
 
     assert status_of(answer) == HTTP_200_OK
+
+
+# --- While the app is still starting -------------------------------------
+
+
+class _SlowToOpen:
+    """A component that takes its time, the way a broker connection does."""
+
+    kind = "slowdep"
+    name = "default"
+
+    def __init__(self, *, ready: asyncio.Event, release: asyncio.Event) -> None:
+        self._ready = ready
+        self._release = release
+
+    async def __aenter__(self) -> Self:
+        self._ready.set()
+        await self._release.wait()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+async def test_it_is_alive_but_not_ready_while_the_app_opens(
+    port: int,
+) -> None:
+    """A pod is not Ready while the component after this one is connecting.
+
+    `OpsServer` is registered first, so it binds its port while the rest of
+    the app is still opening, and a `HealthChecks` after it has not
+    registered its checks yet. Readiness must not answer for a check table
+    that is still being built.
+    """
+    ready, release, opened, done = (asyncio.Event() for _ in range(4))
+    micro = Grelmicro(
+        uses=[
+            OpsServer(host="127.0.0.1", port=port),
+            _SlowToOpen(ready=ready, release=release),
+            HealthChecks(),
+        ]
+    )
+
+    async def run() -> None:
+        async with micro:
+            opened.set()
+            await done.wait()
+
+    running = asyncio.create_task(run())
+    try:
+        await ready.wait()
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}"
+        ) as client:
+            assert (await client.get("/livez")).status_code == HTTP_200_OK
+            assert (
+                await client.get("/readyz")
+            ).status_code == HTTP_503_SERVICE_UNAVAILABLE
+            assert (
+                await client.get("/healthz")
+            ).status_code == HTTP_503_SERVICE_UNAVAILABLE
+
+            release.set()
+            await opened.wait()
+
+            assert (await client.get("/readyz")).status_code == HTTP_200_OK
+            assert (await client.get("/healthz")).status_code == HTTP_200_OK
+    finally:
+        release.set()
+        done.set()
+        await running
+
+
+# --- Answering exactly once ----------------------------------------------
+
+
+async def test_nothing_is_written_over_a_response_already_sent() -> None:
+    """A deadline that lands mid-write closes rather than appending.
+
+    Two status lines on one connection is worse than a truncated body: the
+    client reads the second one as part of the first response.
+    """
+    server = OpsServer()
+    writer = AsyncMock()
+    answer = _Answer(writer, started=True, status=HTTP_REQUEST_TIMEOUT)
+
+    await server._close(AsyncMock(), writer, answer)
+
+    assert writer.write.call_args_list == []
+    writer.close.assert_called_once()
+
+
+# --- Refusals reach the caller -------------------------------------------
+
+
+@pytest.mark.usefixtures("serving")
+async def test_a_refused_body_still_reads_its_answer(port: int) -> None:
+    """A caller mid-body gets the 413, not a reset connection.
+
+    The refusal is written on a socket that still holds the body it
+    refused, so the bytes are read and dropped before the close.
+    """
+    answer = await raw(
+        port,
+        b"GET /livez HTTP/1.1\r\ncontent-length: 99999\r\n\r\n" + b"x" * 9000,
+        eof=False,
+    )
+
+    assert status_of(answer) == HTTP_CONTENT_TOO_LARGE
+
+
+@pytest.mark.usefixtures("serving")
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        pytest.param(
+            b"content-length: 0\r\ncontent-length: 00\r\n",
+            HTTP_200_OK,
+            id="same-length-written-twice",
+        ),
+        pytest.param(
+            b"content-length: 1_0\r\n", HTTP_BAD_REQUEST, id="underscore"
+        ),
+        pytest.param(b"content-length: +2\r\n", HTTP_BAD_REQUEST, id="signed"),
+    ],
+)
+async def test_content_length_is_read_as_a_number(
+    port: int, headers: bytes, expected: int
+) -> None:
+    """Only digits are a length, and repeated ones have to agree."""
+    answer = await raw(port, b"GET /livez HTTP/1.1\r\n" + headers + b"\r\n")
+
+    assert status_of(answer) == expected

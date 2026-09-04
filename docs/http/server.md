@@ -19,7 +19,7 @@ It serves what the app registers: the three health endpoints when a
 | `GET /livez` | a `HealthChecks` is registered | `200`, empty body |
 | `GET /readyz` | a `HealthChecks` is registered | `200` or `503`, empty body |
 | `GET /healthz` | a `HealthChecks` is registered | the JSON report |
-| `GET /metrics` | a `Metrics` is registered | the Prometheus exposition |
+| `GET /metrics` | a `Metrics` with the `prometheus` exporter is registered | the Prometheus exposition |
 
 They answer exactly what the FastAPI router answers, because both render
 through the same code. Read [Health Checks](../health.md) for the report and
@@ -32,6 +32,20 @@ port that answers nothing:
 OpsServerError: OpsServer has nothing to serve. Register a HealthChecks, a
 Metrics, or both: Grelmicro(uses=[HealthChecks(), OpsServer()]).
 ```
+
+## While the app is starting
+
+Components open in registration order, so a server registered first is
+listening while the rest of the app is still connecting. Until the app has
+finished opening, it answers `/livez` with `200` and every other path with
+`503`, which is what a process that is alive and not yet ready owes an
+orchestrator. It reports `Ready` only once every component is open, and the
+check table it reads is the finished one.
+
+That is also when it settles what it serves, because a `Metrics` still
+opening has no exporter to read yet. An exporter other than `prometheus`
+renders no exposition, so `/metrics` is left unserved and the reason is
+logged once, instead of every scrape getting a `500`.
 
 ## The Kubernetes side
 
@@ -78,8 +92,11 @@ micro = Grelmicro(uses=[health, OpsServer(), OpsServer(name="admin", port=8081)]
 
 Register it first in `uses=[...]`. Components close in reverse order, so the
 one registered first closes last, and the probes keep answering while the rest
-of the app drains. On shutdown it stops accepting immediately, lets in-flight
-requests finish within `shutdown_timeout`, and cancels what is still running.
+of the app drains. Starting first costs nothing, because it answers `503`
+until the app is open.
+
+On shutdown it stops accepting immediately, lets in-flight requests finish
+within `shutdown_timeout`, and cancels what is still running.
 
 ## What it is, and what it is not
 

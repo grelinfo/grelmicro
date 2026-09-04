@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import socket
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -284,8 +286,30 @@ async def test_lifespan_protocol_is_answered(health: HealthChecks) -> None:
     ]
 
 
+async def test_a_websocket_is_closed_rather_than_dropped(
+    health: HealthChecks,
+) -> None:
+    """Mounted at the root, a websocket reaches the app. It is not ours.
+
+    Returning without a word leaves the server reporting a handshake that
+    never came, so the connection is closed cleanly instead.
+    """
+    app = health_asgi(health)
+    sent: list[dict[str, Any]] = []
+
+    async def receive() -> Any:  # noqa: ANN401
+        return {"type": "websocket.connect"}
+
+    async def send(message: Any) -> None:  # noqa: ANN401
+        sent.append(message)
+
+    await app({"type": "websocket", "path": "/livez"}, receive, send)
+
+    assert sent == [{"type": "websocket.close", "code": 1001}]
+
+
 async def test_other_scopes_are_left_alone(health: HealthChecks) -> None:
-    """A websocket is not ours to answer, so nothing is sent."""
+    """A scope that is neither HTTP, lifespan, nor a websocket is not ours."""
     app = health_asgi(health)
     sent: list[dict[str, Any]] = []
 
@@ -295,6 +319,37 @@ async def test_other_scopes_are_left_alone(health: HealthChecks) -> None:
     async def send(message: Any) -> None:  # noqa: ANN401
         sent.append(message)
 
-    await app({"type": "websocket", "path": "/livez"}, receive, send)
+    await app({"type": "custom", "path": "/livez"}, receive, send)
 
     assert sent == []
+
+
+async def test_served_directly_by_uvicorn(health: HealthChecks) -> None:
+    """The app stands on its own under a real ASGI server.
+
+    It answers the lifespan protocol, so uvicorn starts and stops it
+    without complaining that the app supports none.
+    """
+    import uvicorn  # noqa: PLC0415
+
+    health.add("db", healthy())
+    # Bound here rather than in uvicorn, so the port is listening before
+    # the server task starts and the client never races the startup.
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    server = uvicorn.Server(
+        uvicorn.Config(health_asgi(health), log_level="warning", lifespan="on")
+    )
+    serving = asyncio.create_task(server.serve(sockets=[listener]))
+    try:
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}"
+        ) as client:
+            assert (await client.get("/livez")).status_code == HTTP_200_OK
+            assert (await client.get("/healthz")).json()["status"] == "ok"
+            assert (await client.get("/nope")).status_code == HTTP_NOT_FOUND
+    finally:
+        server.should_exit = True
+        await serving

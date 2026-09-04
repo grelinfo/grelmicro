@@ -37,6 +37,9 @@ SAFE_METHODS: Final = frozenset({"GET", "HEAD"})
 NO_STORE_HEADERS: Final = {"Cache-Control": "no-store"}
 """What every answer carries, for a door that writes headers by name."""
 
+_GOING_AWAY: Final = 1001
+"""Websocket close code: this endpoint is not one to connect to."""
+
 _ALLOW_HEADER: Final = ((b"allow", b"GET, HEAD"),)
 _NO_STORE: Final = (b"cache-control", b"no-store")
 
@@ -107,6 +110,13 @@ def build_asgi(routes: Mapping[str, Handler]) -> ASGIApp:
         scope_type = scope["type"]
         if scope_type == "lifespan":
             await _lifespan(receive, send)
+            return
+        if scope_type == "websocket":
+            # Mounted at the root, a websocket to any path reaches here.
+            # Returning without a word leaves the server to report a
+            # handshake that never came.
+            await receive()
+            await send({"type": "websocket.close", "code": _GOING_AWAY})
             return
         if scope_type != "http":
             return

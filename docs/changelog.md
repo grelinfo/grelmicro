@@ -30,6 +30,7 @@
 ### Added
 * ✨ `OpsServer` serves the health probes and the Prometheus endpoint on a port of its own, over a small HTTP/1.1 server from the standard library. A FastStream consumer, a scheduler, or any process that runs no web framework answers Kubernetes with `Grelmicro(uses=[health, OpsServer(port=8080)])`. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
 * ✨ `health_asgi()` and `metrics_asgi()` serve the same endpoints as pure-ASGI apps, so Starlette and Litestar mount them instead of hand-writing routes. On FastAPI, `health_router()` and `metrics_router()` stay the door, because they add the OpenAPI schema and the `Depends` gates. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
+* ✨ `Grelmicro.opened` says whether every registered item is open. Read it from something that answers before the app has finished starting: a component registered before another one runs while that other one is still connecting. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
 * ✨ Every door renders through one set of functions, and `tests/test_endpoint_parity.py` holds them to one status, one set of headers, and one body. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
 
 ### Fixed
