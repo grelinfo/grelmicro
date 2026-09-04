@@ -232,7 +232,9 @@ def document_idempotency(
 
     An app running two sets of rules has each described under its own
     paths and its own two header names. Pass `idempotency` to describe one
-    of them and leave the other out of the schema.
+    of them and leave the other out of the schema. An app that wired the
+    middleware by hand stores through none of the registered components,
+    and every installed middleware is described.
 
     ```python
     from grelmicro.http import IdempotencyMiddleware
@@ -274,20 +276,26 @@ def document_idempotency(
         # added after this call is described too.
         errors = getattr(app.state, "grelmicro_error_responses", None)
         schema = original()
-        pass_ = _annotation_pass(app, schema)
-        for options in _idempotency_options(app):
-            if idempotency is not None and options["idempotency"] is not (
-                idempotency
-            ):
+        installed = list(enumerate(_idempotency_options(app)))
+        # A component names the middleware it registered, so a second set
+        # of rules stays out of the schema. Naming one the app does not
+        # carry means the app wired the middleware itself, which serves
+        # the component's rules, so every installed one is described.
+        named = [
+            entry
+            for entry in installed
+            if idempotency is None or entry[1]["idempotency"] is idempotency
+        ]
+        described = _described(app, schema)
+        for index, options in named or installed:
+            if index in described:
                 continue
-            if not pass_.claim(options["idempotency"]):
-                continue
+            described.add(index)
             _annotate_schema(
                 schema,
                 options,
                 PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
                 ProblemDetail if errors is None else errors.model,
-                pass_.declared,
             )
         return schema
 
@@ -657,43 +665,18 @@ def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
         raise TypeError(msg)
 
 
-class _AnnotationPass:
-    """What one build of an app's schema has already been given.
+def _described(app: "FastAPI", schema: dict[str, Any]) -> set[int]:
+    """Return which installed middlewares this schema already describes.
 
-    FastAPI caches the schema it builds and hands back the same object, and
-    two components leave two wrappers over it, so a middleware is described
-    once whichever wrapper reaches the schema first.
+    FastAPI caches the schema it builds and hands back the same object,
+    and two components leave two wrappers over it, so a middleware is
+    described once, by whichever wrapper reaches the schema first.
     """
-
-    def __init__(self, schema: dict[str, Any]) -> None:
-        """Read what the app answers itself, before any annotation runs."""
-        self.schema = schema
-        self.declared = {
-            id(operation): set(operation.get("responses", {}))
-            for _path_item, operation in _operations(
-                schema, sections=("paths",)
-            )
-        }
-        self._documented: set[int] = set()
-
-    def claim(self, idempotency: Any) -> bool:  # noqa: ANN401
-        """Return whether this middleware still needs describing."""
-        marker = id(idempotency)
-        if marker in self._documented:
-            return False
-        self._documented.add(marker)
-        return True
-
-
-def _annotation_pass(
-    app: "FastAPI", schema: dict[str, Any]
-) -> "_AnnotationPass":
-    """Return the record for this build of the app's schema."""
-    current = getattr(app.state, "grelmicro_idempotency_pass", None)
-    if current is None or current.schema is not schema:
-        current = _AnnotationPass(schema)
-        app.state.grelmicro_idempotency_pass = current
-    return cast("_AnnotationPass", current)
+    current = getattr(app.state, "grelmicro_idempotency_described", None)
+    if current is None or current[0] is not schema:
+        current = (schema, set())
+        app.state.grelmicro_idempotency_described = current
+    return cast("set[int]", current[1])
 
 
 def _middleware_options(
@@ -752,7 +735,6 @@ def _annotate_schema(
     options: dict[str, Any],
     media_type: str,
     model: type[BaseModel],
-    declared: dict[int, set[str]],
 ) -> None:
     """Add the header and the middleware's responses to covered operations."""
     methods = {method.lower() for method in options["methods"]}
@@ -815,14 +797,7 @@ def _annotate_schema(
         _add_parameter(operation, path_item, parameter)
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
-        # What the app declares itself is what it answers itself, and only
-        # what the app answers is ever stored and replayed. It is read
-        # before any middleware merges its refusals into the operation.
-        _add_replay_header(
-            operation,
-            options["replay_header"],
-            declared.get(id(operation), set()),
-        )
+        _add_replay_header(operation, options["replay_header"])
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
@@ -1050,24 +1025,19 @@ def _merge_response(
         )
 
 
-def _add_replay_header(
-    operation: dict[str, Any],
-    name: str,
-    statuses: set[str],
-) -> None:
-    """Describe the replay marker on the responses the app answers.
+def _add_replay_header(operation: dict[str, Any], name: str) -> None:
+    """Describe the replay marker on every response of an operation.
 
     The name is a service's to pick, so the schema is where a client
     author reads it. Every status the app answers is stored and replayed,
-    errors included, so the marker is described on all of them, and on
-    none of the refusals the middleware answers before the app runs. A
-    response that declares the header itself, under any casing, keeps its
-    own.
+    errors included, so the marker is described on all of them. Which
+    statuses those are is a property of the middleware order at runtime,
+    not of the schema, so the header is described as one that may appear
+    rather than one that always does. A response that declares the header
+    itself, under any casing, keeps its own.
     """
     lowered = name.lower()
-    for status, response in operation.get("responses", {}).items():
-        if status not in statuses:
-            continue
+    for response in operation.get("responses", {}).values():
         headers = response.setdefault("headers", {})
         if any(declared.lower() == lowered for declared in headers):
             continue
