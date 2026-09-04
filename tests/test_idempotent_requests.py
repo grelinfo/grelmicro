@@ -178,6 +178,10 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
             id="paces-the-client",
         ),
         pytest.param(
+            lambda: IdempotentRequests(replay_header="Content-Disposition"),
+            id="names-the-download",
+        ),
+        pytest.param(
             lambda: IdempotentRequests(key_header=_NOT_A_STRING),
             id="not-a-string",
         ),

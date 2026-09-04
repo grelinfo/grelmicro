@@ -286,7 +286,7 @@ def document_idempotency(
             for entry in installed
             if idempotency is None or entry[1]["idempotency"] is idempotency
         ]
-        described = _described(app, schema)
+        described, refusals = _annotation_state(app, schema)
         for index, options in named or installed:
             if index in described:
                 continue
@@ -296,6 +296,7 @@ def document_idempotency(
                 options,
                 PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
                 ProblemDetail if errors is None else errors.model,
+                refusals,
             )
         return schema
 
@@ -665,18 +666,23 @@ def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
         raise TypeError(msg)
 
 
-def _described(app: "FastAPI", schema: dict[str, Any]) -> set[int]:
-    """Return which installed middlewares this schema already describes.
+def _annotation_state(
+    app: "FastAPI", schema: dict[str, Any]
+) -> tuple[set[int], dict[int, set[str]]]:
+    """Return what this build of the schema already carries.
 
     FastAPI caches the schema it builds and hands back the same object,
-    and two components leave two wrappers over it, so a middleware is
-    described once, by whichever wrapper reaches the schema first.
+    and two components leave two wrappers over it. The first set holds the
+    middlewares already described, so each is described once by whichever
+    wrapper reaches the schema first. The second holds the refusals this
+    annotation added to an operation, which the app never answers itself
+    and no replay ever carries.
     """
-    current = getattr(app.state, "grelmicro_idempotency_described", None)
+    current = getattr(app.state, "grelmicro_idempotency_state", None)
     if current is None or current[0] is not schema:
-        current = (schema, set())
-        app.state.grelmicro_idempotency_described = current
-    return cast("set[int]", current[1])
+        current = (schema, set(), {})
+        app.state.grelmicro_idempotency_state = current
+    return cast("tuple[set[int], dict[int, set[str]]]", current[1:])
 
 
 def _middleware_options(
@@ -706,13 +712,22 @@ def _every_middleware_options(
     """
     import inspect  # noqa: PLC0415
 
+    signature = inspect.signature(middleware)
     found = []
     for entry in app.user_middleware:
         cls = entry.cls
         if is_class(cls) and is_subclass(cls, middleware):
             # Every parameter after `app` is keyword-only, so
-            # `add_middleware` can only have passed them by keyword.
-            bound = inspect.signature(middleware).bind_partial(**entry.kwargs)
+            # `add_middleware` can only have passed them by keyword. A
+            # subclass may take keywords of its own, which say nothing
+            # about what this describes.
+            bound = signature.bind_partial(
+                **{
+                    name: value
+                    for name, value in entry.kwargs.items()
+                    if name in signature.parameters
+                }
+            )
             bound.apply_defaults()
             found.append(dict(bound.arguments))
     if not found:
@@ -735,6 +750,7 @@ def _annotate_schema(
     options: dict[str, Any],
     media_type: str,
     model: type[BaseModel],
+    refusals: dict[int, set[str]],
 ) -> None:
     """Add the header and the middleware's responses to covered operations."""
     methods = {method.lower() for method in options["methods"]}
@@ -790,23 +806,34 @@ def _annotate_schema(
         for path, path_item, operation in serves
         if selects(path, include=include, exclude=exclude)
     ]
-    if not covered:
+    if not covered and include:
         # The patterns match what the request carries, which holds the
-        # prefix a mount or a `root_path` adds and the schema does not. A
-        # pattern written for the wire therefore selects nothing here, and
-        # dropping every annotation would leave a client with no header at
-        # all. Describing the methods the middleware covers is the answer
-        # that is wrong in the safe direction.
-        covered = [(path_item, operation) for _, path_item, operation in serves]
+        # prefix a mount or a `root_path` adds and the schema does not. An
+        # `include` written for the wire therefore selects nothing here,
+        # and dropping every annotation would leave a client with no
+        # header at all. Describing what `exclude` leaves is the answer
+        # that is wrong in the safe direction. An `exclude` that empties
+        # the selection on its own is a service naming its own routes, and
+        # is followed.
+        covered = [
+            (path_item, operation)
+            for path, path_item, operation in serves
+            if selects(path, include=(), exclude=exclude)
+        ]
     if not covered:
         return
     ref = add_error_schema(schema, model)
     for path_item, operation in covered:
         _add_parameter(operation, path_item, parameter)
-        # Before the refusals below are merged in: those are answered
-        # before the app runs, so no replay ever carries them.
-        _add_replay_header(operation, options["replay_header"])
+        added = refusals.setdefault(id(operation), set())
+        # Before the refusals below are merged in, and never on one an
+        # earlier pass merged: a refusal is answered before the app runs,
+        # so no replay ever carries it.
+        _add_replay_header(operation, options["replay_header"], added)
+        answered = set(operation.get("responses", {}))
         for status, description in responses.items():
+            if status not in answered:
+                added.add(status)
             _merge_response(operation, status, description, ref, media_type)
 
 
@@ -1035,7 +1062,9 @@ def _merge_response(
         )
 
 
-def _add_replay_header(operation: dict[str, Any], name: str) -> None:
+def _add_replay_header(
+    operation: dict[str, Any], name: str, refusals: set[str]
+) -> None:
     """Describe the replay marker on every response of an operation.
 
     The name is a service's to pick, so the schema is where a client
@@ -1047,7 +1076,9 @@ def _add_replay_header(operation: dict[str, Any], name: str) -> None:
     itself, under any casing, keeps its own.
     """
     lowered = name.lower()
-    for response in operation.get("responses", {}).values():
+    for status, response in operation.get("responses", {}).items():
+        if status in refusals:
+            continue
         headers = response.setdefault("headers", {})
         if any(declared.lower() == lowered for declared in headers):
             continue

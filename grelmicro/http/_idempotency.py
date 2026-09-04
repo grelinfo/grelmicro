@@ -105,19 +105,24 @@ refused at construction rather than reaching the wire as a broken header.
 
 _RESERVED_REPLAY_HEADERS = frozenset(
     {
+        "age",
         "allow",
         "cache-control",
         "connection",
+        "content-disposition",
         "content-encoding",
         "content-length",
         "content-range",
         "content-type",
         "etag",
+        "expires",
         "last-modified",
         "location",
         "retry-after",
         "set-cookie",
+        "trailer",
         "transfer-encoding",
+        "upgrade",
         "vary",
         "www-authenticate",
     }

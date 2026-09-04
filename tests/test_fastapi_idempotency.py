@@ -1092,6 +1092,72 @@ def test_document_idempotency_marks_overlapping_rules_once_each() -> None:
 
     # Assert
     assert set(responses["200"]["headers"]) == {"X-A", "X-B"}
+    # Neither middleware's marker reaches the other's refusals.
+    assert "headers" not in responses["400"]
+    assert "headers" not in responses["409"]
+
+
+def test_document_idempotency_follows_an_exclude_that_empties_it() -> None:
+    """A service naming its own routes is followed, not second-guessed."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        exclude=("/webhook",),
+    )
+
+    @app.post("/webhook")
+    async def webhook() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/webhook"]["post"]
+
+    # Assert
+    assert "parameters" not in operation
+    assert "409" not in operation["responses"]
+
+
+def test_document_idempotency_reads_a_subclass_of_its_own() -> None:
+    """A subclass may take keywords the middleware never declared."""
+
+    # Arrange
+    class TenantIdempotencyMiddleware(IdempotencyMiddleware):
+        def __init__(
+            self,
+            app: Any,  # noqa: ANN401
+            *,
+            tenant_key: str,
+            **options: Any,  # noqa: ANN401
+        ) -> None:
+            self.tenant_key = tenant_key
+            super().__init__(app, **options)
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        TenantIdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        tenant_key="acme",
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
 
 
 def test_document_idempotency_survives_a_mount_prefix() -> None:
