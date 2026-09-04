@@ -213,6 +213,41 @@ def test_a_loguru_template_renders_both_sides_the_same(
         assert 'msg="a component record"' in written
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize(
+    ("template", "starts_with"),
+    [
+        pytest.param("{extra[serialized]}", "{", id="json-template"),
+        pytest.param("{extra[logfmt_serialized]}", "time=", id="logfmt"),
+    ],
+)
+def test_a_template_reads_the_same_on_every_backend(
+    backend: str,
+    template: str,
+    starts_with: str,
+    uvicorn_loggers: io.StringIO,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    reset_backend: None,  # noqa: ARG001
+) -> None:
+    """The rule lives in one place, so no backend can forget to ask.
+
+    A template is loguru's, and the loguru backend is not the only writer
+    that has to know what it renders: the root handler and the uvicorn
+    formatter render the same process.
+    """
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    configure_with(LogConfig(backend=backend, format=template, level="INFO"))
+
+    logging.getLogger(COMPONENT_LOGGER).info("a dependency record")
+    logging.getLogger("uvicorn.access").info(
+        '%s - "%s %s HTTP/%s" %d', "127.0.0.1:1", "GET", "/x", "1.1", 200
+    )
+
+    assert capsys.readouterr().out.strip().startswith(starts_with)
+    assert uvicorn_loggers.getvalue().strip().startswith(starts_with)
+
+
 def test_a_loguru_template_reaches_uvicorns_records_too(
     uvicorn_loggers: io.StringIO,
     capsys: pytest.CaptureFixture[str],

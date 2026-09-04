@@ -14,6 +14,7 @@ from grelmicro.log._shared import (
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
+    resolve_template_format,
 )
 from grelmicro.log.config import LogConfig, LogFormatType
 from grelmicro.log.types import ErrorDict
@@ -250,6 +251,10 @@ def build_formatter(
     record written through `logging` reads the same whichever backend the
     app writes its own records through.
     """
+    # A loguru template is read as the format it renders, here rather
+    # than at each call site, so no backend can forget to ask.
+    resolved_format = resolve_template_format(resolved_format)
+
     formatter: logging.Formatter
     if resolved_format == LogFormatType.JSON:
         formatter = _JSONFormatter(

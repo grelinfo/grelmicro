@@ -514,10 +514,16 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
 
     timezone = resolve_timezone(str(settings.timezone))
     resolved_format = _resolve_format(settings.format)
+    # Read through `resolve_template_format`, so a loguru template that
+    # renders text is colorized the way `TEXT` is. Every writer takes this
+    # one answer rather than deciding again from the spelling.
     colors = (
-        should_colorize()
-        if resolved_format in (LogFormatType.TEXT, LogFormatType.PRETTY)
-        else False
+        resolve_template_format(resolved_format)
+        in (
+            LogFormatType.TEXT,
+            LogFormatType.PRETTY,
+        )
+        and should_colorize()
     )
 
     return LoadedSettings(

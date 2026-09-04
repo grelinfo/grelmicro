@@ -16,8 +16,6 @@ from grelmicro.log._shared import (
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
-    resolve_template_format,
-    should_colorize,
 )
 from grelmicro.log._stdlib import build_formatter, install_root
 from grelmicro.log.config import LogConfig, LogFormatType
@@ -312,19 +310,13 @@ def configure(config: LogConfig | None = None) -> None:
 
     # Standard library records render through the same writers, so a
     # dependency logging through `logging` reads like the app's own lines
-    # instead of falling through to `logging.lastResort`. A template of
-    # your own that reads as text is colorized on its own terms, because
-    # `load_settings` only answers that question for the two formats it
-    # knows are text.
-    root_format = resolve_template_format(resolved_format)
+    # instead of falling through to `logging.lastResort`.
     install_root(
         build_formatter(
-            root_format,
+            resolved_format,
             timezone=timezone,
             json_dumps=json_dumps,
-            colors=colors
-            if isinstance(resolved_format, LogFormatType)
-            else should_colorize(),
+            colors=colors,
             caller_enabled=caller,
             otel_enabled=settings.otel_enabled,
         ),
