@@ -156,6 +156,44 @@ def _field_name(value: str, argument: str, example: str) -> str:
     return value
 
 
+_RESERVED_KEY_HEADERS = frozenset(
+    {
+        "accept",
+        "authorization",
+        "connection",
+        "content-length",
+        "content-type",
+        "cookie",
+        "host",
+        "origin",
+        "referer",
+        "transfer-encoding",
+        "user-agent",
+    }
+)
+"""Names `key_header` is refused.
+
+Every request carries one of these, so keying on it would merge callers
+that share a value rather than a key. `Content-Type` is the sharpest
+case: every JSON POST to one route would read as the same key, and one
+caller's stored response would replay to the next.
+"""
+
+
+def _key_name(value: str) -> str:
+    """Return `value`, or raise when it cannot carry an idempotency key."""
+    _field_name(value, "key_header", "Idempotency-Key")
+    if value.lower() in _RESERVED_KEY_HEADERS:
+        msg = (
+            "key_header cannot name a header every request already "
+            "carries, such as Content-Type or Authorization. Callers "
+            "sharing that value would share one stored response. Pick a "
+            "header of your own, such as 'Idempotency-Key'."
+        )
+        raise SettingsValidationError(msg)
+    return value
+
+
 def _replay_name(value: str) -> str:
     """Return `value`, or raise when it cannot carry the replay marker."""
     _field_name(value, "replay_header", _DEFAULT_REPLAY_HEADER)
@@ -390,11 +428,7 @@ class IdempotencyMiddleware:
         """Initialize the middleware with the idempotency store and policy."""
         self.app = app
         self._idempotency = idempotency
-        self._header = (
-            _field_name(key_header, "key_header", "Idempotency-Key")
-            .lower()
-            .encode("ascii")
-        )
+        self._header = _key_name(key_header).lower().encode("ascii")
         self._header_name = key_header
         self._replay_header = (
             _replay_name(replay_header).lower().encode("ascii")
@@ -1002,9 +1036,7 @@ class IdempotentRequests:
         self._openapi = openapi
         self._options: dict[str, Any] = {
             "idempotency": Idempotency(namespace, ttl=ttl, cache=cache),
-            "key_header": _field_name(
-                key_header, "key_header", "Idempotency-Key"
-            ),
+            "key_header": _key_name(key_header),
             "replay_header": _replay_name(replay_header),
             "methods": methods,
             "key_maker": key_maker,

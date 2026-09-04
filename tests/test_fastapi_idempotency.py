@@ -1024,16 +1024,24 @@ def test_document_idempotency_follows_the_path_selection() -> None:
 def test_document_idempotency_describes_the_replay_marker() -> None:
     """The name is a service's to pick, so the schema is where it is read."""
     # Arrange
-    app = _documented_app(replay_header="X-Idempotent-Replayed")
+    app = build_app(replay_header="X-Idempotent-Replayed")
+
+    @app.post("/refuses", responses={400: {"description": "Refused."}})
+    async def refuses() -> dict[str, int]:
+        return {"amount": 100}
+
+    document_idempotency(app)
 
     # Act
-    responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
+    responses = app.openapi()["paths"]["/refuses"]["post"]["responses"]
 
     # Assert
     header = responses["200"]["headers"]["X-Idempotent-Replayed"]
     assert header["schema"] == {"type": "string", "enum": ["true"]}
-    # A stored error replays like any other response, so it carries it too.
-    assert "X-Idempotent-Replayed" in responses["409"]["headers"]
+    # A stored error replays like any other response the app answers.
+    assert "X-Idempotent-Replayed" in responses["400"]["headers"]
+    # What the middleware answers before the app runs never replays.
+    assert "headers" not in responses["409"]
 
 
 def test_document_idempotency_publishes_the_problem_body() -> None:

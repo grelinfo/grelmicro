@@ -181,6 +181,10 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
             lambda: IdempotentRequests(key_header=_NOT_A_STRING),
             id="not-a-string",
         ),
+        pytest.param(
+            lambda: IdempotentRequests(key_header="Content-Type"),
+            id="every-request-carries-it",
+        ),
     ],
 )
 def test_a_header_name_that_cannot_reach_the_wire_is_refused(

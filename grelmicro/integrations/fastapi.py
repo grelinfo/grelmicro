@@ -253,6 +253,10 @@ def document_idempotency(
     _require_fastapi(app, "document_idempotency")
     options = _idempotency_options(app)
     original = app.openapi
+    # The schema this already annotated. FastAPI caches what it builds and
+    # hands back the same object, and annotating it twice would read its
+    # own additions as the app's own responses.
+    annotated: list[dict[str, Any]] = []
 
     def openapi() -> dict[str, Any]:
         # Read when the schema is built rather than when this is called, so
@@ -260,12 +264,15 @@ def document_idempotency(
         # publish a format the app does not answer in.
         errors = getattr(app.state, "grelmicro_error_responses", None)
         schema = original()
+        if annotated and annotated[0] is schema:
+            return schema
         _annotate_schema(
             schema,
             options,
             PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
             ProblemDetail if errors is None else errors.model,
         )
+        annotated[:] = [schema]
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -732,9 +739,13 @@ def _annotate_schema(
     ref = add_error_schema(schema, model)
     for path_item, operation in covered:
         _add_parameter(operation, path_item, parameter)
+        # Read before the merge below adds the refusals: what the app
+        # already declares is what it answers itself, and only what the
+        # app answers is ever stored and replayed.
+        replayable = set(operation.get("responses", {}))
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
-        _add_replay_header(operation, options["replay_header"])
+        _add_replay_header(operation, options["replay_header"], replayable)
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
@@ -962,16 +973,24 @@ def _merge_response(
         )
 
 
-def _add_replay_header(operation: dict[str, Any], name: str) -> None:
-    """Describe the replay marker on every response of an operation.
+def _add_replay_header(
+    operation: dict[str, Any],
+    name: str,
+    statuses: set[str],
+) -> None:
+    """Describe the replay marker on the responses the app answers.
 
     The name is a service's to pick, so the schema is where a client
     author reads it. Every status the app answers is stored and replayed,
-    errors included, so the marker is described on all of them. A response
-    that declares the header itself, under any casing, keeps its own.
+    errors included, so the marker is described on all of them, and on
+    none of the refusals the middleware answers before the app runs. A
+    response that declares the header itself, under any casing, keeps its
+    own.
     """
     lowered = name.lower()
-    for response in operation.get("responses", {}).values():
+    for status, response in operation.get("responses", {}).items():
+        if status not in statuses:
+            continue
         headers = response.setdefault("headers", {})
         if any(declared.lower() == lowered for declared in headers):
             continue
