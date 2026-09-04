@@ -35,14 +35,17 @@ from typing_extensions import Doc
 
 from grelmicro._config import default_env_prefix, resolve_config
 from grelmicro._endpoints import (
+    HTTP_METHOD_NOT_ALLOWED,
+    HTTP_NOT_FOUND,
     HTTP_OK,
     HTTP_SERVICE_UNAVAILABLE,
+    SAFE_METHODS,
     Rendered,
     build_asgi,
     normalize,
     response_headers,
 )
-from grelmicro.health._endpoints import health_routes
+from grelmicro.health._endpoints import health_routes, livez
 from grelmicro.http._kinds import phrase_of
 from grelmicro.http.errors import OpsServerError
 from grelmicro.metrics._endpoints import metrics_routes
@@ -64,6 +67,7 @@ logger = getLogger("grelmicro.http")
 _HTTP_BAD_REQUEST: Final = 400
 _HTTP_REQUEST_TIMEOUT: Final = 408
 _HTTP_CONTENT_TOO_LARGE: Final = 413
+_HTTP_URI_TOO_LONG: Final = 414
 _HTTP_HEADERS_TOO_LARGE: Final = 431
 _HTTP_INTERNAL_SERVER_ERROR: Final = 500
 _HTTP_NOT_IMPLEMENTED: Final = 501
@@ -82,8 +86,14 @@ _REQUEST_LINE_PARTS: Final = 3
 _LINGER_SECONDS: Final = 0.5
 """How long a refused caller is read before the connection closes."""
 
+_CLOSE_SECONDS: Final = 1.0
+"""How long the last write and the close get before the socket is aborted."""
+
 _LIVEZ: Final = "/livez"
 """The one path answered while the app is still opening."""
+
+_STARTING_PATHS: Final = frozenset({"/readyz", "/healthz", "/metrics"})
+"""What answers `503` until the app is open. Anything else is a `404`."""
 
 
 class _Request(NamedTuple):
@@ -106,14 +116,22 @@ class _Answer:
     writer: asyncio.StreamWriter
     started: bool = False
     status: int | None = None
+    unread: bool = False
 
 
 class _RefuseRequest(Exception):  # noqa: N818
     """Raised to answer with a status code and nothing else."""
 
-    def __init__(self, status: int) -> None:
-        """Initialize with the status to answer."""
+    def __init__(self, status: int, *, unread: bool = True) -> None:
+        """Initialize with the status, and whether a body is left unread.
+
+        Unread by default, because every refusal raised while reading is
+        raised on a request whose framing was never finished. A refusal
+        decided after the request was read passes `unread=False`, and the
+        connection closes without a lingering read nobody is waiting on.
+        """
         self.status = status
+        self.unread = unread
 
 
 class OpsServerConfig(BaseModel, frozen=True, extra="forbid"):
@@ -482,8 +500,11 @@ class OpsServer:
         if not _registered_kinds(micro) & {"health", "metrics"}:
             msg = (
                 "OpsServer has nothing to serve. Register a HealthChecks, a "
-                "Metrics, or both: Grelmicro(uses=[HealthChecks(), "
-                "OpsServer()])."
+                "Metrics, or both, under the default name: "
+                "Grelmicro(uses=[HealthChecks(), OpsServer()]). It reads "
+                "the default instance of each, the way `micro.health` "
+                "does, so an instance registered under a name of its own "
+                "is served by mounting `health_asgi(component)` instead."
             )
             raise OpsServerError(msg)
 
@@ -504,16 +525,17 @@ class OpsServer:
         # Components resolve per request rather than here, so one swapped
         # by `micro.override(...)` answers the probe a test expects.
         kinds = _registered_kinds(micro)
-        routes: dict[str, Handler] = {}
+        # Liveness is about the process, not about a component, so it is
+        # served whatever the app registered, and the same answer comes
+        # out of the window before the app is open.
+        routes: dict[str, Handler] = {_LIVEZ: livez}
         if "health" in kinds:
             routes |= health_routes(show_details=self._config.show_details)
         if "metrics" in kinds:
             routes |= self._metrics_routes(micro)
         self._paths = tuple(routes)
         self._app = build_asgi(routes)
-        logger.info(
-            "ops server serving %s", ", ".join(self._paths) or "only /livez"
-        )
+        logger.info("ops server serving %s", ", ".join(self._paths))
         return self._app
 
     def _metrics_routes(self, micro: Grelmicro) -> dict[str, Handler]:
@@ -551,6 +573,7 @@ class OpsServer:
                 await self._serve(reader, answer, admitted=admitted)
         except _RefuseRequest as refusal:
             answer.status = refusal.status
+            answer.unread = refusal.unread
         except TimeoutError:
             answer.status = _HTTP_REQUEST_TIMEOUT
         except asyncio.CancelledError:
@@ -560,9 +583,15 @@ class OpsServer:
             answer.status = _HTTP_INTERNAL_SERVER_ERROR
         finally:
             self._active -= 1
-            if task is not None:  # pragma: no branch
-                self._connections.discard(task)
-            await self._close(reader, writer, answer)
+            try:
+                await self._close(reader, writer, answer)
+            finally:
+                # Discarded last, so a connection still closing is one
+                # `_drain` can wait for and cancel. Dropped before that, a
+                # caller that stopped reading would hold the app open for
+                # as long as it felt like.
+                if task is not None:  # pragma: no branch
+                    self._connections.discard(task)
 
     async def _close(
         self,
@@ -574,19 +603,30 @@ class OpsServer:
 
         Nothing is written when a response is already on the wire, so a
         deadline that lands mid-write closes the connection rather than
-        appending a second status line to a response the client is
-        already reading.
+        appending a second status line to a response the client is already
+        reading.
+
+        Every step is bounded. A caller that stops reading leaves the
+        response in the socket buffers, and a plain `close()` waits for
+        that buffer to flush, which is a wait with no end. The connection
+        is aborted instead once the grace is spent.
         """
-        with suppress(OSError, asyncio.CancelledError, TimeoutError):
-            if answer.status is not None and not answer.started:
-                # The socket may still hold the body this answer refuses,
-                # and closing on unread bytes resets the connection,
-                # taking the answer with it.
-                await _drain_quietly(reader)
-                await _write_status(writer, answer.status)
-        writer.close()
-        with suppress(OSError, asyncio.CancelledError):
-            await writer.wait_closed()
+        try:
+            async with asyncio.timeout(_CLOSE_SECONDS):
+                if answer.status is not None and not answer.started:
+                    if answer.unread:
+                        # The socket still holds the body this answer
+                        # refuses, and closing on unread bytes resets the
+                        # connection, taking the answer with it.
+                        await _drain_quietly(reader)
+                    await _write_status(writer, answer.status)
+                writer.close()
+                await writer.wait_closed()
+        except (OSError, TimeoutError):
+            _abort(writer)
+        except asyncio.CancelledError:
+            _abort(writer)
+            raise
 
     async def _serve(
         self,
@@ -605,7 +645,7 @@ class OpsServer:
         if request is None:
             return
         if not admitted:
-            raise _RefuseRequest(HTTP_SERVICE_UNAVAILABLE)
+            raise _RefuseRequest(HTTP_SERVICE_UNAVAILABLE, unread=False)
         micro = self._micro
         app = self._build()
         if micro is None:  # pragma: no cover
@@ -616,11 +656,7 @@ class OpsServer:
         if app is None:
             # The app is still opening: alive, and not ready for anything
             # that reads a component which may not be there yet.
-            answer.status = (
-                HTTP_OK
-                if _route_of(request) == _LIVEZ
-                else HTTP_SERVICE_UNAVAILABLE
-            )
+            answer.status = _starting_status(request)
             return
         # Bound for this task exactly as `GrelmicroMiddleware` binds it for
         # a framework's request task, so a health check resolves its
@@ -652,7 +688,7 @@ async def _read_request(reader: asyncio.StreamReader) -> _Request | None:
         _RefuseRequest: If the request is malformed, too large, or uses a
             framing this server does not implement.
     """
-    line = await _read_line(reader)
+    line = await _read_line(reader, too_long=_HTTP_URI_TOO_LONG)
     if line is None:
         return None
     parts = line.split()
@@ -661,7 +697,7 @@ async def _read_request(reader: asyncio.StreamReader) -> _Request | None:
     method, target, _version = parts
     headers: list[tuple[bytes, bytes]] = []
     while True:
-        header = await _read_line(reader)
+        header = await _read_line(reader, too_long=_HTTP_HEADERS_TOO_LARGE)
         if header is None:
             raise _RefuseRequest(_HTTP_BAD_REQUEST)
         if not header:
@@ -676,20 +712,24 @@ async def _read_request(reader: asyncio.StreamReader) -> _Request | None:
     return _Request(method.decode("latin-1"), target.decode("latin-1"), headers)
 
 
-async def _read_line(reader: asyncio.StreamReader) -> bytes | None:
+async def _read_line(
+    reader: asyncio.StreamReader, *, too_long: int
+) -> bytes | None:
     """Read one line, without its terminator.
 
-    Returns `None` when the peer closed the connection first.
+    Returns `None` when the peer closed the connection first. `too_long`
+    is the status for a line over the limit, which is not the same answer
+    for the request line as for a header.
 
     Raises:
-        _RefuseRequest: If the line is longer than the header limit.
+        _RefuseRequest: If the line is longer than the limit.
     """
     try:
         line = await reader.readuntil(b"\n")
     except asyncio.IncompleteReadError:
         return None
     except (asyncio.LimitOverrunError, ValueError) as exc:
-        raise _RefuseRequest(_HTTP_HEADERS_TOO_LARGE) from exc
+        raise _RefuseRequest(too_long) from exc
     return line.rstrip(b"\r\n")
 
 
@@ -787,6 +827,12 @@ def _registered_kinds(micro: Grelmicro) -> set[str]:
     }
 
 
+def _abort(writer: asyncio.StreamWriter) -> None:
+    """Drop the connection now, buffered bytes and all."""
+    with suppress(OSError):
+        writer.transport.abort()
+
+
 async def _drain_quietly(reader: asyncio.StreamReader) -> None:
     """Read and drop whatever the caller is still sending, briefly.
 
@@ -803,6 +849,26 @@ def _route_of(request: _Request) -> str:
     """Return the path a request names, in the shape routes are keyed by."""
     path, _, _query = request.target.partition("?")
     return normalize(unquote(path))
+
+
+def _starting_status(request: _Request) -> int:
+    """Return what a request gets while the app is still opening.
+
+    The same answers the open server gives, minus everything that reads a
+    component: liveness passes because the process is alive, and readiness
+    fails because it is not ready. A method or a path the server would
+    refuse is refused here too, so a probe pointed at the wrong one does
+    not look healthy for the first second and broken after it.
+    """
+    if request.method not in SAFE_METHODS:
+        return HTTP_METHOD_NOT_ALLOWED
+    if _route_of(request) != _LIVEZ:
+        return (
+            HTTP_SERVICE_UNAVAILABLE
+            if _route_of(request) in _STARTING_PATHS
+            else HTTP_NOT_FOUND
+        )
+    return HTTP_OK
 
 
 async def _write_status(writer: asyncio.StreamWriter, status: int) -> None:

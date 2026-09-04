@@ -40,7 +40,8 @@ NO_STORE_HEADERS: Final = {"Cache-Control": "no-store"}
 _GOING_AWAY: Final = 1001
 """Websocket close code: this endpoint is not one to connect to."""
 
-_ALLOW_HEADER: Final = ((b"allow", b"GET, HEAD"),)
+ALLOW_HEADER: Final = ((b"allow", b"GET, HEAD"),)
+"""What a `405` carries, so a caller reads which methods it may use."""
 _NO_STORE: Final = (b"cache-control", b"no-store")
 
 
@@ -126,7 +127,7 @@ def build_asgi(routes: Mapping[str, Handler]) -> ASGIApp:
             rendered = Rendered(HTTP_NOT_FOUND, b"")
         elif scope["method"] not in SAFE_METHODS:
             rendered = Rendered(HTTP_METHOD_NOT_ALLOWED, b"")
-            extra = _ALLOW_HEADER
+            extra = ALLOW_HEADER
         else:
             rendered = await handler(scope)
         await send(

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Self
-from unittest.mock import AsyncMock
+from typing import TYPE_CHECKING, Any, Self, cast
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -18,6 +18,7 @@ from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 from grelmicro import Grelmicro
 from grelmicro.health import HealthChecks
 from grelmicro.http import OpsServer, OpsServerConfig, OpsServerError
+from grelmicro.http import _server as server_module
 from grelmicro.http._server import _Answer, _call_app
 from grelmicro.metrics import Metrics, MetricsConfig, MetricsExporterType
 from tests.health.conftest import (
@@ -35,6 +36,7 @@ HTTP_BAD_REQUEST = 400
 HTTP_NOT_FOUND = 404
 HTTP_METHOD_NOT_ALLOWED = 405
 HTTP_REQUEST_TIMEOUT = 408
+HTTP_URI_TOO_LONG = 414
 HTTP_CONTENT_TOO_LARGE = 413
 HTTP_HEADERS_TOO_LARGE = 431
 HTTP_INTERNAL_SERVER_ERROR = 500
@@ -209,7 +211,12 @@ async def test_metrics_is_served_when_registered(
 
 
 async def test_metrics_alone_is_enough(port: int) -> None:
-    """An app with metrics and no health checks serves the scrape target."""
+    """An app with metrics and no health checks serves the scrape target.
+
+    Liveness comes with the server, because it answers for the process
+    rather than for a component, so a metrics-only worker still has a
+    probe to point a `livenessProbe` at.
+    """
     micro = Grelmicro(
         uses=[
             Metrics(exporter=MetricsExporterType.PROMETHEUS),
@@ -217,12 +224,13 @@ async def test_metrics_alone_is_enough(port: int) -> None:
         ]
     )
     async with micro:
-        assert micro.get("ops", "default").paths == ("/metrics",)
+        assert micro.get("ops", "default").paths == ("/livez", "/metrics")
         async with httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{port}"
         ) as client:
             assert (await client.get("/metrics")).status_code == HTTP_200_OK
-            assert (await client.get("/livez")).status_code == HTTP_NOT_FOUND
+            assert (await client.get("/livez")).status_code == HTTP_200_OK
+            assert (await client.get("/readyz")).status_code == HTTP_NOT_FOUND
 
 
 async def test_a_check_resolves_the_app_ambiently(port: int) -> None:
@@ -333,6 +341,11 @@ async def test_a_taken_port_is_refused(health: HealthChecks, port: int) -> None:
             id="header-too-long",
         ),
         pytest.param(
+            b"GET /healthz?exclude=" + b"a" * 9000 + b" HTTP/1.1\r\n\r\n",
+            HTTP_URI_TOO_LONG,
+            id="request-line-too-long",
+        ),
+        pytest.param(
             b"GET /livez HTTP/1.1\r\n"
             + b"".join(b"x-%d: 1\r\n" % index for index in range(70))
             + b"\r\n",
@@ -407,7 +420,7 @@ async def test_an_exporter_that_renders_nothing_serves_no_metrics(
     )
     with caplog.at_level(logging.WARNING, logger="grelmicro.http"):
         async with micro:
-            assert micro.get("ops", "default").paths == ()
+            assert micro.get("ops", "default").paths == ("/livez",)
             answer = await raw(
                 port, b"GET /metrics HTTP/1.1\r\nhost: probe\r\n\r\n"
             )
@@ -427,7 +440,7 @@ async def test_a_failing_endpoint_answers_500(
         ]
     )
     async with micro:
-        assert micro.get("ops", "default").paths == ("/metrics",)
+        assert micro.get("ops", "default").paths == ("/livez", "/metrics")
         # The component the route resolves per request stops being able to
         # render, which is every way an endpoint raises at request time.
         monkeypatch.setattr(
@@ -704,6 +717,56 @@ async def test_it_is_alive_but_not_ready_while_the_app_opens(
         await running
 
 
+async def test_while_starting_it_answers_the_way_it_will_when_open(
+    port: int,
+) -> None:
+    """A wrong method or an unknown path is refused during startup too.
+
+    A probe pointed at the wrong verb must not look healthy for the first
+    second and broken after it.
+    """
+    ready, release, opened, done = (asyncio.Event() for _ in range(4))
+    micro = Grelmicro(
+        uses=[
+            OpsServer(host="127.0.0.1", port=port),
+            _SlowToOpen(ready=ready, release=release),
+            HealthChecks(),
+        ]
+    )
+
+    async def run() -> None:
+        async with micro:
+            opened.set()
+            await done.wait()
+
+    running = asyncio.create_task(run())
+    try:
+        await ready.wait()
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}"
+        ) as client:
+            starting = await client.post("/livez")
+            unknown = await client.get("/nope")
+        release.set()
+        await opened.wait()
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}"
+        ) as client:
+            assert (
+                await client.post("/livez")
+            ).status_code == starting.status_code
+            assert (
+                await client.get("/nope")
+            ).status_code == unknown.status_code
+    finally:
+        release.set()
+        done.set()
+        await running
+
+    assert starting.status_code == HTTP_METHOD_NOT_ALLOWED
+    assert unknown.status_code == HTTP_NOT_FOUND
+
+
 # --- Answering exactly once ----------------------------------------------
 
 
@@ -764,3 +827,121 @@ async def test_content_length_is_read_as_a_number(
     answer = await raw(port, b"GET /livez HTTP/1.1\r\n" + headers + b"\r\n")
 
     assert status_of(answer) == expected
+
+
+class _StalledWriter:
+    """A writer whose close never completes.
+
+    What a caller that stops reading leaves behind: the response sits in
+    the socket buffers, and `close()` waits for a flush that never comes.
+    """
+
+    def __init__(self) -> None:
+        self.transport = Mock()
+        self.written: list[bytes] = []
+        self.closed = False
+
+    def write(self, data: bytes) -> None:
+        self.written.append(data)
+
+    async def drain(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        await asyncio.Event().wait()
+
+    def get_extra_info(self, _name: str) -> tuple[str, int]:
+        return ("127.0.0.1", 9999)
+
+
+class _ClosedReader:
+    """A reader at end of stream, so the request reads as no request."""
+
+    async def readuntil(self, _separator: bytes) -> bytes:
+        empty = b""
+        raise asyncio.IncompleteReadError(empty, None)
+
+    async def read(self, _count: int) -> bytes:
+        return b""
+
+
+async def test_a_close_that_cannot_flush_is_aborted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller that stops reading gets its connection dropped, not waited on."""
+    monkeypatch.setattr(server_module, "_CLOSE_SECONDS", 0.05)
+    server = OpsServer()
+    writer = _StalledWriter()
+
+    reader = cast("asyncio.StreamReader", _ClosedReader())
+    stalled = cast("asyncio.StreamWriter", writer)
+
+    await asyncio.wait_for(
+        server._close(reader, stalled, _Answer(stalled, started=True)),
+        timeout=2,
+    )
+
+    assert writer.closed
+    writer.transport.abort.assert_called_once()
+
+
+async def test_shutdown_cancels_a_connection_still_closing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A handler parked in its close is one shutdown can still cancel.
+
+    Dropped from the set before the close, it would be invisible to the
+    drain, and `wait_closed()` on the listener waits for every handler, so
+    the app would stay open for as long as the caller felt like.
+    """
+    monkeypatch.setattr(server_module, "_CLOSE_SECONDS", 30)
+    server = OpsServer(shutdown_timeout=0)
+    writer = _StalledWriter()
+    handling = asyncio.create_task(
+        server._handle(
+            cast("asyncio.StreamReader", _ClosedReader()),
+            cast("asyncio.StreamWriter", writer),
+        )
+    )
+    await asyncio.sleep(0.05)
+
+    assert handling in server._connections
+
+    await server._drain()
+
+    assert handling.cancelled() or handling.done()
+    assert not server._connections
+
+
+async def test_only_a_refusal_with_a_body_left_lingers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The lingering read is for framing that was never finished.
+
+    An answer decided after the request was read has nothing left to
+    drain, and half a second of dead time on every refused caller is
+    exactly what the connection cap exists to avoid.
+    """
+    lingered = AsyncMock()
+    monkeypatch.setattr(server_module, "_drain_quietly", lingered)
+    server = OpsServer()
+    writer = AsyncMock()
+
+    await server._close(
+        AsyncMock(),
+        writer,
+        _Answer(writer, status=HTTP_503_SERVICE_UNAVAILABLE, unread=False),
+    )
+
+    lingered.assert_not_called()
+
+    await server._close(
+        AsyncMock(),
+        writer,
+        _Answer(writer, status=HTTP_CONTENT_TOO_LARGE, unread=True),
+    )
+
+    lingered.assert_awaited_once()

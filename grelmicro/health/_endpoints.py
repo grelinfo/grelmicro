@@ -91,6 +91,15 @@ def report_body(
     return json_dumps_bytes(body)
 
 
+async def livez(_scope: Scope) -> Rendered:
+    """Answer that the process is alive, without running a check.
+
+    Liveness is about the process, not about a component, so it reads
+    nothing. `OpsServer` serves it whatever the app registered.
+    """
+    return Rendered(HTTP_OK, b"")
+
+
 def health_routes(
     component: HealthChecks | None = None,
     *,
@@ -108,10 +117,6 @@ def health_routes(
 
     def excluded(scope: Scope) -> frozenset[str]:
         return parse_exclude(query_value(scope, "exclude"))
-
-    async def livez(_scope: Scope) -> Rendered:
-        """Answer that the process is alive, without running a check."""
-        return Rendered(HTTP_OK, b"")
 
     async def readyz(scope: Scope) -> Rendered:
         """Run the critical checks and answer with the code alone."""

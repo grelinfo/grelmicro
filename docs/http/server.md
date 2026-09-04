@@ -11,12 +11,14 @@ still needs a `/metrics` to scrape.
 ```
 
 That is the whole setup. No web framework, no ASGI server, no new dependency.
-It serves what the app registers: the three health endpoints when a
-`HealthChecks` is registered, and `/metrics` when a `Metrics` is.
+It always serves `/livez`, because liveness is about the process rather than
+about a component, and it serves the rest of what the app registers: readiness
+and the report when a `HealthChecks` is registered, and `/metrics` when a
+`Metrics` is.
 
 | Endpoint | Served when | Answers |
 |---|---|---|
-| `GET /livez` | a `HealthChecks` is registered | `200`, empty body |
+| `GET /livez` | always | `200`, empty body |
 | `GET /readyz` | a `HealthChecks` is registered | `200` or `503`, empty body |
 | `GET /healthz` | a `HealthChecks` is registered | the JSON report |
 | `GET /metrics` | a `Metrics` with the `prometheus` exporter is registered | the Prometheus exposition |
@@ -25,22 +27,31 @@ They answer exactly what the FastAPI router answers, because both render
 through the same code. Read [Health Checks](../health.md) for the report and
 `?exclude=`, and [Metrics](../metrics.md) for the exposition.
 
-An app that registers neither says so at startup rather than listening on a
-port that answers nothing:
+It reads the default instance of each, the way `micro.health` does, so an app
+that registers neither says so at startup rather than listening on a port that
+answers little:
 
 ```text
 OpsServerError: OpsServer has nothing to serve. Register a HealthChecks, a
-Metrics, or both: Grelmicro(uses=[HealthChecks(), OpsServer()]).
+Metrics, or both, under the default name: Grelmicro(uses=[HealthChecks(),
+OpsServer()]).
 ```
+
+An instance registered under a name of its own is served by mounting
+`health_asgi(component)` in an ASGI app instead.
 
 ## While the app is starting
 
 Components open in registration order, so a server registered first is
 listening while the rest of the app is still connecting. Until the app has
-finished opening, it answers `/livez` with `200` and every other path with
-`503`, which is what a process that is alive and not yet ready owes an
-orchestrator. It reports `Ready` only once every component is open, and the
-check table it reads is the finished one.
+finished opening, `/livez` answers `200` and `/readyz`, `/healthz` and
+`/metrics` answer `503`, which is what a process that is alive and not yet
+ready owes an orchestrator. It reports Ready only once every component is
+open, and the check table it reads by then is the finished one.
+
+A path it does not serve and a method it does not answer are refused during
+that window exactly as they are after it, so a probe pointed at the wrong one
+never looks healthy for the first second and broken after it.
 
 That is also when it settles what it serves, because a `Metrics` still
 opening has no exporter to read yet. An exporter other than `prometheus`
@@ -115,6 +126,7 @@ ingress. A request it cannot read gets the status that says why:
 | `404` | The path is not one it serves. |
 | `405` | The method is not `GET` or `HEAD`. |
 | `408` | The request stopped mid-way and `request_timeout` elapsed. |
+| `414` | The request line is longer than 8 KiB. |
 | `413` | The request carries a body larger than 8 KiB. |
 | `431` | A header line, or the number of headers, is over the limit. |
 | `501` | The request uses chunked framing. |
