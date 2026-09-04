@@ -95,9 +95,14 @@ turned away, so it is the one worth keeping.
 
 `quiet=()` logs the probes like anything else. `exclude=` is the stronger
 word: an excluded path writes nothing at any level, whatever it answered.
-`include=` narrows to the paths you name. A pattern ending in `*` matches as a
-prefix, and the match ignores the prefix a mount or a proxy adds, so a pattern
-is the same in an app served at the root and one mounted under another.
+`include=` narrows to the paths you name, and a pattern ending in `*` matches
+as a prefix.
+
+A pattern ignores the prefix a proxy adds, so it is the same whether the
+service is served at the root or behind `root_path=/api`. A mount is
+different: the path is read as the request arrives, before the mount has
+written its prefix anywhere, so an app mounted inside another one is matched
+by the path the caller asked for. Name `/api/livez` there, not `/livez`.
 
 ## Uvicorn's access log
 

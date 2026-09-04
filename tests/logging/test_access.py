@@ -4,18 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from litestar import Litestar, get
+from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
 from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Mount, Route
 
 from grelmicro import Grelmicro
+from grelmicro.errors import MiddlewarePlacementWarning
 from grelmicro.log import AccessLog, AccessLogMiddleware
 
 if TYPE_CHECKING:
@@ -675,3 +678,80 @@ def _answers(status: int) -> Any:  # noqa: ANN401
         await send({"type": "http.response.body", "body": b""})
 
     return app
+
+
+# --- What a mistake costs -------------------------------------------------
+
+
+@pytest.mark.parametrize("field", ["include", "exclude", "quiet"])
+def test_a_bare_string_of_patterns_is_refused(field: str) -> None:
+    """A missing comma would turn the whole access log off, silently.
+
+    A string is a sequence of characters, so `exclude="/internal/*"` is
+    walked one character at a time, and the `*` matches every path as a
+    prefix.
+    """
+    # Cast because the annotation already says tuple: the guard is for the
+    # caller who passes a string anyway, which a checker does not always
+    # see, and which fails silently without it.
+    mistake = cast("Any", {field: "/internal/*"})
+
+    with pytest.raises(TypeError, match="is a string"):
+        AccessLogMiddleware(_answers(200), **mistake)
+
+    with pytest.raises(TypeError, match="is a string"):
+        AccessLog(**mistake)
+
+
+async def test_install_on_litestar_warns_about_nothing(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """Wrapping the whole stack is where a watcher belongs.
+
+    Litestar builds its middleware at construction, so `install` can only
+    wrap the app whole. For a middleware that answers requests that is
+    worth a warning. For one that only watches it is the right place, and
+    a warning would send the reader to move it inside, where a request an
+    outer layer refuses would never reach it.
+    """
+
+    @get("/orders")
+    async def orders() -> str:
+        return "ok"
+
+    class Gate:
+        """An outer layer that answers `401` on its own."""
+
+        def __init__(self, app: Any) -> None:  # noqa: ANN401
+            self.app = app
+
+        async def __call__(
+            self,
+            _scope: object,
+            _receive: object,
+            send: Callable[[dict[str, Any]], Awaitable[None]],
+        ) -> None:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [],
+                }
+            )
+            await send({"type": "http.response.body", "body": b""})
+
+    app = Litestar(
+        route_handlers=[orders],
+        middleware=[DefineMiddleware(cast("Any", Gate))],
+        logging_config=None,
+    )
+    micro = Grelmicro(uses=[AccessLog()])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", MiddlewarePlacementWarning)
+        micro.install(app)
+
+    async with micro, client_for(app) as client:
+        await client.get("/orders")
+
+    assert capture()[0].__dict__["http.response.status_code"] == 401  # noqa: PLR2004

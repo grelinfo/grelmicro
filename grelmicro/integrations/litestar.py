@@ -140,7 +140,12 @@ def install_middleware(
             # inside its own stack, which is the better place. Wrapping a
             # second one would run it twice.
             continue
-        _warn_if_wrapping_app_middleware(app, middleware)
+        if not _observes(component):
+            # A middleware that only watches belongs outside the app's
+            # own, so wrapping the whole stack is where it should be.
+            # Warning about it would send the reader to move it inside,
+            # where a request an outer layer refuses never reaches it.
+            _warn_if_wrapping_app_middleware(app, middleware)
         binding = app.asgi_handler
         if isinstance(binding, GrelmicroMiddleware):
             # Inside the binding, which `install` put outermost so a
@@ -244,6 +249,11 @@ def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
 
 _MAX_CHAIN = 32
 """How far to walk a handler chain before calling it a cycle."""
+
+
+def _observes(component: Any) -> bool:  # noqa: ANN401
+    """Return whether this component's middleware only watches a request."""
+    return bool(getattr(component, "asgi_observes", False))
 
 
 def _warn_if_wrapping_app_middleware(

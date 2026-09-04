@@ -24,7 +24,7 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._guards import is_instance, type_name
-from grelmicro._paths import route_path, selects
+from grelmicro._paths import as_patterns, route_path, selects
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -1101,8 +1101,8 @@ class IdempotentRequests:
             "fingerprint_body": fingerprint_body,
             "max_body_size": max_body_size,
             "wait_timeout": wait_timeout,
-            "include": include,
-            "exclude": exclude,
+            "include": as_patterns(include, name="include"),
+            "exclude": as_patterns(exclude, name="exclude"),
             "reused_status": reused_status,
         }
 

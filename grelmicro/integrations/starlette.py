@@ -214,11 +214,15 @@ def install_middleware(
     Registration order is wrapping order among them, so the first one
     registered answers first.
 
-    All of them go innermost, behind whatever the app added itself, so
-    authentication, CORS and the rest run before one of ours can answer a
-    request on its own. They still run inside `GrelmicroMiddleware`, which
-    stays outermost, so one that resolves a backend ambiently finds the app
-    bound.
+    A middleware that may answer a request goes innermost, behind whatever
+    the app added itself, so authentication, CORS and the rest run before
+    one of ours can answer on its own. One that only watches, an access
+    log, goes the other way, outside the app's own, so a request an outer
+    layer refuses is still seen. A component says which it is with
+    `asgi_observes`.
+
+    Both run inside `GrelmicroMiddleware`, which stays outermost, so one
+    that resolves a backend ambiently finds the app bound.
 
     `micro.install(app)` calls this with the components it found, so a
     direct call is only for an app that never goes through `install`.

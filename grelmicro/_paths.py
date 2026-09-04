@@ -13,7 +13,7 @@ from typing_extensions import Doc
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
-__all__ = ["matches", "route_path", "selects"]
+__all__ = ["as_patterns", "matches", "route_path", "selects"]
 
 _PREFIX = "*"
 """What turns a pattern into a prefix match, at the end of it."""
@@ -45,6 +45,34 @@ def route_path(
     if path[len(root)] == "/":
         return path[len(root) :]
     return path
+
+
+def as_patterns(
+    value: Annotated[
+        tuple[str, ...] | list[str],
+        Doc("What the caller passed as a set of path patterns."),
+    ],
+    *,
+    name: Annotated[str, Doc("The parameter's name, for the message.")],
+) -> tuple[str, ...]:
+    """Return the patterns as a tuple, refusing a bare string.
+
+    A string is a sequence of characters, so one passed here would be
+    walked one character at a time: `exclude="/internal/*"` ends in `*`,
+    which matches every path as a prefix, and the middleware would then
+    act on nothing at all. It is a missing comma, and it fails silently,
+    so it is refused where it is written instead.
+
+    Raises:
+        TypeError: If `value` is a string.
+    """
+    if isinstance(value, str):
+        msg = (
+            f"{name}={value!r} is a string, and a set of path patterns is "
+            f"expected. Write it as a tuple: {name}=({value!r},)."
+        )
+        raise TypeError(msg)
+    return tuple(value)
 
 
 def matches(

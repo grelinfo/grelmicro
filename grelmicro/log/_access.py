@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self
 
 from typing_extensions import Doc
 
-from grelmicro._paths import _PREFIX, matches, route_path, selects
+from grelmicro._paths import (
+    _PREFIX,
+    as_patterns,
+    matches,
+    route_path,
+    selects,
+)
 from grelmicro._redact import _redact_query
 
 if TYPE_CHECKING:
@@ -111,21 +117,21 @@ class AccessLogMiddleware:
     ) -> None:
         """Initialize the middleware with what to log and what to leave out."""
         self.app = app
-        self.include = include
-        self.exclude = exclude
-        self.quiet = quiet
+        self.include = as_patterns(include, name="include")
+        self.exclude = as_patterns(exclude, name="exclude")
+        self.quiet = as_patterns(quiet, name="quiet")
         self.query = query
         self.user_agent = user_agent
         # Decided once, because the answers are the same for every request
         # and this runs on the request path. Nothing named means nothing to
         # match, and a plain path is a set lookup rather than a walk
         # through the patterns.
-        self._filtering = bool(include or exclude)
+        self._filtering = bool(self.include or self.exclude)
         self._quiet_paths = frozenset(
-            path for path in quiet if not path.endswith(_PREFIX)
+            path for path in self.quiet if not path.endswith(_PREFIX)
         )
         self._quiet_patterns = tuple(
-            path for path in quiet if path.endswith(_PREFIX)
+            path for path in self.quiet if path.endswith(_PREFIX)
         )
 
     async def __call__(
@@ -343,9 +349,9 @@ class AccessLog:
         """Initialize the component with what to log and what to leave out."""
         self._name = name
         self._options: dict[str, Any] = {
-            "include": include,
-            "exclude": exclude,
-            "quiet": quiet,
+            "include": as_patterns(include, name="include"),
+            "exclude": as_patterns(exclude, name="exclude"),
+            "quiet": as_patterns(quiet, name="quiet"),
             "query": query,
             "user_agent": user_agent,
         }
