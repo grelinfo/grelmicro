@@ -148,9 +148,10 @@ def _replay_name(value: str) -> str:
     _field_name(value, "replay_header", _DEFAULT_REPLAY_HEADER)
     if value.lower() in _RESERVED_REPLAY_HEADERS:
         msg = (
-            "replay_header cannot name a header the response already "
-            "carries, such as Content-Length or Set-Cookie. Pick a name of "
-            "your own, such as 'Idempotent-Replayed'."
+            "replay_header cannot name a header that directs the client, "
+            "such as Content-Type, Location, or Content-Length. The marker "
+            "would take its place. Pick a name of your own, such as "
+            "'Idempotent-Replayed'."
         )
         raise SettingsValidationError(msg)
     return value
@@ -187,9 +188,9 @@ class IdempotencyMiddleware:
     A request whose method is listed in `methods` and which carries the
     `key_header` runs once. A retry with the same key replays the stored
     status, headers, and body without reaching the handler, and carries
-    `Idempotent-Replayed: true`. A request without the header passes
-    straight through, so adding the middleware changes nothing until a
-    client opts in.
+    the `replay_header` marker, `Idempotent-Replayed: true` by default. A
+    request without the `key_header` passes straight through, so adding
+    the middleware changes nothing until a client opts in.
 
     ```python
     from fastapi import FastAPI
@@ -763,8 +764,9 @@ async def _send_stored(
         headers.append((encoded, value.encode("latin-1")))
     if replaced:
         _logger.warning(
-            "Replay marker replaced the %s header the handler set. Give "
-            "replay_header a name of its own to keep both.",
+            "Replay marker replaced the %s header the stored response "
+            "carried. Give replay_header a name of its own where that "
+            "value matters.",
             replay_header.decode("ascii"),
         )
     if status >= _MIN_CONTENT_STATUS and status not in BODYLESS_STATUSES:
@@ -965,7 +967,7 @@ class IdempotentRequests:
         openapi: Annotated[
             bool,
             Doc(
-                "Describe the header and the responses the middleware "
+                "Describe both headers and the responses the middleware "
                 "returns in the OpenAPI schema. Only FastAPI builds one, "
                 "and every other framework ignores this."
             ),

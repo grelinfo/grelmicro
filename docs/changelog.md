@@ -110,6 +110,7 @@
 * ✨ `replay_header=` names the response header that marks a replay, for clients that read another one. No standard names this header, and `Idempotent-Replayed` stays the default. ([#688](https://github.com/grelinfo/grelmicro/issues/688))
 * ✨ A header name that is not an HTTP field name raises `SettingsValidationError` when the component is built, instead of reaching the wire as a broken header. `replay_header` also refuses a name that directs the client, such as `Content-Type` or `Content-Length`. ([#688](https://github.com/grelinfo/grelmicro/issues/688))
 * ✨ A replay marks the response under one value. A stored header carrying the replay name is dropped before the marker is added, and the replacement is logged, so a handler setting that name itself neither leaves two values nor loses one silently. ([#688](https://github.com/grelinfo/grelmicro/issues/688))
+* ✨ The OpenAPI schema describes the replay header on every response that can carry it, beside the key header it already described. The name is a service's to pick, so a generated client reads it there. ([#688](https://github.com/grelinfo/grelmicro/issues/688))
 * 📝 [Idempotency Middleware](http/idempotency.md#the-two-header-names) says which of the two headers is standard. The draft registers `Idempotency-Key` and names no response header, so the replay header is common practice rather than a specification. ([#688](https://github.com/grelinfo/grelmicro/issues/688))
 
 ### Performance

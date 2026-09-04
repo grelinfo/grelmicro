@@ -147,6 +147,8 @@ Both take an HTTP field name. A name holding a space, a colon, a newline, or a n
 
 Give the marker a name of its own. A handler that sets the replay header itself loses that header on a replay, and the replacement is logged at warning level.
 
+Both names reach the OpenAPI schema, so a client generated from it reads the name your service picked rather than the default.
+
 ## Errors replay too
 
 Every response the app returns is stored, `4xx` and `5xx` included. A handler that writes to the database and then fails on the way out leaves a stored failure, so the retry gets that instead of running the write again.
@@ -347,5 +349,5 @@ A background task runs after the response is sent, so the response is stored and
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
 | `reused_status` | `422` | Status for a key reused with a different payload. `400` matches Stripe. |
-| `openapi` | `True` | Describe the header and the middleware responses in the OpenAPI schema. Component only, and only FastAPI builds one. |
+| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Component only, and only FastAPI builds one. |
 | `name` | `"default"` | Registration name, for a second set of rules on one app. Component only. |

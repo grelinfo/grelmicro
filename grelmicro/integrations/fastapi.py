@@ -217,8 +217,9 @@ def document_idempotency(
     A middleware runs outside the routing layer, so nothing it does reaches
     the generated schema and a client built from that schema never learns
     the header exists. This reads the installed middleware and annotates
-    every operation it covers with the header parameter and the responses
-    the middleware itself can return.
+    every operation it covers with the key header parameter, the replay
+    header on the responses that can carry it, and the responses the
+    middleware itself can return.
 
     ```python
     from grelmicro.http import IdempotencyMiddleware
@@ -729,6 +730,7 @@ def _annotate_schema(
         _add_parameter(operation, path_item, parameter)
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
+        _add_replay_header(operation, options["replay_header"], responses)
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
@@ -953,6 +955,33 @@ def _merge_response(
     if ref:
         existing.setdefault("content", {}).setdefault(
             media_type, {"schema": {"$ref": ref}}
+        )
+
+
+def _add_replay_header(
+    operation: dict[str, Any],
+    name: str,
+    refused: dict[str, str],
+) -> None:
+    """Describe the replay marker on the responses that can carry it.
+
+    The name is a service's to pick, so the schema is where a client
+    author reads it. The statuses the middleware answers itself are left
+    alone: those are never a replay.
+    """
+    for status, response in operation.get("responses", {}).items():
+        if status in refused:
+            continue
+        response.setdefault("headers", {}).setdefault(
+            name,
+            {
+                "schema": {"type": "string", "enum": ["true"]},
+                "description": (
+                    "Sent when this response replays an earlier request "
+                    "that carried the same idempotency key. Absent when "
+                    "the operation ran."
+                ),
+            },
         )
 
 

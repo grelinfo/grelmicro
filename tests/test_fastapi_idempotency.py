@@ -976,6 +976,21 @@ def test_document_idempotency_adds_the_header_and_responses() -> None:
     assert {"400", "409", "413", "422"} <= set(operation["responses"])
 
 
+def test_document_idempotency_describes_the_replay_marker() -> None:
+    """The name is a service's to pick, so the schema is where it is read."""
+    # Arrange
+    app = _documented_app(replay_header="X-Idempotent-Replayed")
+
+    # Act
+    responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
+
+    # Assert
+    header = responses["200"]["headers"]["X-Idempotent-Replayed"]
+    assert header["schema"] == {"type": "string", "enum": ["true"]}
+    # What the middleware answers itself is never a replay.
+    assert "headers" not in responses["409"]
+
+
 def test_document_idempotency_publishes_the_problem_body() -> None:
     """A client generated from the schema knows the body it will get."""
     # Arrange
