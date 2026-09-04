@@ -266,8 +266,9 @@ def install_middleware(
     # access log sees the request an outer layer refused and times what the
     # caller waited for. It answers nothing, so it cannot skip anything.
     app.user_middleware = _binding_first(
-        [*watching, *app.user_middleware, *answering]
+        [*watching, *app.user_middleware, *answering], watching
     )
+    _keep_watching_outside(app, watching)
     for component in components:
         _answer_for(app, component)
 
@@ -355,17 +356,50 @@ def _observes(component: Any) -> bool:  # noqa: ANN401
 
 def _binding_first(
     entries: "Sequence[Any]",
+    watching: "Sequence[Any] | None" = None,
 ) -> "list[Any]":
-    """Return the middleware entries with the binding in front.
+    """Return the entries with the binding first and any watcher next.
 
-    Everything else keeps its order, so the only thing this decides is that
-    a middleware resolving a backend ambiently runs inside the request
-    scope.
+    The binding goes outside every other one, so a middleware resolving a
+    backend ambiently runs inside the request scope. A watcher goes next,
+    outside everything the app added, so a request an outer layer refuses
+    is still recorded. That has to be redone when the framework builds its
+    stack, because a middleware added after `install` is prepended and
+    would otherwise sit outside the watcher.
+
+    Everything else keeps the order it was given.
     """
+    known = {id(entry) for entry in watching or ()}
     return [
         *(entry for entry in entries if _is_binding(entry)),
-        *(entry for entry in entries if not _is_binding(entry)),
+        *(
+            entry
+            for entry in entries
+            if not _is_binding(entry) and id(entry) in known
+        ),
+        *(
+            entry
+            for entry in entries
+            if not _is_binding(entry) and id(entry) not in known
+        ),
     ]
+
+
+def _keep_watching_outside(app: "Starlette", watching: "Sequence[Any]") -> None:
+    """Keep a watcher outside middleware the app adds after `install`.
+
+    `add_middleware` prepends, so a layer added later would otherwise wrap
+    the access log, and a request that layer refuses would go unrecorded.
+    """
+    if not watching:
+        return
+    build = app.build_middleware_stack
+
+    def build_middleware_stack() -> "ASGIApp":
+        app.user_middleware = _binding_first(app.user_middleware, watching)
+        return build()
+
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 def _keep_binding_outermost(app: "Starlette") -> None:

@@ -140,17 +140,19 @@ def install_middleware(
             # inside its own stack, which is the better place. Wrapping a
             # second one would run it twice.
             continue
-        if not _observes(component):
-            # A middleware that only watches belongs outside the app's
-            # own, so wrapping the whole stack is where it should be.
-            # Warning about it would send the reader to move it inside,
-            # where a request an outer layer refuses never reaches it.
+        watching = _observes(component)
+        if not watching:
             _warn_if_wrapping_app_middleware(app, middleware)
         binding = app.asgi_handler
         if isinstance(binding, GrelmicroMiddleware):
             # Inside the binding, which `install` put outermost so a
             # middleware resolving a backend runs in the request scope.
-            _wrap_inside(binding, middleware, options, app)
+            if watching:
+                _wrap_outside(binding, middleware, options)
+            else:
+                _wrap_inside(binding, middleware, options, app)
+        elif watching:
+            app.asgi_handler = middleware(app.asgi_handler, **options)
         else:
             app.asgi_handler = cast(
                 "Any",
@@ -161,6 +163,26 @@ def install_middleware(
                     app,
                 ),
             )
+
+
+def _wrap_outside(
+    binding: GrelmicroMiddleware,
+    middleware: type[Any],
+    options: dict[str, Any],
+) -> None:
+    """Put the middleware over everything the app built, under the binding.
+
+    A middleware that only watches wants the request as the caller sent it
+    and the answer as the caller receives it. Litestar renders a
+    `404`, a `405` and every `HTTPException` in the outermost layer of its
+    own handler, so a watcher underneath that sees an exception where the
+    caller saw a status, and records a `500` for a request that answered
+    `404`.
+
+    It answers nothing itself, so being above the app's own middleware
+    cannot make a request skip any of it.
+    """
+    binding.app = middleware(binding.app, **options)
 
 
 def _wrap_inside(

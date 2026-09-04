@@ -463,8 +463,8 @@ class IdempotencyMiddleware:
         self._fingerprint_body = fingerprint_body
         self._max_body_size = max_body_size
         self._wait_timeout = wait_timeout
-        self._include = tuple(include)
-        self._exclude = tuple(exclude)
+        self._include = as_patterns(include, name="include")
+        self._exclude = as_patterns(exclude, name="exclude")
         self._reused = (
             IDEMPOTENCY_KEY_REUSED
             if reused_status == IDEMPOTENCY_KEY_REUSED.status

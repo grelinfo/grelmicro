@@ -14,11 +14,13 @@ from litestar import Litestar, get
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 from starlette.routing import Mount, Route
 
 from grelmicro import Grelmicro
 from grelmicro.errors import MiddlewarePlacementWarning
+from grelmicro.http import ConditionalRequests
 from grelmicro.log import AccessLog, AccessLogMiddleware
 
 if TYPE_CHECKING:
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
+HTTP_METHOD_NOT_ALLOWED = 405
 
 ACCESS_LOGGER = "grelmicro.access"
 UVICORN_ACCESS_LOGGER = "uvicorn.access"
@@ -755,3 +758,118 @@ async def test_install_on_litestar_warns_about_nothing(
         await client.get("/orders")
 
     assert capture()[0].__dict__["http.response.status_code"] == 401  # noqa: PLR2004
+
+
+async def test_litestar_reports_what_the_caller_got(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """Litestar renders a `404` and a `405` from an exception.
+
+    It does that in the outermost layer of its own handler, so a watcher
+    underneath sees an exception where the caller saw a status, and would
+    record a `500` for a request that answered `404`.
+    """
+
+    @get("/x")
+    async def x() -> str:
+        return "ok"
+
+    app = Litestar(route_handlers=[x], logging_config=None)
+    micro = Grelmicro(uses=[AccessLog()])
+    micro.install(app)
+
+    async with micro, client_for(app) as client:
+        answered = [
+            (await client.get("/x")).status_code,
+            (await client.post("/x")).status_code,
+            (await client.get("/nope")).status_code,
+        ]
+
+    assert answered == [HTTP_OK, HTTP_METHOD_NOT_ALLOWED, HTTP_NOT_FOUND]
+    assert [
+        record.__dict__["http.response.status_code"] for record in capture()
+    ] == answered
+    assert [record.levelno for record in capture()] == [
+        logging.INFO,
+        logging.WARNING,
+        logging.WARNING,
+    ]
+
+
+async def test_a_watcher_sits_outside_the_middleware_that_answers() -> None:
+    """A `304` or an idempotent replay is a request that was served.
+
+    The middleware that answers it runs under the watcher, on every
+    framework, or those requests would go unrecorded.
+    """
+
+    @get("/x")
+    async def x() -> str:
+        return "ok"
+
+    app = Litestar(route_handlers=[x], logging_config=None)
+    micro = Grelmicro(uses=[AccessLog(), ConditionalRequests()])
+    micro.install(app)
+
+    chain, node = [], app.asgi_handler
+    for _ in range(6):
+        chain.append(type(node).__name__)
+        node = getattr(node, "app", None)
+        if node is None or not callable(node):
+            break
+
+    assert chain.index("AccessLogMiddleware") < chain.index(
+        "ConditionalRequestsMiddleware"
+    )
+
+
+async def test_a_layer_added_after_install_runs_inside_the_watcher(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """`add_middleware` prepends, so the order is redone at build time."""
+    app = Starlette(routes=[Route("/orders/{order_id}", ok)])
+    micro = Grelmicro(uses=[AccessLog()])
+    micro.install(app)
+    app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+    async with micro, client_for(app) as client:
+        await client.get("/orders/7")
+
+    installed = [
+        getattr(entry.cls, "__name__", str(entry.cls))
+        for entry in app.user_middleware
+    ]
+
+    assert installed == [
+        "GrelmicroMiddleware",
+        "AccessLogMiddleware",
+        "CORSMiddleware",
+    ]
+    assert capture()[0].__dict__["http.response.status_code"] == HTTP_OK
+
+
+async def test_litestar_without_the_binding_still_watches_from_outside(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """`install(app, ambient=False)` leaves no binding to wrap inside.
+
+    The watcher still goes around everything the app built, so what it
+    records does not depend on whether the app resolves backends
+    ambiently.
+    """
+
+    @get("/x")
+    async def x() -> str:
+        return "ok"
+
+    app = Litestar(route_handlers=[x], logging_config=None)
+    micro = Grelmicro(uses=[AccessLog()])
+    micro.install(app, ambient=False)
+
+    async with micro, client_for(app) as client:
+        answered = (await client.get("/nope")).status_code
+
+    assert answered == HTTP_NOT_FOUND
+    assert capture()[0].__dict__["http.response.status_code"] == (
+        HTTP_NOT_FOUND
+    )

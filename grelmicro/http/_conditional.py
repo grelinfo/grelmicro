@@ -687,8 +687,8 @@ class ConditionalRequestsMiddleware:
         self._require_precondition = frozenset(
             method.upper() for method in require_precondition
         )
-        self._include = tuple(include)
-        self._exclude = tuple(exclude)
+        self._include = as_patterns(include, name="include")
+        self._exclude = as_patterns(exclude, name="exclude")
         self._max_body_size = max_body_size
 
     async def __call__(
