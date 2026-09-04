@@ -105,21 +105,27 @@ refused at construction rather than reaching the wire as a broken header.
 
 _RESERVED_REPLAY_HEADERS = frozenset(
     {
+        "cache-control",
         "connection",
         "content-encoding",
         "content-length",
         "content-type",
+        "etag",
+        "last-modified",
         "location",
         "set-cookie",
         "transfer-encoding",
+        "vary",
     }
 )
 """Names `replay_header` is refused.
 
-Each one directs the client on the response the middleware sends, so the
-marker taking its place would frame the body twice, mislabel it, or point
-a client at `true`. Any other name the handler also sets is logged when
-the marker replaces it.
+Each one frames the response, labels it, or tells a cache what to do with
+it, so the marker taking its place would break the exchange rather than
+annotate it. `ETag: true` is the sharpest case: every replay would carry
+one entity tag, and a later `If-None-Match` would match a resource the
+client never held. Any other name the stored response carries is logged
+when the marker replaces it.
 """
 
 
@@ -386,6 +392,7 @@ class IdempotencyMiddleware:
         self._replay_header = (
             _replay_name(replay_header).lower().encode("ascii")
         )
+        self._replay_collision_logged = False
         self._methods = frozenset(method.upper() for method in methods)
         self._key_maker = key_maker
         self._skip = skip
@@ -506,12 +513,20 @@ class IdempotencyMiddleware:
 
         try:
             if operation.replayed:
-                await _send_stored(
+                replaced = await _send_stored(
                     send,
                     operation.result(),
                     head=scope["method"] == "HEAD",
                     replay_header=self._replay_header,
                 )
+                if replaced and not self._replay_collision_logged:
+                    self._replay_collision_logged = True
+                    _logger.warning(
+                        "Replay marker replaced the %s header the stored "
+                        "response carried. Give replay_header a name of "
+                        "its own where that value matters.",
+                        self._replay_header.decode("ascii"),
+                    )
             else:
                 capture = _ResponseCapture(
                     send, self._max_body_size, self._skip
@@ -744,13 +759,17 @@ async def _buffer_request(
 
 async def _send_stored(
     send: Send, stored: _Entry, *, head: bool, replay_header: bytes
-) -> None:
+) -> bool:
     """Send a stored response, marked as a replay.
 
     Content-Length is recomputed from the stored body, and left off the
     statuses that carry no content, so a replay stays a valid response. A
-    stored header carrying the replay name is dropped and logged, so the
-    marker is the only value under it.
+    stored header carrying the replay name is dropped, so the marker is
+    the only value under it. Reporting that is left to the caller, which
+    says it once rather than once a request.
+
+    Returns:
+        Whether a stored header made way for the marker.
     """
     body = stored["body"].encode("latin-1")
     status = stored["status"]
@@ -762,13 +781,6 @@ async def _send_stored(
             replaced = True
             continue
         headers.append((encoded, value.encode("latin-1")))
-    if replaced:
-        _logger.warning(
-            "Replay marker replaced the %s header the stored response "
-            "carried. Give replay_header a name of its own where that "
-            "value matters.",
-            replay_header.decode("ascii"),
-        )
     if status >= _MIN_CONTENT_STATUS and status not in BODYLESS_STATUSES:
         headers.append((b"content-length", str(len(body)).encode("latin-1")))
     headers.append((replay_header, b"true"))
@@ -780,6 +792,7 @@ async def _send_stored(
         }
     )
     await send({"type": "http.response.body", "body": b"" if head else body})
+    return replaced
 
 
 async def _refuse(

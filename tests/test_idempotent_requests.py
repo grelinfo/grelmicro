@@ -168,6 +168,10 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
             lambda: IdempotentRequests(replay_header="Content-Type"),
             id="labels-the-response",
         ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="ETag"),
+            id="caches-the-response",
+        ),
     ],
 )
 def test_a_header_name_that_cannot_reach_the_wire_is_refused(
@@ -214,11 +218,14 @@ def test_the_replay_marker_replaces_a_header_of_the_same_name(
     with TestClient(app) as client:
         first = client.post("/charge", headers={HEADER: "abc"})
         second = client.post("/charge", headers={HEADER: "abc"})
+        third = client.post("/charge", headers={HEADER: "abc"})
 
     # Assert
     assert first.headers["x-cache"] == "MISS"
     assert second.headers["x-cache"] == "true"
-    assert "Replay marker replaced the x-cache header" in caplog.text
+    assert third.headers["x-cache"] == "true"
+    # Static configuration, so it is said once and not once a request.
+    assert caplog.text.count("Replay marker replaced the x-cache") == 1
 
 
 def test_install_documents_the_middleware_in_the_schema() -> None:

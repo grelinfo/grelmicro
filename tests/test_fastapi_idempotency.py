@@ -976,6 +976,22 @@ def test_document_idempotency_adds_the_header_and_responses() -> None:
     assert {"400", "409", "413", "422"} <= set(operation["responses"])
 
 
+def test_document_idempotency_follows_the_path_selection() -> None:
+    """An operation the middleware passes through is not described as covered."""
+    # Arrange
+    app = _documented_app(include=("/charge",))
+
+    # Act
+    paths = app.openapi()["paths"]
+
+    # Assert
+    covered = paths["/charge"]["post"]
+    passed_through = paths["/declared"]["post"]
+    assert "409" in covered["responses"]
+    assert "409" not in passed_through["responses"]
+    assert "headers" not in passed_through["responses"]["200"]
+
+
 def test_document_idempotency_describes_the_replay_marker() -> None:
     """The name is a service's to pick, so the schema is where it is read."""
     # Arrange
@@ -987,8 +1003,8 @@ def test_document_idempotency_describes_the_replay_marker() -> None:
     # Assert
     header = responses["200"]["headers"]["X-Idempotent-Replayed"]
     assert header["schema"] == {"type": "string", "enum": ["true"]}
-    # What the middleware answers itself is never a replay.
-    assert "headers" not in responses["409"]
+    # A stored error replays like any other response, so it carries it too.
+    assert "X-Idempotent-Replayed" in responses["409"]["headers"]
 
 
 def test_document_idempotency_publishes_the_problem_body() -> None:

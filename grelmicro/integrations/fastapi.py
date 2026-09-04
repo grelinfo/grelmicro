@@ -719,9 +719,15 @@ def _annotate_schema(
 
     covered = [
         (path_item, operation)
-        # Only what the middleware serves. A webhook is a request the app
-        # sends, and no `Idempotency-Key` of ours reaches it.
-        for path_item, operation in _operations(schema, methods, ("paths",))
+        # Only what the middleware serves. `_paths` reads `paths` alone: a
+        # webhook is a request the app sends, and no `Idempotency-Key` of
+        # ours reaches it.
+        for path, path_item, operation in _paths(schema, methods)
+        if selects(
+            path,
+            include=tuple(options["include"]),
+            exclude=tuple(options["exclude"]),
+        )
     ]
     if not covered:
         return
@@ -730,7 +736,7 @@ def _annotate_schema(
         _add_parameter(operation, path_item, parameter)
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
-        _add_replay_header(operation, options["replay_header"], responses)
+        _add_replay_header(operation, options["replay_header"])
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
@@ -958,20 +964,14 @@ def _merge_response(
         )
 
 
-def _add_replay_header(
-    operation: dict[str, Any],
-    name: str,
-    refused: dict[str, str],
-) -> None:
-    """Describe the replay marker on the responses that can carry it.
+def _add_replay_header(operation: dict[str, Any], name: str) -> None:
+    """Describe the replay marker on every response of an operation.
 
     The name is a service's to pick, so the schema is where a client
-    author reads it. The statuses the middleware answers itself are left
-    alone: those are never a replay.
+    author reads it. Every status the app answers is stored and replayed,
+    errors included, so the marker is described on all of them.
     """
-    for status, response in operation.get("responses", {}).items():
-        if status in refused:
-            continue
+    for response in operation.get("responses", {}).values():
         response.setdefault("headers", {}).setdefault(
             name,
             {
