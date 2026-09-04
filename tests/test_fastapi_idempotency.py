@@ -1005,6 +1005,64 @@ def test_document_idempotency_keeps_a_declaration_of_its_own() -> None:
     assert list(headers) == ["idempotent-replayed"]
 
 
+def test_document_idempotency_annotates_a_schema_once() -> None:
+    """A second call over one schema must not read the first one's work."""
+    # Arrange
+    app = build_app()
+    document_idempotency(app)
+    document_idempotency(app)
+
+    # Act
+    responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
+
+    # Assert
+    assert "Idempotent-Replayed" in responses["200"]["headers"]
+    # A refusal the middleware answers itself never replays, whatever the
+    # number of wrappers over the schema.
+    assert "headers" not in responses["409"]
+
+
+def test_document_idempotency_describes_every_installed_middleware() -> None:
+    """Two sets of rules on one app, each with its own paths and headers."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("a"),
+        include=("/a/*",),
+    )
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("b"),
+        include=("/b/*",),
+        key_header="X-Idempotency-Key",
+        replay_header="X-Replayed",
+    )
+
+    @app.post("/a/charge")
+    async def charge_a() -> dict[str, int]:
+        return {"amount": 100}
+
+    @app.post("/b/charge")
+    async def charge_b() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    paths = app.openapi()["paths"]
+
+    # Assert
+    first = paths["/a/charge"]["post"]
+    second = paths["/b/charge"]["post"]
+    assert [p["name"] for p in first["parameters"]] == ["Idempotency-Key"]
+    assert [p["name"] for p in second["parameters"]] == ["X-Idempotency-Key"]
+    assert "Idempotent-Replayed" in first["responses"]["200"]["headers"]
+    assert "X-Replayed" in second["responses"]["200"]["headers"]
+
+
 def test_document_idempotency_follows_the_path_selection() -> None:
     """An operation the middleware passes through is not described as covered."""
     # Arrange

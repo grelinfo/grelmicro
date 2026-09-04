@@ -433,6 +433,7 @@ class IdempotencyMiddleware:
         self._replay_header = (
             _replay_name(replay_header).lower().encode("ascii")
         )
+        self._replay_header_name = replay_header
         self._replay_collision_logged = False
         self._methods = frozenset(method.upper() for method in methods)
         self._key_maker = key_maker
@@ -566,7 +567,7 @@ class IdempotencyMiddleware:
                         "Replay marker replaced the %s header the stored "
                         "response carried. Give replay_header a name of "
                         "its own where that value matters.",
-                        self._replay_header.decode("ascii"),
+                        self._replay_header_name,
                     )
             else:
                 capture = _ResponseCapture(

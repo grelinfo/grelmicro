@@ -238,7 +238,7 @@ def test_the_replay_marker_replaces_a_header_of_the_same_name(
     assert second.headers["x-cache"] == "true"
     assert third.headers["x-cache"] == "true"
     # Static configuration, so it is said once and not once a request.
-    assert caplog.text.count("Replay marker replaced the x-cache") == 1
+    assert caplog.text.count("Replay marker replaced the X-Cache") == 1
 
 
 def test_install_documents_the_middleware_in_the_schema() -> None:

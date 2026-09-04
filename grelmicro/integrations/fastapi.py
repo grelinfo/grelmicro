@@ -251,28 +251,29 @@ def document_idempotency(
             `IdempotencyMiddleware`.
     """
     _require_fastapi(app, "document_idempotency")
-    options = _idempotency_options(app)
+    _idempotency_options(app)
     original = app.openapi
-    # The schema this already annotated. FastAPI caches what it builds and
-    # hands back the same object, and annotating it twice would read its
-    # own additions as the app's own responses.
-    annotated: list[dict[str, Any]] = []
 
     def openapi() -> dict[str, Any]:
         # Read when the schema is built rather than when this is called, so
         # the order of `document_idempotency` and `micro.install` cannot
-        # publish a format the app does not answer in.
+        # publish a format the app does not answer in, and so a middleware
+        # added after this call is described too.
         errors = getattr(app.state, "grelmicro_error_responses", None)
         schema = original()
-        if annotated and annotated[0] is schema:
+        # FastAPI caches what it builds and hands back the same object. A
+        # second pass over it would read the first pass's own additions as
+        # the app's responses, and two calls on one app leave two wrappers.
+        if getattr(app.state, "grelmicro_idempotency_schema", None) is schema:
             return schema
-        _annotate_schema(
-            schema,
-            options,
-            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
-            ProblemDetail if errors is None else errors.model,
-        )
-        annotated[:] = [schema]
+        for options in _idempotency_options(app):
+            _annotate_schema(
+                schema,
+                options,
+                PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
+                ProblemDetail if errors is None else errors.model,
+            )
+        app.state.grelmicro_idempotency_schema = schema
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -646,27 +647,45 @@ def _middleware_options(
 ) -> dict[str, Any]:
     """Return one installed middleware's arguments, defaults filled in.
 
+    The first match is the last added, which is the outermost at runtime
+    and answers first on the wire.
+
+    Raises:
+        TypeError: If the app carries no such middleware.
+    """
+    return _every_middleware_options(app, middleware, missing)[0]
+
+
+def _every_middleware_options(
+    app: "FastAPI", middleware: type[Any], missing: str
+) -> list[dict[str, Any]]:
+    """Return every installed middleware's arguments, defaults filled in.
+
+    An app may carry two sets of rules, each with its own paths and its
+    own headers, and the schema describes what each one covers.
+
     Raises:
         TypeError: If the app carries no such middleware.
     """
     import inspect  # noqa: PLC0415
 
+    found = []
     for entry in app.user_middleware:
-        # `add_middleware` prepends, so the first match is the last added,
-        # which is the outermost at runtime and answers first on the wire.
         cls = entry.cls
         if is_class(cls) and is_subclass(cls, middleware):
             # Every parameter after `app` is keyword-only, so
             # `add_middleware` can only have passed them by keyword.
             bound = inspect.signature(middleware).bind_partial(**entry.kwargs)
             bound.apply_defaults()
-            return dict(bound.arguments)
-    raise TypeError(missing)
+            found.append(dict(bound.arguments))
+    if not found:
+        raise TypeError(missing)
+    return found
 
 
-def _idempotency_options(app: "FastAPI") -> dict[str, Any]:
-    """Return the installed middleware's arguments, defaults filled in."""
-    return _middleware_options(
+def _idempotency_options(app: "FastAPI") -> list[dict[str, Any]]:
+    """Return every installed middleware's arguments, defaults filled in."""
+    return _every_middleware_options(
         app,
         IdempotencyMiddleware,
         "document_idempotency() found no IdempotencyMiddleware on the app. "
