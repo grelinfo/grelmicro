@@ -290,6 +290,7 @@ class Grelmicro:
         self._app_opened: set[int] = set()
         self._opening_items: dict[int, asyncio.Lock] = {}
         self._closing = False
+        self._opened = False
         self._token: Any = None
         self._strict = strict
         self._environment = resolve_environment(environment)
@@ -306,6 +307,18 @@ class Grelmicro:
             finally:
                 self._deferring_provider_defaults = False
             self._register_provider_defaults()
+
+    @property
+    def opened(self) -> bool:
+        """Whether every registered item is open.
+
+        `False` until `async with micro:` has entered the last one, and
+        `False` again once the block is left. Read it from something that
+        answers before the app has finished starting, a probe endpoint
+        above all: a component registered before another one runs while
+        that other one is still connecting.
+        """
+        return self._opened
 
     @property
     def environment(self) -> Environment | None:
@@ -1275,8 +1288,10 @@ class Grelmicro:
                     await self._exit_stack.enter_async_context(item)
                     self._app_opened.add(_opened_key(item))
             self._instrument_providers()
+            self._opened = True
         except BaseException:
             self._closing = True
+            self._opened = False
             with _active_apps_lock:
                 if self in _active_apps:  # pragma: no branch
                     _active_apps.remove(self)
@@ -1307,6 +1322,7 @@ class Grelmicro:
         if self._exit_stack is None:
             raise OutOfContextError(self, "__aexit__")
         self._closing = True
+        self._opened = False
         try:
             # Keep `Grelmicro.current()` resolvable during teardown so items
             # that consult it from `__aexit__` still see the active app.

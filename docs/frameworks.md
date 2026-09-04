@@ -39,22 +39,28 @@ The extra installs the framework itself. grelmicro imports nothing from it
 until you call `install`, so an app that already depends on FastAPI needs no
 extra at all.
 
-## The three exceptions
+## The one exception
 
-Only FastAPI builds an OpenAPI schema and an `APIRouter`, so three pieces stop
-at its door:
+Only FastAPI builds an OpenAPI schema, so one piece stops at its door:
 
 | Piece | Why | Where it is going |
 |---|---|---|
-| [`health_router()`](health.md) | Builds a FastAPI `APIRouter`. | [#690](https://github.com/grelinfo/grelmicro/issues/690) tracks a framework-free endpoint. |
-| [`metrics_router()`](metrics.md) | Builds a FastAPI `APIRouter`. | The same issue. |
 | `document_idempotency(app)` | Annotates an OpenAPI schema. | Nowhere. A framework that builds no schema has nothing to annotate. |
 
-The middleware behind that last one is portable. `IdempotentRequests()` wires
-on FastAPI, Starlette, and Litestar alike, and only the schema annotation is
-skipped where there is no schema.
+The middleware behind it is portable. `IdempotentRequests()` wires on FastAPI,
+Starlette, and Litestar alike, and only the schema annotation is skipped where
+there is no schema.
 
-FastStream is not a fourth exception, it is a different axis. It serves no
+[`health_router()`](health.md) and [`metrics_router()`](metrics.md) build a
+FastAPI `APIRouter`, so they are FastAPI's door onto the endpoints rather than
+the only one. Every framework has the same endpoints through
+[`health_asgi()`](health.md#without-a-web-framework) and `metrics_asgi()`,
+which are pure ASGI, and a process with no framework at all serves them on its
+own port with [`OpsServer`](http/server.md). All three doors render through
+one set of functions, and `tests/test_endpoint_parity.py` holds them to one
+status, one set of headers, and one body.
+
+FastStream is not a second exception, it is a different axis. It serves no
 HTTP, so every HTTP-shaped behaviour is out of scope for it by definition. It
 carries no HTTP-facing hook, so `micro.install(app)` skips those without any
 code anywhere reading a framework's name. Everything else, the locks, the
@@ -157,6 +163,10 @@ your framework:
   response when a request repeats its key.
 - [`ClientAddressMiddleware`](security/clientip.md) resolves the real caller
   behind a reverse proxy.
+- [`health_asgi()`](health.md#without-a-web-framework) and `metrics_asgi()`
+  serve the probes and the scrape target, mounted in any ASGI app.
+- [`OpsServer`](http/server.md) serves those same endpoints on a port of its
+  own, for a process that runs no web framework at all.
 
 Everything else, the locks, the cache, the outbox, the scheduler, and the
 resilience patterns, is plain async Python and needs no framework at all.

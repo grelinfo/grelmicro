@@ -2,6 +2,7 @@
 
 - **Start here**: [HTTP](../http/index.md)
 - **The errors**: [Errors](errors.md)
+- **The own-port server**: [Ops Server](../http/server.md)
 
 Register `ErrorResponses()` and `micro.install(app)` wires the handler, so a
 rejection raised in a route handler answers the client as an
@@ -15,9 +16,15 @@ Register `ConditionalRequests()` and `install` adds the entity tags, so
 `check_precondition(etag_of(version))` refuses a write whose `If-Match` moved
 on. Read [Conditional Requests](../http/conditional.md).
 
+Register `OpsServer()` on a process that serves no HTTP, and the health probes
+and the Prometheus endpoint answer on a port of their own.
+
 ::: grelmicro.http
     options:
       members:
+        - OpsServer
+        - OpsServerConfig
+        - OpsServerError
         - ErrorResponses
         - IdempotentRequests
         - IdempotencyMiddleware

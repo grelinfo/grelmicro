@@ -8,6 +8,7 @@ service puts on the wire, whichever framework you picked.
 | [Error Responses](errors.md) | Every rejection answered in one standard format, RFC 9457 or TM Forum. |
 | [Conditional Requests](conditional.md) | `ETag` on reads, `If-Match` on writes, so a write cannot erase a change it never saw. |
 | [Idempotency Middleware](idempotency.md) | A repeated `Idempotency-Key` replays the stored response instead of running the operation again. |
+| [Ops Server](server.md) | The health and metrics endpoints on a port of their own, for a process that serves no HTTP. |
 
 The [Idempotency](../idempotency/index.md) page covers the same pattern away
 from HTTP, as a block or a decorator around any operation.

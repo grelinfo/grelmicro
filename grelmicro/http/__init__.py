@@ -51,8 +51,10 @@ from grelmicro.http._problem import (
     PROBLEM_MEDIA_TYPE,
     ProblemDetail,
 )
+from grelmicro.http._server import OpsServer, OpsServerConfig
 from grelmicro.http._tmf import TMFError
 from grelmicro.http.errors import (
+    OpsServerError,
     PreconditionError,
     PreconditionFailedError,
     PreconditionRequiredError,
@@ -66,6 +68,9 @@ __all__ = [
     "ErrorResponses",
     "IdempotencyMiddleware",
     "IdempotentRequests",
+    "OpsServer",
+    "OpsServerConfig",
+    "OpsServerError",
     "PreconditionError",
     "PreconditionFailedError",
     "PreconditionRequiredError",

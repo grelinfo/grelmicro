@@ -3,6 +3,14 @@
 from grelmicro.errors import GrelmicroError
 
 
+class OpsServerError(GrelmicroError):
+    """Raised when the ops server cannot serve.
+
+    The app registers nothing the server can answer, no `Grelmicro` app is
+    active, or the port is taken.
+    """
+
+
 class PreconditionError(GrelmicroError):
     """Base error for a conditional request that could not proceed.
 

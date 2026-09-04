@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from starlette.applications import Starlette
 
 from grelmicro import Grelmicro
+from grelmicro._paths import route_path, selects
 from grelmicro.errors import OutOfContextError
 from grelmicro.http import (
     ConditionalRequests,
@@ -25,7 +26,6 @@ from grelmicro.http import (
     check_precondition,
     etag_of,
 )
-from grelmicro.http._paths import route_path, selects
 from grelmicro.integrations.fastapi import (
     Conditional,
     ConditionalRequired,

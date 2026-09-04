@@ -29,18 +29,19 @@ Each primitive is a protocol, so you can swap Redis for PostgreSQL, SQLite, Kube
 - [Outbox schema](https://grelmicro.grel.info/outbox/schema/): the table layout and managing it with Alembic.
 - [Task Scheduler](https://grelmicro.grel.info/task/): interval and cron tasks with durable, distributed at-most-once execution.
 - [Resilience](https://grelmicro.grel.info/resilience/): circuit breaker and rate limiter with pluggable algorithms.
-- [Health](https://grelmicro.grel.info/health/): health checks with FastAPI liveness and readiness integration.
+- [Health](https://grelmicro.grel.info/health/): health checks with liveness and readiness endpoints on FastAPI, on any ASGI framework, and on a port of their own.
 - [HTTP](https://grelmicro.grel.info/http/): what a service puts on the wire, whichever framework it runs on.
 - [Error Responses](https://grelmicro.grel.info/http/errors/): answer every error in one standard format, RFC 9457 problem details or the TM Forum format of TMF630, carrying the delay a client can act on.
 - [Conditional Requests](https://grelmicro.grel.info/http/conditional/): `ETag` on reads and `If-Match` on writes, so a write cannot erase a change it never saw. `check_freshness` answers `304`, `check_precondition` answers `412` and `428`.
 - [Idempotency middleware](https://grelmicro.grel.info/http/idempotency/): replay a whole HTTP response when a request repeats its `Idempotency-Key` header.
+- [Ops server](https://grelmicro.grel.info/http/server/): serve the health probes and the Prometheus endpoint on a port of their own, for a worker or a consumer that runs no web framework.
 - [Security](https://grelmicro.grel.info/security/): the checks a service runs on an inbound request.
 - [Client IP](https://grelmicro.grel.info/security/clientip/): resolve the real caller behind a reverse proxy, trusting only the `X-Forwarded-For` entries your own proxies appended.
 - [Logging](https://grelmicro.grel.info/logging/): 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output.
 - [Logging integrations](https://grelmicro.grel.info/logging/integrations/): OpenTelemetry trace context, FastAPI, and uvicorn access logs.
 - [Logging filters](https://grelmicro.grel.info/logging/filters/): deduplicate and rate limit a noisy logger.
 - [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and structured log context through `@instrument`.
-- [Metrics](https://grelmicro.grel.info/metrics/): OpenTelemetry metrics with a `@measure` decorator and a Prometheus router.
+- [Metrics](https://grelmicro.grel.info/metrics/): OpenTelemetry metrics with a `@measure` decorator and a Prometheus endpoint.
 - [Configuration](https://grelmicro.grel.info/config/): reconfigure live components from a ConfigMap, Secret, or file.
 - [Deployment](https://grelmicro.grel.info/deployment/): run a grelmicro app in a container, starting with the `GREL_ENV_LOAD` opt-in.
 - [Testing](https://grelmicro.grel.info/testing/): test grelmicro apps with the in-memory backends.

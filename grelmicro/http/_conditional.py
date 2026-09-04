@@ -30,6 +30,7 @@ from uuid import UUID
 from typing_extensions import Doc
 
 from grelmicro._guards import is_instance, type_name
+from grelmicro._paths import route_path, selects
 from grelmicro.errors import OutOfContextError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -38,7 +39,6 @@ from grelmicro.http._kinds import (
     Kind,
     Occurrence,
 )
-from grelmicro.http._paths import route_path, selects
 from grelmicro.http.errors import (
     PreconditionError,
     PreconditionFailedError,

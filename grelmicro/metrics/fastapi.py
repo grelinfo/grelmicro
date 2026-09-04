@@ -4,16 +4,16 @@ from typing import TYPE_CHECKING, Annotated
 
 from typing_extensions import Doc
 
+from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro.metrics._component import Metrics
-from grelmicro.metrics.config import MetricsExporterType
-from grelmicro.metrics.errors import MetricsError
+from grelmicro.metrics._endpoints import (
+    PROMETHEUS_MEDIA_TYPE,
+    render_prometheus,
+)
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
     from fastapi.params import Depends
-
-
-_PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 
 def metrics_router(
@@ -95,37 +95,17 @@ def metrics_router(
             200: {
                 "description": "Prometheus exposition of the active registry.",
                 "content": {
-                    _PROMETHEUS_CONTENT_TYPE: {"schema": {"type": "string"}}
+                    PROMETHEUS_MEDIA_TYPE: {"schema": {"type": "string"}}
                 },
             },
         },
     )
     async def metrics() -> Response:
         """Render the Prometheus exposition for the active registry."""
-        from prometheus_client import generate_latest  # noqa: PLC0415
-
-        active = _resolve_component()
-        if active.config.exporter != MetricsExporterType.PROMETHEUS:
-            msg = (
-                "metrics_router requires the prometheus exporter, but the "
-                f"active Metrics component uses {active.config.exporter!r}. "
-                "Set exporter='prometheus' to expose /metrics."
-            )
-            raise MetricsError(msg)
-        registry = active.prometheus_registry
-        if registry is None:  # pragma: no cover
-            # Unreachable while the exporter is `prometheus`, which the check
-            # above already enforces. Stated rather than assumed, so a future
-            # exporter that forgets to build a registry fails here with a
-            # sentence instead of inside `generate_latest`.
-            msg = (
-                "the prometheus exporter is active but no CollectorRegistry "
-                "was built, so /metrics has nothing to render."
-            )
-            raise MetricsError(msg)
         return Response(
-            content=generate_latest(registry),
-            media_type=_PROMETHEUS_CONTENT_TYPE,
+            content=render_prometheus(_resolve_component()),
+            media_type=PROMETHEUS_MEDIA_TYPE,
+            headers=NO_STORE_HEADERS,
         )
 
     return router
