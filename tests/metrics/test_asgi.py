@@ -70,6 +70,12 @@ async def test_path_and_prefix_move_the_endpoint(micro: Grelmicro) -> None:
         assert (await client.get("/metrics")).status_code == HTTP_NOT_FOUND
 
 
+def test_a_prefix_no_request_can_match_is_refused() -> None:
+    """A trailing slash keys the endpoint where nothing normalizes to."""
+    with pytest.raises(ValueError, match="must not end with"):
+        metrics_asgi(prefix="/ops/")
+
+
 async def test_mounted_under_another_app(micro: Grelmicro) -> None:
     """A mount adds the prefix, and the endpoint answers under it."""
     app = Starlette(routes=[Mount("/ops", app=metrics_asgi(micro.metrics))])

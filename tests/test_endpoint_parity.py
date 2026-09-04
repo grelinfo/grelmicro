@@ -93,6 +93,10 @@ async def doors(
         "/healthz",
         "/readyz?exclude=analytics",
         "/healthz?exclude=analytics,store",
+        # Repeated: a framework hands a scalar parameter the last value,
+        # and a door that read the first would answer for other checks.
+        "/readyz?exclude=store&exclude=analytics",
+        "/healthz?exclude=store&exclude=analytics",
     ],
 )
 async def test_health_doors_answer_the_same(

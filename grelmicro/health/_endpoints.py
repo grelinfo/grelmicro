@@ -17,6 +17,7 @@ from grelmicro._endpoints import (
     HTTP_SERVICE_UNAVAILABLE,
     Rendered,
     build_asgi,
+    check_prefix,
     query_value,
 )
 from grelmicro._json import json_dumps_bytes
@@ -107,6 +108,7 @@ def health_routes(
     show_details: bool = False,
 ) -> dict[str, Handler]:
     """Build the three health handlers, keyed by the path each answers."""
+    check_prefix(prefix)
 
     def resolve() -> HealthChecks:
         if component is not None:

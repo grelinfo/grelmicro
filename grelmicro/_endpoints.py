@@ -54,10 +54,11 @@ class Rendered(NamedTuple):
 
 
 def query_value(scope: Scope, name: str) -> str | None:
-    """Return the first value of a query parameter, or `None`.
+    """Return the value of a query parameter, or `None`.
 
-    First rather than last, matching what a framework hands a handler that
-    declares a single string.
+    The last one when it is repeated, which is what Starlette hands a
+    handler declaring a single string, and therefore what the FastAPI
+    router answers for the same request.
     """
     raw = scope.get("query_string") or b""
     if not raw:
@@ -65,7 +66,7 @@ def query_value(scope: Scope, name: str) -> str | None:
     values = parse_qs(
         raw.decode("latin-1"), keep_blank_values=True, errors="replace"
     ).get(name)
-    return values[0] if values else None
+    return values[-1] if values else None
 
 
 def response_headers(rendered: Rendered) -> list[tuple[bytes, bytes]]:
@@ -92,6 +93,24 @@ def normalize(path: str) -> str:
     """
     trimmed = path.strip("/")
     return f"/{trimmed}"
+
+
+def check_prefix(prefix: str) -> None:
+    """Refuse a prefix no request can match.
+
+    A trailing slash keys the table one segment deeper than any request
+    normalizes to, so every path would answer `404` with nothing to read
+    from. FastAPI refuses the same input on a router.
+
+    Raises:
+        ValueError: If `prefix` ends with a slash.
+    """
+    if prefix.endswith("/"):
+        msg = (
+            f"prefix={prefix!r} must not end with '/', because no request "
+            f"would match it. Write it as {prefix.rstrip('/')!r}."
+        )
+        raise ValueError(msg)
 
 
 def build_asgi(routes: Mapping[str, Handler]) -> ASGIApp:

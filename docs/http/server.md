@@ -143,7 +143,9 @@ Mount the endpoints in the app it already serves:
 
 `health_asgi()` and `metrics_asgi()` are pure-ASGI apps, so they mount in
 Starlette, Litestar, or anything else that speaks ASGI, and they answer exactly
-what `OpsServer` answers. On FastAPI, prefer
+what `OpsServer` answers. Mounted at `""` the app matches every path, so it
+goes last, after the routes of your own. Mount it under a prefix instead and
+it matches that prefix alone, wherever you put it. On FastAPI, prefer
 [`health_router()`](../health.md#fastapi-integration): it serves the same
 endpoints and adds the OpenAPI schema and the `Depends` gates.
 

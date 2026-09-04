@@ -92,8 +92,15 @@ _CLOSE_SECONDS: Final = 1.0
 _LIVEZ: Final = "/livez"
 """The one path answered while the app is still opening."""
 
-_STARTING_PATHS: Final = frozenset({"/readyz", "/healthz", "/metrics"})
-"""What answers `503` until the app is open. Anything else is a `404`."""
+_PATHS_BY_KIND: Final = {
+    "health": ("/readyz", "/healthz"),
+    "metrics": ("/metrics",),
+}
+"""What each registered component adds, beyond the liveness probe.
+
+Read at startup to know what answers `503` until the app is open. A path
+the app registered nothing for is a `404` in both windows.
+"""
 
 
 class _Request(NamedTuple):
@@ -381,6 +388,7 @@ class OpsServer:
         self._server: asyncio.Server | None = None
         self._connections: set[asyncio.Task[None]] = set()
         self._paths: tuple[str, ...] = ()
+        self._starting: frozenset[str] = frozenset()
         self._active = 0
 
     @property
@@ -497,7 +505,14 @@ class OpsServer:
             OpsServerError: If the app registers neither a `HealthChecks`
                 nor a `Metrics` under the default name.
         """
-        if not _registered_kinds(micro) & {"health", "metrics"}:
+        kinds = _registered_kinds(micro)
+        self._starting = frozenset(
+            path
+            for kind, paths in _PATHS_BY_KIND.items()
+            for path in paths
+            if kind in kinds
+        )
+        if not kinds & {"health", "metrics"}:
             msg = (
                 "OpsServer has nothing to serve. Register a HealthChecks, a "
                 "Metrics, or both, under the default name: "
@@ -578,6 +593,12 @@ class OpsServer:
             answer.status = _HTTP_REQUEST_TIMEOUT
         except asyncio.CancelledError:
             raise
+        except ConnectionError:
+            # A probe that timed out, an aborted `curl`, a load balancer
+            # that stopped listening. Routine on an ops port, and there is
+            # nobody left to answer, so it is not an error and there is no
+            # traceback worth alerting on.
+            logger.debug("ops server lost a connection before answering")
         except Exception:
             logger.exception("ops server failed to answer a request")
             answer.status = _HTTP_INTERNAL_SERVER_ERROR
@@ -656,7 +677,7 @@ class OpsServer:
         if app is None:
             # The app is still opening: alive, and not ready for anything
             # that reads a component which may not be there yet.
-            answer.status = _starting_status(request)
+            answer.status = _starting_status(request, self._starting)
             return
         # Bound for this task exactly as `GrelmicroMiddleware` binds it for
         # a framework's request task, so a health check resolves its
@@ -851,24 +872,22 @@ def _route_of(request: _Request) -> str:
     return normalize(unquote(path))
 
 
-def _starting_status(request: _Request) -> int:
+def _starting_status(request: _Request, starting: frozenset[str]) -> int:
     """Return what a request gets while the app is still opening.
 
     The same answers the open server gives, minus everything that reads a
-    component: liveness passes because the process is alive, and readiness
-    fails because it is not ready. A method or a path the server would
-    refuse is refused here too, so a probe pointed at the wrong one does
-    not look healthy for the first second and broken after it.
+    component: liveness passes because the process is alive, and what the
+    app registered answers `503` because it is not ready. A method, or a
+    path this app will never serve, is refused here exactly as it will be
+    once the app is open, so a probe pointed at the wrong one does not
+    look retryable for the first second and wrong after it.
     """
     if request.method not in SAFE_METHODS:
         return HTTP_METHOD_NOT_ALLOWED
-    if _route_of(request) != _LIVEZ:
-        return (
-            HTTP_SERVICE_UNAVAILABLE
-            if _route_of(request) in _STARTING_PATHS
-            else HTTP_NOT_FOUND
-        )
-    return HTTP_OK
+    route = _route_of(request)
+    if route == _LIVEZ:
+        return HTTP_OK
+    return HTTP_SERVICE_UNAVAILABLE if route in starting else HTTP_NOT_FOUND
 
 
 async def _write_status(writer: asyncio.StreamWriter, status: int) -> None:

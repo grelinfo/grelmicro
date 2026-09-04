@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Annotated, Any, Final
 
 from typing_extensions import Doc
 
-from grelmicro._endpoints import HTTP_OK, Rendered, build_asgi
+from grelmicro._endpoints import (
+    HTTP_OK,
+    Rendered,
+    build_asgi,
+    check_prefix,
+)
 from grelmicro.metrics.config import MetricsExporterType
 from grelmicro.metrics.errors import MetricsError
 
@@ -65,6 +70,7 @@ def metrics_routes(
     path: str = "/metrics",
 ) -> dict[str, Handler]:
     """Build the metrics handler, keyed by the path it answers."""
+    check_prefix(prefix)
 
     def resolve() -> Metrics:
         if component is not None:

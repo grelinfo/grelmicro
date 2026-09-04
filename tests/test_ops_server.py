@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
+import struct
 from typing import TYPE_CHECKING, Any, Self, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -945,3 +947,83 @@ async def test_only_a_refusal_with_a_body_left_lingers(
     )
 
     lingered.assert_awaited_once()
+
+
+async def test_a_caller_that_hangs_up_is_not_an_error(
+    port: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A probe that gave up is routine, not something to page on.
+
+    A kubelet whose `timeoutSeconds` expired, an aborted `curl`, a port
+    scanner: on an ops port these arrive all day, and a traceback at ERROR
+    for each one buries the failures that matter.
+    """
+    health = HealthChecks(cache_ttl=0)
+    health.add("slow", slow(0.3))
+    micro = Grelmicro(uses=[health, OpsServer(host="127.0.0.1", port=port)])
+    with caplog.at_level(logging.DEBUG, logger="grelmicro.http"):
+        async with micro:
+            sock = socket.socket()
+            sock.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_LINGER,
+                struct.pack("ii", 1, 0),
+            )
+            sock.connect(("127.0.0.1", port))
+            sock.sendall(b"GET /readyz HTTP/1.1\r\nhost: probe\r\n\r\n")
+            await asyncio.sleep(0.05)
+            sock.close()
+            await asyncio.sleep(0.5)
+
+    assert not [
+        record for record in caplog.records if record.levelno >= logging.ERROR
+    ]
+    assert "lost a connection before answering" in caplog.text
+
+
+async def test_only_what_the_app_will_serve_answers_503_while_starting(
+    port: int,
+) -> None:
+    """A scrape of a path this app never serves reads `404`, not `503`.
+
+    `503` says come back, and a Prometheus scrape that starts during a
+    rollout would keep coming back to an endpoint that will never exist.
+    """
+    ready, release, opened, done = (asyncio.Event() for _ in range(4))
+    micro = Grelmicro(
+        uses=[
+            OpsServer(host="127.0.0.1", port=port),
+            _SlowToOpen(ready=ready, release=release),
+            HealthChecks(),
+        ]
+    )
+
+    async def run() -> None:
+        async with micro:
+            opened.set()
+            await done.wait()
+
+    running = asyncio.create_task(run())
+    try:
+        await ready.wait()
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}"
+        ) as client:
+            assert (
+                await client.get("/readyz")
+            ).status_code == HTTP_503_SERVICE_UNAVAILABLE
+            # No Metrics registered, so /metrics is a 404 in both windows.
+            starting = await client.get("/metrics")
+        release.set()
+        await opened.wait()
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}"
+        ) as client:
+            opened_status = (await client.get("/metrics")).status_code
+    finally:
+        release.set()
+        done.set()
+        await running
+
+    assert starting.status_code == HTTP_NOT_FOUND
+    assert opened_status == HTTP_NOT_FOUND

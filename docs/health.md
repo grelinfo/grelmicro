@@ -323,7 +323,8 @@ On another ASGI framework, mount the endpoints in the app you already serve:
 
 `health_asgi()` is a pure-ASGI app. It mounts in Starlette, Litestar, or
 anything else that speaks ASGI, and it takes the same `prefix` and
-`show_details` the router takes. It has no `Depends`, so gate it with your own
+`show_details` the router takes. Mounted at `""` it matches every path, so it
+goes after the routes of your own. It has no `Depends`, so gate it with your own
 middleware where the router would take `healthz_dependencies`.
 
 | You run | Use | You also get |

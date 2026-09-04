@@ -11,7 +11,8 @@ import pytest
 from litestar import Litestar
 from litestar.handlers import asgi
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.responses import PlainTextResponse
+from starlette.routing import Mount, Route
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
 from grelmicro import Grelmicro
@@ -140,15 +141,22 @@ async def test_exclude_skips_the_named_checks(
     assert response.status_code == HTTP_200_OK
 
 
-async def test_exclude_reads_the_first_value(
+async def test_exclude_reads_the_last_value(
     health: HealthChecks, client: httpx.AsyncClient
 ) -> None:
-    """A repeated parameter is read once, from the first occurrence."""
+    """A repeated parameter is read once, from the last occurrence.
+
+    Which is what Starlette hands a handler declaring a single string, so
+    the FastAPI router answers the same request the same way.
+    """
     health.add("flaky", unhealthy())
 
-    response = await client.get("/readyz?exclude=flaky&exclude=other")
-
-    assert response.status_code == HTTP_200_OK
+    assert (
+        await client.get("/readyz?exclude=other&exclude=flaky")
+    ).status_code == HTTP_200_OK
+    assert (
+        await client.get("/readyz?exclude=flaky&exclude=other")
+    ).status_code == HTTP_503_SERVICE_UNAVAILABLE
 
 
 async def test_exclude_left_blank_excludes_nothing(
@@ -209,6 +217,39 @@ async def test_prefix_moves_the_three_paths(health: HealthChecks) -> None:
     async with client_for(health_asgi(health, prefix="/internal")) as client:
         assert (await client.get("/internal/livez")).status_code == HTTP_200_OK
         assert (await client.get("/livez")).status_code == HTTP_NOT_FOUND
+
+
+async def test_mounted_last_leaves_the_other_routes_alone(
+    health: HealthChecks,
+) -> None:
+    """Mounted at "" the app matches every path, so it goes last.
+
+    The docs say so, and this is what happens when it does: the routes of
+    the app it was added to still answer.
+    """
+    health.add("db", healthy())
+
+    async def home(_request: object) -> PlainTextResponse:
+        return PlainTextResponse("hello")
+
+    app = Starlette(
+        routes=[Route("/", home), Mount("", app=health_asgi(health))]
+    )
+
+    async with client_for(app) as client:
+        assert (await client.get("/")).text == "hello"
+        assert (await client.get("/livez")).status_code == HTTP_200_OK
+
+
+@pytest.mark.parametrize("prefix", ["/ops/", "/"])
+def test_a_prefix_no_request_can_match_is_refused(prefix: str) -> None:
+    """A trailing slash keys the table where nothing normalizes to.
+
+    The FastAPI router refuses the same input, so this door does too
+    rather than build a table every request answers `404` from.
+    """
+    with pytest.raises(ValueError, match="must not end with"):
+        health_asgi(prefix=prefix)
 
 
 async def test_mounted_under_another_app(health: HealthChecks) -> None:
