@@ -1189,6 +1189,32 @@ def test_document_idempotency_reads_a_subclass_of_its_own() -> None:
     assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
 
 
+def test_document_idempotency_reads_a_subclass_holding_its_own_store() -> None:
+    """A subclass may build the `Idempotency` rather than be handed one."""
+
+    # Arrange
+    class TenantIdempotencyMiddleware(IdempotencyMiddleware):
+        def __init__(self, app: Any, **options: Any) -> None:  # noqa: ANN401
+            super().__init__(app, idempotency=Idempotency("http"), **options)
+
+    # The component names its own store, which this middleware is not.
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
+    app = FastAPI()
+    app.add_middleware(TenantIdempotencyMiddleware)
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+
+
 def test_document_idempotency_reads_a_subclass_default() -> None:
     """A subclass naming its own header is described under that name."""
 

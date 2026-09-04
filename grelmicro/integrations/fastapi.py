@@ -285,7 +285,9 @@ def document_idempotency(
         named = [
             entry
             for entry in installed
-            if idempotency is None or entry[1]["idempotency"] is idempotency
+            # A middleware that builds its own store rather than taking
+            # one has none to compare, and is named by nobody.
+            if idempotency is None or entry[1].get("idempotency") is idempotency
         ]
         described = _described(app, schema)
         for index, options in named or installed:
