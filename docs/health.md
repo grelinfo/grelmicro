@@ -171,6 +171,18 @@ All three also accept `HEAD`. All responses set `Cache-Control: no-store`. Probe
 
 Paths follow the z-pages convention (`/livez`, `/readyz`, `/healthz`). The trailing `z` avoids collisions with application routes like `/health`.
 
+### OpenAPI Schema
+
+The three endpoints stay out of the OpenAPI schema. They answer exactly the same, and `/openapi.json` and the docs pages name neither the probes nor the shape of the report. An orchestrator does not read your schema, and a generated client has no use for a probe.
+
+Pass `include_in_schema=True` to publish them, with the `/healthz` response model and its `503` response. `/livez` and `/readyz` are documented as returning no body, because that is what they return:
+
+```python
+--8<-- "health/openapi.py"
+```
+
+This decides what the schema publishes, not what is reachable. To keep `/healthz` from answering at all, gate it with `healthz_dependencies`. To close a probe off, leave it off your ingress.
+
 ### Report Body
 
 `/healthz` reports the aggregate status and one entry per check. A check that passed carries `status` and `critical` alone:

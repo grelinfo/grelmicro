@@ -103,6 +103,8 @@ With the `prometheus` exporter, `metrics_router()` adds a `GET /metrics` route t
 
 Pass `prefix`, `path`, and `dependencies` to mount the route elsewhere or gate it behind authentication. The router resolves the default `Metrics` component from the running app, or you can pass one explicitly with `metrics_router(component)`.
 
+The route stays out of the OpenAPI schema. A scrape target is not part of your client contract, so `/metrics` is served but never published. Pass `include_in_schema=True` to document it, as the text exposition it returns rather than as JSON.
+
 ## Built-in metrics
 
 When a `Metrics` component is active, grelmicro emits these metrics from its own components. All durations are histograms in seconds. All attributes are bounded: component names are fixed at construction, never per-call keys or ids.

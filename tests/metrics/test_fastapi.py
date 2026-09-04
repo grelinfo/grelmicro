@@ -70,6 +70,38 @@ async def test_metrics_endpoint_custom_path_and_prefix() -> None:
         assert client.get("/internal/prom").status_code == HTTP_200_OK
 
 
+async def test_metrics_endpoint_hidden_from_schema_by_default() -> None:
+    """The endpoint is served, and absent from the OpenAPI schema."""
+    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    async with micro:
+        application = FastAPI()
+        application.include_router(metrics_router(micro.metrics))
+        client = TestClient(application)
+
+        assert "/metrics" not in client.get("/openapi.json").json()["paths"]
+        assert client.get("/metrics").status_code == HTTP_200_OK
+
+
+async def test_metrics_endpoint_in_schema_when_asked() -> None:
+    """include_in_schema=True documents the endpoint."""
+    micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
+    async with micro:
+        application = FastAPI()
+        application.include_router(
+            metrics_router(micro.metrics, include_in_schema=True)
+        )
+        client = TestClient(application)
+
+        paths = client.get("/openapi.json").json()["paths"]
+
+        assert "/metrics" in paths
+        assert paths["/metrics"]["get"]["responses"]["200"]["content"] == {
+            "text/plain; version=0.0.4; charset=utf-8": {
+                "schema": {"type": "string"}
+            }
+        }
+
+
 async def test_metrics_endpoint_requires_prometheus_exporter() -> None:
     """A non-Prometheus exporter raises `MetricsError` on request."""
     micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.NONE)])

@@ -1138,6 +1138,18 @@ def health_router(
         str,
         Doc("URL prefix for health endpoints (e.g. '/api/v1')."),
     ] = "",
+    include_in_schema: Annotated[
+        bool,
+        Doc(
+            "Whether the endpoints appear in the OpenAPI schema:\n\n"
+            "- ``False`` (default): served, but absent from "
+            "``/openapi.json`` and the docs pages.\n"
+            "- ``True``: documented like any other route, with the "
+            "``/healthz`` response model and the ``503`` response.\n\n"
+            "The endpoints answer the same either way. This decides "
+            "what the schema publishes, not what is reachable."
+        ),
+    ] = False,
     show_details: Annotated[
         "bool | Depends",
         Doc(
@@ -1177,7 +1189,8 @@ def health_router(
       checkers only. Returns ``200`` or ``503`` with an empty body.
     - ``GET/HEAD {prefix}/healthz``: Aggregate JSON report.
 
-    All responses set ``Cache-Control: no-store``.
+    All responses set ``Cache-Control: no-store``. None of them appear in
+    the OpenAPI schema unless ``include_in_schema=True``.
 
     Raises:
         DependencyNotFoundError: If ``fastapi`` is not installed.
@@ -1206,10 +1219,12 @@ def health_router(
 
     show_details_dep = _resolve_show_details_dep(show_details)
 
-    router = _APIRouter(prefix=prefix, tags=["health"])
+    router = _APIRouter(
+        prefix=prefix, tags=["health"], include_in_schema=include_in_schema
+    )
     healthz_deps = list(healthz_dependencies or ())
 
-    @router.get("/livez", status_code=HTTP_200_OK)
+    @router.get("/livez", status_code=HTTP_200_OK, response_class=Response)
     @router.head("/livez", include_in_schema=False)
     async def livez() -> Response:
         """Liveness probe. Always returns ``200`` with an empty body."""
@@ -1218,6 +1233,7 @@ def health_router(
     @router.get(
         "/readyz",
         status_code=HTTP_200_OK,
+        response_class=Response,
         responses={
             HTTP_503_SERVICE_UNAVAILABLE: {
                 "description": (
