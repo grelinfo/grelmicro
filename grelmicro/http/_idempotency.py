@@ -105,17 +105,21 @@ refused at construction rather than reaching the wire as a broken header.
 
 _RESERVED_REPLAY_HEADERS = frozenset(
     {
+        "allow",
         "cache-control",
         "connection",
         "content-encoding",
         "content-length",
+        "content-range",
         "content-type",
         "etag",
         "last-modified",
         "location",
+        "retry-after",
         "set-cookie",
         "transfer-encoding",
         "vary",
+        "www-authenticate",
     }
 )
 """Names `replay_header` is refused.
@@ -139,6 +143,9 @@ _KEY_SEPARATOR = "\x1f"
 
 def _field_name(value: str, argument: str, example: str) -> str:
     """Return `value`, or raise when it is not an HTTP field name."""
+    if not is_instance(value, str):
+        msg = f"{argument} must be a string, got {type_name(value)}."
+        raise SettingsValidationError(msg)
     if not _FIELD_NAME.fullmatch(value):
         msg = (
             f"{argument} is not an HTTP field name. Use letters, digits, "

@@ -976,6 +976,35 @@ def test_document_idempotency_adds_the_header_and_responses() -> None:
     assert {"400", "409", "413", "422"} <= set(operation["responses"])
 
 
+def test_document_idempotency_keeps_a_declaration_of_its_own() -> None:
+    """A route that documents the marker itself is left with one entry."""
+    # Arrange
+    app = build_app()
+
+    @app.post(
+        "/documented",
+        responses={
+            200: {
+                "headers": {
+                    "idempotent-replayed": {"schema": {"type": "string"}}
+                }
+            }
+        },
+    )
+    async def documented() -> dict[str, int]:
+        return {"amount": 100}
+
+    document_idempotency(app)
+
+    # Act
+    headers = app.openapi()["paths"]["/documented"]["post"]["responses"]["200"][
+        "headers"
+    ]
+
+    # Assert
+    assert list(headers) == ["idempotent-replayed"]
+
+
 def test_document_idempotency_follows_the_path_selection() -> None:
     """An operation the middleware passes through is not described as covered."""
     # Arrange

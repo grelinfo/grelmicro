@@ -36,6 +36,7 @@ pytestmark = [pytest.mark.timeout(5)]
 
 HEADER = "Idempotency-Key"
 REPLAY_HEADER = "Idempotent-Replayed"
+_NOT_A_STRING: Any = b"Idempotency-Key"
 MAX_BODY_SIZE = 2048
 MAX_CHAIN = 8
 HTTP_400_BAD_REQUEST = 400
@@ -171,6 +172,14 @@ def test_a_custom_replay_header_marks_the_replay() -> None:
         pytest.param(
             lambda: IdempotentRequests(replay_header="ETag"),
             id="caches-the-response",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Retry-After"),
+            id="paces-the-client",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(key_header=_NOT_A_STRING),
+            id="not-a-string",
         ),
     ],
 )

@@ -717,17 +717,15 @@ def _annotate_schema(
             else description
         )
 
+    include = tuple(options["include"])
+    exclude = tuple(options["exclude"])
     covered = [
         (path_item, operation)
         # Only what the middleware serves. `_paths` reads `paths` alone: a
         # webhook is a request the app sends, and no `Idempotency-Key` of
         # ours reaches it.
         for path, path_item, operation in _paths(schema, methods)
-        if selects(
-            path,
-            include=tuple(options["include"]),
-            exclude=tuple(options["exclude"]),
-        )
+        if selects(path, include=include, exclude=exclude)
     ]
     if not covered:
         return
@@ -969,20 +967,22 @@ def _add_replay_header(operation: dict[str, Any], name: str) -> None:
 
     The name is a service's to pick, so the schema is where a client
     author reads it. Every status the app answers is stored and replayed,
-    errors included, so the marker is described on all of them.
+    errors included, so the marker is described on all of them. A response
+    that declares the header itself, under any casing, keeps its own.
     """
+    lowered = name.lower()
     for response in operation.get("responses", {}).values():
-        response.setdefault("headers", {}).setdefault(
-            name,
-            {
-                "schema": {"type": "string", "enum": ["true"]},
-                "description": (
-                    "Sent when this response replays an earlier request "
-                    "that carried the same idempotency key. Absent when "
-                    "the operation ran."
-                ),
-            },
-        )
+        headers = response.setdefault("headers", {})
+        if any(declared.lower() == lowered for declared in headers):
+            continue
+        headers[name] = {
+            "schema": {"type": "string", "enum": ["true"]},
+            "description": (
+                "Sent when this response replays an earlier request that "
+                "carried the same idempotency key. Absent when the "
+                "operation ran."
+            ),
+        }
 
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}
