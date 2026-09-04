@@ -250,33 +250,32 @@ def build_formatter(
     record written through `logging` reads the same whichever backend the
     app writes its own records through.
     """
-    caller = caller_enabled
-    otel = otel_enabled
-
     formatter: logging.Formatter
     if resolved_format == LogFormatType.JSON:
         formatter = _JSONFormatter(
             timezone=timezone,
             json_dumps=json_dumps,
-            caller_enabled=caller,
-            otel_enabled=otel,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
         )
     elif resolved_format == LogFormatType.LOGFMT:
         formatter = _LogfmtFormatter(
-            timezone=timezone, caller_enabled=caller, otel_enabled=otel
+            timezone=timezone,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
         )
     elif resolved_format == LogFormatType.PRETTY:
         formatter = _PrettyFormatter(
             timezone=timezone,
-            caller_enabled=caller,
-            otel_enabled=otel,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
             colors=colors,
         )
     else:
         formatter = _TextFormatter(
             timezone=timezone,
-            caller_enabled=caller,
-            otel_enabled=otel,
+            caller_enabled=caller_enabled,
+            otel_enabled=otel_enabled,
             colors=colors,
         )
     return formatter
@@ -292,9 +291,12 @@ def install_root(formatter: logging.Formatter, *, level: int | str) -> None:
     still reads its dependencies in the format it configured rather than
     watching them fall through to `logging.lastResort`.
 
-    Uvicorn is untouched. Its loggers carry their own handlers and do not
-    propagate, and `grelmicro.log.uvicorn` reformats those in place, so a
-    request line renders once.
+    Uvicorn's own records are left where they are. Its default logging
+    config gives its loggers their own handlers with propagation off, and
+    `grelmicro.log.uvicorn` reformats those in place, so a request line
+    renders once. A service that hands uvicorn a `log_config` of its own
+    and leaves propagation on is outside that, and would read every
+    uvicorn line twice.
     """
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)

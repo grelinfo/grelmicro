@@ -45,6 +45,12 @@ anything logging through the standard library renders in the same format on
 the same stream: grelmicro's own components, and every dependency you run,
 httpx, SQLAlchemy and redis among them. One process, one format.
 
+The exception is a loguru format template of your own. `JSON`, `LOGFMT`,
+`TEXT` and `PRETTY` are formats grelmicro renders on both sides, and a
+template asking for the serialized record is read as one of them. Any other
+template is loguru's alone, so records from the standard library are written
+in grelmicro's text format instead.
+
 === "stdlib"
     ```python
     import logging

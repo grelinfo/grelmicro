@@ -236,6 +236,30 @@ def _make_pretty_formatter(
     return _formatter
 
 
+def _root_format(
+    resolved_format: LogFormatType | str,
+    *,
+    json: bool,
+    logfmt: bool,
+) -> LogFormatType | str:
+    """Return the format standard library records render in.
+
+    A loguru format template is loguru's, and a `logging.Formatter` cannot
+    read it. What it renders is known all the same, because `configure`
+    already worked it out to install the patcher: a template asking for
+    the serialized record is JSON, one asking for the logfmt record is
+    logfmt, and anything else is read as text rather than rendered in a
+    format the app did not ask for.
+    """
+    if json:
+        return LogFormatType.JSON
+    if logfmt:
+        return LogFormatType.LOGFMT
+    if isinstance(resolved_format, LogFormatType):
+        return resolved_format
+    return LogFormatType.TEXT
+
+
 def configure(config: LogConfig | None = None) -> None:
     """Configure logging with loguru.
 
@@ -311,7 +335,7 @@ def configure(config: LogConfig | None = None) -> None:
     # instead of falling through to `logging.lastResort`.
     install_root(
         build_formatter(
-            resolved_format,
+            _root_format(resolved_format, json=needs_json, logfmt=needs_logfmt),
             timezone=timezone,
             json_dumps=json_dumps,
             colors=colors,

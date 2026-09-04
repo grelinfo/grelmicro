@@ -120,7 +120,48 @@ def test_a_uvicorn_record_is_written_once(
         access.handlers = []
         access.propagate = True
 
+    # Both streams: uvicorn's handler writes to stderr and the root
+    # handler to stdout, so a duplicate lands on the stream an assertion
+    # about one of them would never read.
+    captured = capsys.readouterr()
     written = [
-        line for line in capsys.readouterr().err.splitlines() if line.strip()
+        line
+        for line in (captured.out + captured.err).splitlines()
+        if line.strip()
     ]
     assert len(written) == 1
+
+
+@pytest.mark.parametrize(
+    ("template", "expected"),
+    [
+        pytest.param("{extra[serialized]}", "json", id="json-template"),
+        pytest.param(
+            "{extra[logfmt_serialized]}", "logfmt", id="logfmt-template"
+        ),
+    ],
+)
+def test_a_loguru_template_renders_both_sides_the_same(
+    template: str,
+    expected: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    reset_backend: None,  # noqa: ARG001
+) -> None:
+    """A template asking for the serialized record is read as its format.
+
+    `LogConfig.format` takes a loguru template, and a `logging.Formatter`
+    cannot read one. What the two known templates render is known all the
+    same, so both sides of the process write it rather than the app's
+    records landing in one format and its dependencies' in another.
+    """
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    configure_with(LogConfig(backend="loguru", format=template, level="INFO"))
+
+    logging.getLogger(COMPONENT_LOGGER).info("a component record")
+
+    written = capsys.readouterr().out.strip()
+    if expected == "json":
+        assert parse_json_log(written)["msg"] == "a component record"
+    else:
+        assert 'msg="a component record"' in written
