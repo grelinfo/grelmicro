@@ -57,9 +57,12 @@ the log and the trace instead of a mapping between two, and `trace_id` and
 | `http.server.request.duration` | Seconds, the unit the matching metric uses. |
 | `error.type` | The exception a handler raised, when one did. |
 
-No header is logged, so no header can leak. The query string is the one place
-a URL carries a credential, and it goes through the same redaction the rest of
-the library uses: `token=secret` reaches the sink as `token=***`.
+The `User-Agent` is the only header on the record, and `user_agent=False`
+drops it. Nothing else a request carries is logged, so an `Authorization`
+header, an API key header and a cookie cannot leak through here. The query
+string is the one place a URL carries a credential, and it goes through the
+same redaction the rest of the library uses: `token=secret` reaches the sink
+as `token=***`.
 
 ## The caller, not the proxy
 
@@ -78,12 +81,22 @@ where that decision is made.
 | `4xx` | `WARNING` |
 | Anything else | `INFO` |
 | A quiet path that answered | `DEBUG` |
+| A caller that hung up, or a shutdown mid-request | `DEBUG` |
+| No response at all, and no exception | `DEBUG` |
+
+The last two carry no `http.response.status_code`, because nothing was sent.
+A cancelled request is the caller leaving or the process stopping, which is
+not the service failing, and on a busy port reporting each one as an error
+would bury the failures that are.
 
 Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds for the
 life of the pod, and Prometheus scrapes `/metrics` as often. At `INFO` they
 crowd out every request a person wanted to read, so those four paths are quiet
 by default: their record is written at `DEBUG`, where it is there when someone
 goes looking and absent from the stream a person reads.
+
+Those are the four paths exactly. A router mounted under a prefix answers
+`/internal/livez`, which is a different path, so name it: `quiet=("/internal/*",)`.
 
 A probe that **fails** is logged like any other failure. A refused readiness
 check is often the only line in the log saying the kubelet asked and was

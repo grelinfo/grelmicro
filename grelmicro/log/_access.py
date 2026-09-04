@@ -242,7 +242,7 @@ class AccessLogMiddleware:
         }
         if status is not None:
             fields["http.response.status_code"] = status
-        template = _route_template(scope)
+        template = _route_template(scope, asked)
         if template is not None:
             fields["http.route"] = template
         client = _client_address(scope)
@@ -423,7 +423,7 @@ def _level_of(
     return logging.DEBUG if quiet else logging.INFO
 
 
-def _route_template(scope: Scope) -> str | None:
+def _route_template(scope: Scope, asked: str) -> str | None:
     """Return the route template the request matched, when there is one.
 
     Read after the app has answered, because that is when the router has
@@ -433,8 +433,11 @@ def _route_template(scope: Scope) -> str | None:
     records neither, so a plain Starlette app leaves the field out rather
     than guessing a template from the values that filled it.
 
-    The mount or proxy prefix goes back on, so the route reads as the path
-    it grouped, which is what `url.path` on the same record carries.
+    A mount prefix goes back on, so the route reads as the path it
+    grouped, which is what `url.path` on the same record carries. A proxy
+    that strips its own prefix leaves `root_path` set and the path without
+    it, and there the prefix stays off, for the same reason: the two
+    fields describe one request and have to agree.
     """
     template = scope.get("path_template")
     if not isinstance(template, str):
@@ -445,6 +448,8 @@ def _route_template(scope: Scope) -> str | None:
     if not isinstance(template, str):
         return None
     root = scope.get("root_path", "").rstrip("/")
+    if not root or not asked.startswith(root):
+        return template
     return f"{root}{template}"
 
 

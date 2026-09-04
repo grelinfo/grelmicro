@@ -873,3 +873,39 @@ async def test_litestar_without_the_binding_still_watches_from_outside(
     assert capture()[0].__dict__["http.response.status_code"] == (
         HTTP_NOT_FOUND
     )
+
+
+async def test_the_route_carries_the_same_prefix_as_the_path(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """Two fields describing one request have to agree on its shape.
+
+    A mount adds its prefix to both. A proxy that strips its own prefix
+    leaves `root_path` set and the path without it, and putting the prefix
+    back on the route alone would describe a path the record does not
+    carry.
+    """
+    inner = FastAPI(root_path="/api")
+
+    @inner.get("/orders/{order_id}")
+    async def order(order_id: str) -> str:
+        return order_id
+
+    stripped = AccessLogMiddleware(inner)
+    mounted = Starlette(routes=[Mount("/api", app=inner)])
+    mounted.add_middleware(AccessLogMiddleware)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=stripped, root_path="/api"),
+        base_url="http://probe",
+    ) as client:
+        await client.get("/orders/7")
+    async with client_for(mounted) as client:
+        await client.get("/api/orders/7")
+
+    behind_proxy, under_mount = capture()
+
+    assert behind_proxy.__dict__["url.path"] == "/orders/7"
+    assert behind_proxy.__dict__["http.route"] == "/orders/{order_id}"
+    assert under_mount.__dict__["url.path"] == "/api/orders/7"
+    assert under_mount.__dict__["http.route"] == "/api/orders/{order_id}"
