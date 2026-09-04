@@ -25,6 +25,7 @@
 * 💥 `IdempotencyMiddleware` and `IdempotentRequests` take `key_header=` where they took `header=`. Two headers have a name now, so the request one says which it is. ([#688](https://github.com/grelinfo/grelmicro/issues/688))
 * 💥 `health_router()` keeps `/livez`, `/readyz` and `/healthz` out of the OpenAPI schema. They answer exactly the same, and the schema names neither the probes nor the shape of the report. Pass `include_in_schema=True` to publish them. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
 * 💥 `metrics_router()` keeps `/metrics` out of the OpenAPI schema. A scrape target is not part of a client contract. Pass `include_in_schema=True` to publish it. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
+* 💥 A published endpoint is documented as what it sends. `/livez` and `/readyz` carry no content, and `/metrics` carries the Prometheus text exposition. All three used to be described as JSON, so a generated client tried to parse an empty body or a text one. ([#690](https://github.com/grelinfo/grelmicro/issues/690))
 
 ### Fixed
 * 🐛 `document_idempotency(app)` describes every installed `IdempotencyMiddleware`, each with its own paths and its own two header names. An app running a second set of rules had one of them published. Pass `idempotency=` to describe one alone, which is what `openapi=False` on a component now rests on. ([#801](https://github.com/grelinfo/grelmicro/pull/801))

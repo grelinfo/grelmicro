@@ -40,9 +40,9 @@ def metrics_router(
         Doc(
             "Whether the endpoint appears in the OpenAPI schema:\n\n"
             "- ``False`` (default): served, but absent from "
-            "``/openapi.json`` and the docs pages. A scrape target is "
-            "not part of the client contract.\n"
-            "- ``True``: documented like any other route.\n\n"
+            "``/openapi.json`` and the docs pages.\n"
+            "- ``True``: documented as returning the Prometheus "
+            "exposition, which is text and not JSON.\n\n"
             "The endpoint answers the same either way. This decides "
             "what the schema publishes, not what is reachable."
         ),
@@ -87,7 +87,19 @@ def metrics_router(
     )
     deps = list(dependencies or ())
 
-    @router.get(path, dependencies=deps)
+    @router.get(
+        path,
+        dependencies=deps,
+        response_class=Response,
+        responses={
+            200: {
+                "description": "Prometheus exposition of the active registry.",
+                "content": {
+                    _PROMETHEUS_CONTENT_TYPE: {"schema": {"type": "string"}}
+                },
+            },
+        },
+    )
     async def metrics() -> Response:
         """Render the Prometheus exposition for the active registry."""
         from prometheus_client import generate_latest  # noqa: PLC0415

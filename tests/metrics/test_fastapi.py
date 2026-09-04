@@ -92,7 +92,14 @@ async def test_metrics_endpoint_in_schema_when_asked() -> None:
         )
         client = TestClient(application)
 
-        assert "/metrics" in client.get("/openapi.json").json()["paths"]
+        paths = client.get("/openapi.json").json()["paths"]
+
+        assert "/metrics" in paths
+        assert paths["/metrics"]["get"]["responses"]["200"]["content"] == {
+            "text/plain; version=0.0.4; charset=utf-8": {
+                "schema": {"type": "string"}
+            }
+        }
 
 
 async def test_metrics_endpoint_requires_prometheus_exporter() -> None:

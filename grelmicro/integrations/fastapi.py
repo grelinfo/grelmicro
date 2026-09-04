@@ -1143,9 +1143,7 @@ def health_router(
         Doc(
             "Whether the endpoints appear in the OpenAPI schema:\n\n"
             "- ``False`` (default): served, but absent from "
-            "``/openapi.json`` and the docs pages. The schema stays a "
-            "client contract, and it names neither the probes nor the "
-            "shape of the report.\n"
+            "``/openapi.json`` and the docs pages.\n"
             "- ``True``: documented like any other route, with the "
             "``/healthz`` response model and the ``503`` response.\n\n"
             "The endpoints answer the same either way. This decides "
@@ -1226,7 +1224,7 @@ def health_router(
     )
     healthz_deps = list(healthz_dependencies or ())
 
-    @router.get("/livez", status_code=HTTP_200_OK)
+    @router.get("/livez", status_code=HTTP_200_OK, response_class=Response)
     @router.head("/livez", include_in_schema=False)
     async def livez() -> Response:
         """Liveness probe. Always returns ``200`` with an empty body."""
@@ -1235,6 +1233,7 @@ def health_router(
     @router.get(
         "/readyz",
         status_code=HTTP_200_OK,
+        response_class=Response,
         responses={
             HTTP_503_SERVICE_UNAVAILABLE: {
                 "description": (

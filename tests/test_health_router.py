@@ -494,6 +494,25 @@ def test_openapi_schema_includes_endpoints_when_asked(
     assert "503" in healthz_responses
 
 
+def test_openapi_documents_the_empty_probe_bodies(
+    health: HealthChecks,
+) -> None:
+    """The probes send no body, so the schema documents no content."""
+    app = FastAPI()
+    app.include_router(health_router(component=health, include_in_schema=True))
+    client = TestClient(app)
+
+    paths = client.get("/openapi.json").json()["paths"]
+
+    assert "content" not in paths["/livez"]["get"]["responses"]["200"]
+    assert "content" not in paths["/readyz"]["get"]["responses"]["200"]
+    assert paths["/healthz"]["get"]["responses"]["200"]["content"] == {
+        "application/json": {
+            "schema": {"$ref": "#/components/schemas/HealthzResponse"}
+        }
+    }
+
+
 def test_health_router_raises_without_fastapi() -> None:
     """health_router raises DependencyNotFoundError without FastAPI."""
     with patch.dict(sys.modules, {"fastapi": None, "fastapi.responses": None}):

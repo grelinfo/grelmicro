@@ -86,3 +86,20 @@ because the consecutive-count algorithm is a sensible default. `RateLimiter`
 has no default algorithm, so it has no bare constructor: both algorithms need
 parameters the library cannot guess, which makes naming one part of building
 the object.
+
+## The OpenAPI schema has two words, for two things
+
+`include_in_schema=` says whether a router grelmicro builds puts *its own*
+routes in the schema. It is FastAPI's word for exactly that, so
+`health_router(include_in_schema=True)` reads like the `@app.get(...)` a
+reader already knows. It defaults to `False`: an orchestrator, a load
+balancer and a scraper read the endpoint, never the schema.
+
+`openapi=` says whether a component annotates *routes you wrote*.
+`IdempotentRequests(openapi=False)` leaves your operations undescribed, and
+adds no route of its own. It defaults to `True`, because a header the
+middleware requires is part of your contract.
+
+Two words because they are two operations. Adding a route to the schema and
+annotating someone else's are not the same act, and a component that serves
+no route has nothing to include.
