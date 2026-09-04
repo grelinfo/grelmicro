@@ -243,7 +243,9 @@ def test_healthz_omits_details_when_check_returned_none() -> None:
 def test_healthz_schema_types_optional_fields_as_absent() -> None:
     """OpenAPI types the omitted fields as plain values, never as null."""
     app = FastAPI()
-    app.include_router(health_router(component=HealthChecks()))
+    app.include_router(
+        health_router(component=HealthChecks(), include_in_schema=True)
+    )
 
     schema = app.openapi()["components"]["schemas"]["CheckResultResponse"]
 
@@ -459,8 +461,28 @@ def test_healthz_head_method(health: HealthChecks, client: TestClient) -> None:
 
 
 @pytest.mark.usefixtures("health")
-def test_openapi_schema(client: TestClient) -> None:
-    """All three endpoints appear in the OpenAPI schema."""
+def test_openapi_schema_hides_endpoints_by_default(
+    client: TestClient,
+) -> None:
+    """The endpoints are served, and none of them is in the schema."""
+    schema = client.get("/openapi.json").json()
+
+    paths = schema["paths"]
+    assert "/livez" not in paths
+    assert "/readyz" not in paths
+    assert "/healthz" not in paths
+    assert client.get("/livez").status_code == HTTP_200_OK
+    assert client.get("/healthz").status_code == HTTP_200_OK
+
+
+def test_openapi_schema_includes_endpoints_when_asked(
+    health: HealthChecks,
+) -> None:
+    """include_in_schema=True documents all three endpoints."""
+    app = FastAPI()
+    app.include_router(health_router(component=health, include_in_schema=True))
+    client = TestClient(app)
+
     schema = client.get("/openapi.json").json()
 
     paths = schema["paths"]

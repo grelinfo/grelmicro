@@ -354,7 +354,7 @@
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
     "health_router": {
-      "()": "(component=None, *, prefix='', show_details=False, healthz_dependencies=None) -> 'APIRouter'"
+      "()": "(component=None, *, prefix='', include_in_schema=False, show_details=False, healthz_dependencies=None) -> 'APIRouter'"
     },
     "install": {
       "()": "(app, micro, *, ambient=True) -> None"
@@ -474,7 +474,7 @@
       "()": "(func=None, *, name=None, record_in_flight=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
     },
     "metrics_router": {
-      "()": "(component=None, *, prefix='', path='/metrics', dependencies=None) -> 'APIRouter'"
+      "()": "(component=None, *, prefix='', path='/metrics', include_in_schema=False, dependencies=None) -> 'APIRouter'"
     }
   },
   "grelmicro.outbox": {
