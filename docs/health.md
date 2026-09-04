@@ -298,6 +298,40 @@ Mount the health endpoints under a custom prefix:
 --8<-- "health/fastapi_prefix.py"
 ```
 
+## Without a Web Framework
+
+A worker, a consumer, or a scheduler serves no HTTP, and Kubernetes still
+probes it. `OpsServer` gives it a port of its own, with no framework and no
+new dependency:
+
+```python
+from grelmicro import Grelmicro
+from grelmicro.health import HealthChecks
+from grelmicro.http import OpsServer
+
+micro = Grelmicro(uses=[HealthChecks(auto_health=True), OpsServer(port=8080)])
+```
+
+`GET /livez`, `/readyz` and `/healthz` answer on 8080, exactly as the FastAPI
+router answers them. Read [Ops Server](http/server.md).
+
+On another ASGI framework, mount the endpoints in the app you already serve:
+
+```python
+--8<-- "health/asgi.py"
+```
+
+`health_asgi()` is a pure-ASGI app. It mounts in Starlette, Litestar, or
+anything else that speaks ASGI, and it takes the same `prefix` and
+`show_details` the router takes. It has no `Depends`, so gate it with your own
+middleware where the router would take `healthz_dependencies`.
+
+| You run | Use | You also get |
+|---|---|---|
+| FastAPI | `health_router()` | The OpenAPI schema, `Depends` gates, `show_details=Depends(...)` |
+| Another ASGI framework | `health_asgi()` | Nothing to wire beyond the mount |
+| No web framework | `OpsServer()` | A port of its own, and `/metrics` alongside |
+
 ## Design
 
 ### Why Three Endpoints

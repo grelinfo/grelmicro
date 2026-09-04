@@ -210,6 +210,10 @@ liveness probe at `/livez`, which stays `200` while the process is alive, and
 the readiness probe at `/readyz`, which turns `503` as soon as a critical
 check fails and takes the pod out of the Service.
 
+A pod that serves no HTTP, a consumer or a scheduler, gets the same three
+endpoints on a port of its own from [`OpsServer`](http/server.md), and points
+its probes at that port.
+
 Keep the readiness period short and the liveness period long. Readiness
 reacts to a lost backend, liveness only to a process that is gone. Use a
 `startupProbe` on `/livez` instead of a long `initialDelaySeconds`, so a slow

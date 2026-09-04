@@ -248,6 +248,9 @@
     "HealthReport": null,
     "HealthStatus": {
       "()": "(*values)"
+    },
+    "health_asgi": {
+      "()": "(component=None, *, prefix='', show_details=False) -> 'ASGIApp'"
     }
   },
   "grelmicro.http": {
@@ -269,6 +272,14 @@
     "IdempotentRequests": {
       "()": "(*, ttl=None, namespace='http', cache=None, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, openapi=True, name='default') -> 'None'"
     },
+    "OpsServer": {
+      "()": "(*, port=None, host=None, show_details=None, request_timeout=None, shutdown_timeout=None, max_connections=None, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default') -> 'Self'"
+    },
+    "OpsServerConfig": {
+      "()": "(*, host='', port=8080, show_details=False, request_timeout=10.0, shutdown_timeout=5.0, max_connections=32) -> None"
+    },
+    "OpsServerError": null,
     "PROBLEM_MEDIA_TYPE": null,
     "PreconditionError": null,
     "PreconditionFailedError": {
@@ -472,6 +483,9 @@
     },
     "measure": {
       "()": "(func=None, *, name=None, record_in_flight=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
+    },
+    "metrics_asgi": {
+      "()": "(component=None, *, prefix='', path='/metrics') -> 'ASGIApp'"
     },
     "metrics_router": {
       "()": "(component=None, *, prefix='', path='/metrics', include_in_schema=False, dependencies=None) -> 'APIRouter'"

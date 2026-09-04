@@ -140,10 +140,39 @@ every framework.
 """
 
 FASTAPI_ONLY = {
-    "health_router": "Builds a FastAPI `APIRouter`. #690 tracks a framework-free endpoint.",
-    "metrics_router": "Builds a FastAPI `APIRouter`, same as `health_router`.",
+    "health_router": (
+        "Builds a FastAPI `APIRouter`, for the OpenAPI schema and the "
+        "`Depends` gates. The endpoints themselves are on every framework "
+        "through `health_asgi`."
+    ),
+    "metrics_router": (
+        "Builds a FastAPI `APIRouter`, same as `health_router`, and the "
+        "endpoint is on every framework through `metrics_asgi`."
+    ),
 }
 """The honest exceptions: what one framework has and the others do not."""
+
+OWN_ENDPOINTS = {
+    "OpsServer": (
+        "Serves grelmicro's own endpoints on its own port, so no framework "
+        "answers them and there is nothing to compare across four."
+    ),
+    "health_routes": (
+        "Builds the handlers behind `health_asgi`, which answer on the "
+        "server that serves them rather than inside a route handler."
+    ),
+    "metrics_routes": (
+        "Builds the handler behind `metrics_asgi`, same as `health_routes`."
+    ),
+}
+"""What grelmicro serves itself, rather than through a framework.
+
+`health_asgi` and `metrics_asgi` mount in any ASGI framework and run
+standalone under `OpsServer`, and each one renders through the same
+functions the FastAPI router does. `tests/test_endpoint_parity.py` holds
+that: the router and the ASGI app answer one status, one set of headers,
+and one body.
+"""
 
 
 # --- The exercises -------------------------------------------------------
@@ -265,12 +294,17 @@ def test_every_ambient_pattern_is_covered_or_named() -> None:
     The three ways out are all explicit: an exercise below, a reason it
     never runs per request, or a reason one framework alone has it.
     """
-    classified = set(EXERCISES) | set(NOT_PER_REQUEST) | set(FASTAPI_ONLY)
+    classified = (
+        set(EXERCISES)
+        | set(NOT_PER_REQUEST)
+        | set(FASTAPI_ONLY)
+        | set(OWN_ENDPOINTS)
+    )
     missing = sorted(set(AMBIENT) - classified)
     assert not missing, (
         f"these resolve through the active app but no framework matrix "
         f"covers them: {missing}. Add an exercise to EXERCISES, or a reason "
-        f"to NOT_PER_REQUEST or FASTAPI_ONLY."
+        f"to NOT_PER_REQUEST, FASTAPI_ONLY, or OWN_ENDPOINTS."
     )
 
 

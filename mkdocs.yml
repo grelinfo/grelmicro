@@ -100,6 +100,7 @@ nav:
         - http/errors.md
         - http/conditional.md
         - http/idempotency.md
+        - http/server.md
     - Security:
         - security/index.md
         - security/clientip.md

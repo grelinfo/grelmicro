@@ -105,6 +105,23 @@ Pass `prefix`, `path`, and `dependencies` to mount the route elsewhere or gate i
 
 The route stays out of the OpenAPI schema. A scrape target is not part of your client contract, so `/metrics` is served but never published. Pass `include_in_schema=True` to document it, as the text exposition it returns rather than as JSON.
 
+### Without FastAPI
+
+`metrics_asgi()` serves the same endpoint as a pure-ASGI app, so it mounts in
+any ASGI framework:
+
+```python
+--8<-- "metrics/asgi.py"
+```
+
+A process that serves no HTTP at all gets the endpoint from
+[`OpsServer`](http/server.md), on a port of its own, next to the health
+probes:
+
+```python
+micro = Grelmicro(uses=[Metrics(exporter="prometheus"), OpsServer(port=8080)])
+```
+
 ## Built-in metrics
 
 When a `Metrics` component is active, grelmicro emits these metrics from its own components. All durations are histograms in seconds. All attributes are bounded: component names are fixed at construction, never per-call keys or ids.

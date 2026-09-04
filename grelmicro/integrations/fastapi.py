@@ -24,10 +24,17 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Doc
 
+from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
-from grelmicro._json import json_dumps_bytes
+from grelmicro._paths import selects
 from grelmicro.health._checks import HealthChecks
-from grelmicro.health._models import CheckResult, HealthStatus
+from grelmicro.health._endpoints import (
+    JSON_MEDIA_TYPE,
+    parse_exclude,
+    report_body,
+    status_code,
+)
+from grelmicro.health._models import HealthStatus
 from grelmicro.http import (
     ConditionalRequestsMiddleware,
     ErrorResponses,
@@ -40,7 +47,6 @@ from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
 from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
-from grelmicro.http._paths import selects
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -1080,9 +1086,6 @@ def _add_replay_header(operation: dict[str, Any], name: str) -> None:
         }
 
 
-_NO_STORE_HEADERS = {"Cache-Control": "no-store"}
-
-
 def _always_true() -> bool:
     return True
 
@@ -1228,7 +1231,7 @@ def health_router(
     @router.head("/livez", include_in_schema=False)
     async def livez() -> Response:
         """Liveness probe. Always returns ``200`` with an empty body."""
-        return Response(status_code=HTTP_200_OK, headers=_NO_STORE_HEADERS)
+        return Response(status_code=HTTP_200_OK, headers=NO_STORE_HEADERS)
 
     @router.get(
         "/readyz",
@@ -1254,14 +1257,12 @@ def health_router(
         """Readiness probe. Runs critical checkers only."""
         report = await _resolve_component().run(
             critical_only=True,
-            exclude=_parse_exclude(exclude),
+            exclude=parse_exclude(exclude),
         )
-        status_code = (
-            HTTP_200_OK
-            if report["status"] == HealthStatus.OK
-            else HTTP_503_SERVICE_UNAVAILABLE
+        return Response(
+            status_code=status_code(report["status"]),
+            headers=NO_STORE_HEADERS,
         )
-        return Response(status_code=status_code, headers=_NO_STORE_HEADERS)
 
     @router.get(
         "/healthz",
@@ -1287,49 +1288,18 @@ def health_router(
         """Aggregate JSON report of all checker results."""
         report = await _resolve_component().run(
             critical_only=False,
-            exclude=_parse_exclude(exclude),
-        )
-        body: Any = {
-            "status": report["status"],
-            "checks": {
-                name: _check_body(result, details=include_details)
-                for name, result in report["checks"].items()
-            },
-        }
-        status_code = (
-            HTTP_200_OK
-            if report["status"] == HealthStatus.OK
-            else HTTP_503_SERVICE_UNAVAILABLE
+            exclude=parse_exclude(exclude),
         )
         return Response(
-            content=json_dumps_bytes(body),
-            status_code=status_code,
-            media_type="application/json",
-            headers=_NO_STORE_HEADERS,
+            content=report_body(
+                report["checks"], report["status"], details=include_details
+            ),
+            status_code=status_code(report["status"]),
+            media_type=JSON_MEDIA_TYPE,
+            headers=NO_STORE_HEADERS,
         )
 
     return router
-
-
-def _check_body(result: CheckResult, *, details: bool) -> dict[str, Any]:
-    """Build one `/healthz` check entry, leaving out what carries no value.
-
-    A passing check reports `status` and `critical` alone. `error` is added
-    only when the check failed, and `details` only when the check returned
-    some and the router is showing them.
-    """
-    body: dict[str, Any] = {
-        "status": result["status"],
-        "critical": result["critical"],
-    }
-    error = result["error"]
-    if error is not None:
-        body["error"] = error
-    if details:
-        check_details = result["details"]
-        if check_details is not None:
-            body["details"] = check_details
-    return body
 
 
 def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noqa: ANN401
@@ -1356,18 +1326,6 @@ def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noq
         f"bool, got {type(show_details).__name__}"
     )
     raise TypeError(msg)
-
-
-def _parse_exclude(raw: str | None) -> frozenset[str]:
-    """Split a comma-separated exclude list into a frozenset of names.
-
-    ``frozenset`` so the component's ``run(exclude=...)`` can adopt it
-    without copying (CPython short-circuits ``frozenset(frozenset)``
-    to the same object).
-    """
-    if not raw:
-        return frozenset()
-    return frozenset(name.strip() for name in raw.split(",") if name.strip())
 
 
 if TYPE_CHECKING:
