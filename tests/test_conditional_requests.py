@@ -25,7 +25,7 @@ from grelmicro.http import (
     check_precondition,
     etag_of,
 )
-from grelmicro.http._paths import selects
+from grelmicro.http._paths import route_path, selects
 from grelmicro.integrations.fastapi import (
     Conditional,
     ConditionalRequired,
@@ -1747,6 +1747,21 @@ async def test_a_background_task_never_delays_the_response() -> None:
 
     # Assert
     assert started[0] - begin < BACKGROUND_WORK
+
+
+def test_a_pattern_names_the_route_under_any_prefix() -> None:
+    """The prefix a mount or a proxy adds is taken off before matching."""
+    # Assert
+    assert route_path({"path": "/charge", "root_path": ""}) == "/charge"
+    assert route_path({"path": "/sub/charge", "root_path": "/sub"}) == "/charge"
+    assert (
+        route_path({"path": "/sub/charge", "root_path": "/sub/"}) == "/charge"
+    )
+    # A prefix is a whole segment, and `/` is no prefix at all.
+    assert route_path({"path": "/charge", "root_path": "/"}) == "/charge"
+    assert route_path({"path": "/apikeys", "root_path": "/api"}) == "/apikeys"
+    # An app answering at its prefix reads as the route it declares.
+    assert route_path({"path": "/api", "root_path": "/api"}) == "/"
 
 
 def test_a_router_prefix_selects_the_router_root() -> None:

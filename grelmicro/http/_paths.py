@@ -6,14 +6,45 @@ once: `include` narrows, `exclude` carves out, and `exclude` wins.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
-__all__ = ["matches", "selects"]
+if TYPE_CHECKING:
+    from collections.abc import MutableMapping
+
+__all__ = ["matches", "route_path", "selects"]
 
 _PREFIX = "*"
 """What turns a pattern into a prefix match, at the end of it."""
+
+
+def route_path(
+    scope: Annotated[
+        MutableMapping[str, Any], Doc("The ASGI scope of the request.")
+    ],
+) -> str:
+    """Return the path the app declares its routes under.
+
+    `scope["path"]` carries the prefix a mount or a proxy adds, and
+    `root_path` carries that prefix, so what is left is the path the route
+    is written with. A pattern is therefore the same in an app served at
+    the root, mounted under another app, or behind a proxy, and the same
+    as the path the OpenAPI schema publishes.
+
+    Only a whole segment is a prefix, so a `root_path` of `/api` leaves
+    `/apikeys` alone and shortens `/api/keys`. An app answering at its
+    prefix reads as `/`, which is the route it declares.
+    """
+    path = scope["path"]
+    root = scope.get("root_path", "").rstrip("/")
+    if not root or not path.startswith(root):
+        return path
+    if path == root:
+        return "/"
+    if path[len(root)] == "/":
+        return path[len(root) :]
+    return path
 
 
 def matches(

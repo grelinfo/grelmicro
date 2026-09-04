@@ -56,12 +56,14 @@ from grelmicro.integrations.starlette import (
 )
 
 if TYPE_CHECKING:
+    import inspect
     from collections.abc import Callable, Collection, Sequence
 
     from fastapi import APIRouter, FastAPI
     from fastapi.params import Depends
 
     from grelmicro import Grelmicro
+    from grelmicro.idempotency import Idempotency
     from grelmicro.trace._component import Trace
 
 __all__ = [
@@ -211,14 +213,29 @@ def document_idempotency(
         "FastAPI",
         Doc("The app carrying an `IdempotencyMiddleware` to document."),
     ],
+    *,
+    idempotency: Annotated[
+        "Idempotency[Any] | None",
+        Doc(
+            "Describe only the middleware storing through this "
+            "`Idempotency`. Defaults to every one the app carries."
+        ),
+    ] = None,
 ) -> None:
     """Describe the installed `IdempotencyMiddleware` in the OpenAPI schema.
 
     A middleware runs outside the routing layer, so nothing it does reaches
     the generated schema and a client built from that schema never learns
     the header exists. This reads the installed middleware and annotates
-    every operation it covers with the header parameter and the responses
-    the middleware itself can return.
+    every operation it covers with the key header parameter, the replay
+    header on the responses that can carry it, and the responses the
+    middleware itself can return.
+
+    An app running two sets of rules has each described under its own
+    paths and its own two header names. Pass `idempotency` to describe one
+    of them and leave the other out of the schema. An app that wired the
+    middleware by hand stores through none of the registered components,
+    and every installed middleware is described.
 
     ```python
     from grelmicro.http import IdempotencyMiddleware
@@ -250,21 +267,39 @@ def document_idempotency(
             `IdempotencyMiddleware`.
     """
     _require_fastapi(app, "document_idempotency")
-    options = _idempotency_options(app)
+    _idempotency_options(app)
     original = app.openapi
 
     def openapi() -> dict[str, Any]:
         # Read when the schema is built rather than when this is called, so
         # the order of `document_idempotency` and `micro.install` cannot
-        # publish a format the app does not answer in.
+        # publish a format the app does not answer in, and so a middleware
+        # added after this call is described too.
         errors = getattr(app.state, "grelmicro_error_responses", None)
         schema = original()
-        _annotate_schema(
-            schema,
-            options,
-            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
-            ProblemDetail if errors is None else errors.model,
-        )
+        installed = list(enumerate(_idempotency_options(app)))
+        # A component names the middleware it registered, so a second set
+        # of rules stays out of the schema. Naming one the app does not
+        # carry means the app wired the middleware itself, which serves
+        # the component's rules, so every installed one is described.
+        named = [
+            entry
+            for entry in installed
+            # A middleware that builds its own store rather than taking
+            # one has none to compare, and is named by nobody.
+            if idempotency is None or entry[1].get("idempotency") is idempotency
+        ]
+        described = _described(app, schema)
+        for index, options in named or installed:
+            if index in described:
+                continue
+            described.add(index)
+            _annotate_schema(
+                schema,
+                options,
+                PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
+                ProblemDetail if errors is None else errors.model,
+            )
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -633,32 +668,85 @@ def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
         raise TypeError(msg)
 
 
+def _described(app: "FastAPI", schema: dict[str, Any]) -> set[int]:
+    """Return which installed middlewares this schema already describes.
+
+    FastAPI caches the schema it builds and hands back the same object,
+    and two components leave two wrappers over it, so a middleware is
+    described once, by whichever wrapper reaches the schema first.
+    """
+    current = getattr(app.state, "grelmicro_idempotency_described", None)
+    if current is None or current[0] is not schema:
+        current = (schema, set())
+        app.state.grelmicro_idempotency_described = current
+    return cast("set[int]", current[1])
+
+
 def _middleware_options(
     app: "FastAPI", middleware: type[Any], missing: str
 ) -> dict[str, Any]:
     """Return one installed middleware's arguments, defaults filled in.
+
+    The first match is the outermost at runtime, which is what answers
+    first on the wire.
+
+    Raises:
+        TypeError: If the app carries no such middleware.
+    """
+    return _every_middleware_options(app, middleware, missing)[0]
+
+
+def _every_middleware_options(
+    app: "FastAPI", middleware: type[Any], missing: str
+) -> list[dict[str, Any]]:
+    """Return every installed middleware's arguments, defaults filled in.
+
+    An app may carry two sets of rules, each with its own paths and its
+    own headers, and the schema describes what each one covers.
 
     Raises:
         TypeError: If the app carries no such middleware.
     """
     import inspect  # noqa: PLC0415
 
+    base = inspect.signature(middleware)
+    found = []
     for entry in app.user_middleware:
-        # `add_middleware` prepends, so the first match is the last added,
-        # which is the outermost at runtime and answers first on the wire.
         cls = entry.cls
         if is_class(cls) and is_subclass(cls, middleware):
             # Every parameter after `app` is keyword-only, so
-            # `add_middleware` can only have passed them by keyword.
-            bound = inspect.signature(middleware).bind_partial(**entry.kwargs)
-            bound.apply_defaults()
-            return dict(bound.arguments)
-    raise TypeError(missing)
+            # `add_middleware` can only have passed them by keyword. A
+            # subclass may take keywords of its own, which say nothing
+            # about what this describes, and may declare a default of its
+            # own for one of these, which is what the wire then carries.
+            own = inspect.signature(cls)
+            options = _bound_options(own, entry.kwargs)
+            for name, value in _bound_options(base, entry.kwargs).items():
+                options.setdefault(name, value)
+            found.append(options)
+    if not found:
+        raise TypeError(missing)
+    return found
 
 
-def _idempotency_options(app: "FastAPI") -> dict[str, Any]:
-    """Return the installed middleware's arguments, defaults filled in."""
-    return _middleware_options(
+def _bound_options(
+    signature: "inspect.Signature", kwargs: dict[str, Any]
+) -> dict[str, Any]:
+    """Return what a signature makes of these arguments, defaults filled in."""
+    bound = signature.bind_partial(
+        **{
+            name: value
+            for name, value in kwargs.items()
+            if name in signature.parameters
+        }
+    )
+    bound.apply_defaults()
+    return dict(bound.arguments)
+
+
+def _idempotency_options(app: "FastAPI") -> list[dict[str, Any]]:
+    """Return every installed middleware's arguments, defaults filled in."""
+    return _every_middleware_options(
         app,
         IdempotencyMiddleware,
         "document_idempotency() found no IdempotencyMiddleware on the app. "
@@ -674,7 +762,7 @@ def _annotate_schema(
 ) -> None:
     """Add the header and the middleware's responses to covered operations."""
     methods = {method.lower() for method in options["methods"]}
-    header = options["header"]
+    header = options["key_header"]
     fingerprint_body = options["fingerprint_body"]
     parameter = {
         "name": header,
@@ -716,11 +804,17 @@ def _annotate_schema(
             else description
         )
 
+    include = tuple(options["include"])
+    exclude = tuple(options["exclude"])
     covered = [
         (path_item, operation)
-        # Only what the middleware serves. A webhook is a request the app
-        # sends, and no `Idempotency-Key` of ours reaches it.
-        for path_item, operation in _operations(schema, methods, ("paths",))
+        # `_paths` reads `paths` alone: a webhook is a request the app
+        # sends, and no `Idempotency-Key` of ours reaches it. The patterns
+        # select the same path here as on the wire, because the middleware
+        # matches them against the route rather than the prefix a mount or
+        # a proxy adds.
+        for path, path_item, operation in _paths(schema, methods)
+        if selects(path, include=include, exclude=exclude)
     ]
     if not covered:
         return
@@ -729,6 +823,7 @@ def _annotate_schema(
         _add_parameter(operation, path_item, parameter)
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
+        _add_replay_header(operation, options["replay_header"])
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
@@ -954,6 +1049,35 @@ def _merge_response(
         existing.setdefault("content", {}).setdefault(
             media_type, {"schema": {"$ref": ref}}
         )
+
+
+def _add_replay_header(operation: dict[str, Any], name: str) -> None:
+    """Describe the replay marker on every response of an operation.
+
+    The name is a service's to pick, so the schema is where a client
+    author reads it. Every status the app answers is stored and replayed,
+    errors included, and which statuses those are is decided by the
+    middleware order at runtime rather than by anything the schema holds:
+    a handler raising `HTTPException(400)` declares no `400`, and one
+    middleware's refusal is stored and replayed by another above it. The
+    marker is therefore published as a header that may appear, never as
+    one that always does, which is the reading that costs a client
+    nothing when it does not. A response that declares the header itself,
+    under any casing, keeps its own.
+    """
+    lowered = name.lower()
+    for response in operation.get("responses", {}).values():
+        headers = response.setdefault("headers", {})
+        if any(declared.lower() == lowered for declared in headers):
+            continue
+        headers[name] = {
+            "schema": {"type": "string", "enum": ["true"]},
+            "description": (
+                "Sent when this response replays an earlier request that "
+                "carried the same idempotency key. Absent when the "
+                "operation ran."
+            ),
+        }
 
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}

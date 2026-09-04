@@ -24,7 +24,7 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._guards import is_instance, type_name
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
@@ -36,7 +36,7 @@ from grelmicro.http._kinds import (
     Kind,
     Occurrence,
 )
-from grelmicro.http._paths import selects
+from grelmicro.http._paths import route_path, selects
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -86,8 +86,72 @@ A longer key is answered with `400`.
 """
 
 
-_REPLAY_HEADER = b"idempotent-replayed"
-"""Response header marking a replayed response."""
+_DEFAULT_REPLAY_HEADER = "Idempotent-Replayed"
+"""Response header marking a replayed response.
+
+No standard names one. The Idempotency-Key header draft registers the
+request header alone, so this is the name most APIs answer a replay with.
+`replay_header` takes another.
+"""
+
+
+_FIELD_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+"""What an HTTP field name may hold, as RFC 9110 spells a token.
+
+A name holding anything else, a space, a colon, or a newline above all, is
+refused at construction rather than reaching the wire as a broken header.
+"""
+
+
+_RESERVED_REPLAY_HEADERS = frozenset(
+    {
+        "age",
+        "allow",
+        "cache-control",
+        "connection",
+        "content-disposition",
+        "content-encoding",
+        "content-length",
+        "content-range",
+        "content-type",
+        "etag",
+        "expires",
+        "last-modified",
+        "location",
+        "retry-after",
+        "set-cookie",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "vary",
+        "www-authenticate",
+    }
+)
+"""Names `replay_header` is refused.
+
+Each one frames the response, labels it, or tells a cache what to do with
+it, so the marker taking its place would break the exchange rather than
+annotate it. `ETag: true` is the sharpest case: every replay would carry
+one entity tag, and a later `If-None-Match` would match a resource the
+client never held. Any other name the stored response carries is logged
+when the marker replaces it.
+"""
+
+
+_REPLAY_VALUE = "true"
+"""What the replay marker carries."""
+
+
+_REPLAY_MARK = _REPLAY_VALUE.encode("ascii")
+"""What the replay marker carries, as it goes on the wire."""
+
+
+_REPLAYED_SCOPE_KEY = "grelmicro.idempotency.replayed"
+"""Set on the scope by the middleware that answers a request with a replay.
+
+A middleware of this kind running above that one reads it to tell a marker
+of ours from one a handler wrote, which look the same on the wire.
+"""
 
 
 _MIN_CONTENT_STATUS = 200
@@ -96,6 +160,73 @@ _MIN_CONTENT_STATUS = 200
 
 _KEY_SEPARATOR = "\x1f"
 """Separator joining the parts of a stored key."""
+
+
+def _field_name(value: str, argument: str, example: str) -> str:
+    """Return `value`, or raise when it is not an HTTP field name."""
+    if not is_instance(value, str):
+        msg = f"{argument} must be a string, got {type_name(value)}."
+        raise SettingsValidationError(msg)
+    if not _FIELD_NAME.fullmatch(value):
+        msg = (
+            f"{argument} is not an HTTP field name. Use letters, digits, "
+            f"and the punctuation a header name takes, such as "
+            f"{example!r}."
+        )
+        raise SettingsValidationError(msg)
+    return value
+
+
+_RESERVED_KEY_HEADERS = frozenset(
+    {
+        "accept",
+        "authorization",
+        "connection",
+        "content-length",
+        "content-type",
+        "cookie",
+        "host",
+        "origin",
+        "referer",
+        "transfer-encoding",
+        "user-agent",
+    }
+)
+"""Names `key_header` is refused.
+
+Every request carries one of these, so keying on it would merge callers
+that share a value rather than a key. `Content-Type` is the sharpest
+case: every JSON POST to one route would read as the same key, and one
+caller's stored response would replay to the next.
+"""
+
+
+def _key_name(value: str) -> str:
+    """Return `value`, or raise when it cannot carry an idempotency key."""
+    _field_name(value, "key_header", "Idempotency-Key")
+    if value.lower() in _RESERVED_KEY_HEADERS:
+        msg = (
+            "key_header cannot name a header every request already "
+            "carries, such as Content-Type or Authorization. Callers "
+            "sharing that value would share one stored response. Pick a "
+            "header of your own, such as 'Idempotency-Key'."
+        )
+        raise SettingsValidationError(msg)
+    return value
+
+
+def _replay_name(value: str) -> str:
+    """Return `value`, or raise when it cannot carry the replay marker."""
+    _field_name(value, "replay_header", _DEFAULT_REPLAY_HEADER)
+    if value.lower() in _RESERVED_REPLAY_HEADERS:
+        msg = (
+            "replay_header cannot name a header that directs the client, "
+            "such as Content-Type, Location, or Content-Length. The marker "
+            "would take its place. Pick a name of your own, such as "
+            "'Idempotent-Replayed'."
+        )
+        raise SettingsValidationError(msg)
+    return value
 
 
 class StoredResponse(TypedDict):
@@ -127,11 +258,11 @@ class IdempotencyMiddleware:
     """Replay a stored HTTP response when a request repeats its idempotency key.
 
     A request whose method is listed in `methods` and which carries the
-    `header` runs once. A retry with the same key replays the stored
+    `key_header` runs once. A retry with the same key replays the stored
     status, headers, and body without reaching the handler, and carries
-    `idempotent-replayed: true`. A request without the header passes
-    straight through, so adding the middleware changes nothing until a
-    client opts in.
+    the `replay_header` marker, `Idempotent-Replayed: true` by default. A
+    request without the `key_header` passes straight through, so adding
+    the middleware changes nothing until a client opts in.
 
     ```python
     from fastapi import FastAPI
@@ -195,10 +326,21 @@ class IdempotencyMiddleware:
                 "how long a key replays."
             ),
         ],
-        header: Annotated[
+        key_header: Annotated[
             str,
             Doc("Request header carrying the idempotency key."),
         ] = "Idempotency-Key",
+        replay_header: Annotated[
+            str,
+            Doc(
+                """
+                Response header marking a replayed response.
+
+                No standard names one, so pick what the clients already
+                read. `Idempotent-Replayed` is what most APIs answer with.
+                """
+            ),
+        ] = _DEFAULT_REPLAY_HEADER,
         methods: Annotated[
             Collection[str],
             Doc(
@@ -307,8 +449,13 @@ class IdempotencyMiddleware:
         """Initialize the middleware with the idempotency store and policy."""
         self.app = app
         self._idempotency = idempotency
-        self._header = header.lower().encode("latin-1")
-        self._header_name = header
+        self._header = _key_name(key_header).lower().encode("ascii")
+        self._header_name = key_header
+        self._replay_header = (
+            _replay_name(replay_header).lower().encode("ascii")
+        )
+        self._replay_header_name = replay_header
+        self._replay_collision_logged = False
         self._methods = frozenset(method.upper() for method in methods)
         self._key_maker = key_maker
         self._skip = skip
@@ -332,7 +479,9 @@ class IdempotencyMiddleware:
             scope["type"] != "http"
             or scope["method"] not in self._methods
             or not selects(
-                scope["path"], include=self._include, exclude=self._exclude
+                route_path(scope),
+                include=self._include,
+                exclude=self._exclude,
             )
         ):
             await self.app(scope, receive, send)
@@ -429,14 +578,25 @@ class IdempotencyMiddleware:
 
         try:
             if operation.replayed:
+                # Read by a middleware of this kind running above this one,
+                # which would otherwise take the marker for a handler's.
+                scope[_REPLAYED_SCOPE_KEY] = True
                 await _send_stored(
-                    send, operation.result(), head=scope["method"] == "HEAD"
+                    send,
+                    operation.result(),
+                    head=scope["method"] == "HEAD",
+                    replay_header=self._replay_header,
                 )
             else:
                 capture = _ResponseCapture(
-                    send, self._max_body_size, self._skip
+                    send,
+                    self._max_body_size,
+                    self._skip,
+                    self._replay_header,
+                    scope,
                 )
                 await self.app(scope, receive, capture)
+                self._report_collision(replaced=capture.replaced)
                 if capture.stored is not None:
                     operation.store(capture.stored)
         except BaseException as exc:
@@ -445,10 +605,30 @@ class IdempotencyMiddleware:
         else:
             await block.__aexit__(None, None, None)
 
+    def _report_collision(self, *, replaced: bool) -> None:
+        """Say once that a response carried the marker's name itself.
+
+        A response is captured without the marker, so this is a value of
+        the app's own making way, whether it came from a handler or from a
+        middleware of this kind running under this one.
+        """
+        if not replaced or self._replay_collision_logged:
+            return
+        self._replay_collision_logged = True
+        _logger.warning(
+            "The %s header a response carried made way for the replay "
+            "marker. Give replay_header a name of its own where that "
+            "value matters.",
+            self._replay_header_name,
+        )
+
     def _storage_key(self, scope: Scope, key: str) -> str:
         """Build the stored key, scoped by route unless `key_maker` says otherwise."""
         if self._key_maker is not None:
             return _checked_key(self._key_maker(scope, key), key)
+        # The whole path, where `include` and `exclude` read the route: two
+        # apps mounted side by side declare the same routes, and a key
+        # without the prefix would have them replay each other.
         parts = [scope["method"], scope["path"]]
         query = scope.get("query_string", b"")
         if query:
@@ -527,11 +707,16 @@ class _ResponseCapture:
         send: Send,
         max_body_size: int,
         skip: Callable[[StoredResponse], bool] | None = None,
+        replay_header: bytes = b"",
+        scope: Scope | None = None,
     ) -> None:
         """Initialize the capture around the downstream `send`."""
         self._send = send
         self._max_body_size = max_body_size
         self._skip = skip
+        self._replay_header = replay_header
+        self._scope = scope if scope is not None else {}
+        self.replaced = False
         self._status = 0
         self._headers: list[tuple[str, str]] = []
         self._chunks: list[bytes] = []
@@ -550,21 +735,37 @@ class _ResponseCapture:
     def _start(self, message: Message) -> None:
         """Record the status and headers, and decide whether to store."""
         blockers: list[str] = []
+        replayed_below = self._scope.get(_REPLAYED_SCOPE_KEY, False)
         for name, _value in message["headers"]:
             lowered = name.lower()
             if lowered == b"set-cookie":
                 blockers.append("Set-Cookie")
             elif lowered == b"content-encoding":
                 blockers.append("Content-Encoding")
+            elif lowered == self._replay_header and not replayed_below:
+                # The marker says a response is a replay, and this one is
+                # not: a middleware of this kind under this one would have
+                # said so on the scope. A handler writing the name would
+                # have every fresh response read as a replay, so its value
+                # makes way.
+                self.replaced = True
+        if self.replaced:
+            message["headers"] = [
+                (name, value)
+                for name, value in message["headers"]
+                if name.lower() != self._replay_header
+            ]
         if message.get("trailers"):
             blockers.append("trailers")
         self._status = message["status"]
         # Content-Length is recomputed on replay, so a stored value that
         # drifts from the stored body can never reach a client.
+        # The stored copy carries no marker at all, whoever set it: a
+        # replay of this response adds one, and two would say it twice.
         self._headers = [
             (name.decode("latin-1"), value.decode("latin-1"))
             for name, value in message["headers"]
-            if name.lower() != b"content-length"
+            if name.lower() not in (b"content-length", self._replay_header)
         ]
         self._storable = not blockers
         if blockers:
@@ -662,11 +863,15 @@ async def _buffer_request(
     return (b"".join(chunks) if complete else None), False, replay_receive
 
 
-async def _send_stored(send: Send, stored: _Entry, *, head: bool) -> None:
+async def _send_stored(
+    send: Send, stored: _Entry, *, head: bool, replay_header: bytes
+) -> None:
     """Send a stored response, marked as a replay.
 
     Content-Length is recomputed from the stored body, and left off the
     statuses that carry no content, so a replay stays a valid response.
+    Nothing here carries the replay name: a response is captured without
+    it, so the marker is the only value under it.
     """
     body = stored["body"].encode("latin-1")
     status = stored["status"]
@@ -676,7 +881,7 @@ async def _send_stored(send: Send, stored: _Entry, *, head: bool) -> None:
     ]
     if status >= _MIN_CONTENT_STATUS and status not in BODYLESS_STATUSES:
         headers.append((b"content-length", str(len(body)).encode("latin-1")))
-    headers.append((_REPLAY_HEADER, b"true"))
+    headers.append((replay_header, _REPLAY_MARK))
     await send(
         {
             "type": "http.response.start",
@@ -787,10 +992,17 @@ class IdempotentRequests:
                 "registered `Cache` component."
             ),
         ] = None,
-        header: Annotated[
+        key_header: Annotated[
             str,
             Doc("Request header carrying the idempotency key."),
         ] = "Idempotency-Key",
+        replay_header: Annotated[
+            str,
+            Doc(
+                "Response header marking a replayed response. No standard "
+                "names one, so pick what the clients already read."
+            ),
+        ] = _DEFAULT_REPLAY_HEADER,
         methods: Annotated[
             Collection[str],
             Doc(
@@ -865,7 +1077,7 @@ class IdempotentRequests:
         openapi: Annotated[
             bool,
             Doc(
-                "Describe the header and the responses the middleware "
+                "Describe both headers and the responses the middleware "
                 "returns in the OpenAPI schema. Only FastAPI builds one, "
                 "and every other framework ignores this."
             ),
@@ -880,7 +1092,8 @@ class IdempotentRequests:
         self._openapi = openapi
         self._options: dict[str, Any] = {
             "idempotency": Idempotency(namespace, ttl=ttl, cache=cache),
-            "header": header,
+            "key_header": _key_name(key_header),
+            "replay_header": _replay_name(replay_header),
             "methods": methods,
             "key_maker": key_maker,
             "skip": skip,
@@ -942,7 +1155,7 @@ class IdempotentRequests:
             document_idempotency,
         )
 
-        document_idempotency(app)
+        document_idempotency(app, idempotency=self.idempotency)
 
     async def __aenter__(self) -> Self:
         """Open the component.

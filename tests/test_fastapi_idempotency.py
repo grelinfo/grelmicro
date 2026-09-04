@@ -36,7 +36,7 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import DependencyNotFoundError, OutOfContextError
-from grelmicro.http import IdempotencyMiddleware
+from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.fastapi import document_idempotency
@@ -974,6 +974,469 @@ def test_document_idempotency_adds_the_header_and_responses() -> None:
         (p["name"], p["in"]) for p in operation["parameters"]
     ]
     assert {"400", "409", "413", "422"} <= set(operation["responses"])
+
+
+def test_document_idempotency_keeps_a_declaration_of_its_own() -> None:
+    """A route that documents the marker itself is left with one entry."""
+    # Arrange
+    app = build_app()
+
+    @app.post(
+        "/documented",
+        responses={
+            200: {
+                "headers": {
+                    "idempotent-replayed": {"schema": {"type": "string"}}
+                }
+            }
+        },
+    )
+    async def documented() -> dict[str, int]:
+        return {"amount": 100}
+
+    document_idempotency(app)
+
+    # Act
+    headers = app.openapi()["paths"]["/documented"]["post"]["responses"]["200"][
+        "headers"
+    ]
+
+    # Assert
+    assert list(headers) == ["idempotent-replayed"]
+
+
+def test_document_idempotency_annotates_a_schema_once() -> None:
+    """A second call over one schema must not read the first one's work."""
+    # Arrange
+    app = build_app()
+    document_idempotency(app)
+    document_idempotency(app)
+
+    # Act
+    responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
+
+    # Assert
+    assert list(responses["200"]["headers"]) == ["Idempotent-Replayed"]
+    # Declared once, whatever the number of wrappers over the schema.
+    assert list(responses["409"]["headers"]) == ["Idempotent-Replayed"]
+
+
+def test_document_idempotency_describes_every_installed_middleware() -> None:
+    """Two sets of rules on one app, each with its own paths and headers."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("a"),
+        include=("/a/*",),
+    )
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("b"),
+        include=("/b/*",),
+        key_header="X-Idempotency-Key",
+        replay_header="X-Replayed",
+    )
+
+    @app.post("/a/charge")
+    async def charge_a() -> dict[str, int]:
+        return {"amount": 100}
+
+    @app.post("/b/charge")
+    async def charge_b() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    paths = app.openapi()["paths"]
+
+    # Assert
+    first = paths["/a/charge"]["post"]
+    second = paths["/b/charge"]["post"]
+    assert [p["name"] for p in first["parameters"]] == ["Idempotency-Key"]
+    assert [p["name"] for p in second["parameters"]] == ["X-Idempotency-Key"]
+    assert "Idempotent-Replayed" in first["responses"]["200"]["headers"]
+    assert "X-Replayed" in second["responses"]["200"]["headers"]
+
+
+def test_document_idempotency_marks_overlapping_rules_once_each() -> None:
+    """Two middlewares on one path describe two markers, and no refusal."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("a"),
+        key_header="X-A-Key",
+        replay_header="X-A",
+    )
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("b"),
+        key_header="X-B-Key",
+        replay_header="X-B",
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
+
+    # Assert
+    assert set(responses["200"]["headers"]) == {"X-A", "X-B"}
+    # A refusal one answers is stored and replayed by the other above it.
+    assert set(responses["409"]["headers"]) == {"X-A", "X-B"}
+
+
+def test_document_idempotency_leaves_another_method_alone() -> None:
+    """An `include` that matches a path under another verb is followed."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        include=("/payments/*",),
+    )
+
+    @app.post("/orders")
+    async def order() -> dict[str, int]:
+        return {"amount": 100}
+
+    @app.get("/payments/{payment_id}")
+    async def payment(payment_id: int) -> dict[str, int]:
+        return {"amount": payment_id}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/orders"]["post"]
+
+    # Assert
+    assert "parameters" not in operation
+    assert "409" not in operation["responses"]
+
+
+def test_document_idempotency_follows_an_exclude_that_empties_it() -> None:
+    """A service naming its own routes is followed, not second-guessed."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        exclude=("/webhook",),
+    )
+
+    @app.post("/webhook")
+    async def webhook() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/webhook"]["post"]
+
+    # Assert
+    assert "parameters" not in operation
+    assert "409" not in operation["responses"]
+
+
+def test_document_idempotency_reads_a_subclass_of_its_own() -> None:
+    """A subclass may take keywords the middleware never declared."""
+
+    # Arrange
+    class TenantIdempotencyMiddleware(IdempotencyMiddleware):
+        def __init__(
+            self,
+            app: Any,  # noqa: ANN401
+            *,
+            tenant_key: str,
+            **options: Any,  # noqa: ANN401
+        ) -> None:
+            self.tenant_key = tenant_key
+            super().__init__(app, **options)
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        TenantIdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        tenant_key="acme",
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+
+
+def test_document_idempotency_reads_a_subclass_holding_its_own_store() -> None:
+    """A subclass may build the `Idempotency` rather than be handed one."""
+
+    # Arrange
+    class TenantIdempotencyMiddleware(IdempotencyMiddleware):
+        def __init__(self, app: Any, **options: Any) -> None:  # noqa: ANN401
+            super().__init__(app, idempotency=Idempotency("http"), **options)
+
+    # The component names its own store, which this middleware is not.
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
+    app = FastAPI()
+    app.add_middleware(TenantIdempotencyMiddleware)
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+
+
+def test_document_idempotency_reads_a_subclass_default() -> None:
+    """A subclass naming its own header is described under that name."""
+
+    # Arrange
+    class RenamedIdempotencyMiddleware(IdempotencyMiddleware):
+        def __init__(
+            self,
+            app: Any,  # noqa: ANN401
+            *,
+            key_header: str = "X-Request-Key",
+            **options: Any,  # noqa: ANN401
+        ) -> None:
+            super().__init__(app, key_header=key_header, **options)
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        RenamedIdempotencyMiddleware, idempotency=Idempotency("http")
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["X-Request-Key"]
+
+
+def test_a_root_path_shortens_only_a_whole_segment() -> None:
+    """`/api` is a prefix of `/api/keys`, and not of `/apikeys`."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI(root_path="/")
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        include=("/charge",),
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.post("/charge", headers=KEY)
+        second = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert second.headers["idempotent-replayed"] == "true"
+
+
+def test_a_replay_from_a_nested_middleware_reaches_the_client() -> None:
+    """The one below stores it, and the one above forwards what it says."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("inner"))
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("outer"),
+        # The one above stores nothing, so only the one below replays.
+        skip=lambda response: True,  # noqa: ARG005
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers=KEY)
+        second = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert "idempotent-replayed" not in first.headers
+    assert second.headers["idempotent-replayed"] == "true"
+
+
+def test_a_mounted_app_selects_paths_by_its_own_routes() -> None:
+    """A pattern is the route, not the prefix the mount adds to the wire."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    sub = FastAPI()
+    sub.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        include=("/charge",),
+    )
+
+    @sub.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(sub)
+    document_idempotency(sub)
+    root = FastAPI()
+    root.mount("/sub", sub)
+
+    # Act
+    with TestClient(root) as client:
+        first = client.post("/sub/charge", headers=KEY)
+        second = client.post("/sub/charge", headers=KEY)
+    operation = sub.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert "idempotent-replayed" not in first.headers
+    assert second.headers["idempotent-replayed"] == "true"
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+
+
+def test_document_idempotency_describes_a_middleware_added_by_hand() -> None:
+    """A hand-added middleware serves the component, so it is described."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware, idempotency=Idempotency("by-hand")
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    # `install` adds no middleware of its own where the app wired one.
+    micro.install(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+    assert "409" in operation["responses"]
+
+
+def test_document_idempotency_describes_rules_sharing_one_store() -> None:
+    """Two sets of rules may write through one `Idempotency`."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    shared = Idempotency("http")
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=shared,
+        include=("/a/*",),
+        key_header="X-A-Key",
+    )
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=shared,
+        include=("/b/*",),
+        key_header="X-B-Key",
+    )
+
+    @app.post("/a/charge")
+    async def charge_a() -> dict[str, int]:
+        return {"amount": 100}
+
+    @app.post("/b/charge")
+    async def charge_b() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    paths = app.openapi()["paths"]
+
+    # Assert
+    assert [p["name"] for p in paths["/a/charge"]["post"]["parameters"]] == [
+        "X-A-Key"
+    ]
+    assert [p["name"] for p in paths["/b/charge"]["post"]["parameters"]] == [
+        "X-B-Key"
+    ]
+
+
+def test_document_idempotency_follows_the_path_selection() -> None:
+    """An operation the middleware passes through is not described as covered."""
+    # Arrange
+    app = _documented_app(include=("/charge",))
+
+    # Act
+    paths = app.openapi()["paths"]
+
+    # Assert
+    covered = paths["/charge"]["post"]
+    passed_through = paths["/declared"]["post"]
+    assert "409" in covered["responses"]
+    assert "409" not in passed_through["responses"]
+    assert "headers" not in passed_through["responses"]["200"]
+
+
+def test_document_idempotency_describes_the_replay_marker() -> None:
+    """The name is a service's to pick, so the schema is where it is read."""
+    # Arrange
+    app = build_app(replay_header="X-Idempotent-Replayed")
+
+    @app.post("/refuses", responses={400: {"description": "Refused."}})
+    async def refuses() -> dict[str, int]:
+        return {"amount": 100}
+
+    document_idempotency(app)
+
+    # Act
+    responses = app.openapi()["paths"]["/refuses"]["post"]["responses"]
+
+    # Assert
+    header = responses["200"]["headers"]["X-Idempotent-Replayed"]
+    assert header["schema"] == {"type": "string", "enum": ["true"]}
+    # A stored error replays like any other response the app answers.
+    assert "X-Idempotent-Replayed" in responses["400"]["headers"]
 
 
 def test_document_idempotency_publishes_the_problem_body() -> None:

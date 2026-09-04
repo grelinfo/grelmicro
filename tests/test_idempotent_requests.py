@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Response
 from fastapi.testclient import TestClient
 from litestar import Litestar, post
 from litestar.testing import TestClient as LitestarTestClient
@@ -19,6 +19,7 @@ from grelmicro import (
     MiddlewarePlacementWarning,
     Usable,
 )
+from grelmicro.errors import SettingsValidationError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.http._idempotency import _checked_key
 from grelmicro.idempotency import Idempotency
@@ -27,11 +28,15 @@ from grelmicro.integrations.starlette import install_middleware
 from grelmicro.providers.memory import MemoryProvider
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from starlette.requests import Request
 
 pytestmark = [pytest.mark.timeout(5)]
 
 HEADER = "Idempotency-Key"
+REPLAY_HEADER = "Idempotent-Replayed"
+_NOT_A_STRING: Any = b"Idempotency-Key"
 MAX_BODY_SIZE = 2048
 MAX_CHAIN = 8
 HTTP_400_BAD_REQUEST = 400
@@ -79,7 +84,8 @@ def test_the_bare_form_stores_under_the_http_namespace() -> None:
 
     # Assert
     assert options["idempotency"].name == "http"
-    assert options["header"] == HEADER
+    assert options["key_header"] == HEADER
+    assert options["replay_header"] == REPLAY_HEADER
     assert options["methods"] == ("POST",)
 
 
@@ -93,7 +99,8 @@ def test_the_component_forwards_every_middleware_option() -> None:
     component = IdempotentRequests(
         ttl=30,
         namespace="payments",
-        header="X-Idempotency-Key",
+        key_header="X-Idempotency-Key",
+        replay_header="X-Idempotent-Replayed",
         methods=("POST", "PATCH"),
         skip=skip,
         require_key=True,
@@ -108,13 +115,135 @@ def test_the_component_forwards_every_middleware_option() -> None:
     # Assert
     assert middleware is IdempotencyMiddleware
     assert options["idempotency"].name == "payments"
-    assert options["header"] == "X-Idempotency-Key"
+    assert options["key_header"] == "X-Idempotency-Key"
+    assert options["replay_header"] == "X-Idempotent-Replayed"
     assert options["methods"] == ("POST", "PATCH")
     assert options["skip"] is skip
     assert options["require_key"] is True
     assert options["fingerprint_body"] is True
     assert options["max_body_size"] == MAX_BODY_SIZE
     assert options["wait_timeout"] == 1.0
+
+
+def test_a_custom_replay_header_marks_the_replay() -> None:
+    """No standard names the header, so a service picks what its clients read."""
+    # Arrange
+    app, _micro = _charge_app(
+        IdempotentRequests(replay_header="X-Idempotent-Replayed")
+    )
+
+    # Act
+    with TestClient(app) as client:
+        client.post("/charge", headers={HEADER: "abc"})
+        second = client.post("/charge", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.headers["x-idempotent-replayed"] == "true"
+    assert REPLAY_HEADER.lower() not in second.headers
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda: IdempotentRequests(key_header="Idempotency Key"),
+            id="key-header-space",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header=""),
+            id="replay-header-empty",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Rejeu-Idempotent\xe9"),
+            id="non-ascii",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(key_header="Idempotency-Key\n"),
+            id="trailing-newline",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Content-Length"),
+            id="frames-the-response",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Content-Type"),
+            id="labels-the-response",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="ETag"),
+            id="caches-the-response",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Retry-After"),
+            id="paces-the-client",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(replay_header="Content-Disposition"),
+            id="names-the-download",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(key_header=_NOT_A_STRING),
+            id="not-a-string",
+        ),
+        pytest.param(
+            lambda: IdempotentRequests(key_header="Content-Type"),
+            id="every-request-carries-it",
+        ),
+    ],
+)
+def test_a_header_name_that_cannot_reach_the_wire_is_refused(
+    build: Callable[[], IdempotentRequests],
+) -> None:
+    """A broken name is an argument error, not a broken response."""
+    # Act / Assert
+    with pytest.raises(SettingsValidationError):
+        build()
+
+
+def test_the_middleware_refuses_a_broken_header_name_of_its_own() -> None:
+    """Added by hand, it checks the names the component would have checked."""
+    # Arrange
+    app = FastAPI()
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError):
+        IdempotencyMiddleware(
+            app,
+            idempotency=Idempotency("http"),
+            replay_header="Idempotent Replayed",
+        )
+
+
+def test_the_replay_marker_is_the_only_value_under_its_name(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The marker means a replay, so a fresh response never carries it."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[MemoryProvider(), IdempotentRequests(replay_header="X-Cache")]
+    )
+    app = FastAPI()
+
+    @app.post("/charge")
+    async def charge(response: Response) -> dict[str, int]:
+        # The marker's own value, which is what a handler cannot claim.
+        response.headers["X-Cache"] = "true"
+        return {"amount": 100}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers={HEADER: "abc"})
+        second = client.post("/charge", headers={HEADER: "abc"})
+        third = client.post("/charge", headers={HEADER: "abc"})
+
+    # Assert
+    assert "x-cache" not in first.headers
+    assert second.headers["x-cache"] == "true"
+    assert third.headers["x-cache"] == "true"
+    # Static configuration, so it is said once and not once a request.
+    assert caplog.text.count("The X-Cache header a response carried") == 1
 
 
 def test_install_documents_the_middleware_in_the_schema() -> None:
@@ -128,6 +257,31 @@ def test_install_documents_the_middleware_in_the_schema() -> None:
     # Assert
     assert [p["name"] for p in operation["parameters"]] == [HEADER]
     assert "409" in operation["responses"]
+
+
+def test_openapi_false_keeps_one_set_of_rules_out_of_the_schema() -> None:
+    """A quiet component stays unpublished while a loud one is described."""
+    # Arrange
+    app, _micro = _charge_app(
+        IdempotentRequests(
+            name="quiet",
+            key_header="X-Quiet-Key",
+            replay_header="X-Quiet-Replayed",
+            openapi=False,
+        ),
+        IdempotentRequests(
+            name="loud",
+            key_header="X-Loud-Key",
+            replay_header="X-Loud-Replayed",
+        ),
+    )
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["X-Loud-Key"]
+    assert list(operation["responses"]["200"]["headers"]) == ["X-Loud-Replayed"]
 
 
 def test_openapi_false_leaves_the_schema_alone() -> None:
@@ -147,8 +301,10 @@ def test_registration_order_is_wrapping_order() -> None:
     """The first one registered is the outermost, and the binding is above both."""
     # Arrange
     app, _micro = _charge_app(
-        IdempotentRequests(namespace="outer", header="X-Outer"),
-        IdempotentRequests(namespace="inner", header="X-Inner", name="second"),
+        IdempotentRequests(namespace="outer", key_header="X-Outer"),
+        IdempotentRequests(
+            namespace="inner", key_header="X-Inner", name="second"
+        ),
     )
 
     # Act
@@ -156,7 +312,7 @@ def test_registration_order_is_wrapping_order() -> None:
 
     # Assert
     added = [
-        middleware.kwargs.get("header", "binding")
+        middleware.kwargs.get("key_header", "binding")
         for middleware in app.user_middleware
     ]
     assert added == ["binding", "X-Outer", "X-Inner"]

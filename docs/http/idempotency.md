@@ -49,6 +49,18 @@ IdempotentRequests(
 matches exactly, unless the pattern ends with `*`, which matches as a prefix.
 It is the same word and the same matching on every grelmicro middleware.
 
+A pattern names the route of the app the middleware runs on. An app mounted
+under `/sub`, or served behind a `root_path`, still names `/charge`, because
+that prefix is taken off before the patterns are read. A middleware registered
+on the app that does the mounting sees the whole path instead, so a pattern
+there names `/sub/charge`.
+
+The OpenAPI schema is annotated by the same patterns, matched against the same
+route, so what the schema publishes is what the middleware covers. Keep a
+pattern above any path parameter, `/tenants/*` rather than `/tenants/acme/*` on
+a `/tenants/{tenant}/orders` route, because the schema holds the template and
+the wire holds the value.
+
 A request without the header passes through anyway, so a route that never
 sends one is already unaffected.
 
@@ -126,7 +138,28 @@ idempotent-replayed: true
 
 Same status, same body, and the same headers the handler set. The `idempotent-replayed` header is the one addition, so a client can tell a replay from a fresh run.
 
-A request without the header passes straight through. Adding the middleware changes nothing until a client opts in.
+A request without the `Idempotency-Key` header passes straight through. Adding the middleware changes nothing until a client opts in.
+
+### The two header names
+
+`Idempotency-Key` is the request header the [Idempotency-Key header draft](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) registers.
+
+`Idempotent-Replayed` is not standard. The draft names no response header for a replay, so every API picked its own. `Idempotent-Replayed: true` is the one most of them answer with, including Stripe and Increase, which is why it is the default here. Others read `Idempotency-Replayed`, and a few carry a vendor prefix.
+
+Rename either one when your clients already read another:
+
+```python
+IdempotentRequests(
+    key_header="X-Idempotency-Key",
+    replay_header="X-Idempotent-Replayed",
+)
+```
+
+Both take an HTTP field name. A name holding a space, a colon, a newline, or a non-ASCII character is refused when the component is built, rather than reaching the wire as a broken header. `replay_header` also refuses a name that directs the client, such as `Content-Type`, `Location`, or `Content-Length`, because the marker would take its place. `key_header` refuses a name every request already carries, such as `Content-Type` or `Authorization`, because callers sharing that value would share one stored response.
+
+Give the marker a name of its own. The marker means a replay, so a handler that sets that header itself loses it on every response, and the loss is logged once at warning level.
+
+Both names reach the OpenAPI schema, so a client generated from it reads the name your service picked rather than the default.
 
 ## Errors replay too
 
@@ -316,7 +349,8 @@ A background task runs after the response is sent, so the response is stored and
 | `namespace` | `"http"` | Namespace the stored keys sit under. Component only. |
 | `cache` | the registered `Cache` | The `TTLCache` responses are stored in. Component only. |
 | `idempotency` | required on the middleware | The `Idempotency` it stores through. The component builds one from `ttl`, `namespace` and `cache`. |
-| `header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
+| `key_header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
+| `replay_header` | `"Idempotent-Replayed"` | Response header marking a replay. No standard names one, so pick what your clients read. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
 | `key_maker` | `None` | Build the stored key from the scope and the client key. Set it in any multi-tenant app. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |
@@ -327,5 +361,5 @@ A background task runs after the response is sent, so the response is stored and
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
 | `reused_status` | `422` | Status for a key reused with a different payload. `400` matches Stripe. |
-| `openapi` | `True` | Describe the header and the middleware responses in the OpenAPI schema. Component only, and only FastAPI builds one. |
+| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Only this component's rules, so a second set can stay unpublished. Component only, and only FastAPI builds one. |
 | `name` | `"default"` | Registration name, for a second set of rules on one app. Component only. |
