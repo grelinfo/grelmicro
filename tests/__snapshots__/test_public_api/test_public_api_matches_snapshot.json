@@ -348,7 +348,7 @@
       "()": "(app) -> None"
     },
     "document_idempotency": {
-      "()": "(app) -> None"
+      "()": "(app, *, idempotency=None) -> None"
     },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"

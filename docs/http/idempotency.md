@@ -354,5 +354,5 @@ A background task runs after the response is sent, so the response is stored and
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
 | `reused_status` | `422` | Status for a key reused with a different payload. `400` matches Stripe. |
-| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Component only, and only FastAPI builds one. |
+| `openapi` | `True` | Describe both headers and the middleware responses in the OpenAPI schema. Only this component's rules, so a second set can stay unpublished. Component only, and only FastAPI builds one. |
 | `name` | `"default"` | Registration name, for a second set of rules on one app. Component only. |

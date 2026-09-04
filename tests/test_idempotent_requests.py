@@ -254,6 +254,31 @@ def test_install_documents_the_middleware_in_the_schema() -> None:
     assert "409" in operation["responses"]
 
 
+def test_openapi_false_keeps_one_set_of_rules_out_of_the_schema() -> None:
+    """A quiet component stays unpublished while a loud one is described."""
+    # Arrange
+    app, _micro = _charge_app(
+        IdempotentRequests(
+            name="quiet",
+            key_header="X-Quiet-Key",
+            replay_header="X-Quiet-Replayed",
+            openapi=False,
+        ),
+        IdempotentRequests(
+            name="loud",
+            key_header="X-Loud-Key",
+            replay_header="X-Loud-Replayed",
+        ),
+    )
+
+    # Act
+    operation = app.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["X-Loud-Key"]
+    assert list(operation["responses"]["200"]["headers"]) == ["X-Loud-Replayed"]
+
+
 def test_openapi_false_leaves_the_schema_alone() -> None:
     """A service that publishes its own schema keeps it untouched."""
     # Arrange

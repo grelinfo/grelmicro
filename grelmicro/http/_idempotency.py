@@ -1100,7 +1100,7 @@ class IdempotentRequests:
             document_idempotency,
         )
 
-        document_idempotency(app)
+        document_idempotency(app, idempotency=self.idempotency)
 
     async def __aenter__(self) -> Self:
         """Open the component.

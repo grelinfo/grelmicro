@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from fastapi.params import Depends
 
     from grelmicro import Grelmicro
+    from grelmicro.idempotency import Idempotency
     from grelmicro.trace._component import Trace
 
 __all__ = [
@@ -211,6 +212,14 @@ def document_idempotency(
         "FastAPI",
         Doc("The app carrying an `IdempotencyMiddleware` to document."),
     ],
+    *,
+    idempotency: Annotated[
+        "Idempotency[Any] | None",
+        Doc(
+            "Describe only the middleware storing through this "
+            "`Idempotency`. Defaults to every one the app carries."
+        ),
+    ] = None,
 ) -> None:
     """Describe the installed `IdempotencyMiddleware` in the OpenAPI schema.
 
@@ -220,6 +229,10 @@ def document_idempotency(
     every operation it covers with the key header parameter, the replay
     header on the responses that can carry it, and the responses the
     middleware itself can return.
+
+    An app running two sets of rules has each described under its own
+    paths and its own two header names. Pass `idempotency` to describe one
+    of them and leave the other out of the schema.
 
     ```python
     from grelmicro.http import IdempotencyMiddleware
@@ -261,19 +274,21 @@ def document_idempotency(
         # added after this call is described too.
         errors = getattr(app.state, "grelmicro_error_responses", None)
         schema = original()
-        # FastAPI caches what it builds and hands back the same object. A
-        # second pass over it would read the first pass's own additions as
-        # the app's responses, and two calls on one app leave two wrappers.
-        if getattr(app.state, "grelmicro_idempotency_schema", None) is schema:
-            return schema
+        pass_ = _annotation_pass(app, schema)
         for options in _idempotency_options(app):
+            if idempotency is not None and options["idempotency"] is not (
+                idempotency
+            ):
+                continue
+            if not pass_.claim(options["idempotency"]):
+                continue
             _annotate_schema(
                 schema,
                 options,
                 PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
                 ProblemDetail if errors is None else errors.model,
+                pass_.declared,
             )
-        app.state.grelmicro_idempotency_schema = schema
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
@@ -642,6 +657,45 @@ def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
         raise TypeError(msg)
 
 
+class _AnnotationPass:
+    """What one build of an app's schema has already been given.
+
+    FastAPI caches the schema it builds and hands back the same object, and
+    two components leave two wrappers over it, so a middleware is described
+    once whichever wrapper reaches the schema first.
+    """
+
+    def __init__(self, schema: dict[str, Any]) -> None:
+        """Read what the app answers itself, before any annotation runs."""
+        self.schema = schema
+        self.declared = {
+            id(operation): set(operation.get("responses", {}))
+            for _path_item, operation in _operations(
+                schema, sections=("paths",)
+            )
+        }
+        self._documented: set[int] = set()
+
+    def claim(self, idempotency: Any) -> bool:  # noqa: ANN401
+        """Return whether this middleware still needs describing."""
+        marker = id(idempotency)
+        if marker in self._documented:
+            return False
+        self._documented.add(marker)
+        return True
+
+
+def _annotation_pass(
+    app: "FastAPI", schema: dict[str, Any]
+) -> "_AnnotationPass":
+    """Return the record for this build of the app's schema."""
+    current = getattr(app.state, "grelmicro_idempotency_pass", None)
+    if current is None or current.schema is not schema:
+        current = _AnnotationPass(schema)
+        app.state.grelmicro_idempotency_pass = current
+    return cast("_AnnotationPass", current)
+
+
 def _middleware_options(
     app: "FastAPI", middleware: type[Any], missing: str
 ) -> dict[str, Any]:
@@ -698,6 +752,7 @@ def _annotate_schema(
     options: dict[str, Any],
     media_type: str,
     model: type[BaseModel],
+    declared: dict[int, set[str]],
 ) -> None:
     """Add the header and the middleware's responses to covered operations."""
     methods = {method.lower() for method in options["methods"]}
@@ -758,13 +813,16 @@ def _annotate_schema(
     ref = add_error_schema(schema, model)
     for path_item, operation in covered:
         _add_parameter(operation, path_item, parameter)
-        # Read before the merge below adds the refusals: what the app
-        # already declares is what it answers itself, and only what the
-        # app answers is ever stored and replayed.
-        replayable = set(operation.get("responses", {}))
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
-        _add_replay_header(operation, options["replay_header"], replayable)
+        # What the app declares itself is what it answers itself, and only
+        # what the app answers is ever stored and replayed. It is read
+        # before any middleware merges its refusals into the operation.
+        _add_replay_header(
+            operation,
+            options["replay_header"],
+            declared.get(id(operation), set()),
+        )
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:

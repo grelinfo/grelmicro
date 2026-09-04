@@ -1063,6 +1063,41 @@ def test_document_idempotency_describes_every_installed_middleware() -> None:
     assert "X-Replayed" in second["responses"]["200"]["headers"]
 
 
+def test_document_idempotency_marks_overlapping_rules_once_each() -> None:
+    """Two middlewares on one path describe two markers, and no refusal."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("a"),
+        key_header="X-A-Key",
+        replay_header="X-A",
+    )
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("b"),
+        key_header="X-B-Key",
+        replay_header="X-B",
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+    document_idempotency(app)
+
+    # Act
+    responses = app.openapi()["paths"]["/charge"]["post"]["responses"]
+
+    # Assert
+    assert set(responses["200"]["headers"]) == {"X-A", "X-B"}
+    # One middleware's refusals are not the other's app responses.
+    assert "headers" not in responses["400"]
+    assert "headers" not in responses["409"]
+
+
 def test_document_idempotency_follows_the_path_selection() -> None:
     """An operation the middleware passes through is not described as covered."""
     # Arrange
