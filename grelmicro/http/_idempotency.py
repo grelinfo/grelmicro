@@ -142,6 +142,10 @@ _REPLAY_VALUE = "true"
 """What the replay marker carries."""
 
 
+_REPLAY_MARK = _REPLAY_VALUE.encode("ascii")
+"""What the replay marker carries, as it goes on the wire."""
+
+
 _MIN_CONTENT_STATUS = 200
 """Lowest status that may carry content."""
 
@@ -720,26 +724,31 @@ class _ResponseCapture:
                 blockers.append("Set-Cookie")
             elif lowered == b"content-encoding":
                 blockers.append("Content-Encoding")
-            elif lowered == self._replay_header:
-                # The marker says a response is a replay, and this one is
-                # not. A handler setting it would have every fresh
-                # response read as one.
+            elif lowered == self._replay_header and _value != _REPLAY_MARK:
+                # The marker says a response is a replay, and a value that
+                # is not the marker does not. A handler setting the name
+                # would have every fresh response read as a replay, so its
+                # value makes way. A marker put there by a middleware of
+                # this kind running under this one says what it means, and
+                # travels.
                 self.replaced = True
         if self.replaced:
             message["headers"] = [
                 (name, value)
                 for name, value in message["headers"]
-                if name.lower() != self._replay_header
+                if name.lower() != self._replay_header or value == _REPLAY_MARK
             ]
         if message.get("trailers"):
             blockers.append("trailers")
         self._status = message["status"]
         # Content-Length is recomputed on replay, so a stored value that
         # drifts from the stored body can never reach a client.
+        # The stored copy carries no marker at all, whoever set it: a
+        # replay of this response adds one, and two would say it twice.
         self._headers = [
             (name.decode("latin-1"), value.decode("latin-1"))
             for name, value in message["headers"]
-            if name.lower() != b"content-length"
+            if name.lower() not in (b"content-length", self._replay_header)
         ]
         self._storable = not blockers
         if blockers:
@@ -855,7 +864,7 @@ async def _send_stored(
     ]
     if status >= _MIN_CONTENT_STATUS and status not in BODYLESS_STATUSES:
         headers.append((b"content-length", str(len(body)).encode("latin-1")))
-    headers.append((replay_header, _REPLAY_VALUE.encode("ascii")))
+    headers.append((replay_header, _REPLAY_MARK))
     await send(
         {
             "type": "http.response.start",

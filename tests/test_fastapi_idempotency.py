@@ -1189,6 +1189,61 @@ def test_document_idempotency_reads_a_subclass_of_its_own() -> None:
     assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
 
 
+def test_a_root_path_shortens_only_a_whole_segment() -> None:
+    """`/api` is a prefix of `/api/keys`, and not of `/apikeys`."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI(root_path="/")
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        include=("/charge",),
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.post("/charge", headers=KEY)
+        second = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert second.headers["idempotent-replayed"] == "true"
+
+
+def test_a_replay_from_a_nested_middleware_reaches_the_client() -> None:
+    """The one below stores it, and the one above forwards what it says."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    app = FastAPI()
+    app.add_middleware(IdempotencyMiddleware, idempotency=Idempotency("inner"))
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("outer"),
+        # The one above stores nothing, so only the one below replays.
+        skip=lambda response: True,  # noqa: ARG005
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers=KEY)
+        second = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert "idempotent-replayed" not in first.headers
+    assert second.headers["idempotent-replayed"] == "true"
+
+
 def test_a_mounted_app_selects_paths_by_its_own_routes() -> None:
     """A pattern is the route, not the prefix the mount adds to the wire."""
     # Arrange

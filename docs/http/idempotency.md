@@ -49,12 +49,15 @@ IdempotentRequests(
 matches exactly, unless the pattern ends with `*`, which matches as a prefix.
 It is the same word and the same matching on every grelmicro middleware.
 
-The OpenAPI schema is annotated by the same patterns, matched against the route
-as it is declared. Keep a pattern above any path parameter, so `/tenants/*`
-rather than `/tenants/acme/*` on a `/tenants/{tenant}/orders` route, and what
-the schema publishes is what the middleware covers. An `include` that matches no declared
-route at all, which is what a mount prefix or a `root_path` leads to, has the
-covered methods described rather than none.
+A pattern names the route, not the path the wire carries. An app mounted under
+`/sub`, or served behind a `root_path`, still names `/charge`, because the
+prefix is taken off before the patterns are read.
+
+The OpenAPI schema is annotated by the same patterns, matched against the same
+route, so what the schema publishes is what the middleware covers. Keep a
+pattern above any path parameter, `/tenants/*` rather than `/tenants/acme/*` on
+a `/tenants/{tenant}/orders` route, because the schema holds the template and
+the wire holds the value.
 
 A request without the header passes through anyway, so a route that never
 sends one is already unaffected.

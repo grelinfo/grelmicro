@@ -31,11 +31,19 @@ def route_path(
     is written with. A pattern is therefore the same in an app served at
     the root, mounted under another app, or behind a proxy, and the same
     as the path the OpenAPI schema publishes.
+
+    Only a whole segment is a prefix, so a `root_path` of `/api` leaves
+    `/apikeys` alone and shortens `/api/keys`. An app answering at its
+    prefix reads as `/`, which is the route it declares.
     """
     path = scope["path"]
-    root = scope.get("root_path", "")
-    if root and path.startswith(root):
-        return path[len(root) :] or "/"
+    root = scope.get("root_path", "").rstrip("/")
+    if not root or not path.startswith(root):
+        return path
+    if path == root:
+        return "/"
+    if path[len(root)] == "/":
+        return path[len(root) :]
     return path
 
 
