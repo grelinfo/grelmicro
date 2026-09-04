@@ -16,6 +16,7 @@ from grelmicro.log._shared import (
     render_text_line,
     resolve_serializer,
 )
+from grelmicro.log._stdlib import build_formatter, install_root
 from grelmicro.log.config import (
     LogConfig,
     LogFormatType,
@@ -212,7 +213,9 @@ def configure(config: LogConfig | None = None) -> None:
         DependencyNotFoundError: If OpenTelemetry is enabled but not installed.
         SettingsValidationError: If environment variables are invalid.
     """
-    settings, timezone, resolved_format, _, colors = load_settings(config)
+    settings, timezone, resolved_format, json_dumps, colors = load_settings(
+        config
+    )
     caller = settings.caller_enabled
 
     callsite_params = [structlog.processors.CallsiteParameter.MODULE]
@@ -279,4 +282,19 @@ def configure(config: LogConfig | None = None) -> None:
         context_class=dict,
         logger_factory=logger_factory,
         cache_logger_on_first_use=True,
+    )
+
+    # Standard library records render through the same writers, so a
+    # dependency logging through `logging` reads like the app's own lines
+    # instead of falling through to `logging.lastResort`.
+    install_root(
+        build_formatter(
+            resolved_format,
+            timezone=timezone,
+            json_dumps=json_dumps,
+            colors=colors,
+            caller_enabled=caller,
+            otel_enabled=settings.otel_enabled,
+        ),
+        level=log_level,
     )

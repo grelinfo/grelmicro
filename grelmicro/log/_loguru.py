@@ -15,6 +15,7 @@ from grelmicro.log._shared import (
     render_pretty_lines,
     render_text_line,
 )
+from grelmicro.log._stdlib import build_formatter, install_root
 from grelmicro.log.config import LogConfig, LogFormatType
 from grelmicro.log.types import ErrorDict
 
@@ -303,4 +304,19 @@ def configure(config: LogConfig | None = None) -> None:
         sys.stdout,
         level=settings.level,
         format=log_format,
+    )
+
+    # Standard library records render through the same writers, so a
+    # dependency logging through `logging` reads like the app's own lines
+    # instead of falling through to `logging.lastResort`.
+    install_root(
+        build_formatter(
+            resolved_format,
+            timezone=timezone,
+            json_dumps=json_dumps,
+            colors=colors,
+            caller_enabled=caller,
+            otel_enabled=settings.otel_enabled,
+        ),
+        level=settings.level,
     )

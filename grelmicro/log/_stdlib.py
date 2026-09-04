@@ -222,8 +222,36 @@ def configure(config: LogConfig | None = None) -> None:
     settings, timezone, resolved_format, json_dumps, colors = load_settings(
         config
     )
-    caller = settings.caller_enabled
-    otel = settings.otel_enabled
+    install_root(
+        build_formatter(
+            resolved_format,
+            timezone=timezone,
+            json_dumps=json_dumps,
+            colors=colors,
+            caller_enabled=settings.caller_enabled,
+            otel_enabled=settings.otel_enabled,
+        ),
+        level=settings.level,
+    )
+
+
+def build_formatter(
+    resolved_format: Any,  # noqa: ANN401
+    *,
+    timezone: tzinfo,
+    json_dumps: Any,  # noqa: ANN401
+    colors: bool,
+    caller_enabled: bool,
+    otel_enabled: bool,
+) -> logging.Formatter:
+    """Return the formatter that renders a record in `resolved_format`.
+
+    Every backend renders standard library records with this one, so a
+    record written through `logging` reads the same whichever backend the
+    app writes its own records through.
+    """
+    caller = caller_enabled
+    otel = otel_enabled
 
     formatter: logging.Formatter
     if resolved_format == LogFormatType.JSON:
@@ -251,11 +279,27 @@ def configure(config: LogConfig | None = None) -> None:
             otel_enabled=otel,
             colors=colors,
         )
+    return formatter
 
+
+def install_root(formatter: logging.Formatter, *, level: int | str) -> None:
+    """Render every standard library record through `formatter`.
+
+    The root logger is where a record ends up when nothing else claimed
+    it, which is every record grelmicro's own components write, and every
+    record a dependency writes: httpx, SQLAlchemy, redis. Each backend
+    installs this, so a service that logs through loguru or structlog
+    still reads its dependencies in the format it configured rather than
+    watching them fall through to `logging.lastResort`.
+
+    Uvicorn is untouched. Its loggers carry their own handlers and do not
+    propagate, and `grelmicro.log.uvicorn` reformats those in place, so a
+    request line renders once.
+    """
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
-    root_logger.setLevel(settings.level)
+    root_logger.setLevel(level)

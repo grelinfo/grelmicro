@@ -40,6 +40,11 @@ grelmicro supports three logging backends. All backends produce **identical outp
 | **[Loguru](https://loguru.readthedocs.io/)** | `loguru` | Developer ergonomics |
 | **[structlog](https://www.structlog.org/)** | `structlog` | High-throughput services |
 
+The backend is how your own code writes a record. Whichever one you pick,
+anything logging through the standard library renders in the same format on
+the same stream: grelmicro's own components, and every dependency you run,
+httpx, SQLAlchemy and redis among them. One process, one format.
+
 === "stdlib"
     ```python
     import logging
