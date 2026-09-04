@@ -38,7 +38,7 @@ from grelmicro.http._kinds import (
     Kind,
     Occurrence,
 )
-from grelmicro.http._paths import selects
+from grelmicro.http._paths import route_path, selects
 from grelmicro.http.errors import (
     PreconditionError,
     PreconditionFailedError,
@@ -696,7 +696,7 @@ class ConditionalRequestsMiddleware:
     ) -> None:
         """Bind the preconditions, then shape the response around them."""
         if scope["type"] != "http" or not selects(
-            scope["path"], include=self._include, exclude=self._exclude
+            route_path(scope), include=self._include, exclude=self._exclude
         ):
             await self.app(scope, receive, send)
             return

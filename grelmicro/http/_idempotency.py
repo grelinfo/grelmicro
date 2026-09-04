@@ -36,7 +36,7 @@ from grelmicro.http._kinds import (
     Kind,
     Occurrence,
 )
-from grelmicro.http._paths import selects
+from grelmicro.http._paths import route_path, selects
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -136,6 +136,10 @@ one entity tag, and a later `If-None-Match` would match a resource the
 client never held. Any other name the stored response carries is logged
 when the marker replaces it.
 """
+
+
+_REPLAY_VALUE = "true"
+"""What the replay marker carries."""
 
 
 _MIN_CONTENT_STATUS = 200
@@ -463,7 +467,9 @@ class IdempotencyMiddleware:
             scope["type"] != "http"
             or scope["method"] not in self._methods
             or not selects(
-                scope["path"], include=self._include, exclude=self._exclude
+                route_path(scope),
+                include=self._include,
+                exclude=self._exclude,
             )
         ):
             await self.app(scope, receive, send)
@@ -560,25 +566,21 @@ class IdempotencyMiddleware:
 
         try:
             if operation.replayed:
-                replaced = await _send_stored(
+                await _send_stored(
                     send,
                     operation.result(),
                     head=scope["method"] == "HEAD",
                     replay_header=self._replay_header,
                 )
-                if replaced and not self._replay_collision_logged:
-                    self._replay_collision_logged = True
-                    _logger.warning(
-                        "Replay marker replaced the %s header the stored "
-                        "response carried. Give replay_header a name of "
-                        "its own where that value matters.",
-                        self._replay_header_name,
-                    )
             else:
                 capture = _ResponseCapture(
-                    send, self._max_body_size, self._skip
+                    send,
+                    self._max_body_size,
+                    self._skip,
+                    self._replay_header,
                 )
                 await self.app(scope, receive, capture)
+                self._report_collision(replaced=capture.replaced)
                 if capture.stored is not None:
                     operation.store(capture.stored)
         except BaseException as exc:
@@ -586,6 +588,23 @@ class IdempotencyMiddleware:
             raise
         else:
             await block.__aexit__(None, None, None)
+
+    def _report_collision(self, *, replaced: bool) -> None:
+        """Say once that a response carried the marker's name itself.
+
+        A response is captured without the marker, so this is a value of
+        the app's own making way, whether it came from a handler or from a
+        middleware of this kind running under this one.
+        """
+        if not replaced or self._replay_collision_logged:
+            return
+        self._replay_collision_logged = True
+        _logger.warning(
+            "The %s header a response carried made way for the replay "
+            "marker. Give replay_header a name of its own where that "
+            "value matters.",
+            self._replay_header_name,
+        )
 
     def _storage_key(self, scope: Scope, key: str) -> str:
         """Build the stored key, scoped by route unless `key_maker` says otherwise."""
@@ -669,11 +688,14 @@ class _ResponseCapture:
         send: Send,
         max_body_size: int,
         skip: Callable[[StoredResponse], bool] | None = None,
+        replay_header: bytes = b"",
     ) -> None:
         """Initialize the capture around the downstream `send`."""
         self._send = send
         self._max_body_size = max_body_size
         self._skip = skip
+        self._replay_header = replay_header
+        self.replaced = False
         self._status = 0
         self._headers: list[tuple[str, str]] = []
         self._chunks: list[bytes] = []
@@ -698,6 +720,17 @@ class _ResponseCapture:
                 blockers.append("Set-Cookie")
             elif lowered == b"content-encoding":
                 blockers.append("Content-Encoding")
+            elif lowered == self._replay_header:
+                # The marker says a response is a replay, and this one is
+                # not. A handler setting it would have every fresh
+                # response read as one.
+                self.replaced = True
+        if self.replaced:
+            message["headers"] = [
+                (name, value)
+                for name, value in message["headers"]
+                if name.lower() != self._replay_header
+            ]
         if message.get("trailers"):
             blockers.append("trailers")
         self._status = message["status"]
@@ -806,31 +839,23 @@ async def _buffer_request(
 
 async def _send_stored(
     send: Send, stored: _Entry, *, head: bool, replay_header: bytes
-) -> bool:
+) -> None:
     """Send a stored response, marked as a replay.
 
     Content-Length is recomputed from the stored body, and left off the
-    statuses that carry no content, so a replay stays a valid response. A
-    stored header carrying the replay name is dropped, so the marker is
-    the only value under it. Reporting that is left to the caller, which
-    says it once rather than once a request.
-
-    Returns:
-        Whether a stored header made way for the marker.
+    statuses that carry no content, so a replay stays a valid response.
+    Nothing here carries the replay name: a response is captured without
+    it, so the marker is the only value under it.
     """
     body = stored["body"].encode("latin-1")
     status = stored["status"]
-    headers = []
-    replaced = False
-    for name, value in stored["headers"]:
-        encoded = name.encode("latin-1")
-        if encoded.lower() == replay_header:
-            replaced = True
-            continue
-        headers.append((encoded, value.encode("latin-1")))
+    headers = [
+        (name.encode("latin-1"), value.encode("latin-1"))
+        for name, value in stored["headers"]
+    ]
     if status >= _MIN_CONTENT_STATUS and status not in BODYLESS_STATUSES:
         headers.append((b"content-length", str(len(body)).encode("latin-1")))
-    headers.append((replay_header, b"true"))
+    headers.append((replay_header, _REPLAY_VALUE.encode("ascii")))
     await send(
         {
             "type": "http.response.start",
@@ -839,7 +864,6 @@ async def _send_stored(
         }
     )
     await send({"type": "http.response.body", "body": b"" if head else body})
-    return replaced
 
 
 async def _refuse(

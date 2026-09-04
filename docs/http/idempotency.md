@@ -152,7 +152,7 @@ IdempotentRequests(
 
 Both take an HTTP field name. A name holding a space, a colon, a newline, or a non-ASCII character is refused when the component is built, rather than reaching the wire as a broken header. `replay_header` also refuses a name that directs the client, such as `Content-Type`, `Location`, or `Content-Length`, because the marker would take its place. `key_header` refuses a name every request already carries, such as `Content-Type` or `Authorization`, because callers sharing that value would share one stored response.
 
-Give the marker a name of its own. A handler that sets the replay header itself loses that header on a replay, and the replacement is logged once at warning level.
+Give the marker a name of its own. The marker means a replay, so a handler that sets that header itself loses it on every response, and the loss is logged once at warning level.
 
 Both names reach the OpenAPI schema, so a client generated from it reads the name your service picked rather than the default.
 

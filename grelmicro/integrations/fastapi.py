@@ -684,8 +684,8 @@ def _middleware_options(
 ) -> dict[str, Any]:
     """Return one installed middleware's arguments, defaults filled in.
 
-    The first match is the last added, which is the outermost at runtime
-    and answers first on the wire.
+    The first match is the outermost at runtime, which is what answers
+    first on the wire.
 
     Raises:
         TypeError: If the app carries no such middleware.
@@ -791,31 +791,16 @@ def _annotate_schema(
 
     include = tuple(options["include"])
     exclude = tuple(options["exclude"])
-    # `_paths` reads `paths` alone: a webhook is a request the app sends,
-    # and no `Idempotency-Key` of ours reaches it.
-    serves = _paths(schema, methods)
     covered = [
         (path_item, operation)
-        for path, path_item, operation in serves
+        # `_paths` reads `paths` alone: a webhook is a request the app
+        # sends, and no `Idempotency-Key` of ours reaches it. The patterns
+        # select the same path here as on the wire, because the middleware
+        # matches them against the route rather than the prefix a mount or
+        # a proxy adds.
+        for path, path_item, operation in _paths(schema, methods)
         if selects(path, include=include, exclude=exclude)
     ]
-    if include and not any(
-        selects(path, include=include, exclude=())
-        for path in schema.get("paths", {})
-    ):
-        # No declared path matches at all, which is what a mount or a
-        # `root_path` leads to: the patterns hold the prefix the request
-        # carries and the schema does not. Dropping every annotation would
-        # leave a client with no header, so what `exclude` leaves is
-        # described instead, which is wrong in the safe direction. An
-        # `include` that matches a path under another method, or an
-        # `exclude` that empties the selection, is a service naming its
-        # own routes and is followed.
-        covered = [
-            (path_item, operation)
-            for path, path_item, operation in serves
-            if selects(path, include=(), exclude=exclude)
-        ]
     if not covered:
         return
     ref = add_error_schema(schema, model)

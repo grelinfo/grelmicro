@@ -1189,16 +1189,15 @@ def test_document_idempotency_reads_a_subclass_of_its_own() -> None:
     assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
 
 
-def test_document_idempotency_survives_a_mount_prefix() -> None:
-    """Patterns hold the prefix the wire carries, which the schema does not."""
+def test_a_mounted_app_selects_paths_by_its_own_routes() -> None:
+    """A pattern is the route, not the prefix the mount adds to the wire."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     sub = FastAPI()
     sub.add_middleware(
         IdempotencyMiddleware,
         idempotency=Idempotency("http"),
-        # What `scope["path"]` holds once the app is mounted at `/sub`.
-        include=("/sub/charge",),
+        include=("/charge",),
     )
 
     @sub.post("/charge")
@@ -1207,13 +1206,19 @@ def test_document_idempotency_survives_a_mount_prefix() -> None:
 
     micro.install(sub)
     document_idempotency(sub)
+    root = FastAPI()
+    root.mount("/sub", sub)
 
     # Act
+    with TestClient(root) as client:
+        first = client.post("/sub/charge", headers=KEY)
+        second = client.post("/sub/charge", headers=KEY)
     operation = sub.openapi()["paths"]["/charge"]["post"]
 
     # Assert
+    assert "idempotent-replayed" not in first.headers
+    assert second.headers["idempotent-replayed"] == "true"
     assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
-    assert "409" in operation["responses"]
 
 
 def test_document_idempotency_describes_a_middleware_added_by_hand() -> None:

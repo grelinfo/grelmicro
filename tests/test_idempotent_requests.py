@@ -214,10 +214,10 @@ def test_the_middleware_refuses_a_broken_header_name_of_its_own() -> None:
         )
 
 
-def test_the_replay_marker_replaces_a_header_of_the_same_name(
+def test_the_replay_marker_is_the_only_value_under_its_name(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A handler setting that name leaves one value on the replay, not two."""
+    """The marker means a replay, so a fresh response never carries it."""
     # Arrange
     micro = Grelmicro(
         uses=[MemoryProvider(), IdempotentRequests(replay_header="X-Cache")]
@@ -238,11 +238,11 @@ def test_the_replay_marker_replaces_a_header_of_the_same_name(
         third = client.post("/charge", headers={HEADER: "abc"})
 
     # Assert
-    assert first.headers["x-cache"] == "MISS"
+    assert "x-cache" not in first.headers
     assert second.headers["x-cache"] == "true"
     assert third.headers["x-cache"] == "true"
     # Static configuration, so it is said once and not once a request.
-    assert caplog.text.count("Replay marker replaced the X-Cache") == 1
+    assert caplog.text.count("The X-Cache header a response carried") == 1
 
 
 def test_install_documents_the_middleware_in_the_schema() -> None:
