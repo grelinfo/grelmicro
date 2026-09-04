@@ -52,7 +52,9 @@ It is the same word and the same matching on every grelmicro middleware.
 The OpenAPI schema is annotated by the same patterns, matched against the route
 as it is declared. Keep a pattern above any path parameter, so `/tenants/*`
 rather than `/tenants/acme/*` on a `/tenants/{tenant}/orders` route, and what
-the schema publishes is what the middleware covers.
+the schema publishes is what the middleware covers. A pattern that matches no
+declared route, which is what a mount prefix or a `root_path` leads to, has
+every operation of the covered methods described rather than none.
 
 A request without the header passes through anyway, so a route that never
 sends one is already unaffected.

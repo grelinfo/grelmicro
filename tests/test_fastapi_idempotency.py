@@ -1017,7 +1017,8 @@ def test_document_idempotency_annotates_a_schema_once() -> None:
 
     # Assert
     assert list(responses["200"]["headers"]) == ["Idempotent-Replayed"]
-    assert list(responses["409"]["headers"]) == ["Idempotent-Replayed"]
+    # What the middleware answers before the app runs never replays.
+    assert "headers" not in responses["409"]
 
 
 def test_document_idempotency_describes_every_installed_middleware() -> None:
@@ -1091,7 +1092,33 @@ def test_document_idempotency_marks_overlapping_rules_once_each() -> None:
 
     # Assert
     assert set(responses["200"]["headers"]) == {"X-A", "X-B"}
-    assert set(responses["409"]["headers"]) == {"X-A", "X-B"}
+
+
+def test_document_idempotency_survives_a_mount_prefix() -> None:
+    """Patterns hold the prefix the wire carries, which the schema does not."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    sub = FastAPI()
+    sub.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency("http"),
+        # What `scope["path"]` holds once the app is mounted at `/sub`.
+        include=("/sub/charge",),
+    )
+
+    @sub.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    micro.install(sub)
+    document_idempotency(sub)
+
+    # Act
+    operation = sub.openapi()["paths"]["/charge"]["post"]
+
+    # Assert
+    assert [p["name"] for p in operation["parameters"]] == ["Idempotency-Key"]
+    assert "409" in operation["responses"]
 
 
 def test_document_idempotency_describes_a_middleware_added_by_hand() -> None:

@@ -782,22 +782,32 @@ def _annotate_schema(
 
     include = tuple(options["include"])
     exclude = tuple(options["exclude"])
+    # `_paths` reads `paths` alone: a webhook is a request the app sends,
+    # and no `Idempotency-Key` of ours reaches it.
+    serves = _paths(schema, methods)
     covered = [
         (path_item, operation)
-        # Only what the middleware serves. `_paths` reads `paths` alone: a
-        # webhook is a request the app sends, and no `Idempotency-Key` of
-        # ours reaches it.
-        for path, path_item, operation in _paths(schema, methods)
+        for path, path_item, operation in serves
         if selects(path, include=include, exclude=exclude)
     ]
+    if not covered:
+        # The patterns match what the request carries, which holds the
+        # prefix a mount or a `root_path` adds and the schema does not. A
+        # pattern written for the wire therefore selects nothing here, and
+        # dropping every annotation would leave a client with no header at
+        # all. Describing the methods the middleware covers is the answer
+        # that is wrong in the safe direction.
+        covered = [(path_item, operation) for _, path_item, operation in serves]
     if not covered:
         return
     ref = add_error_schema(schema, model)
     for path_item, operation in covered:
         _add_parameter(operation, path_item, parameter)
+        # Before the refusals below are merged in: those are answered
+        # before the app runs, so no replay ever carries them.
+        _add_replay_header(operation, options["replay_header"])
         for status, description in responses.items():
             _merge_response(operation, status, description, ref, media_type)
-        _add_replay_header(operation, options["replay_header"])
 
 
 def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
