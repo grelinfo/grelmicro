@@ -52,7 +52,7 @@ time=2026-08-05T13:10:49.807003+00:00 level=INFO msg="POST /orders 200" logger=u
 time=2026-08-05T13:10:49.807224+00:00 level=INFO msg="Order created" logger=myapp order_id=a1b2c3
 ```
 
-Uvicorn's handlers are kept, so a custom one is never dropped. A handler still on `sys.stdout` or `sys.stderr` is pointed at the stream the rest of the process writes to, so a request line goes through the [queue](index.md) and lands beside your own records instead of on a second file descriptor. Uvicorn's error lines move off `sys.stderr` with it, which is what one process writing one stream means. Pass `uvicorn_enabled=False` to keep uvicorn's own streams.
+Uvicorn's handlers are kept, so a custom one is never dropped. A handler still on one of the process's standard streams is pointed at the stream the rest of the process writes to, so a request line goes through the [queue](index.md) and lands beside your own records instead of on a second file descriptor. Uvicorn's error lines move off `sys.stderr` with it, which is what one process writing one stream means. Pass `uvicorn_enabled=False` to keep uvicorn's own streams.
 
 This works because uvicorn configures logging while building its `Config`, then imports your application module, and only then logs its first line. A `configure()` call at import time gets there first.
 

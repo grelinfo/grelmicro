@@ -47,7 +47,10 @@ _STANDARD_LOG_RECORD_ATTRS = frozenset(
         "message",
         # Uvicorn logs an ANSI-colored copy of its message under
         # `color_message`. It renders as an escape sequence in a field, so
-        # it is dropped wherever a uvicorn record is read.
+        # it is dropped wherever a uvicorn record is read. `asctime` is
+        # the time a `logging.Formatter` already rendered, which every
+        # record here carries as `time`.
+        "asctime",
         "color_message",
     }
 )
@@ -394,9 +397,11 @@ def install_root(formatter: logging.Formatter, *, level: int | str) -> None:
     Uvicorn's own records are left where they are. Its default logging
     config gives its loggers their own handlers with propagation off, and
     `grelmicro.log.uvicorn` reformats those in place, so a request line
-    renders once. A service that hands uvicorn a `log_config` of its own
-    and leaves propagation on is outside that, and would read every
-    uvicorn line twice.
+    renders once. [`dict_config()`][grelmicro.log.dict_config] turns
+    propagation back on and takes the handlers away, so those records
+    render here instead, once. A `log_config` of someone else's that
+    leaves both a handler and propagation on reads every uvicorn line
+    twice, which is neither of those.
     """
     handler = logging.StreamHandler(get_stream())
     handler.setFormatter(formatter)

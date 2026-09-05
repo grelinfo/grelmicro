@@ -16,15 +16,13 @@ from grelmicro.log._shared import (
     resolve_template_format,
     resolve_use_colors,
 )
-from grelmicro.log._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
+from grelmicro.log._stdlib import _BaseFormatter
 from grelmicro.log.config import LogConfig, LogFormatType
 
 if TYPE_CHECKING:
     import logging
     from collections.abc import Callable, Mapping
     from typing import TextIO
-
-_UVICORN_LOG_RECORD_ATTRS = _STANDARD_LOG_RECORD_ATTRS | {"asctime"}
 
 _MIN_ACCESS_ARGS = 5
 
@@ -38,6 +36,21 @@ _ACCESS_MESSAGE = '%s - "%s %s HTTP/%s" %d'
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
+def _on_a_standard_stream(handler: logging.StreamHandler[TextIO]) -> bool:
+    """Return whether `handler` still writes where uvicorn put it.
+
+    Both the streams the process has now and the ones it started with.
+    Uvicorn binds `sys.stderr` while it builds `Config`, and anything
+    that replaces the attribute afterwards, a capture or a redirect,
+    would otherwise leave the handler behind on a stream nothing else
+    writes to.
+    """
+    return any(
+        handler.stream is stream
+        for stream in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__)
+    )
+
+
 def apply(config: LogConfig) -> None:
     """Take over uvicorn's own loggers to match the application format.
 
@@ -46,8 +59,8 @@ def apply(config: LogConfig) -> None:
     formats. Its handlers are kept, so a custom handler survives, and both
     the formatter and the stream are replaced.
 
-    A handler still on `sys.stdout` or `sys.stderr` is pointed at the
-    stream the rest of the process writes to, so a uvicorn record goes
+    A handler still on one of the process's standard streams is pointed
+    at the stream the rest of the process writes to, so a record goes
     through the queue `queue_enabled` installs and lands on one file
     descriptor with the application's own records. A handler that already
     writes somewhere else keeps that stream, and so does anything richer
@@ -74,24 +87,17 @@ def apply(config: LogConfig) -> None:
             if type(handler) is not _logging.StreamHandler:
                 continue
             plain = cast("logging.StreamHandler[TextIO]", handler)
-            if (
-                plain.stream is sys.stdout
-                or plain.stream is sys.stderr
+            if _on_a_standard_stream(plain) or isinstance(
                 # A previous pass already moved it. The writer it points at
                 # is stopped when logging is reconfigured, so it has to
                 # follow to the one that replaced it.
-                or isinstance(plain.stream, QueueWriter)
+                plain.stream,
+                QueueWriter,
             ):
                 plain.setStream(stream)
 
 
-class _UvicornBaseFormatter(_BaseFormatter):
-    """Base uvicorn formatter that filters uvicorn-specific record attributes."""
-
-    _ignored_record_attrs = _UVICORN_LOG_RECORD_ATTRS
-
-
-class UvicornFormatter(_UvicornBaseFormatter):
+class UvicornFormatter(_BaseFormatter):
     """Format-aware uvicorn formatter compatible with ``logging.config.dictConfig``.
 
     Reads ``GREL_LOG_FORMAT`` and produces the matching output (AUTO, JSON,

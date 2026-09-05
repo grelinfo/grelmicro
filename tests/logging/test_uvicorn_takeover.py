@@ -107,7 +107,9 @@ def test_access_record_keeps_structured_fields() -> None:
     assert "status_code=200" in line
 
 
-@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+@pytest.mark.parametrize(
+    "stream", ["stdout", "stderr", "__stdout__", "__stderr__"]
+)
 def test_the_stream_follows_the_one_the_process_writes_to(stream: str) -> None:
     """Uvicorn's own stream would go around the queue and split the output."""
     handler = logging.StreamHandler(getattr(sys, stream))

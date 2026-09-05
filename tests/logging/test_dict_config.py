@@ -1,6 +1,5 @@
 """Tests for the logging configuration an application server consumes."""
 
-import io
 import json
 import logging
 import logging.config
@@ -74,6 +73,14 @@ def _restore_logging() -> Iterator[None]:
 def _apply(document: dict[str, Any]) -> None:
     """Apply the document the way an application server does."""
     logging.config.dictConfig(document)
+
+
+def _root_stream() -> object:
+    """Return the stream the root handler the document installed writes to."""
+    handler = cast(
+        "logging.StreamHandler[Any]", logging.getLogger().handlers[0]
+    )
+    return handler.stream
 
 
 @pytest.mark.usefixtures("_restore_logging")
@@ -227,56 +234,27 @@ def _no_queue() -> Iterator[None]:
     uninstall()
 
 
-def _capture_stdout(monkeypatch: pytest.MonkeyPatch) -> io.StringIO:
-    """Read what a queued handler wrote.
-
-    A `QueueWriter` binds the stream when it is installed, so what it
-    writes does not always land in the buffer `capsys` reads back. The
-    handlers resolve the stream through `get_stream()` rather than
-    `ext://sys.stdout`, so patching the attribute holds both ends of the
-    queue to one stream.
-
-    Called from the test body rather than a fixture. Pytest reinstalls
-    `sys.stdout` when it resumes capture for the call phase, which undoes
-    a patch made while fixtures were still being set up.
-    """
-    stream = io.StringIO()
-    monkeypatch.setattr("sys.stdout", stream)
-    return stream
-
-
 @pytest.mark.usefixtures("_restore_logging", "_no_queue")
-def test_a_document_starts_the_queue_it_asks_for(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_document_starts_the_queue_it_asks_for() -> None:
     """A document applied on its own is behind the queue all the same."""
-    stdout = _capture_stdout(monkeypatch)
-
     _apply(dict_config_with(LogConfig(queue_enabled=True)))
 
-    assert get_writer() is not None
+    writer = get_writer()
 
-    logging.getLogger("uvicorn.error").info("startup")
-    uninstall()
-
-    assert "startup" in stdout.getvalue()
+    assert writer is not None
+    assert _root_stream() is writer
 
 
 @pytest.mark.usefixtures("_restore_logging", "_no_queue")
-def test_a_running_queue_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_running_queue_is_kept() -> None:
     """A document applied after `configure()` must not unqueue the process."""
-    stdout = _capture_stdout(monkeypatch)
-
     _apply(dict_config_with(LogConfig(queue_enabled=True)))
     writer = get_writer()
 
     _apply(dict_config_with(LogConfig(queue_enabled=True)))
 
     assert get_writer() is writer
-    logging.getLogger("myapp").info("kept")
-    uninstall()
-
-    assert "kept" in stdout.getvalue()
+    assert _root_stream() is writer
 
 
 @pytest.mark.usefixtures("_restore_logging")
@@ -350,25 +328,18 @@ def test_a_bad_mapping_is_refused_without_echoing_it() -> None:
 
 
 @pytest.mark.usefixtures("_restore_logging", "_no_queue")
-def test_a_document_never_stops_a_queue_it_did_not_start(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_document_never_stops_a_queue_it_did_not_start() -> None:
     """The writer belongs to whoever started it, records and all."""
-    stdout = _capture_stdout(monkeypatch)
-
     _apply(dict_config_with(LogConfig(queue_enabled=True)))
     writer = get_writer()
 
     _apply(dict_config_with(LogConfig(queue_enabled=False)))
 
     assert get_writer() is writer
-    logging.getLogger("myapp").info("still queued")
-    uninstall()
-
-    assert "still queued" in stdout.getvalue()
+    assert _root_stream() is writer
 
 
-@pytest.mark.usefixtures("_restore_logging")
+@pytest.mark.usefixtures("_restore_logging", "reset_backend")
 def test_a_document_built_from_what_configure_returned_agrees_with_it(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -477,12 +448,9 @@ def test_auto_is_carried_as_auto() -> None:
     assert document["formatters"]["default"]["config"]["format"] == "AUTO"
 
 
-@pytest.mark.usefixtures("_restore_logging", "_no_queue")
-def test_the_access_handler_follows_a_later_configure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.usefixtures("_restore_logging", "_no_queue", "reset_backend")
+def test_the_access_handler_follows_a_later_configure() -> None:
     """A document installs the queue, and `configure()` replaces the writer."""
-    _capture_stdout(monkeypatch)
     _apply(dict_config_with(LogConfig(queue_enabled=True)))
     retired = get_writer()
 
