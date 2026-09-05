@@ -31,6 +31,7 @@ def _uvicorn_logging() -> Iterator[None]:
         name: (
             list(logging.getLogger(name).handlers),
             logging.getLogger(name).propagate,
+            logging.getLogger(name).level,
         )
         for name in _UVICORN_LOGGERS
     }
@@ -43,10 +44,11 @@ def _uvicorn_logging() -> Iterator[None]:
 
     yield
 
-    for name, (handlers, propagate) in before.items():
+    for name, (handlers, propagate, level) in before.items():
         logger = logging.getLogger(name)
         logger.handlers = handlers
         logger.propagate = propagate
+        logger.setLevel(level)
 
 
 def _formatters(name: str) -> list[logging.Formatter | None]:
@@ -134,6 +136,9 @@ def test_a_file_handler_keeps_the_file_it_opened(tmp_path: Path) -> None:
     handler = logging.FileHandler(path)
     logger = logging.getLogger("uvicorn")
     logger.handlers = [handler]
+    # The root level is whatever the run left behind, and an inherited
+    # WARNING would drop the record before it reached the handler.
+    logger.setLevel(logging.INFO)
 
     try:
         apply_uvicorn(_LOGFMT)
