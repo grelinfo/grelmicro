@@ -51,6 +51,29 @@ def _on_a_standard_stream(handler: logging.StreamHandler[TextIO]) -> bool:
     )
 
 
+def rebind_streams() -> None:
+    """Point uvicorn's handlers at the stream the process writes to now.
+
+    `apply` moves them onto the queued writer. A handler still holding
+    that writer once it has been stopped writes inline, to the stream the
+    writer captured rather than the one the process has, so it is moved
+    back when the queue comes out.
+
+    Only a handler on a stopped or replaced writer is touched. One that
+    was given a stream of its own never held a writer to begin with.
+    """
+    import logging as _logging  # noqa: PLC0415
+
+    stream = get_stream()
+    for name in _UVICORN_LOGGERS:
+        for handler in _logging.getLogger(name).handlers:
+            if type(handler) is not _logging.StreamHandler:
+                continue
+            plain = cast("logging.StreamHandler[TextIO]", handler)
+            if isinstance(plain.stream, QueueWriter):
+                plain.setStream(stream)
+
+
 def apply(config: LogConfig) -> None:
     """Take over uvicorn's own loggers to match the application format.
 

@@ -23,6 +23,7 @@ from grelmicro.log.config import (
     LogLevelType,
     LogSerializerType,
 )
+from grelmicro.log.uvicorn import rebind_streams as _rebind_uvicorn_streams
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -253,6 +254,10 @@ class Log:
         handlers gone. A bounded wait at shutdown is the cheaper of the
         two, and it is what every other teardown here does.
 
+        Uvicorn's own handlers are moved off the writer as it comes out,
+        because `apply` put them on it and the root snapshot does not
+        cover them.
+
         The queue comes out under the same lock the handlers go back
         under. The installed writer is process-global like the root
         logger, so taking it out from outside the lock lets one app in a
@@ -260,6 +265,9 @@ class Log:
         """
         with self._lifecycle_lock:
             _uninstall_queue()
+            # Uvicorn's handlers were moved onto the writer that just
+            # stopped, and nothing else gives them back.
+            _rebind_uvicorn_streams()
             root = logging.getLogger()
             for handler in list(root.handlers):
                 root.removeHandler(handler)

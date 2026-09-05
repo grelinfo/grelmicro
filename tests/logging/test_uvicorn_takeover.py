@@ -9,9 +9,13 @@ from pathlib import Path
 import pytest
 
 from grelmicro.log._apply import apply as apply_backend
-from grelmicro.log._queue import get_stream
+from grelmicro.log._queue import get_stream, swap, uninstall
 from grelmicro.log.config import LogBackendType, LogConfig, LogFormatType
-from grelmicro.log.uvicorn import UvicornAccessFormatter, UvicornFormatter
+from grelmicro.log.uvicorn import (
+    UvicornAccessFormatter,
+    UvicornFormatter,
+    rebind_streams,
+)
 from grelmicro.log.uvicorn import apply as apply_uvicorn
 
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
@@ -241,3 +245,24 @@ def test_the_access_record_survives_every_backend(
     assert record.getMessage() == (
         '127.0.0.1:54321 - "POST /orders HTTP/1.1" 200'
     )
+
+
+def test_the_stream_is_given_back_when_the_queue_comes_out() -> None:
+    """A handler left on a stopped writer would write inline to its stream."""
+    handler = logging.StreamHandler(sys.stdout)
+    logging.getLogger("uvicorn").handlers = [handler]
+    chosen = io.StringIO()
+    own = logging.StreamHandler(chosen)
+    logging.getLogger("uvicorn.error").handlers = [own]
+    swap(size=10)
+    try:
+        apply_uvicorn(_LOGFMT)
+        assert handler.stream is get_stream()
+    finally:
+        uninstall()
+
+    rebind_streams()
+
+    assert handler.stream is get_stream()
+    assert handler.stream is sys.stdout
+    assert own.stream is chosen
