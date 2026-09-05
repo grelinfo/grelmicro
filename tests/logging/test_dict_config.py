@@ -23,6 +23,7 @@ from grelmicro.log import (
 )
 from grelmicro.log._queue import get_writer, uninstall
 from grelmicro.log.config import LogConfig, LogFormatType, LogLevelType
+from grelmicro.log.uvicorn import UvicornAccessFormatter
 
 _UVICORN_ACCESS = "uvicorn.access"
 _SERVERS = (
@@ -418,3 +419,52 @@ def test_a_second_handler_joins_the_running_queue(
 
     assert first.stream is second.stream
     assert get_writer() is first.stream
+
+
+@pytest.mark.usefixtures("_restore_logging")
+def test_one_threshold_governs_the_server_too(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Gunicorn and Hypercorn pin a level before they apply the document."""
+    for name in _SERVERS:
+        logging.getLogger(name).setLevel(logging.INFO)
+
+    _apply(dict_config_with(LogConfig(level=LogLevelType.WARNING)))
+
+    for name in _SERVERS:
+        logging.getLogger(name).info("below the threshold")
+    logging.getLogger("myapp").info("below the threshold")
+
+    assert capsys.readouterr().out == ""
+
+
+def test_the_server_loggers_follow_the_root_level() -> None:
+    """A level of its own is what let a server answer to a second threshold."""
+    document = dict_config()
+
+    for name in _SERVERS:
+        assert document["loggers"][name]["level"] == "NOTSET"
+    assert document["loggers"][_UVICORN_ACCESS]["level"] == "NOTSET"
+
+
+def test_the_uvicorn_formatter_reads_the_environment_when_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hand-written document names it from a process like any other."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    record = logging.LogRecord(
+        name=_UVICORN_ACCESS,
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg=_ACCESS_MESSAGE,
+        args=_ACCESS_ARGS,
+        exc_info=None,
+    )
+
+    line = UvicornAccessFormatter(env_load=True).format(record)
+
+    assert line.startswith("time=")
+    assert "method=GET" in line

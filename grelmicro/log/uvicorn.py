@@ -95,7 +95,9 @@ class UvicornFormatter(_UvicornBaseFormatter):
     """Format-aware uvicorn formatter compatible with ``logging.config.dictConfig``.
 
     Reads ``GREL_LOG_FORMAT`` and produces the matching output (AUTO, JSON,
-    LOGFMT, TEXT, PRETTY).
+    LOGFMT, TEXT, PRETTY). Reading the environment is opt-in, so it happens
+    when ``GREL_ENV_LOAD`` is set, or when ``env_load=True`` is passed from
+    a process that cannot set it.
 
     Pass ``config`` to format against an already-resolved ``LogConfig``
     instead of re-reading the environment. ``configure()`` uses that path so
@@ -113,10 +115,11 @@ class UvicornFormatter(_UvicornBaseFormatter):
         config: LogConfig | Mapping[str, Any] | None = None,
         *,
         use_colors: bool | None = None,
+        env_load: bool | None = None,
     ) -> None:
         """Initialize from a resolved config, or from the environment."""
         settings, timezone, resolved_format, json_dumps, colors = load_settings(
-            as_log_config(config)
+            as_log_config(config), env_load=env_load
         )
         colors = resolve_use_colors(
             resolved_format, colors=colors, use_colors=use_colors

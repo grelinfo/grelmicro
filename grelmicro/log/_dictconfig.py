@@ -72,11 +72,21 @@ def _build(
             },
         },
         "loggers": {
+            # `NOTSET` so the level follows the root logger's. Gunicorn and
+            # Hypercorn pin a level on their own loggers before they apply
+            # the document, and without this the process would answer to
+            # two thresholds: `GREL_LOG_LEVEL` for the application and the
+            # server's own for the server. Uvicorn sets its level after,
+            # so `--log-level` still wins where it is passed.
             **{
-                name: {"handlers": [], "propagate": True}
+                name: {"handlers": [], "level": "NOTSET", "propagate": True}
                 for name in _SERVER_LOGGERS
             },
-            _ACCESS_LOGGER: {"handlers": ["access"], "propagate": False},
+            _ACCESS_LOGGER: {
+                "handlers": ["access"],
+                "level": "NOTSET",
+                "propagate": False,
+            },
         },
         "root": {"handlers": ["default"], "level": settings["level"]},
     }
@@ -125,6 +135,10 @@ def dict_config(
 
     A document applied on its own is behind the queue `queue_enabled` asks
     for, because the handler starts the writer when none is running.
+
+    A `GREL_LOG_*` variable set with the environment path off is reported
+    as a warning on this path rather than as a log record, because nothing
+    has configured the logger the record would be written to.
 
     An application that also writes through loguru or structlog calls
     [`configure()`][grelmicro.log.configure] as well, which adds the
