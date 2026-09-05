@@ -354,6 +354,10 @@ def handler(
     is running, one is started here, which is what puts a document applied
     on its own behind a queue.
 
+    A running writer is never taken out, whatever the settings say. It
+    belongs to whoever started it, and stopping it here would strand the
+    records it is holding. To turn a queue off, reconfigure the owner.
+
     Args:
         config: A resolved `LogConfig`, or the mapping a document carries
             it as. Omit it to read `GREL_LOG_*`.

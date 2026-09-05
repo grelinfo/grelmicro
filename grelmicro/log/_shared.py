@@ -8,9 +8,14 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, tzinfo
 from typing import Any, Literal, NamedTuple
 
+from pydantic import ValidationError
+
 from grelmicro._config import resolve_config
 from grelmicro._timezone import SHARED_TIMEZONE_ENV, resolve_timezone
-from grelmicro.errors import DependencyNotFoundError
+from grelmicro.errors import (
+    DependencyNotFoundError,
+    SettingsValidationError,
+)
 from grelmicro.log.config import (
     LogConfig,
     LogFormatType,
@@ -209,10 +214,20 @@ def as_log_config(
 
     A `dictConfig` document carries its settings as a plain mapping, so it
     stays JSON, and the factories it names take them back as a config.
+
+    Raises:
+        SettingsValidationError: If the mapping is not a valid config.
     """
     if config is None or isinstance(config, LogConfig):
         return config
-    return LogConfig.model_validate(config)
+    try:
+        return LogConfig.model_validate(config)
+    except ValidationError as error:
+        # The raw pydantic error carries `input_value`, and a document is
+        # written from settings that can name a credential.
+        # `SettingsValidationError` renders the field and the reason
+        # without the input, the same as every other way in.
+        raise SettingsValidationError(error) from None
 
 
 def resolve_use_colors(

@@ -1,5 +1,6 @@
 """Tests for the logging configuration an application server consumes."""
 
+import io
 import json
 import logging
 import logging.config
@@ -9,8 +10,16 @@ from typing import Any
 
 import pytest
 
-from grelmicro.errors import DependencyNotFoundError
-from grelmicro.log import dict_config, dict_config_with, formatter
+from grelmicro.errors import (
+    DependencyNotFoundError,
+    SettingsValidationError,
+)
+from grelmicro.log import (
+    configure,
+    dict_config,
+    dict_config_with,
+    formatter,
+)
 from grelmicro.log._queue import get_writer, uninstall
 from grelmicro.log.config import LogConfig, LogFormatType, LogLevelType
 
@@ -216,11 +225,31 @@ def _no_queue() -> Iterator[None]:
     uninstall()
 
 
+def _capture_stdout(monkeypatch: pytest.MonkeyPatch) -> io.StringIO:
+    """Read what a queued handler wrote.
+
+    A `QueueWriter` binds the stream when it is installed, so what it
+    writes does not always land in the buffer `capsys` reads back. The
+    handlers resolve the stream through `get_stream()` rather than
+    `ext://sys.stdout`, so patching the attribute holds both ends of the
+    queue to one stream.
+
+    Called from the test body rather than a fixture. Pytest reinstalls
+    `sys.stdout` when it resumes capture for the call phase, which undoes
+    a patch made while fixtures were still being set up.
+    """
+    stream = io.StringIO()
+    monkeypatch.setattr("sys.stdout", stream)
+    return stream
+
+
 @pytest.mark.usefixtures("_restore_logging", "_no_queue")
 def test_a_document_starts_the_queue_it_asks_for(
-    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A document applied on its own is behind the queue all the same."""
+    stdout = _capture_stdout(monkeypatch)
+
     _apply(dict_config_with(LogConfig(queue_enabled=True)))
 
     assert get_writer() is not None
@@ -228,12 +257,14 @@ def test_a_document_starts_the_queue_it_asks_for(
     logging.getLogger("uvicorn.error").info("startup")
     uninstall()
 
-    assert "startup" in capsys.readouterr().out
+    assert "startup" in stdout.getvalue()
 
 
 @pytest.mark.usefixtures("_restore_logging", "_no_queue")
-def test_a_running_queue_is_kept(capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_running_queue_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     """A document applied after `configure()` must not unqueue the process."""
+    stdout = _capture_stdout(monkeypatch)
+
     _apply(dict_config_with(LogConfig(queue_enabled=True)))
     writer = get_writer()
 
@@ -243,7 +274,7 @@ def test_a_running_queue_is_kept(capsys: pytest.CaptureFixture[str]) -> None:
     logging.getLogger("myapp").info("kept")
     uninstall()
 
-    assert "kept" in capsys.readouterr().out
+    assert "kept" in stdout.getvalue()
 
 
 @pytest.mark.usefixtures("_restore_logging")
@@ -306,3 +337,48 @@ def test_each_entry_carries_its_own_settings() -> None:
 
     assert document["formatters"]["default"]["config"]["level"] == "INFO"
     assert document["handlers"]["access"]["config"]["level"] == "INFO"
+
+
+def test_a_bad_mapping_is_refused_without_echoing_it() -> None:
+    """A document carries settings, and one can name a credential."""
+    with pytest.raises(SettingsValidationError) as caught:
+        formatter({"level": "INFO", "oops": "sekrit"})
+
+    assert "sekrit" not in str(caught.value)
+
+
+@pytest.mark.usefixtures("_restore_logging", "_no_queue")
+def test_a_document_never_stops_a_queue_it_did_not_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The writer belongs to whoever started it, records and all."""
+    stdout = _capture_stdout(monkeypatch)
+
+    _apply(dict_config_with(LogConfig(queue_enabled=True)))
+    writer = get_writer()
+
+    _apply(dict_config_with(LogConfig(queue_enabled=False)))
+
+    assert get_writer() is writer
+    logging.getLogger("myapp").info("still queued")
+    uninstall()
+
+    assert "still queued" in stdout.getvalue()
+
+
+@pytest.mark.usefixtures("_restore_logging")
+def test_a_document_built_from_what_configure_returned_agrees_with_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`configure()` keyword arguments never reach the environment."""
+    config = configure(
+        format=LogFormatType.LOGFMT,
+        level=LogLevelType.DEBUG,
+        otel_enabled=False,
+    )
+    capsys.readouterr()
+
+    _apply(dict_config_with(config))
+    logging.getLogger("uvicorn.error").debug("kept")
+
+    assert capsys.readouterr().out.startswith("time=")

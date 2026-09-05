@@ -97,7 +97,14 @@ python -c 'import json; from grelmicro.log import dict_config; print(json.dumps(
 uvicorn app:app --log-config logging.json
 ```
 
-An application that writes through loguru or structlog calls `configure()` as well, which adds the backend. The root logger is then configured twice and reads the same either way, because each pass replaces the handler rather than adding one.
+An application that writes through loguru or structlog calls `configure()` as well, which adds the backend. Each pass replaces the root handler rather than adding one, so the last one applied is what the process reads in, and uvicorn applies the document before it imports your application.
+
+A `configure()` that passes keyword arguments resolves settings the document never sees. Build the document from what it returns, so both render the same:
+
+```python
+config = configure(format="pretty")
+uvicorn.run(app, log_config=dict_config_with(config))
+```
 
 ## Quieting health probes
 

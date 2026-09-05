@@ -128,9 +128,19 @@ def dict_config(
 
     An application that also writes through loguru or structlog calls
     [`configure()`][grelmicro.log.configure] as well, which adds the
-    backend. The root logger ends up configured twice and reads the same
-    either way, because each pass replaces the handler rather than adding
-    one.
+    backend. Each pass replaces the root handler rather than adding one,
+    so the last one applied is what the process reads in. Uvicorn applies
+    the document before it imports the application, which puts
+    `configure()` last.
+
+    A `configure()` that passes keyword arguments resolves settings this
+    document never sees. Build the document from what it returns, so both
+    render the same:
+
+    ```python
+    config = configure(format="pretty")
+    uvicorn.run(app, log_config=dict_config_with(config))
+    ```
 
     Returns:
         A `dictConfig` document. JSON-serializable, so it can be written to
@@ -169,6 +179,5 @@ def dict_config_with(
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
-        SettingsValidationError: If configuration is invalid.
     """
     return _build(config)
