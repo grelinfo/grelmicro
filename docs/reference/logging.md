@@ -23,6 +23,7 @@
         - dict_config
         - dict_config_with
         - formatter
+        - handler
 
 ::: grelmicro.log.uvicorn
     options:

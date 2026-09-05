@@ -36,14 +36,15 @@ document serve whichever server started the process.
 
 def _build(config: LogConfig | None) -> dict[str, Any]:
     """Assemble the document against `config`, or against the environment."""
-    settings = load_settings(config).settings
-    default: dict[str, Any] = {"()": "grelmicro.log.formatter"}
-    access: dict[str, Any] = {
-        "()": "grelmicro.log.uvicorn.UvicornAccessFormatter"
+    settings = load_settings(config).settings.model_dump(mode="json")
+    default: dict[str, Any] = {
+        "()": "grelmicro.log.formatter",
+        "config": settings,
     }
-    if config is not None:
-        default["config"] = config
-        access["config"] = config
+    access: dict[str, Any] = {
+        "()": "grelmicro.log.uvicorn.UvicornAccessFormatter",
+        "config": settings,
+    }
 
     return {
         "version": 1,
@@ -54,14 +55,14 @@ def _build(config: LogConfig | None) -> dict[str, Any]:
         "formatters": {"default": default, "access": access},
         "handlers": {
             "default": {
-                "class": "logging.StreamHandler",
+                "()": "grelmicro.log.handler",
+                "config": settings,
                 "formatter": "default",
-                "stream": "ext://sys.stdout",
             },
             "access": {
-                "class": "logging.StreamHandler",
+                "()": "grelmicro.log.handler",
+                "config": settings,
                 "formatter": "access",
-                "stream": "ext://sys.stdout",
             },
         },
         "loggers": {
@@ -71,7 +72,7 @@ def _build(config: LogConfig | None) -> dict[str, Any]:
             },
             _ACCESS_LOGGER: {"handlers": ["access"], "propagate": False},
         },
-        "root": {"handlers": ["default"], "level": settings.level.value},
+        "root": {"handlers": ["default"], "level": settings["level"]},
     }
 
 
@@ -98,10 +99,14 @@ def dict_config() -> dict[str, Any]:
     Path("logging.json").write_text(json.dumps(dict_config()))
     ```
 
-    Fields resolve from `GREL_LOG_*`, and the formatters read them again
-    when the server applies the document. To render against settings that
-    never reach the environment, use
+    Fields resolve from `GREL_LOG_*` when the document is built, and the
+    document carries them. It is a snapshot, not a template, so build it
+    where the process starts rather than where an image does. To render
+    against settings that never reach the environment, use
     [`dict_config_with()`][grelmicro.log.dict_config_with].
+
+    A document applied on its own is behind the queue `queue_enabled` asks
+    for, because the handler starts the writer when none is running.
 
     An application that also writes through loguru or structlog calls
     [`configure()`][grelmicro.log.configure] as well, which adds the
@@ -138,12 +143,11 @@ def dict_config_with(
     """Return a logging configuration built from a pre-built `LogConfig`.
 
     The same document [`dict_config()`][grelmicro.log.dict_config] returns,
-    with the settings carried inside it instead of read from the
-    environment when the server applies it.
+    built from settings given here rather than read from the environment.
 
     Returns:
-        A `dictConfig` document. It holds a `LogConfig`, so it pickles to a
-        `--workers` child but does not serialize to JSON.
+        A `dictConfig` document, JSON-serializable like the one
+        [`dict_config()`][grelmicro.log.dict_config] returns.
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.

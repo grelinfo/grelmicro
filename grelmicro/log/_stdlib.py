@@ -7,8 +7,9 @@ from datetime import UTC, datetime, tzinfo
 from typing import Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
-from grelmicro.log._queue import get_stream
+from grelmicro.log._queue import get_stream, get_writer, swap
 from grelmicro.log._shared import (
+    as_log_config,
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
@@ -292,7 +293,7 @@ def build_formatter(
 
 
 def formatter(
-    config: LogConfig | None = None,
+    config: LogConfig | Mapping[str, Any] | None = None,
     *,
     use_colors: bool | None = None,
 ) -> logging.Formatter:
@@ -310,7 +311,8 @@ def formatter(
     document, and this is the piece it names.
 
     Args:
-        config: A resolved `LogConfig`. Omit it to read `GREL_LOG_*`.
+        config: A resolved `LogConfig`, or the mapping a document carries
+            it as. Omit it to read `GREL_LOG_*`.
         use_colors: Whether to colorize, overriding `NO_COLOR`,
             `FORCE_COLOR` and the terminal check. Uvicorn writes it into
             the document when it is started with `--use-colors` or
@@ -321,7 +323,7 @@ def formatter(
         SettingsValidationError: If configuration is invalid.
     """
     settings, timezone, resolved_format, json_dumps, colors = load_settings(
-        config
+        as_log_config(config)
     )
     return build_formatter(
         resolved_format,
@@ -333,6 +335,37 @@ def formatter(
         caller_enabled=settings.caller_enabled,
         otel_enabled=settings.otel_enabled,
     )
+
+
+def handler(
+    config: LogConfig | Mapping[str, Any] | None = None,
+) -> logging.Handler:
+    """Return the handler grelmicro writes every record through.
+
+    Built to be named from a `logging.config.dictConfig`:
+
+    ```python
+    {"()": "grelmicro.log.handler", "formatter": "default"}
+    ```
+
+    It writes to the stream the rest of the process writes to, so a record
+    a server renders through this document goes through the same queue as
+    the application's own. When the settings ask for a queue and no writer
+    is running, one is started here, which is what puts a document applied
+    on its own behind a queue.
+
+    Args:
+        config: A resolved `LogConfig`, or the mapping a document carries
+            it as. Omit it to read `GREL_LOG_*`.
+
+    Raises:
+        DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
+        SettingsValidationError: If configuration is invalid.
+    """
+    settings = load_settings(as_log_config(config)).settings
+    if settings.queue_enabled and get_writer() is None:
+        swap(size=settings.queue_size)
+    return logging.StreamHandler(get_stream())
 
 
 def install_root(formatter: logging.Formatter, *, level: int | str) -> None:

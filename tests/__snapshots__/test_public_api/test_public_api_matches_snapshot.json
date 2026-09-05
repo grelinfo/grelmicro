@@ -482,6 +482,9 @@
     },
     "formatter": {
       "()": "(config=None, *, use_colors=None) -> Formatter"
+    },
+    "handler": {
+      "()": "(config=None) -> Handler"
     }
   },
   "grelmicro.metrics": {

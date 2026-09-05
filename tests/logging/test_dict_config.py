@@ -11,6 +11,7 @@ import pytest
 
 from grelmicro.errors import DependencyNotFoundError
 from grelmicro.log import dict_config, dict_config_with, formatter
+from grelmicro.log._queue import get_writer, uninstall
 from grelmicro.log.config import LogConfig, LogFormatType, LogLevelType
 
 _UVICORN_ACCESS = "uvicorn.access"
@@ -205,3 +206,80 @@ def test_the_formatter_reads_the_environment_when_no_config_is_given(
     )
 
     assert formatter().format(record).startswith("time=")
+
+
+@pytest.fixture
+def _no_queue() -> Iterator[None]:
+    """Take out a writer a document started, so no test inherits one."""
+    yield
+
+    uninstall()
+
+
+@pytest.mark.usefixtures("_restore_logging", "_no_queue")
+def test_a_document_starts_the_queue_it_asks_for(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A document applied on its own is behind the queue all the same."""
+    _apply(dict_config_with(LogConfig(queue_enabled=True)))
+
+    assert get_writer() is not None
+
+    logging.getLogger("uvicorn.error").info("startup")
+    uninstall()
+
+    assert "startup" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("_restore_logging", "_no_queue")
+def test_a_running_queue_is_kept(capsys: pytest.CaptureFixture[str]) -> None:
+    """A document applied after `configure()` must not unqueue the process."""
+    _apply(dict_config_with(LogConfig(queue_enabled=True)))
+    writer = get_writer()
+
+    _apply(dict_config_with(LogConfig(queue_enabled=True)))
+
+    assert get_writer() is writer
+    logging.getLogger("myapp").info("kept")
+    uninstall()
+
+    assert "kept" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("_restore_logging")
+def test_the_document_carries_the_settings_it_was_built_from(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """It is a snapshot, so what it renders does not move under the server."""
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    document = dict_config()
+
+    monkeypatch.setenv("GREL_LOG_FORMAT", "json")
+    _apply(document)
+    logging.getLogger("myapp").info("snapshot")
+
+    assert capsys.readouterr().out.startswith("time=")
+
+
+@pytest.mark.usefixtures("_restore_logging")
+def test_caller_reads_the_same_on_a_server_record(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`caller_enabled` is one rule, and uvicorn is not an exception to it."""
+    _apply(
+        dict_config_with(
+            LogConfig(format=LogFormatType.JSON, caller_enabled=True)
+        )
+    )
+
+    logging.getLogger("uvicorn.error").info("startup")
+    logging.getLogger("myapp").info("app")
+
+    server, app = (
+        json.loads(line) for line in capsys.readouterr().out.splitlines()
+    )
+    assert "caller" in server
+    assert "caller" in app

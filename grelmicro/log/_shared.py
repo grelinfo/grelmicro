@@ -199,6 +199,19 @@ def should_colorize() -> bool:
     return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 
 
+def as_log_config(
+    config: LogConfig | Mapping[str, Any] | None,
+) -> LogConfig | None:
+    """Read `config` as a `LogConfig`, whatever shape it arrived in.
+
+    A `dictConfig` document carries its settings as a plain mapping, so it
+    stays JSON, and the factories it names take them back as a config.
+    """
+    if config is None or isinstance(config, LogConfig):
+        return config
+    return LogConfig.model_validate(config)
+
+
 def resolve_use_colors(
     resolved_format: LogFormatType | str,
     *,

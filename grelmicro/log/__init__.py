@@ -16,7 +16,7 @@ from grelmicro.log._ratelimit import (
     RateLimitFilter,
     RateLimitFilterConfig,
 )
-from grelmicro.log._stdlib import formatter
+from grelmicro.log._stdlib import formatter, handler
 from grelmicro.log.config import (
     LogBackendType,
     LogConfig,
@@ -198,4 +198,5 @@ __all__ = [
     "dict_config",
     "dict_config_with",
     "formatter",
+    "handler",
 ]

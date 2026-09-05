@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from grelmicro.log._queue import QueueWriter, get_stream
 from grelmicro.log._shared import (
+    as_log_config,
     load_settings,
     logfmt_dumps,
     render_pretty_lines,
@@ -109,20 +110,20 @@ class UvicornFormatter(_UvicornBaseFormatter):
 
     def __init__(
         self,
-        config: LogConfig | None = None,
+        config: LogConfig | Mapping[str, Any] | None = None,
         *,
         use_colors: bool | None = None,
     ) -> None:
         """Initialize from a resolved config, or from the environment."""
         settings, timezone, resolved_format, json_dumps, colors = load_settings(
-            config
+            as_log_config(config)
         )
         colors = resolve_use_colors(
             resolved_format, colors=colors, use_colors=use_colors
         )
         super().__init__(
             timezone=timezone,
-            caller_enabled=False,
+            caller_enabled=settings.caller_enabled,
             otel_enabled=settings.otel_enabled,
         )
 
@@ -145,13 +146,7 @@ class UvicornFormatter(_UvicornBaseFormatter):
                 self._format_record = json_dumps
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format the log record.
-
-        ``caller`` is always disabled (``caller_enabled=False``) because
-        uvicorn's caller info points to uvicorn internals, which is not
-        useful. The ``logger`` field (e.g., ``uvicorn.error``,
-        ``uvicorn.access``) already identifies the source.
-        """
+        """Format the log record."""
         return self._format_record(self._record(record))
 
 
