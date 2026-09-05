@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import sys
 from copy import copy
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+from grelmicro.log._queue import QueueWriter, get_stream
 from grelmicro.log._shared import (
+    as_log_config,
     load_settings,
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
     resolve_template_format,
+    resolve_use_colors,
 )
 from grelmicro.log._stdlib import _STANDARD_LOG_RECORD_ATTRS, _BaseFormatter
 from grelmicro.log.config import LogConfig, LogFormatType
@@ -18,11 +22,9 @@ from grelmicro.log.config import LogConfig, LogFormatType
 if TYPE_CHECKING:
     import logging
     from collections.abc import Callable, Mapping
+    from typing import TextIO
 
-_UVICORN_LOG_RECORD_ATTRS = _STANDARD_LOG_RECORD_ATTRS | {
-    "asctime",
-    "color_message",
-}
+_UVICORN_LOG_RECORD_ATTRS = _STANDARD_LOG_RECORD_ATTRS | {"asctime"}
 
 _MIN_ACCESS_ARGS = 5
 
@@ -37,29 +39,50 @@ _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
 def apply(config: LogConfig) -> None:
-    """Reformat uvicorn's own loggers to match the application format.
+    """Take over uvicorn's own loggers to match the application format.
 
     Uvicorn installs its own handlers with ``propagate`` off, so its records
     never reach the handler `configure()` sets up and the process emits two
-    formats on one stream. Its handlers are kept, so the stderr/stdout split
-    and any custom handler survive, and only the formatter is replaced.
+    formats. Its handlers are kept, so a custom handler survives, and both
+    the formatter and the stream are replaced.
+
+    A handler still on `sys.stdout` or `sys.stderr` is pointed at the
+    stream the rest of the process writes to, so a uvicorn record goes
+    through the queue `queue_enabled` installs and lands on one file
+    descriptor with the application's own records. A handler that already
+    writes somewhere else keeps that stream, and so does anything richer
+    than a plain `logging.StreamHandler`, a `FileHandler` among them.
 
     Uvicorn applies its logging config while building `Config`, before it
     imports the application module, so a `configure()` call at import time
-    runs afterwards and has handlers to reformat. A process that configures
-    logging before uvicorn starts is not covered, which is why this is a
-    best-effort pass rather than a guarantee.
+    runs afterwards and has handlers to take over. The process that runs
+    `--reload` or `--workers` never imports the application, so its own
+    lines are outside this: give uvicorn
+    [`dict_config()`][grelmicro.log.dict_config] to cover those too.
     """
     import logging as _logging  # noqa: PLC0415
 
+    stream = get_stream()
     for name in _UVICORN_LOGGERS:
         logger = _logging.getLogger(name)
         for handler in logger.handlers:
             handler.setFormatter(
                 UvicornAccessFormatter(config)
-                if name == "uvicorn.access"
+                if name == _ACCESS_LOGGER
                 else UvicornFormatter(config)
             )
+            if type(handler) is not _logging.StreamHandler:
+                continue
+            plain = cast("logging.StreamHandler[TextIO]", handler)
+            if (
+                plain.stream is sys.stdout
+                or plain.stream is sys.stderr
+                # A previous pass already moved it. The writer it points at
+                # is stopped when logging is reconfigured, so it has to
+                # follow to the one that replaced it.
+                or isinstance(plain.stream, QueueWriter)
+            ):
+                plain.setStream(stream)
 
 
 class _UvicornBaseFormatter(_BaseFormatter):
@@ -71,23 +94,36 @@ class _UvicornBaseFormatter(_BaseFormatter):
 class UvicornFormatter(_UvicornBaseFormatter):
     """Format-aware uvicorn formatter compatible with ``logging.config.dictConfig``.
 
-    Reads ``LOG_FORMAT`` and produces the matching output (AUTO, JSON, LOGFMT,
-    TEXT, PRETTY).  No constructor arguments required.
+    Reads ``GREL_LOG_FORMAT`` and produces the matching output (AUTO, JSON,
+    LOGFMT, TEXT, PRETTY).
 
     Pass ``config`` to format against an already-resolved ``LogConfig``
     instead of re-reading the environment. ``configure()`` uses that path so
     uvicorn matches settings passed as keyword arguments, which never reach
     the environment.
+
+    Pass ``use_colors`` to override the terminal check. Uvicorn writes it
+    into the document when it is started with ``--use-colors`` or
+    ``--no-use-colors``, so a formatter named from a ``dictConfig`` has to
+    take it.
     """
 
-    def __init__(self, config: LogConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: LogConfig | Mapping[str, Any] | None = None,
+        *,
+        use_colors: bool | None = None,
+    ) -> None:
         """Initialize from a resolved config, or from the environment."""
         settings, timezone, resolved_format, json_dumps, colors = load_settings(
-            config
+            as_log_config(config)
+        )
+        colors = resolve_use_colors(
+            resolved_format, colors=colors, use_colors=use_colors
         )
         super().__init__(
             timezone=timezone,
-            caller_enabled=False,
+            caller_enabled=settings.caller_enabled,
             otel_enabled=settings.otel_enabled,
         )
 
@@ -110,13 +146,7 @@ class UvicornFormatter(_UvicornBaseFormatter):
                 self._format_record = json_dumps
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format the log record.
-
-        ``caller`` is always disabled (``caller_enabled=False``) because
-        uvicorn's caller info points to uvicorn internals, which is not
-        useful. The ``logger`` field (e.g., ``uvicorn.error``,
-        ``uvicorn.access``) already identifies the source.
-        """
+        """Format the log record."""
         return self._format_record(self._record(record))
 
 

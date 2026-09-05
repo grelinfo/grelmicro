@@ -7,14 +7,16 @@ from datetime import UTC, datetime, tzinfo
 from typing import Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
-from grelmicro.log._queue import get_stream
+from grelmicro.log._queue import get_stream, install_if_absent
 from grelmicro.log._shared import (
+    as_log_config,
     get_otel_trace_context,
     load_settings,
     logfmt_dumps,
     render_pretty_lines,
     render_text_line,
     resolve_template_format,
+    resolve_use_colors,
 )
 from grelmicro.log.config import LogConfig, LogFormatType
 from grelmicro.log.types import ErrorDict
@@ -43,6 +45,10 @@ _STANDARD_LOG_RECORD_ATTRS = frozenset(
         "threadName",
         "taskName",
         "message",
+        # Uvicorn logs an ANSI-colored copy of its message under
+        # `color_message`. It renders as an escape sequence in a field, so
+        # it is dropped wherever a uvicorn record is read.
+        "color_message",
     }
 )
 
@@ -284,6 +290,95 @@ def build_formatter(
             colors=colors,
         )
     return formatter
+
+
+def formatter(
+    config: LogConfig | Mapping[str, Any] | None = None,
+    *,
+    use_colors: bool | None = None,
+    env_load: bool | None = None,
+) -> logging.Formatter:
+    """Return the formatter that renders a record in grelmicro's format.
+
+    Built to be named from a `logging.config.dictConfig`, which is how an
+    application server renders its own records the way the application
+    does:
+
+    ```python
+    {"()": "grelmicro.log.formatter"}
+    ```
+
+    [`dict_config()`][grelmicro.log.dict_config] assembles the whole
+    document, and this is the piece it names.
+
+    Args:
+        config: A resolved `LogConfig`, or the mapping a document carries
+            it as. Omit it to read `GREL_LOG_*`.
+        use_colors: Whether to colorize, overriding `NO_COLOR`,
+            `FORCE_COLOR` and the terminal check. Uvicorn writes it into
+            the document when it is started with `--use-colors` or
+            `--no-use-colors`.
+        env_load: Whether to read `GREL_LOG_*`. When None (default),
+            follow `GREL_ENV_LOAD`. Pass True from a process that cannot
+            set it.
+
+    Raises:
+        DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
+        SettingsValidationError: If configuration is invalid.
+    """
+    settings, timezone, resolved_format, json_dumps, colors = load_settings(
+        as_log_config(config), env_load=env_load
+    )
+    return build_formatter(
+        resolved_format,
+        timezone=timezone,
+        json_dumps=json_dumps,
+        colors=resolve_use_colors(
+            resolved_format, colors=colors, use_colors=use_colors
+        ),
+        caller_enabled=settings.caller_enabled,
+        otel_enabled=settings.otel_enabled,
+    )
+
+
+def handler(
+    config: LogConfig | Mapping[str, Any] | None = None,
+    *,
+    env_load: bool | None = None,
+) -> logging.Handler:
+    """Return the handler grelmicro writes every record through.
+
+    Built to be named from a `logging.config.dictConfig`:
+
+    ```python
+    {"()": "grelmicro.log.handler", "formatter": "default"}
+    ```
+
+    It writes to the stream the rest of the process writes to, so a record
+    a server renders through this document goes through the same queue as
+    the application's own. When the settings ask for a queue and no writer
+    is running, one is started here, which is what puts a document applied
+    on its own behind a queue.
+
+    A running writer is never taken out, whatever the settings say. It
+    belongs to whoever started it, and stopping it here would strand the
+    records it is holding. To turn a queue off, reconfigure the owner.
+
+    Args:
+        config: A resolved `LogConfig`, or the mapping a document carries
+            it as. Omit it to read `GREL_LOG_*`.
+        env_load: Whether to read `GREL_LOG_*`. When None (default),
+            follow `GREL_ENV_LOAD`. Pass True from a process that cannot
+            set it.
+
+    Raises:
+        DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
+        SettingsValidationError: If configuration is invalid.
+    """
+    settings = load_settings(as_log_config(config), env_load=env_load).settings
+    if settings.queue_enabled:
+        install_if_absent(size=settings.queue_size)
+    return logging.StreamHandler(get_stream())
 
 
 def install_root(formatter: logging.Formatter, *, level: int | str) -> None:

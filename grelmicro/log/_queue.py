@@ -402,6 +402,22 @@ def swap(*, size: int | None) -> QueueWriter | None:
         return previous
 
 
+def install_if_absent(*, size: int) -> bool:
+    """Install a writer of `size` when none is running, and say whether it did.
+
+    The test and the install are one step, so two callers racing to put a
+    queue behind a process end up with one writer rather than one of them
+    replacing, and having to stop, the other's.
+    """
+    global _current  # noqa: PLW0603
+    with _install_lock:
+        if _current is not None:
+            return False
+        _arm_multiprocessing_drain()
+        _current = QueueWriter(sys.stdout, size=size)
+        return True
+
+
 def restore(writer: QueueWriter | None) -> QueueWriter | None:
     """Put `writer` back as the installed one, returning what it replaced."""
     global _current  # noqa: PLW0603

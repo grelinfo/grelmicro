@@ -106,7 +106,10 @@ class Log:
         ] = None,
         uvicorn_enabled: Annotated[
             bool | None,
-            Doc("Reformat uvicorn's own loggers to match this format."),
+            Doc(
+                "Take over uvicorn's own loggers so they match this format "
+                "and write to the same stream."
+            ),
         ] = None,
         queue_enabled: Annotated[
             bool | None,
