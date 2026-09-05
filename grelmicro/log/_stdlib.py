@@ -398,10 +398,13 @@ def install_root(formatter: logging.Formatter, *, level: int | str) -> None:
     config gives its loggers their own handlers with propagation off, and
     `grelmicro.log.uvicorn` reformats those in place, so a request line
     renders once. [`dict_config()`][grelmicro.log.dict_config] turns
-    propagation back on and takes the handlers away, so those records
-    render here instead, once. A `log_config` of someone else's that
-    leaves both a handler and propagation on reads every uvicorn line
-    twice, which is neither of those.
+    propagation back on and takes the handlers away, so uvicorn's records
+    render here instead, once. Its access records are the exception: they
+    keep a handler of their own, because the request arrives in the
+    record's arguments and needs a formatter that reads it. A
+    `log_config` of someone else's that leaves both a handler and
+    propagation on reads every uvicorn line twice, which is neither of
+    those.
     """
     handler = logging.StreamHandler(get_stream())
     handler.setFormatter(formatter)

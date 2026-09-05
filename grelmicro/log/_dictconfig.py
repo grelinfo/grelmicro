@@ -146,13 +146,14 @@ def dict_config(
     An application that also writes through loguru or structlog calls
     [`configure()`][grelmicro.log.configure] as well, which adds the
     backend. Each pass replaces the root handler rather than adding one,
-    so the last one applied is what the process reads in. Uvicorn applies
-    the document before it imports the application, which puts
-    `configure()` last.
+    so the last one applied is what the process reads in, and which one
+    that is depends on how the server was started. `uvicorn app:app`
+    imports the application after it builds `Config`, so `configure()`
+    runs last. `uvicorn.run(app, ...)` has already imported it, so the
+    document runs last.
 
-    A `configure()` that passes keyword arguments resolves settings this
-    document never sees. Build the document from what it returns, so both
-    render the same:
+    Build the document from what `configure()` returns and the order stops
+    mattering, which is what to do whenever both run:
 
     ```python
     config = configure(format="pretty")

@@ -462,3 +462,17 @@ def test_the_access_handler_follows_a_later_configure() -> None:
     )
     assert access.stream is get_writer()
     assert access.stream is not retired
+
+
+@pytest.mark.usefixtures("_restore_logging", "reset_backend")
+def test_a_document_applied_last_wins_over_configure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`uvicorn.run(app, ...)` builds its `Config` after the module ran."""
+    configure(format=LogFormatType.LOGFMT, otel_enabled=False)
+    capsys.readouterr()
+
+    _apply(dict_config_with(LogConfig(format=LogFormatType.JSON)))
+    logging.getLogger("myapp").info("the document decided")
+
+    assert json.loads(capsys.readouterr().out)["msg"] == "the document decided"

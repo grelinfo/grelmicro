@@ -97,9 +97,9 @@ python -c 'import json; from grelmicro.log import dict_config; print(json.dumps(
 uvicorn app:app --log-config logging.json
 ```
 
-An application that writes through loguru or structlog calls `configure()` as well, which adds the backend. Each pass replaces the root handler rather than adding one, so the last one applied is what the process reads in, and uvicorn applies the document before it imports your application.
+An application that writes through loguru or structlog calls `configure()` as well, which adds the backend. Each pass replaces the root handler rather than adding one, so the last one applied is what the process reads in, and which one that is depends on how the server was started. `uvicorn app:app` imports your application after it builds `Config`, so `configure()` runs last. `uvicorn.run(app, ...)` has already imported it, so the document runs last.
 
-A `configure()` that passes keyword arguments resolves settings the document never sees. Build the document from what it returns, so both render the same:
+Build the document from what `configure()` returns and the order stops mattering, which is what to do whenever both run:
 
 ```python
 config = configure(format="pretty")
