@@ -106,3 +106,17 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
             "its lines keep their own format and the process emits two."
         ),
     ] = True
+    queue_enabled: Annotated[
+        bool,
+        Doc(
+            "Hand log writes to a background thread. The record is "
+            "rendered on the calling thread and queued, so a slow sink "
+            "no longer blocks the event loop. A full queue drops the "
+            "arriving record and reports the count."
+        ),
+    ] = False
+    queue_size: Annotated[
+        int,
+        Doc("How many rendered records the queue holds before dropping."),
+        Field(gt=0),
+    ] = 10_000

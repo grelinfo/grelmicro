@@ -1,13 +1,13 @@
 """Standard Library Logging Backend."""
 
 import logging
-import sys
 import traceback
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, tzinfo
 from typing import Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
+from grelmicro.log._queue import get_stream
 from grelmicro.log._shared import (
     get_otel_trace_context,
     load_settings,
@@ -303,7 +303,7 @@ def install_root(formatter: logging.Formatter, *, level: int | str) -> None:
     and leaves propagation on is outside that, and would read every
     uvicorn line twice.
     """
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(get_stream())
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()

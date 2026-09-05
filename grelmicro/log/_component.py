@@ -15,6 +15,7 @@ from grelmicro._config import (
 )
 from grelmicro._timezone import SHARED_TIMEZONE_ENV
 from grelmicro.log._apply import apply as _apply
+from grelmicro.log._queue import uninstall as _uninstall_queue
 from grelmicro.log.config import (
     LogBackendType,
     LogConfig,
@@ -67,7 +68,7 @@ class Log:
     singleton: ClassVar[bool] = True
     _lifecycle_lock: ClassVar[threading.Lock] = threading.Lock()
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         name: Annotated[
@@ -103,6 +104,18 @@ class Log:
         otel_enabled: Annotated[
             bool | None, Doc("Extract OpenTelemetry trace context.")
         ] = None,
+        uvicorn_enabled: Annotated[
+            bool | None,
+            Doc("Reformat uvicorn's own loggers to match this format."),
+        ] = None,
+        queue_enabled: Annotated[
+            bool | None,
+            Doc("Hand log writes to a background thread."),
+        ] = None,
+        queue_size: Annotated[
+            int | None,
+            Doc("How many rendered records the queue holds before dropping."),
+        ] = None,
         env_load: Annotated[
             bool | None,
             Doc(
@@ -123,6 +136,9 @@ class Log:
                 "json_serializer": json_serializer,
                 "caller_enabled": caller_enabled,
                 "otel_enabled": otel_enabled,
+                "uvicorn_enabled": uvicorn_enabled,
+                "queue_enabled": queue_enabled,
+                "queue_size": queue_size,
             },
             env_load=env_load,
         )
@@ -222,8 +238,24 @@ class Log:
         made after the restore waits for the next one instead of reaching a
         root logger with nothing installed. When an earlier `configure()`
         left logging in place, its handlers come back and reporting with them.
+
+        A queued writer is stopped before the handlers change, so the
+        records it is still holding are written while the handler that
+        rendered them is the one installed. That wait is bounded by the
+        join timeout, and against a stalled sink it happens on the event
+        loop. Handing it to a thread instead has to be shielded from the
+        cancellation an app ordinarily stops with, and a shielded wait
+        that never gets to run leaves the writer installed and the
+        handlers gone. A bounded wait at shutdown is the cheaper of the
+        two, and it is what every other teardown here does.
+
+        The queue comes out under the same lock the handlers go back
+        under. The installed writer is process-global like the root
+        logger, so taking it out from outside the lock lets one app in a
+        process tear down the writer another just installed.
         """
         with self._lifecycle_lock:
+            _uninstall_queue()
             root = logging.getLogger()
             for handler in list(root.handlers):
                 root.removeHandler(handler)

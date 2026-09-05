@@ -27,7 +27,7 @@ from grelmicro.log.types import ErrorDict, JSONRecordDict
 from grelmicro.types import TimeZoneName
 
 
-def configure(
+def configure(  # noqa: PLR0913
     *,
     backend: Annotated[
         LogBackendType | None,
@@ -81,6 +81,24 @@ def configure(
             """
         ),
     ] = None,
+    queue_enabled: Annotated[
+        bool | None,
+        Doc(
+            """
+            Hand log writes to a background thread.
+
+            Default: False. Turn it on when the sink is slow enough that
+            a write shows up as request latency.
+            """
+        ),
+    ] = None,
+    queue_size: Annotated[
+        int | None,
+        Doc(
+            "How many rendered records the queue holds before it starts "
+            "dropping. Default: 10000."
+        ),
+    ] = None,
     env_load: Annotated[
         bool | None,
         Doc(
@@ -122,6 +140,8 @@ def configure(
             "caller_enabled": caller_enabled,
             "otel_enabled": otel_enabled,
             "uvicorn_enabled": uvicorn_enabled,
+            "queue_enabled": queue_enabled,
+            "queue_size": queue_size,
         },
         env_prefix="GREL_LOG_",
         shared_env=SHARED_TIMEZONE_ENV,

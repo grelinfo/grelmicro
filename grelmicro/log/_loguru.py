@@ -1,12 +1,12 @@
 """Loguru Logging Backend."""
 
-import sys
 import traceback as tb_module
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING, Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
+from grelmicro.log._queue import get_stream
 from grelmicro.log._shared import (
     LOGURU_JSON_FORMAT,
     LOGURU_LOGFMT_FORMAT,
@@ -303,7 +303,7 @@ def configure(config: LogConfig | None = None) -> None:
 
     logger.remove()
     logger.add(
-        sys.stdout,
+        get_stream(),
         level=settings.level,
         format=log_format,
     )
