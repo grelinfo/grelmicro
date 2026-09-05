@@ -468,3 +468,29 @@ def test_the_uvicorn_formatter_reads_the_environment_when_asked(
 
     assert line.startswith("time=")
     assert "method=GET" in line
+
+
+def test_auto_is_carried_as_auto() -> None:
+    """The format `AUTO` names is the one the rendering process decides."""
+    document = dict_config_with(LogConfig(format=LogFormatType.AUTO))
+
+    assert document["formatters"]["default"]["config"]["format"] == "AUTO"
+
+
+@pytest.mark.usefixtures("_restore_logging", "_no_queue")
+def test_the_access_handler_follows_a_later_configure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A document installs the queue, and `configure()` replaces the writer."""
+    _capture_stdout(monkeypatch)
+    _apply(dict_config_with(LogConfig(queue_enabled=True)))
+    retired = get_writer()
+
+    configure(queue_enabled=True, otel_enabled=False)
+
+    access = cast(
+        "logging.StreamHandler[Any]",
+        logging.getLogger(_UVICORN_ACCESS).handlers[0],
+    )
+    assert access.stream is get_writer()
+    assert access.stream is not retired

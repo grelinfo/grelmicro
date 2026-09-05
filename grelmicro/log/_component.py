@@ -108,7 +108,8 @@ class Log:
             bool | None,
             Doc(
                 "Take over uvicorn's own loggers so they match this format "
-                "and write to the same stream."
+                "and write to the same stream. Turn it off only when "
+                "something other than grelmicro owns uvicorn's logging."
             ),
         ] = None,
         queue_enabled: Annotated[

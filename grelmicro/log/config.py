@@ -104,7 +104,8 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
             "Take over uvicorn's own loggers so they match this format and "
             "write to the same stream. Uvicorn installs its own handlers with "
             "propagation off, so without this its lines keep their own format "
-            "and the process emits two."
+            "and the process emits two. Turn it off only when something "
+            "other than grelmicro owns uvicorn's logging."
         ),
     ] = True
     queue_enabled: Annotated[

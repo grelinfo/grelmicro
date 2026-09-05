@@ -78,8 +78,10 @@ def configure(  # noqa: PLR0913
             """
             Take over uvicorn's own loggers so they match this format.
 
-            Default: True. Pass False when uvicorn's logging is configured
-            elsewhere, such as with `uvicorn --log-config`.
+            Default: True. Pass False when something other than grelmicro
+            owns uvicorn's logging. Leave it on when the server was given
+            [`dict_config()`][grelmicro.log.dict_config], which is how the
+            access handler follows the stream this call installs.
             """
         ),
     ] = None,

@@ -86,7 +86,7 @@ logconfig_dict = dict_config()
 
 Every logger those servers write to is handed to the root logger, so a server line and an application line render the same way. Uvicorn's access logger keeps a formatter of its own, because uvicorn carries the request in the record's arguments rather than in its message.
 
-Settings resolve from `GREL_LOG_*` when the document is built, and the document carries them. It is a snapshot, not a template. Reading the environment is opt-in as it is everywhere else, so `GREL_ENV_LOAD=1` has to be set for `GREL_LOG_*` to be read at all. A process that cannot set it passes `dict_config(env_load=True)` instead. To build one from settings assembled in code, use `dict_config_with(config)`.
+Settings resolve from `GREL_LOG_*` when the document is built, and the document carries them. `AUTO` is carried as `AUTO`, so the format and the colors are still decided by the process that renders. Reading the environment is opt-in as it is everywhere else, so `GREL_ENV_LOAD=1` has to be set for `GREL_LOG_*` to be read at all. A process that cannot set it passes `dict_config(env_load=True)` instead. To build one from settings assembled in code, use `dict_config_with(config)`.
 
 `queue_enabled` is honoured too. The handler starts the writer when none is running, so a document applied on its own puts the whole process behind the queue.
 
