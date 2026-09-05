@@ -319,6 +319,8 @@ environment:
 | `GREL_LOG_CALLER_ENABLED` | `true`, `false` | `false` |
 | `GREL_LOG_OTEL_ENABLED` | `true`, `false` | auto-detected |
 | `GREL_LOG_UVICORN_ENABLED` | `true`, `false` | `true` |
+| `GREL_LOG_QUEUE_ENABLED` | `true`, `false` | `false` |
+| `GREL_LOG_QUEUE_SIZE` | positive integer | `10000` |
 | `NO_COLOR` | any value | (unset) |
 | `FORCE_COLOR` | any value | (unset) |
 
@@ -413,6 +415,121 @@ class ErrorDict:
     **Caller opt-in**: `caller` is disabled by default, as in many structured-logging libraries. Enable with `GREL_LOG_CALLER_ENABLED=true`. Uvicorn formatters never include `caller` (points to uvicorn internals, not application code).
 
     **Collision protection**: Core fields cannot be overwritten by user-supplied extra context.
+
+## Keeping Writes Off the Event Loop
+
+A log call writes to stdout on the thread that made it. On a fast local
+terminal that write is invisible. On a throttled container stdout, or a
+file on a busy volume, it is request latency on everything that logs.
+
+Turn on the queue and the write moves to a background thread:
+
+```python
+--8<-- "log/queue.py"
+```
+
+The record is still rendered on the calling thread, so every bound field
+and the trace context survive. Only the write moves.
+
+It is off by default because it is not free. Measured with the stdlib
+backend and JSON format, per record, from the caller's side:
+
+| Sink | Records | Direct | Queued | Dropped |
+|---|---|---|---|---|
+| Fast, a no-op write | 20,000 | 4.3 µs | 5.2 µs | 0 |
+| Slow, 10 µs per line | 20,000 | 20.9 µs | 5.1 µs | ~5,400 |
+| Stalled, 200 µs per line | 5,000 | 276 µs | 7.8 µs | 0 |
+
+Read the queued column: it stays near 5 µs whatever the sink does, while
+the direct column tracks the sink and grows with it.
+
+The last row is a burst of 5,000 records against a sink that would need
+a full second to write them. It fits inside the queue, so the caller pays
+under 8 µs a record instead of 276, and all 5,000 are written.
+
+The middle row is the other case. 20,000 records arrive faster than a
+10 µs-per-line sink can drain them, so the queue sits at its bound and
+about a quarter of them are dropped and reported. A queue does not make a
+slow sink faster. It absorbs bursts, and past that it trades records for
+latency, which is the whole point of the bound.
+
+Against a fast sink the queue costs about 0.9 µs and buys nothing, which
+is why it ships off. Turn it on when your logs go somewhere slower than a
+local terminal.
+
+Run `python benchmarks/log_queue_benchmark.py` to reproduce the table.
+
+### When the queue fills up
+
+The queue holds 10,000 rendered records. A full queue drops the arriving
+record rather than blocking the caller, because blocking is the thing the
+queue exists to remove.
+
+Nothing is dropped quietly. The count is reported as a single `ERROR` on
+the `grelmicro.log` logger once the queue has room again:
+
+```json
+{"time":"...","level":"ERROR","msg":"Log queue full, dropped 499 records","logger":"grelmicro.log","dropped":499}
+```
+
+One summary rather than one line per drop, because logging on every drop
+would add to the queue that is already overflowing. It is reported at
+`ERROR` so a service running at `WARNING` still hears about it. A service
+configured above `ERROR` filters the report out with everything else.
+
+Raise the size if your bursts are bigger than your sink is fast:
+
+```python
+--8<-- "log/queue_size.py"
+```
+
+The queue is drained on shutdown, so a stopping process writes what it
+still holds. `Log` drains it when the app exits, and a drain also runs at
+interpreter exit. It is drained before a `fork` and started again on both
+sides, so a forked child writes through a worker of its own.
+
+A sink still stalled when that drain gives up is the one case the queue
+does not survive: the worker stops later, nothing starts another, and the
+process goes on writing directly on the calling thread. Every record is
+still written. It is a slower process, not a wrong one.
+
+The queue binds the stream at `configure()` time, so replacing
+`sys.stdout` afterwards does not redirect the logs. That is already how
+`configure()` behaves on the stdlib and loguru backends, both of which
+hand the stream to a handler once. Turning the queue on brings structlog
+into line with them rather than changing the rule.
+
+!!! note "Uvicorn's own lines are not queued"
+    With `uvicorn_enabled=True` (the default) grelmicro reformats uvicorn's
+    handlers but leaves them on the streams uvicorn gave them, which keeps
+    uvicorn's stdout and stderr split intact. So the access line for each
+    request is written directly, not through the queue. Pass
+    `--log-config` to put uvicorn's own logging on a handler you control.
+
+!!! note "One queue owner per process"
+    `Log` gives the root logger back on exit, and it takes the queue out
+    with it. A `configure(queue_enabled=True)` made before the block is
+    not put back afterwards: the restored handlers keep writing, directly
+    rather than through a queue. Pick one owner, the component or the
+    module-level call, which is the same rule as running one `Log` per
+    process.
+
+!!! note "structlog caches its logger"
+    `structlog` is configured with `cache_logger_on_first_use=True`, so a
+    logger obtained before a second `configure()` keeps writing to the
+    stream it was built with. Without the queue both streams are stdout
+    and nothing shows. With it, those records go direct while new loggers
+    go through the new queue. Fetch loggers with `structlog.get_logger()`
+    at call time, rather than binding one at import, if you reconfigure.
+
+!!! note "Color tags in a custom loguru template"
+    Loguru decides whether to render its own `<green>`-style tags by
+    inspecting the sink, and it special-cases the real `sys.stdout` to
+    turn colors on for known CI environments. With the queue on, the sink
+    is grelmicro's writer, so only `isatty()` is consulted and those tags
+    are stripped on CI. Every built-in format is unaffected, since
+    grelmicro colors those itself. Pass `colorize=` on your own
+    `logger.add(...)` if you need the tags rendered.
 
 ## Production Deployment
 

@@ -439,14 +439,14 @@
     "ErrorDict": null,
     "JSONRecordDict": null,
     "Log": {
-      "()": "(*, name='default', backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, env_load=None) -> 'None'",
+      "()": "(*, name='default', backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, queue_enabled=None, queue_size=None, env_load=None) -> 'None'",
       ".from_config": "(config, *, name='default') -> 'Self'"
     },
     "LogBackendType": {
       "()": "(*values)"
     },
     "LogConfig": {
-      "()": "(*, backend=<LogBackendType.STDLIB: 'stdlib'>, level=<LogLevelType.INFO: 'INFO'>, format=<LogFormatType.AUTO: 'AUTO'>, timezone='UTC', json_serializer=<LogSerializerType.AUTO: 'auto'>, caller_enabled=False, otel_enabled=True, uvicorn_enabled=True) -> None"
+      "()": "(*, backend=<LogBackendType.STDLIB: 'stdlib'>, level=<LogLevelType.INFO: 'INFO'>, format=<LogFormatType.AUTO: 'AUTO'>, timezone='UTC', json_serializer=<LogSerializerType.AUTO: 'auto'>, caller_enabled=False, otel_enabled=True, uvicorn_enabled=True, queue_enabled=False, queue_size=10000) -> None"
     },
     "LogError": null,
     "LogFormatType": {
@@ -469,7 +469,7 @@
       "()": "(*, capacity=5, refill_rate=1, key_mode='logger', cost=1.0) -> None"
     },
     "configure": {
-      "()": "(*, backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, env_load=None) -> LogConfig"
+      "()": "(*, backend=None, level=None, format=None, timezone=None, json_serializer=None, caller_enabled=None, otel_enabled=None, uvicorn_enabled=None, queue_enabled=None, queue_size=None, env_load=None) -> LogConfig"
     },
     "configure_with": {
       "()": "(config) -> LogConfig"

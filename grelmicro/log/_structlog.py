@@ -6,6 +6,7 @@ import traceback
 from datetime import UTC, datetime, tzinfo
 
 from grelmicro._context import merge_context_into as _merge_context_into
+from grelmicro.log._queue import get_stream
 from grelmicro.log._shared import (
     _log_json_default,
     get_otel_trace_context,
@@ -262,17 +263,17 @@ def configure(config: LogConfig | None = None) -> None:
                 structlog.processors.JSONRenderer(default=_log_json_default)
             )
         logger_factory: structlog.PrintLoggerFactory = (
-            structlog.PrintLoggerFactory(file=sys.stdout)
+            structlog.PrintLoggerFactory(file=get_stream())
         )
     elif resolved_format == LogFormatType.LOGFMT:
         processors.append(_render_logfmt)
-        logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
+        logger_factory = structlog.PrintLoggerFactory(file=get_stream())
     elif resolved_format == LogFormatType.PRETTY:
         processors.append(_make_pretty_renderer(colors=colors))
-        logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
+        logger_factory = structlog.PrintLoggerFactory(file=get_stream())
     else:
         processors.append(_make_text_renderer(colors=colors))
-        logger_factory = structlog.PrintLoggerFactory(file=sys.stdout)
+        logger_factory = structlog.PrintLoggerFactory(file=get_stream())
 
     log_level = getattr(logging, settings.level.upper(), logging.INFO)
 
