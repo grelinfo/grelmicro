@@ -473,6 +473,15 @@
     },
     "configure_with": {
       "()": "(config) -> LogConfig"
+    },
+    "dict_config": {
+      "()": "() -> dict[str, Any]"
+    },
+    "dict_config_with": {
+      "()": "(config) -> dict[str, Any]"
+    },
+    "formatter": {
+      "()": "(config=None, *, use_colors=None) -> Formatter"
     }
   },
   "grelmicro.metrics": {

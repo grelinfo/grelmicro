@@ -1,11 +1,15 @@
 """Tests for reformatting uvicorn's own loggers to match the app format."""
 
+import io
 import logging
+import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
 from grelmicro.log._apply import apply as apply_backend
+from grelmicro.log._queue import get_stream
 from grelmicro.log.config import LogBackendType, LogConfig, LogFormatType
 from grelmicro.log.uvicorn import UvicornAccessFormatter, UvicornFormatter
 from grelmicro.log.uvicorn import apply as apply_uvicorn
@@ -76,7 +80,7 @@ def test_reformats_uvicorn_handlers() -> None:
 
 
 def test_handlers_are_kept_not_replaced() -> None:
-    """Only the formatter changes, so the stream split and custom handlers survive."""
+    """The handler objects survive, so a custom one is never dropped."""
     before = {
         name: list(logging.getLogger(name).handlers)
         for name in _UVICORN_LOGGERS
@@ -99,6 +103,45 @@ def test_access_record_keeps_structured_fields() -> None:
     assert "client_addr=127.0.0.1:54321" in line
     assert "method=POST" in line
     assert "status_code=200" in line
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_the_stream_follows_the_one_the_process_writes_to(stream: str) -> None:
+    """Uvicorn's own stream would go around the queue and split the output."""
+    handler = logging.StreamHandler(getattr(sys, stream))
+    logging.getLogger("uvicorn").handlers = [handler]
+
+    apply_uvicorn(_LOGFMT)
+
+    assert handler.stream is get_stream()
+
+
+def test_a_handler_pointed_somewhere_else_keeps_its_stream() -> None:
+    """A stream that was chosen is not one to take over."""
+    chosen = io.StringIO()
+    handler = logging.StreamHandler(chosen)
+    logger = logging.getLogger("uvicorn")
+    logger.handlers = [handler]
+
+    apply_uvicorn(_LOGFMT)
+
+    assert handler.stream is chosen
+
+
+def test_a_file_handler_keeps_the_file_it_opened(tmp_path: Path) -> None:
+    """A `FileHandler` is a `StreamHandler`, and moving it abandons the file."""
+    path = tmp_path / "uvicorn.log"
+    handler = logging.FileHandler(path)
+    logger = logging.getLogger("uvicorn")
+    logger.handlers = [handler]
+
+    try:
+        apply_uvicorn(_LOGFMT)
+        logger.info("to the file")
+    finally:
+        handler.close()
+
+    assert "to the file" in path.read_text()
 
 
 def test_resolved_config_is_used_not_the_environment(

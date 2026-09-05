@@ -52,35 +52,52 @@ time=2026-08-05T13:10:49.807003+00:00 level=INFO msg="POST /orders 200" logger=u
 time=2026-08-05T13:10:49.807224+00:00 level=INFO msg="Order created" logger=myapp order_id=a1b2c3
 ```
 
-Uvicorn's handlers are kept and only their formatter is replaced, so the stderr/stdout split survives and access lines keep their structured fields.
+Uvicorn's handlers are kept, so a custom one is never dropped. A handler still on `sys.stdout` or `sys.stderr` is pointed at the stream the rest of the process writes to, so a request line goes through the [queue](index.md) and lands beside your own records instead of on a second file descriptor.
 
-This works because uvicorn configures logging while building its `Config`, before it imports your application module, so a `configure()` call at import time runs afterwards. A process that configures logging *before* uvicorn starts is not covered.
+This works because uvicorn configures logging while building its `Config`, then imports your application module, and only then logs its first line. A `configure()` call at import time gets there first.
 
-Pass `uvicorn_enabled=False` when uvicorn's logging is configured elsewhere, such as with `--log-config`:
+Pass `uvicorn_enabled=False` when uvicorn's logging is configured elsewhere:
 
 ```python
 configure(uvicorn_enabled=False)
 ```
 
-### Configuring uvicorn with a log config file
+## Application servers
 
-The file-based route still works, and is the option when you are not calling `configure()` at all:
+Two cases sit outside what `configure()` can reach, because your application module is never imported in time:
 
-```json
---8<-- "log/uvicorn_log_config.json"
+- `--reload` and `--workers` run a parent process that only supervises. Its lines, `Started parent process` and `Child process died` among them, keep uvicorn's format.
+- A script that calls `configure()` and then `uvicorn.run(app)` has its root configuration replaced, because uvicorn applies its own while building `Config`.
+
+Hand the server a configuration instead, and the process reads in one format from its first record:
+
+```python
+--8<-- "log/dict_config.py"
 ```
 
-Then start uvicorn with:
+The same document goes to every server. Gunicorn and Hypercorn take it as `logconfig_dict`, Granian as `log_dictconfig`:
+
+```python
+# gunicorn.conf.py
+from grelmicro.log import dict_config
+
+logconfig_dict = dict_config()
+```
+
+Every logger those servers write to is handed to the root logger, so a server line and an application line render the same way. Uvicorn's access logger keeps a formatter of its own, because uvicorn carries the request in the record's arguments rather than in its message.
+
+It is a plain `logging.config.dictConfig` document, so it is also what goes in the file `uvicorn --log-config` reads:
 
 ```bash
-uvicorn app:app --log-config uvicorn_log_config.json
+python -c 'import json; from grelmicro.log import dict_config; print(json.dumps(dict_config()))' > logging.json
+uvicorn app:app --log-config logging.json
 ```
 
-`UvicornFormatter` and `UvicornAccessFormatter` read `GREL_LOG_FORMAT` at startup and produce the matching output (AUTO, JSON, LOGFMT, TEXT, PRETTY). This ensures uvicorn logs and application logs use the same format.
+Settings resolve from `GREL_LOG_*`. To render against settings assembled in code, use `dict_config_with(config)`.
 
-`UvicornAccessFormatter` additionally parses uvicorn's access log arguments into structured fields: `client_addr`, `method`, `full_path`, `http_version`, `status_code`.
+An application that writes through loguru or structlog calls `configure()` as well, which adds the backend. The root logger is then configured twice and reads the same either way, because each pass replaces the handler rather than adding one.
 
-### Quieting health probes
+## Quieting health probes
 
 Kubernetes polls `/livez`, `/readyz` and `/healthz` every few seconds for the life of the pod, and the access log reports every one. In a healthy pod they are close to the only thing in the log.
 

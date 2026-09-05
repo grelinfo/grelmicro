@@ -199,6 +199,31 @@ def should_colorize() -> bool:
     return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 
 
+def resolve_use_colors(
+    resolved_format: LogFormatType | str,
+    *,
+    colors: bool,
+    use_colors: bool | None,
+) -> bool:
+    """Return whether to colorize, letting `use_colors` override the detection.
+
+    `None` keeps what `load_settings` worked out from `NO_COLOR`,
+    `FORCE_COLOR` and the terminal. A bool is the answer an application
+    server was told to give, which is how `--no-use-colors` reaches a
+    formatter built from a `dictConfig`.
+
+    A format that has no colors to turn on stays uncolored either way.
+    JSON and logfmt are read by a machine, and an escape sequence in a
+    field would break the parse rather than brighten it.
+    """
+    if use_colors is None:
+        return colors
+    return use_colors and resolve_template_format(resolved_format) in (
+        LogFormatType.TEXT,
+        LogFormatType.PRETTY,
+    )
+
+
 def colorize_level(level: str) -> str:
     """Return the level string wrapped in its ANSI color."""
     color = _LEVEL_COLORS.get(level, "")

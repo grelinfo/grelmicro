@@ -15,6 +15,7 @@ from grelmicro.log._shared import (
     render_pretty_lines,
     render_text_line,
     resolve_template_format,
+    resolve_use_colors,
 )
 from grelmicro.log.config import LogConfig, LogFormatType
 from grelmicro.log.types import ErrorDict
@@ -43,6 +44,10 @@ _STANDARD_LOG_RECORD_ATTRS = frozenset(
         "threadName",
         "taskName",
         "message",
+        # Uvicorn logs an ANSI-colored copy of its message under
+        # `color_message`. It renders as an escape sequence in a field, so
+        # it is dropped wherever a uvicorn record is read.
+        "color_message",
     }
 )
 
@@ -284,6 +289,50 @@ def build_formatter(
             colors=colors,
         )
     return formatter
+
+
+def formatter(
+    config: LogConfig | None = None,
+    *,
+    use_colors: bool | None = None,
+) -> logging.Formatter:
+    """Return the formatter that renders a record in grelmicro's format.
+
+    Built to be named from a `logging.config.dictConfig`, which is how an
+    application server renders its own records the way the application
+    does:
+
+    ```python
+    {"()": "grelmicro.log.formatter"}
+    ```
+
+    [`dict_config()`][grelmicro.log.dict_config] assembles the whole
+    document, and this is the piece it names.
+
+    Args:
+        config: A resolved `LogConfig`. Omit it to read `GREL_LOG_*`.
+        use_colors: Whether to colorize, overriding `NO_COLOR`,
+            `FORCE_COLOR` and the terminal check. Uvicorn writes it into
+            the document when it is started with `--use-colors` or
+            `--no-use-colors`.
+
+    Raises:
+        DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
+        SettingsValidationError: If configuration is invalid.
+    """
+    settings, timezone, resolved_format, json_dumps, colors = load_settings(
+        config
+    )
+    return build_formatter(
+        resolved_format,
+        timezone=timezone,
+        json_dumps=json_dumps,
+        colors=resolve_use_colors(
+            resolved_format, colors=colors, use_colors=use_colors
+        ),
+        caller_enabled=settings.caller_enabled,
+        otel_enabled=settings.otel_enabled,
+    )
 
 
 def install_root(formatter: logging.Formatter, *, level: int | str) -> None:

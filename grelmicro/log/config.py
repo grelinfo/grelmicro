@@ -101,9 +101,10 @@ class LogConfig(BaseModel, frozen=True, extra="forbid"):
     uvicorn_enabled: Annotated[
         bool,
         Doc(
-            "Reformat uvicorn's own loggers to match this format. Uvicorn "
-            "installs its own handlers with propagation off, so without this "
-            "its lines keep their own format and the process emits two."
+            "Take over uvicorn's own loggers so they match this format and "
+            "write to the same stream. Uvicorn installs its own handlers with "
+            "propagation off, so without this its lines keep their own format "
+            "and the process emits two."
         ),
     ] = True
     queue_enabled: Annotated[
