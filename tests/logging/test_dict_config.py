@@ -283,3 +283,26 @@ def test_caller_reads_the_same_on_a_server_record(
     )
     assert "caller" in server
     assert "caller" in app
+
+
+def test_the_environment_is_read_when_it_is_asked_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bare server process cannot reach `GREL_ENV_LOAD`, so it says so here."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+
+    document = dict_config(env_load=True)
+
+    assert document["formatters"]["default"]["config"]["format"] == "LOGFMT"
+
+
+def test_each_entry_carries_its_own_settings() -> None:
+    """Editing one entry by hand does not reach into the other three."""
+    document = dict_config()
+
+    document["handlers"]["default"]["config"]["level"] = "DEBUG"
+
+    assert document["formatters"]["default"]["config"]["level"] == "INFO"
+    assert document["handlers"]["access"]["config"]["level"] == "INFO"

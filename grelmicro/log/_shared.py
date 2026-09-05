@@ -31,6 +31,9 @@ except ImportError:  # pragma: no cover
     _orjson_dumps: Any = None  # type: ignore[no-redef]
     _OPT_NON_STR_KEYS = 0
 
+_LEVEL_WIDTH = 8
+"""Column the level is padded to in the text format."""
+
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
 """Shared key strategy vocabulary for the log filters."""
 
@@ -381,7 +384,11 @@ def render_text_line(
 ) -> str:
     """Render a single-line text log from a flat record dict."""
     localtime = _format_localtime(record["time"])
-    level = f"{record['level']:<8}"
+    level = record["level"]
+    # Padded after colorizing, not before. A padded level does not match
+    # the color table, and padding the colored string counts the escape
+    # sequence as width, so the columns stop lining up.
+    padding = " " * max(_LEVEL_WIDTH - len(level), 0)
     logger = record["logger"]
     caller = record.get("caller")
     source = f"{logger}:{caller}" if caller else logger
@@ -391,11 +398,11 @@ def render_text_line(
 
     if colors:
         return (
-            f"{dim(localtime)} {colorize_level(level)} "
+            f"{dim(localtime)} {colorize_level(level)}{padding} "
             f"{colorize_caller(source)} - {msg}"
             f"{dim(extras_suffix)}"
         )
-    return f"{localtime} {level} {source} - {msg}{extras_suffix}"
+    return f"{localtime} {level}{padding} {source} - {msg}{extras_suffix}"
 
 
 def _render_pretty_field(key: str, value: object, *, colors: bool) -> str:
@@ -522,7 +529,11 @@ class LoadedSettings(NamedTuple):
     colors: bool
 
 
-def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
+def load_settings(
+    settings: LogConfig | None = None,
+    *,
+    env_load: bool | None = None,
+) -> LoadedSettings:
     """Validate and prepare runtime values from a logging config.
 
     When `settings` is `None`, reads `GREL_LOG_*` environment
@@ -539,6 +550,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
             kwargs={},
             env_prefix="GREL_LOG_",
             shared_env=SHARED_TIMEZONE_ENV,
+            env_load=env_load,
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]

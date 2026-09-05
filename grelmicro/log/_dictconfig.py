@@ -34,16 +34,22 @@ document serve whichever server started the process.
 """
 
 
-def _build(config: LogConfig | None) -> dict[str, Any]:
+def _build(
+    config: LogConfig | None, *, env_load: bool | None = None
+) -> dict[str, Any]:
     """Assemble the document against `config`, or against the environment."""
-    settings = load_settings(config).settings.model_dump(mode="json")
+    settings = load_settings(config, env_load=env_load).settings.model_dump(
+        mode="json"
+    )
+    # Each entry carries its own copy, so editing one by hand does not
+    # reach into the other three.
     default: dict[str, Any] = {
         "()": "grelmicro.log.formatter",
-        "config": settings,
+        "config": dict(settings),
     }
     access: dict[str, Any] = {
         "()": "grelmicro.log.uvicorn.UvicornAccessFormatter",
-        "config": settings,
+        "config": dict(settings),
     }
 
     return {
@@ -56,12 +62,12 @@ def _build(config: LogConfig | None) -> dict[str, Any]:
         "handlers": {
             "default": {
                 "()": "grelmicro.log.handler",
-                "config": settings,
+                "config": dict(settings),
                 "formatter": "default",
             },
             "access": {
                 "()": "grelmicro.log.handler",
-                "config": settings,
+                "config": dict(settings),
                 "formatter": "access",
             },
         },
@@ -76,7 +82,17 @@ def _build(config: LogConfig | None) -> dict[str, Any]:
     }
 
 
-def dict_config() -> dict[str, Any]:
+def dict_config(
+    *,
+    env_load: Annotated[
+        bool | None,
+        Doc(
+            "Whether to read `GREL_LOG_*` environment variables. "
+            "When None (default), follow `GREL_ENV_LOAD`. "
+            "Pass True or False to override."
+        ),
+    ] = None,
+) -> dict[str, Any]:
     """Return a logging configuration that renders records in this format.
 
     Hand it to the application server and the process reads in one format
@@ -101,9 +117,11 @@ def dict_config() -> dict[str, Any]:
 
     Fields resolve from `GREL_LOG_*` when the document is built, and the
     document carries them. It is a snapshot, not a template, so build it
-    where the process starts rather than where an image does. To render
-    against settings that never reach the environment, use
-    [`dict_config_with()`][grelmicro.log.dict_config_with].
+    where the process starts rather than where an image does. Reading the
+    environment is opt-in, the same as everywhere else: set
+    `GREL_ENV_LOAD=1`, or pass `env_load=True` from a process that cannot
+    set it. To render against settings that never reach the environment,
+    use [`dict_config_with()`][grelmicro.log.dict_config_with].
 
     A document applied on its own is behind the queue `queue_enabled` asks
     for, because the handler starts the writer when none is running.
@@ -123,7 +141,7 @@ def dict_config() -> dict[str, Any]:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
         SettingsValidationError: If configuration is invalid.
     """
-    return _build(None)
+    return _build(None, env_load=env_load)
 
 
 def dict_config_with(

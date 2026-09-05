@@ -94,8 +94,8 @@ class _UvicornBaseFormatter(_BaseFormatter):
 class UvicornFormatter(_UvicornBaseFormatter):
     """Format-aware uvicorn formatter compatible with ``logging.config.dictConfig``.
 
-    Reads ``LOG_FORMAT`` and produces the matching output (AUTO, JSON, LOGFMT,
-    TEXT, PRETTY).  No constructor arguments required.
+    Reads ``GREL_LOG_FORMAT`` and produces the matching output (AUTO, JSON,
+    LOGFMT, TEXT, PRETTY).
 
     Pass ``config`` to format against an already-resolved ``LogConfig``
     instead of re-reading the environment. ``configure()`` uses that path so

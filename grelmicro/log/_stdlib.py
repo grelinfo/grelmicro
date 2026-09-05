@@ -364,7 +364,13 @@ def handler(
     """
     settings = load_settings(as_log_config(config)).settings
     if settings.queue_enabled and get_writer() is None:
-        swap(size=settings.queue_size)
+        # `swap` returns the writer it replaced, still running. The test
+        # above is not under the install lock, so another caller can get
+        # one in between, and it is stopped here rather than left holding
+        # records nothing reads.
+        replaced = swap(size=settings.queue_size)
+        if replaced is not None:  # pragma: no cover
+            replaced.shutdown()
     return logging.StreamHandler(get_stream())
 
 

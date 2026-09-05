@@ -475,7 +475,7 @@
       "()": "(config) -> LogConfig"
     },
     "dict_config": {
-      "()": "() -> dict[str, Any]"
+      "()": "(*, env_load=None) -> dict[str, Any]"
     },
     "dict_config_with": {
       "()": "(config) -> dict[str, Any]"

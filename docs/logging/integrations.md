@@ -52,7 +52,7 @@ time=2026-08-05T13:10:49.807003+00:00 level=INFO msg="POST /orders 200" logger=u
 time=2026-08-05T13:10:49.807224+00:00 level=INFO msg="Order created" logger=myapp order_id=a1b2c3
 ```
 
-Uvicorn's handlers are kept, so a custom one is never dropped. A handler still on `sys.stdout` or `sys.stderr` is pointed at the stream the rest of the process writes to, so a request line goes through the [queue](index.md) and lands beside your own records instead of on a second file descriptor.
+Uvicorn's handlers are kept, so a custom one is never dropped. A handler still on `sys.stdout` or `sys.stderr` is pointed at the stream the rest of the process writes to, so a request line goes through the [queue](index.md) and lands beside your own records instead of on a second file descriptor. Uvicorn's error lines move off `sys.stderr` with it, which is what one process writing one stream means. Pass `uvicorn_enabled=False` to keep uvicorn's own streams.
 
 This works because uvicorn configures logging while building its `Config`, then imports your application module, and only then logs its first line. A `configure()` call at import time gets there first.
 
@@ -86,14 +86,14 @@ logconfig_dict = dict_config()
 
 Every logger those servers write to is handed to the root logger, so a server line and an application line render the same way. Uvicorn's access logger keeps a formatter of its own, because uvicorn carries the request in the record's arguments rather than in its message.
 
-Settings resolve from `GREL_LOG_*` when the document is built, and the document carries them. It is a snapshot, not a template. To build one from settings assembled in code, use `dict_config_with(config)`.
+Settings resolve from `GREL_LOG_*` when the document is built, and the document carries them. It is a snapshot, not a template. Reading the environment is opt-in as it is everywhere else, so set `GREL_ENV_LOAD=1` or pass `dict_config(env_load=True)`. To build one from settings assembled in code, use `dict_config_with(config)`.
 
 `queue_enabled` is honoured too. The handler starts the writer when none is running, so a document applied on its own puts the whole process behind the queue.
 
 It is a plain `dictConfig` document, so it is also what goes in the file `uvicorn --log-config` reads. Write it where the container starts, not where the image is built, so it snapshots the environment the process actually runs with:
 
 ```bash
-python -c 'import json; from grelmicro.log import dict_config; print(json.dumps(dict_config()))' > logging.json
+python -c 'import json; from grelmicro.log import dict_config; print(json.dumps(dict_config(env_load=True)))' > logging.json
 uvicorn app:app --log-config logging.json
 ```
 
