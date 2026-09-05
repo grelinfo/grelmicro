@@ -423,6 +423,12 @@
     }
   },
   "grelmicro.log": {
+    "AccessLog": {
+      "()": "(*, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True, name='default') -> 'None'"
+    },
+    "AccessLogMiddleware": {
+      "()": "(app, *, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True) -> 'None'"
+    },
     "DuplicateFilter": {
       "()": "(*, allowed_repetitions=None, cache_size=None, key_mode=None, ttl=None, key=None, env_name='default', env_prefix=None, env_load=None) -> None",
       ".from_config": "(config, *, key=None) -> Self"

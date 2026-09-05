@@ -30,7 +30,7 @@ from uuid import UUID
 from typing_extensions import Doc
 
 from grelmicro._guards import is_instance, type_name
-from grelmicro._paths import route_path, selects
+from grelmicro._paths import as_patterns, route_path, selects
 from grelmicro.errors import OutOfContextError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -687,8 +687,8 @@ class ConditionalRequestsMiddleware:
         self._require_precondition = frozenset(
             method.upper() for method in require_precondition
         )
-        self._include = tuple(include)
-        self._exclude = tuple(exclude)
+        self._include = as_patterns(include, name="include")
+        self._exclude = as_patterns(exclude, name="exclude")
         self._max_body_size = max_body_size
 
     async def __call__(
@@ -1085,8 +1085,8 @@ class ConditionalRequests:
         self._options: dict[str, Any] = {
             "etag_responses": etag_responses,
             "require_precondition": require_precondition,
-            "include": include,
-            "exclude": exclude,
+            "include": as_patterns(include, name="include"),
+            "exclude": as_patterns(exclude, name="exclude"),
             "max_body_size": max_body_size,
         }
 

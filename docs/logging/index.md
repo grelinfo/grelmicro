@@ -6,8 +6,10 @@ Zero-config logging that follows the **12-factor app** methodology. Use it to ge
 - **Structured**: extra fields become flat top-level keys, exceptions become structured error data.
 - **Environment-driven**: every knob is a `GREL_LOG_*` environment variable, read when `GREL_ENV_LOAD` is enabled, or passed straight to `configure()`.
 
-Two more pages cover the rest: [Integrations](integrations.md) for OpenTelemetry,
-FastAPI, and uvicorn, and [Filters](filters.md) for taming a noisy logger.
+Three more pages cover the rest: [Integrations](integrations.md) for
+OpenTelemetry, FastAPI, and uvicorn, [Access Log](access.md) for one
+structured record per HTTP request, and [Filters](filters.md) for taming a
+noisy logger.
 
 ## Quick Start
 

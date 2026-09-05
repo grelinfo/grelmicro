@@ -24,7 +24,7 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._guards import is_instance, type_name
-from grelmicro._paths import route_path, selects
+from grelmicro._paths import as_patterns, route_path, selects
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -463,8 +463,8 @@ class IdempotencyMiddleware:
         self._fingerprint_body = fingerprint_body
         self._max_body_size = max_body_size
         self._wait_timeout = wait_timeout
-        self._include = tuple(include)
-        self._exclude = tuple(exclude)
+        self._include = as_patterns(include, name="include")
+        self._exclude = as_patterns(exclude, name="exclude")
         self._reused = (
             IDEMPOTENCY_KEY_REUSED
             if reused_status == IDEMPOTENCY_KEY_REUSED.status
@@ -1101,8 +1101,8 @@ class IdempotentRequests:
             "fingerprint_body": fingerprint_body,
             "max_body_size": max_body_size,
             "wait_timeout": wait_timeout,
-            "include": include,
-            "exclude": exclude,
+            "include": as_patterns(include, name="include"),
+            "exclude": as_patterns(exclude, name="exclude"),
             "reused_status": reused_status,
         }
 

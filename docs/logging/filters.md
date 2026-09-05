@@ -89,3 +89,26 @@ State is in-process only, backed by [`MemoryTokenBucket`][grelmicro.resilience.M
 
 !!! tip
     `RateLimitFilter` and `DuplicateFilter` compose well: attach the dedup filter first to collapse true duplicates, then the rate-limit filter to cap the sustained flow.
+
+## Dropping Probe Noise
+
+`ProbeFilter` drops a successful health probe from an access log, and keeps a
+failing one, because a refused readiness check is often the only line saying
+the kubelet asked. Attach it to the logger that writes them:
+
+```python
+import logging
+
+from grelmicro.log import ProbeFilter
+
+logging.getLogger("uvicorn.access").addFilter(ProbeFilter())
+```
+
+It matches by suffix, so a router mounted under a prefix is covered without
+configuration, and takes `paths=` to name your own.
+
+With [`AccessLog()`](access.md) registered, uvicorn's access log is silenced
+and the record grelmicro writes follows the same rule, so this filter is for
+an app that keeps uvicorn's. The two differ in what they match: this one
+matches by suffix, so a prefixed router is covered without configuration,
+while `quiet=` matches the path, so a prefixed router is named there.

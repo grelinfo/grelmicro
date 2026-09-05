@@ -214,11 +214,15 @@ def install_middleware(
     Registration order is wrapping order among them, so the first one
     registered answers first.
 
-    All of them go innermost, behind whatever the app added itself, so
-    authentication, CORS and the rest run before one of ours can answer a
-    request on its own. They still run inside `GrelmicroMiddleware`, which
-    stays outermost, so one that resolves a backend ambiently finds the app
-    bound.
+    A middleware that may answer a request goes innermost, behind whatever
+    the app added itself, so authentication, CORS and the rest run before
+    one of ours can answer on its own. One that only watches, an access
+    log, goes the other way, outside the app's own, so a request an outer
+    layer refuses is still seen. A component says which it is with
+    `asgi_observes`.
+
+    Both run inside `GrelmicroMiddleware`, which stays outermost, so one
+    that resolves a backend ambiently finds the app bound.
 
     `micro.install(app)` calls this with the components it found, so a
     direct call is only for an app that never goes through `install`.
@@ -242,20 +246,29 @@ def install_middleware(
         if isinstance(entry.cls, type)
     }
     added = [
-        Middleware(middleware, **options)
-        for middleware, options in (
-            component.asgi_middleware() for component in components
+        (Middleware(middleware, **options), _observes(component))
+        for component, (middleware, options) in (
+            (component, component.asgi_middleware()) for component in components
         )
         # One is enough. An app that added it by hand placed it where it
         # wanted, and a second would store, tag and answer twice.
         if middleware not in wired
     ]
-    # Innermost, behind every middleware the app added itself. One of ours
-    # that answers a request without calling the app, such as an idempotent
-    # replay, must never be the reason a request skipped the authentication
-    # the app put in front of its handlers. `add_middleware` prepends,
-    # which would do exactly that.
-    app.user_middleware = _binding_first([*app.user_middleware, *added])
+    watching = [entry for entry, observes in added if observes]
+    answering = [entry for entry, observes in added if not observes]
+    # Answering middleware goes innermost, behind every middleware the app
+    # added itself. One of ours that answers a request without calling the
+    # app, such as an idempotent replay, must never be the reason a request
+    # skipped the authentication the app put in front of its handlers.
+    # `add_middleware` prepends, which would do exactly that.
+    #
+    # Watching middleware goes the other way, outside the app's own, so an
+    # access log sees the request an outer layer refused and times what the
+    # caller waited for. It answers nothing, so it cannot skip anything.
+    app.user_middleware = _binding_first(
+        [*watching, *app.user_middleware, *answering], watching
+    )
+    _keep_watching_outside(app, watching)
     for component in components:
         _answer_for(app, component)
 
@@ -336,19 +349,57 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
             app.add_exception_handler(klass, handler)
 
 
+def _observes(component: Any) -> bool:  # noqa: ANN401
+    """Return whether this component's middleware only watches a request."""
+    return bool(getattr(component, "asgi_observes", False))
+
+
 def _binding_first(
     entries: "Sequence[Any]",
+    watching: "Sequence[Any] | None" = None,
 ) -> "list[Any]":
-    """Return the middleware entries with the binding in front.
+    """Return the entries with the binding first and any watcher next.
 
-    Everything else keeps its order, so the only thing this decides is that
-    a middleware resolving a backend ambiently runs inside the request
-    scope.
+    The binding goes outside every other one, so a middleware resolving a
+    backend ambiently runs inside the request scope. A watcher goes next,
+    outside everything the app added, so a request an outer layer refuses
+    is still recorded. That has to be redone when the framework builds its
+    stack, because a middleware added after `install` is prepended and
+    would otherwise sit outside the watcher.
+
+    Everything else keeps the order it was given.
     """
+    known = {id(entry) for entry in watching or ()}
     return [
         *(entry for entry in entries if _is_binding(entry)),
-        *(entry for entry in entries if not _is_binding(entry)),
+        *(
+            entry
+            for entry in entries
+            if not _is_binding(entry) and id(entry) in known
+        ),
+        *(
+            entry
+            for entry in entries
+            if not _is_binding(entry) and id(entry) not in known
+        ),
     ]
+
+
+def _keep_watching_outside(app: "Starlette", watching: "Sequence[Any]") -> None:
+    """Keep a watcher outside middleware the app adds after `install`.
+
+    `add_middleware` prepends, so a layer added later would otherwise wrap
+    the access log, and a request that layer refuses would go unrecorded.
+    """
+    if not watching:
+        return
+    build = app.build_middleware_stack
+
+    def build_middleware_stack() -> "ASGIApp":
+        app.user_middleware = _binding_first(app.user_middleware, watching)
+        return build()
+
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 def _keep_binding_outermost(app: "Starlette") -> None:

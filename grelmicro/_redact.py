@@ -28,6 +28,20 @@ _CREDENTIAL_QUERY_KEYS = frozenset(
 )
 
 
+_CREDENTIAL_QUERY_PROBE = re.compile(
+    r"(?:\A|&)(?:" + "|".join(sorted(_CREDENTIAL_QUERY_KEYS)) + r")(?:=|&|\Z)",
+    re.IGNORECASE,
+)
+"""Whether a query string is worth parsing to redact.
+
+Parsing every query to find the ones that carry nothing costs more than
+reading them, and a query string is on the request path. The probe reads
+the raw text, so it only answers for text that means what it says: a query
+carrying a percent escape is parsed, because `%74oken=` decodes to a key
+this would not have seen.
+"""
+
+
 def _redact_query(query: str | None) -> str | None:
     """Return `query` with credential-like values replaced by `***`.
 
@@ -35,6 +49,8 @@ def _redact_query(query: str | None) -> str | None:
     Returns the input unchanged when no key matches.
     """
     if not query:
+        return query
+    if "%" not in query and not _CREDENTIAL_QUERY_PROBE.search(query):
         return query
     pairs = parse_qsl(query, keep_blank_values=True)
     if not any(k.lower() in _CREDENTIAL_QUERY_KEYS for k, _ in pairs):
