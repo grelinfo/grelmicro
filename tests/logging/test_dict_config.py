@@ -6,7 +6,7 @@ import logging
 import logging.config
 import pickle
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -19,6 +19,7 @@ from grelmicro.log import (
     dict_config,
     dict_config_with,
     formatter,
+    handler,
 )
 from grelmicro.log._queue import get_writer, uninstall
 from grelmicro.log.config import LogConfig, LogFormatType, LogLevelType
@@ -382,3 +383,38 @@ def test_a_document_built_from_what_configure_returned_agrees_with_it(
     logging.getLogger("uvicorn.error").debug("kept")
 
     assert capsys.readouterr().out.startswith("time=")
+
+
+def test_a_factory_reads_the_environment_when_it_is_asked_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `dictConfig` of your own names these, from a process like any other."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    monkeypatch.setenv("GREL_LOG_FORMAT", "logfmt")
+    monkeypatch.setenv("GREL_LOG_OTEL_ENABLED", "false")
+    record = logging.LogRecord(
+        name="myapp",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="hello",
+        args=(),
+        exc_info=None,
+    )
+
+    assert formatter(env_load=True).format(record).startswith("time=")
+
+
+@pytest.mark.usefixtures("_no_queue")
+def test_a_second_handler_joins_the_running_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two handlers in one document must not end up with two writers."""
+    monkeypatch.delenv("GREL_ENV_LOAD", raising=False)
+    config = LogConfig(queue_enabled=True)
+
+    first = cast("logging.StreamHandler[Any]", handler(config))
+    second = cast("logging.StreamHandler[Any]", handler(config))
+
+    assert first.stream is second.stream
+    assert get_writer() is first.stream

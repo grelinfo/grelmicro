@@ -7,7 +7,7 @@ from datetime import UTC, datetime, tzinfo
 from typing import Any
 
 from grelmicro._context import merge_context_into as _merge_context_into
-from grelmicro.log._queue import get_stream, get_writer, swap
+from grelmicro.log._queue import get_stream, install_if_absent
 from grelmicro.log._shared import (
     as_log_config,
     get_otel_trace_context,
@@ -296,6 +296,7 @@ def formatter(
     config: LogConfig | Mapping[str, Any] | None = None,
     *,
     use_colors: bool | None = None,
+    env_load: bool | None = None,
 ) -> logging.Formatter:
     """Return the formatter that renders a record in grelmicro's format.
 
@@ -317,13 +318,16 @@ def formatter(
             `FORCE_COLOR` and the terminal check. Uvicorn writes it into
             the document when it is started with `--use-colors` or
             `--no-use-colors`.
+        env_load: Whether to read `GREL_LOG_*`. When None (default),
+            follow `GREL_ENV_LOAD`. Pass True from a process that cannot
+            set it.
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
         SettingsValidationError: If configuration is invalid.
     """
     settings, timezone, resolved_format, json_dumps, colors = load_settings(
-        as_log_config(config)
+        as_log_config(config), env_load=env_load
     )
     return build_formatter(
         resolved_format,
@@ -339,6 +343,8 @@ def formatter(
 
 def handler(
     config: LogConfig | Mapping[str, Any] | None = None,
+    *,
+    env_load: bool | None = None,
 ) -> logging.Handler:
     """Return the handler grelmicro writes every record through.
 
@@ -361,20 +367,17 @@ def handler(
     Args:
         config: A resolved `LogConfig`, or the mapping a document carries
             it as. Omit it to read `GREL_LOG_*`.
+        env_load: Whether to read `GREL_LOG_*`. When None (default),
+            follow `GREL_ENV_LOAD`. Pass True from a process that cannot
+            set it.
 
     Raises:
         DependencyNotFoundError: If orjson or OpenTelemetry is enabled but not installed.
         SettingsValidationError: If configuration is invalid.
     """
-    settings = load_settings(as_log_config(config)).settings
-    if settings.queue_enabled and get_writer() is None:
-        # `swap` returns the writer it replaced, still running. The test
-        # above is not under the install lock, so another caller can get
-        # one in between, and it is stopped here rather than left holding
-        # records nothing reads.
-        replaced = swap(size=settings.queue_size)
-        if replaced is not None:  # pragma: no cover
-            replaced.shutdown()
+    settings = load_settings(as_log_config(config), env_load=env_load).settings
+    if settings.queue_enabled:
+        install_if_absent(size=settings.queue_size)
     return logging.StreamHandler(get_stream())
 
 
