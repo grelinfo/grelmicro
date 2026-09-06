@@ -16,6 +16,10 @@ Register `ConditionalRequests()` and `install` adds the entity tags, so
 `check_precondition(etag_of(version))` refuses a write whose `If-Match` moved
 on. Read [Conditional Requests](../http/conditional.md).
 
+Register `CachedResponses()` and mark a route with `@cache_response(ttl=...)`,
+and a repeated read is answered from the cache instead of the handler. Read
+[Response Cache](../http/cache.md).
+
 Register `OpsServer()` on a process that serves no HTTP, and the health probes
 and the Prometheus endpoint answer on a port of their own.
 
@@ -31,6 +35,10 @@ and the Prometheus endpoint answer on a port of their own.
         - StoredResponse
         - ConditionalRequests
         - ConditionalRequestsMiddleware
+        - CachedResponses
+        - CachedResponsesMiddleware
+        - CachedResponse
+        - cache_response
         - check_precondition
         - etag_of
         - PreconditionError

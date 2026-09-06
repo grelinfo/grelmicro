@@ -214,6 +214,10 @@ def install_middleware(
     Registration order is wrapping order among them, so the first one
     registered answers first.
 
+    A component that carries `read_routes(app)` is handed the app after
+    its middleware is added, so a rule written on a route reaches the
+    middleware that has to act on it before the app is routed.
+
     A middleware that may answer a request goes innermost, behind whatever
     the app added itself, so authentication, CORS and the rest run before
     one of ours can answer on its own. One that only watches, an access
@@ -271,6 +275,9 @@ def install_middleware(
     _keep_watching_outside(app, watching)
     for component in components:
         _answer_for(app, component)
+        read_routes = getattr(component, "read_routes", None)
+        if read_routes is not None:
+            read_routes(app)
 
 
 HTTP_422_UNPROCESSABLE_CONTENT = 422
