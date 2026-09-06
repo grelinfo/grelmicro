@@ -15,21 +15,29 @@ if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
 __all__ = [
+    "BARE_METHOD_MESSAGE",
     "BARE_STRING_MESSAGE",
+    "MethodNames",
     "PathPatterns",
     "as_patterns",
     "matches",
+    "refuse_bare_method",
     "refuse_bare_string",
     "route_path",
     "selects",
     "walk_routes",
 ]
 
+_WHY_NOT_A_STRING = (
+    "and this is a string. A string is a sequence of characters, so it "
+    "would be walked one character at a time. Write it as a tuple with a "
+    "trailing comma, or as a JSON list."
+)
+"""What a set of anything and a bare string have in common."""
+
 BARE_STRING_MESSAGE = (
-    "a set of path patterns is expected, and this is a string. A string is "
-    "a sequence of characters, so it would be walked one character at a "
-    "time, and one ending in `*` matches every path. Write it as a tuple "
-    "with a trailing comma, or as a JSON list."
+    f"a set of path patterns is expected, {_WHY_NOT_A_STRING} One "
+    "pattern ending in `*` would otherwise match every path."
 )
 """Why a bare string is refused where a set of patterns is expected.
 
@@ -39,21 +47,45 @@ what the caller passed would be taken out of the very sentence offering
 it.
 """
 
+BARE_METHOD_MESSAGE = f"a set of HTTP methods is expected, {_WHY_NOT_A_STRING}"
+"""Why a bare string is refused where a set of methods is expected.
+
+`methods="POST"` reads as `("P", "O", "S", "T")`, none of which is a
+method, so the middleware would act on nothing at all.
+"""
+
+
+def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of them is expected.
+
+    Raises:
+        ValueError: If the value is a string. A validator raises
+            `ValueError` and never `TypeError`, because pydantic converts
+            only the first into a validation error, so a `TypeError` here
+            would escape `except SettingsValidationError` and the reload
+            loop alike.
+    """
+    if isinstance(value, str):
+        raise ValueError(message)  # noqa: TRY004
+    return value
+
 
 def refuse_bare_string(value: Any) -> Any:  # noqa: ANN401
     """Refuse a string where a set of path patterns is expected.
 
     Raises:
-        ValueError: If the value is a string. A validator raises
-            `ValueError` and never `TypeError`, because pydantic converts
-            only the first into a validation error.
+        ValueError: If the value is a string.
     """
-    if isinstance(value, str):
-        # `ValueError`, never `TypeError`: pydantic converts only the
-        # first into a validation error, so a `TypeError` here would
-        # escape `except SettingsValidationError` and the reload loop.
-        raise ValueError(BARE_STRING_MESSAGE)  # noqa: TRY004
-    return value
+    return _refuse(value, BARE_STRING_MESSAGE)
+
+
+def refuse_bare_method(value: Any) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of HTTP methods is expected.
+
+    Raises:
+        ValueError: If the value is a string.
+    """
+    return _refuse(value, BARE_METHOD_MESSAGE)
 
 
 PathPatterns = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_string)]
@@ -61,6 +93,13 @@ PathPatterns = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_string)]
 
 Every HTTP component declares its `include` and `exclude` with this, so
 one missing comma is refused the same way wherever it is written.
+"""
+
+MethodNames = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_method)]
+"""A set of HTTP methods on a config, with the bare string refused.
+
+The same mistake as `PathPatterns` refuses, said in the words of the
+field it happened on, because `methods="POST"` is not a path.
 """
 
 _PREFIX = "*"

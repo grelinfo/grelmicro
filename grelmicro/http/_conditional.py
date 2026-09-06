@@ -38,7 +38,14 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_instance, type_name
-from grelmicro._paths import PathPatterns, as_patterns, route_path, selects
+from grelmicro._paths import (
+    BARE_METHOD_MESSAGE,
+    MethodNames,
+    PathPatterns,
+    as_patterns,
+    route_path,
+    selects,
+)
 from grelmicro.errors import OutOfContextError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -607,7 +614,7 @@ class ConditionalRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = True
     require_precondition: Annotated[
-        PathPatterns,
+        MethodNames,
         Doc(
             "Methods answered `428` when they carry no precondition. "
             "Empty leaves the decision to `check_precondition()` per route."
@@ -753,7 +760,15 @@ class ConditionalRequestsMiddleware:
             ),
         ] = None,
     ) -> None:
-        """Initialize the middleware with its entity tag policy."""
+        """Initialize the middleware with its entity tag policy.
+
+        Raises:
+            TypeError: If `require_precondition` is given as a string.
+                `tuple("PUT")` is three one-letter methods, none of which
+                a request carries, so it would enforce nothing at all.
+        """
+        if isinstance(require_precondition, str):
+            raise TypeError(BARE_METHOD_MESSAGE)
         self.app = app
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
@@ -764,10 +779,7 @@ class ConditionalRequestsMiddleware:
                 _state_of(
                     ConditionalRequestsConfig(
                         etag_responses=etag_responses,
-                        require_precondition=as_patterns(
-                            tuple(require_precondition),
-                            name="require_precondition",
-                        ),
+                        require_precondition=tuple(require_precondition),
                         include=as_patterns(include, name="include"),
                         exclude=as_patterns(exclude, name="exclude"),
                         max_body_size=max_body_size,

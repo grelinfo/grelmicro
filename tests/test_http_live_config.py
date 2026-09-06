@@ -7,6 +7,7 @@ being rebuilt, a request answers from one configuration throughout, and
 nothing a file says can start caching what the static path would refuse.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,17 +24,21 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.config import ExternalConfig
+from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
     CachedResponses,
     CachedResponsesConfig,
     ConditionalRequests,
     ConditionalRequestsConfig,
+    ConditionalRequestsMiddleware,
     ErrorResponses,
+    IdempotencyMiddleware,
     IdempotentRequests,
     IdempotentRequestsConfig,
     RateLimitedRequests,
     RateLimitedRequestsConfig,
 )
+from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.log import AccessLog, AccessLogConfig
 from grelmicro.resilience import RateLimiter
@@ -94,6 +99,10 @@ grel:
   idempotency:
     ttl: 3600
 """
+
+
+async def _nothing(scope: object, receive: object, send: object) -> None:
+    """Stand in for the app a hand-wired middleware would wrap."""
 
 
 def _limiter(name: str = "burst") -> RateLimiter:
@@ -654,3 +663,63 @@ def test_a_head_route_is_not_a_row_of_its_own() -> None:
 
     # Assert
     assert rows == [("GET", "/reads")]
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda: IdempotentRequests(methods=cast("Any", "POST")),
+            id="idempotent-methods",
+        ),
+        pytest.param(
+            lambda: ConditionalRequests(
+                require_precondition=cast("Any", "PUT")
+            ),
+            id="conditional-require-precondition",
+        ),
+    ],
+)
+def test_a_bare_method_is_refused_in_its_own_words(
+    build: Callable[[], object],
+) -> None:
+    """`methods="POST"` reads as four letters, none of which is a method.
+
+    The same mistake as a bare path pattern, said in the words of the
+    field it happened on, so a reader is not sent looking for a path.
+    """
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="set of HTTP methods"):
+        build()
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda: IdempotencyMiddleware(
+                _nothing,
+                idempotency=Idempotency("test"),
+                methods=cast("Any", "POST"),
+            ),
+            id="idempotency-middleware",
+        ),
+        pytest.param(
+            lambda: ConditionalRequestsMiddleware(
+                _nothing, require_precondition=cast("Any", "PUT")
+            ),
+            id="conditional-middleware",
+        ),
+    ],
+)
+def test_the_middleware_refuses_a_bare_method_too(
+    build: Callable[[], object],
+) -> None:
+    """`tuple("POST")` is four one-letter methods, and matches nothing.
+
+    Coercing the string would be worse than refusing it: the middleware
+    would meter nothing while reporting that it does.
+    """
+    # Act / Assert
+    with pytest.raises(TypeError, match="set of HTTP methods"):
+        build()

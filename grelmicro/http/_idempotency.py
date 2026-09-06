@@ -32,7 +32,14 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_instance, type_name
-from grelmicro._paths import PathPatterns, as_patterns, route_path, selects
+from grelmicro._paths import (
+    BARE_METHOD_MESSAGE,
+    MethodNames,
+    PathPatterns,
+    as_patterns,
+    route_path,
+    selects,
+)
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -284,7 +291,7 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("Response header marking a replayed response."),
     ] = _DEFAULT_REPLAY_HEADER
     methods: Annotated[
-        PathPatterns,
+        MethodNames,
         Doc(
             "Methods that take an idempotency key. Every other method "
             "passes through."
@@ -564,7 +571,15 @@ class IdempotencyMiddleware:
             ),
         ] = None,
     ) -> None:
-        """Initialize the middleware with the idempotency store and policy."""
+        """Initialize the middleware with the idempotency store and policy.
+
+        Raises:
+            TypeError: If `methods` is given as a string. `tuple("POST")`
+                is four one-letter methods, none of which a request
+                carries, so it would meter nothing at all.
+        """
+        if isinstance(methods, str):
+            raise TypeError(BARE_METHOD_MESSAGE)
         self.app = app
         self._idempotency = idempotency
         self._key_maker = key_maker
@@ -580,7 +595,7 @@ class IdempotencyMiddleware:
                     IdempotentRequestsConfig(
                         key_header=key_header,
                         replay_header=replay_header,
-                        methods=as_patterns(tuple(methods), name="methods"),
+                        methods=tuple(methods),
                         require_key=require_key,
                         fingerprint_body=fingerprint_body,
                         max_body_size=max_body_size,
