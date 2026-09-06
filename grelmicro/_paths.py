@@ -62,12 +62,15 @@ def walk_routes(
     A route is `(prefix, route, contexts)`, where the prefix is what the
     mounts and the routers above it add to the path it was written with,
     and the contexts are what was declared above it, outermost first:
-    each inclusion, and the router it included.
+    the app's own router, each inclusion, and the router it included.
 
     An included router is a node of its own rather than the routes it
     holds, so what it was included under has to be carried down to them
     from here. A mount is walked the same way.
     """
+    own = getattr(app, "router", None)
+    if own is not None:
+        contexts = (*contexts, own)
     found: list[tuple[str, Any, tuple[Any, ...]]] = []
     for route in getattr(app, "routes", ()):
         context = getattr(route, "include_context", None)
@@ -85,7 +88,7 @@ def walk_routes(
         if inner:
             found.extend(
                 walk_routes(
-                    route,
+                    getattr(route, "app", route),
                     f"{prefix}{getattr(route, 'path', '')}",
                     contexts,
                 )

@@ -51,6 +51,7 @@ BIG = 2048
 TWICE = 2
 OTHER_TTL = 300.0
 READS = 3
+SHARED_TTL = 50.0
 """How many times the handler runs when nothing was stored."""
 
 
@@ -1728,6 +1729,127 @@ def test_a_gated_read_is_refused_however_the_gate_is_spelled(
     # Act / Assert
     with pytest.raises(TypeError, match="gated by APIKeyHeader"):
         micro.install(app)
+
+
+def test_an_app_built_with_it_leaves_its_writes_alone() -> None:
+    """`FastAPI(dependencies=[...])` says the same as a router does."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI(dependencies=[CachedResponse(ttl=TTL)])
+    reads = 0
+    writes = 0
+
+    @app.get("/items")
+    async def list_items() -> dict[str, int]:
+        nonlocal reads
+        reads += 1
+        return {"reads": reads}
+
+    @app.post("/items")
+    async def create() -> dict[str, int]:
+        nonlocal writes
+        writes += 1
+        return {"writes": writes}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/items")
+        client.get("/items")
+        client.post("/items")
+        client.post("/items")
+
+    # Assert
+    assert reads == 1
+    assert writes == TWICE
+
+
+def test_a_pattern_naming_a_gated_read_is_refused_too() -> None:
+    """`paths=` reaches the same route by another road, and the same gate."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(paths={"/admin/*": TTL}),
+        ]
+    )
+    app = FastAPI()
+    router = APIRouter(prefix="/admin")
+
+    @router.get("/reports")
+    async def reports() -> dict[str, int]:
+        return {"reports": 1}
+
+    app.include_router(
+        router, dependencies=[Security(APIKeyHeader(name="X-API-Key"))]
+    )
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="paths= names"):
+        micro.install(app)
+
+
+def test_a_pattern_naming_a_gated_write_is_left_alone() -> None:
+    """A write is never answered from the cache, so it is not the mistake."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(paths={"/admin/*": TTL}),
+        ]
+    )
+    app = FastAPI()
+    router = APIRouter(prefix="/admin")
+
+    @router.post("/reports")
+    async def create() -> dict[str, int]:
+        return {"reports": 1}
+
+    app.include_router(
+        router, dependencies=[Security(APIKeyHeader(name="X-API-Key"))]
+    )
+
+    # Act
+    micro.install(app)
+
+    # Assert
+    with TestClient(app) as client:
+        assert client.post(
+            "/admin/reports", headers={"X-API-Key": "k"}
+        ).json() == {"reports": 1}
+
+
+def test_a_pattern_naming_an_open_read_is_left_alone() -> None:
+    """Nothing stands in front of it, so the pattern is what it says."""
+    # Arrange
+    app = _app(CachedResponses(paths={"/live": TTL}))
+
+    # Act
+    with TestClient(app) as client:
+        first = client.get("/live")
+        second = client.get("/live")
+
+    # Assert
+    assert first.json() == second.json()
+
+
+def test_the_smallest_shared_lifetime_wins() -> None:
+    """Every occurrence counts, and the most conservative one decides."""
+    # Arrange
+    middleware = CachedResponsesMiddleware(_nothing, cache=_cache())
+
+    # Act
+    seconds = middleware._storable(
+        [
+            (b"cache-control", b"s-maxage=100"),
+            (b"cache-control", b"s-maxage=50"),
+        ],
+        path="/reads",
+    )
+
+    # Assert
+    assert seconds == SHARED_TTL
 
 
 def test_a_router_built_with_it_leaves_its_writes_alone() -> None:

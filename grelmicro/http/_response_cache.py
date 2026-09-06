@@ -215,7 +215,9 @@ class _Policies:
             TypeError: If a marked route answers a method other than `GET`.
         """
         self._app = app
-        self._routes = tuple(_marked_routes(app))
+        self._routes = tuple(
+            _marked_routes(app, tuple(pattern for pattern, _ in self._paths))
+        )
 
     def reread(self) -> None:
         """Read the app again, for the routes added since install."""
@@ -241,7 +243,10 @@ class _Policies:
         return None
 
 
-def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa: ANN401
+def _marked_routes(
+    app: Any,  # noqa: ANN401
+    named: tuple[str, ...] = (),
+) -> list[tuple[Pattern[str], float | None]]:
     """Return the compiled path of every route that declared a TTL.
 
     Walks what the app declares, mounts and included routers alike, and
@@ -252,7 +257,9 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
     Raises:
         TypeError: If a route that declared one answers a method other
             than `GET`, or gates itself behind a security scheme the
-            cache would answer over.
+            cache would answer over. A path pattern naming a gated read
+            is refused the same way, because a hit answers over the gate
+            whichever of the two put the path here.
     """
     from starlette.routing import compile_path  # noqa: PLC0415
 
@@ -265,9 +272,11 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
             if ttl is not _UNMARKED:
                 break
             ttl = _inherited_ttl(context)
-        if ttl is _UNMARKED:
-            continue
         declared = f"{prefix}{route.path}"
+        if ttl is _UNMARKED:
+            if matches(declared, named):
+                _refuse_named_gate(route, contexts, declared)
+            continue
         refusal = _unreadable(route, contexts, declared)
         if refusal is not None:
             if on_the_route:
@@ -279,6 +288,46 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
         regex, _, _ = compile_path(declared)
         found.append((regex, cast("float | None", ttl)))
     return found
+
+
+def _refuse_named_gate(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+    declared: str,
+) -> None:
+    """Refuse a pattern that names a read the caller has to be let past.
+
+    Raises:
+        TypeError: If the route is gated by a security scheme.
+    """
+    methods = {
+        method.upper() for method in (getattr(route, "methods", None) or ())
+    }
+    if "GET" not in methods:
+        return
+    schemes = _gating_schemes(route, contexts)
+    if not schemes:
+        return
+    named = ", ".join(sorted(set(schemes)))
+    msg = (
+        f"paths= names {declared!r}, which is gated by {named}. A hit is "
+        "answered before the app is routed, so the gate would not run, "
+        "and one caller's response would be handed to whoever asks next. "
+        "Name a path that answers everybody the same."
+    )
+    raise TypeError(msg)
+
+
+def _gating_schemes(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+) -> list[str]:
+    """Return every security scheme standing in front of this route."""
+    gates = getattr(route, "dependant", None)  # codespell:ignore
+    schemes = _security_schemes(gates)
+    for context in contexts:
+        schemes.extend(_declared_schemes(context))
+    return schemes
 
 
 def _unreadable(
@@ -305,10 +354,7 @@ def _unreadable(
             "changes something must reach the handler every time. Declare "
             "it on the GET route instead."
         )
-    gates = getattr(route, "dependant", None)  # codespell:ignore
-    schemes = _security_schemes(gates)
-    for context in contexts:
-        schemes.extend(_declared_schemes(context))
+    schemes = _gating_schemes(route, contexts)
     if not schemes:
         return None
     named = ", ".join(sorted(set(schemes)))
@@ -942,7 +988,6 @@ class _ResponseCapture:
         self._max_body_size = max_body_size
         self.start: Message | None = None
         self.released = False
-        self.answered = False
         self.complete = False
         self._chunks: list[bytes] = []
         self._size = 0
@@ -998,7 +1043,6 @@ class _ResponseCapture:
         if self.released:
             return
         self.released = True
-        self.answered = True
         if self.start is None:
             return
         await self._send(self.start)
@@ -1064,6 +1108,7 @@ def _named_freshness(directives: set[str]) -> float | None:
     neither, and `None` that it named one it has already spent.
     """
     kept = math.inf
+    shared = math.inf
     for directive in directives:
         for name in ("s-maxage", "max-age"):
             if not directive.startswith(f"{name}="):
@@ -1072,10 +1117,12 @@ def _named_freshness(directives: set[str]) -> float | None:
                 seconds = float(directive.split("=", 1)[1])
             except ValueError:
                 continue
-            kept = seconds if name == "s-maxage" else min(kept, seconds)
             if name == "s-maxage":
-                return None if seconds <= 0 else seconds
-    return None if kept <= 0 else kept
+                shared = min(shared, seconds)
+            else:
+                kept = min(kept, seconds)
+    named = shared if shared != math.inf else kept
+    return None if named <= 0 else named
 
 
 def _asks_for_part(scope: Scope) -> bool:

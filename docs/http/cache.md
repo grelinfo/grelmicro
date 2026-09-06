@@ -121,7 +121,7 @@ to the next one who sent a different value.
 A response naming its own freshness is kept no longer than it says.
 `Cache-Control: max-age=30` caps the entry at 30 seconds whatever the TTL is,
 and `s-maxage` wins over `max-age` where both are named, because it is the
-one written for a shared cache.
+one written for a shared cache. Named twice, the smaller one decides.
 
 Every occurrence of a header counts. A response carrying two `Vary` lines, or
 two `Cache-Control` lines, says all of what they say, and reading only the
@@ -162,7 +162,9 @@ it is included with:
 app.include_router(products, dependencies=[CachedResponse(ttl=60)])
 ```
 
-`APIRouter(dependencies=[CachedResponse(ttl=60)])` says the same thing.
+`APIRouter(dependencies=[CachedResponse(ttl=60)])` and
+`FastAPI(dependencies=[CachedResponse(ttl=60)])` say the same thing, for a
+router and for a whole app.
 
 A router holds more than reads, so what a cache cannot answer for is left
 to its handler rather than refused: a write under it is simply not cached.
@@ -186,6 +188,11 @@ is the matching every grelmicro middleware uses, the same as
 seconds.
 
 `exclude=` carves a path out again, whatever a route or a pattern says.
+
+A pattern naming a read that sits behind a security scheme is refused where
+it is written, the same as declaring it on the route would be. On a framework
+grelmicro cannot read the routes of, nothing can check that for you: name
+paths that answer everybody the same.
 
 ## Invalidating
 
