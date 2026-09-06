@@ -29,6 +29,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Live,
     Reconfigurable,
+    build_config,
     env_prefixes,
     resolve_config,
 )
@@ -132,14 +133,21 @@ class _Entry(TypedDict):
     kept: float
 
 
-NOT_SECONDS = (
-    "is not a number of seconds a response is kept for. Leave the path "
-    "out, or name it in exclude=, to cache it not at all."
-)
+NOT_SECONDS = "is not a number of seconds a response is kept for."
 """Why a lifetime was refused, without repeating what it was.
 
 `SettingsValidationError` takes the rejected value back out of the
 message, so a validator that named it would be quoting a blank.
+"""
+
+_LEAVE_THE_PATH_OUT = (
+    " Leave the path out, or name it in exclude=, to cache it not at all."
+)
+"""How to say `never` about one path, which is not what a zero says.
+
+Only for a pattern. A component-wide `ttl` has no path to leave out, and
+telling its operator to find one sends them looking for something that
+is not there.
 """
 
 
@@ -172,7 +180,7 @@ def _seconds_per_path(
     if isinstance(value, abc.Mapping):
         for pattern, ttl in value.items():
             if not ttl > 0:
-                msg = f"include[{pattern!r}] {NOT_SECONDS}"
+                msg = f"include[{pattern!r}] {NOT_SECONDS}{_LEAVE_THE_PATH_OUT}"
                 raise ValueError(msg)
     return value
 
@@ -813,7 +821,8 @@ class CachedResponsesMiddleware:
             if live is not None
             else Live(
                 _state_of(
-                    CachedResponsesConfig(
+                    build_config(
+                        CachedResponsesConfig,
                         ttl=ttl,
                         include=include or (),
                         exclude=as_patterns(exclude, name="exclude"),
@@ -1589,7 +1598,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             key=key,
             skip=skip,
         )
-        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(

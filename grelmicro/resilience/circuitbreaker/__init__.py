@@ -25,6 +25,7 @@ from grelmicro._async import (
 )
 from grelmicro._config import (
     Reconfigurable,
+    default_env_prefix,
     env_prefixes,
     resolve_config,
 )
@@ -471,7 +472,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         self._keyed_maxsize = maxsize
         self._touched = 0.0
         if register:
-            self._track_reconfigure(*env_prefixes("CIRCUITBREAKER", name))
+            self._track_reconfigure(default_env_prefix("CIRCUITBREAKER", name))
         self._backend: CircuitBreakerBackend | None = (
             backend if not isinstance(backend, str) else None
         )

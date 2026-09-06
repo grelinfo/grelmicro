@@ -18,6 +18,7 @@ from grelmicro._app import resolve_ambient
 from grelmicro._async import is_async_callable
 from grelmicro._config import (
     Reconfigurable,
+    default_env_prefix,
     env_prefixes,
     resolve_config,
 )
@@ -186,7 +187,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         self._config = config
         self._state = _State(config=config, strategy=None)
         if register:
-            self._track_reconfigure(*env_prefixes("RATELIMITER", name))
+            self._track_reconfigure(default_env_prefix("RATELIMITER", name))
 
     @property
     def name(self) -> str:

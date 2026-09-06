@@ -790,6 +790,13 @@ def _annotate_rate_limited(
                 name: {"schema": {"type": "string"}, "description": text}
                 for name, text in _RATE_LIMIT_HEADERS.items()
             }
+            # Every metered answer carries them, refused or not, so the
+            # answers the operation already declares say so too. A client
+            # reads its remaining budget off a `200`, which is the whole
+            # point of stating it before the refusal arrives.
+            for status, response in responses.items():
+                if status.startswith("2") and isinstance(response, dict):
+                    response.setdefault("headers", {}).update(headers)
             responses.setdefault(
                 _TOO_MANY_REQUESTS,
                 {

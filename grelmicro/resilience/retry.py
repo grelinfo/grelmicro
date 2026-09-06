@@ -649,7 +649,7 @@ class Retry(Reconfigurable[RetryConfig]):
                 env_load=env_load,
             ),
         )
-        self._track_reconfigure(env_prefix, kind_prefix)
+        self._track_reconfigure(env_prefix)
 
     def _setup(self, name: str, config: RetryConfig) -> None:
         """Wire the validated config and runtime state onto the instance."""

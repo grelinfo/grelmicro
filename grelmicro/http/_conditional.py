@@ -34,6 +34,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Live,
     Reconfigurable,
+    build_config,
     env_prefixes,
     resolve_config,
 )
@@ -777,7 +778,8 @@ class ConditionalRequestsMiddleware:
             if live is not None
             else Live(
                 _state_of(
-                    ConditionalRequestsConfig(
+                    build_config(
+                        ConditionalRequestsConfig,
                         etag_responses=etag_responses,
                         require_precondition=tuple(require_precondition),
                         include=as_patterns(include, name="include"),
@@ -1242,7 +1244,7 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
             env_load=env_load,
         )
         self._setup(config, name=name, openapi=openapi)
-        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(

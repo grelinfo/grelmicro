@@ -224,7 +224,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             env_load=env_load,
         )
         self._setup(name, config, backend)
-        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(

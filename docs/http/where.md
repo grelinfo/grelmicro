@@ -182,7 +182,8 @@ grel:
 ```
 
 An idempotency window is held by the `Idempotency` that stores the response,
-under `grel.idempotency.ttl`, for the same reason.
+for the same reason. `IdempotentRequests` names its one after the namespace
+it stores under, so the key is `grel.idempotency.http.ttl`.
 
 The split is the point. The HTTP component says *where* a rule applies and
 what one request costs. The object underneath says what the budget is.

@@ -28,6 +28,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Live,
     Reconfigurable,
+    build_config,
     env_prefixes,
     resolve_config,
 )
@@ -592,7 +593,8 @@ class IdempotencyMiddleware:
             if live is not None
             else Live(
                 _state_of(
-                    IdempotentRequestsConfig(
+                    build_config(
+                        IdempotentRequestsConfig,
                         key_header=key_header,
                         replay_header=replay_header,
                         methods=tuple(methods),
@@ -1312,7 +1314,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             key_maker=key_maker,
             skip=skip,
         )
-        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(

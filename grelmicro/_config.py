@@ -623,6 +623,24 @@ def _build_settings_cls[C: BaseModel](
     )
 
 
+def build_config[C: BaseModel](config_cls: type[C], /, **fields: object) -> C:
+    """Build a config, raising the one error a bad value raises.
+
+    The door a hand-wired ASGI middleware builds its settings through.
+    Constructing the model directly would let pydantic's own error out,
+    and that one carries `input_value`, so a rejected value would be
+    echoed by a layer that never echoes one. It would also name a config
+    class the caller never mentioned.
+
+    Raises:
+        SettingsValidationError: If a value fails validation.
+    """
+    try:
+        return config_cls(**fields)
+    except ValidationError as error:
+        raise SettingsValidationError(error) from None
+
+
 class Live[StateT]:
     """One slot a middleware reads its snapshot from.
 
@@ -664,7 +682,6 @@ class Reconfigurable[ConfigT: BaseModel]:
     _config: ConfigT
     _reconfigure_lock: asyncio.Lock
     _env_prefix: str | None = None
-    _kind_env_prefix: str | None = None
 
     _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset()
     """Field names a live reconfigure must never patch from external config.
@@ -679,9 +696,7 @@ class Reconfigurable[ConfigT: BaseModel]:
         """Return the current configuration."""
         return self._config
 
-    def _track_reconfigure(
-        self, env_prefix: str, kind_env_prefix: str | None = None
-    ) -> None:
+    def _track_reconfigure(self, env_prefix: str) -> None:
         """Record the env prefixes and register for external reload.
 
         Called from a component's constructor under its derived
@@ -693,14 +708,13 @@ class Reconfigurable[ConfigT: BaseModel]:
         config (the declarative `from_config` path) skip this and stay
         static.
 
-        `kind_env_prefix` is the kind-wide prefix a named instance falls
-        back to, the same one construction reads. Recording it keeps the
-        two paths agreeing: `GREL_LOCK_LEASE_DURATION` retunes every lock
-        on a reload exactly as it does at startup, and the instance's own
-        key still wins. Build both with `env_prefixes`.
+        Only the instance prefix. The kind prefix is a fallback at
+        construction, where a keyword argument still wins over it, and a
+        reload has no record of what was passed in code. Reading it here
+        would let one broadcast key overwrite a value the code pinned,
+        which is the one thing the resolution order never allows.
         """
         self._env_prefix = env_prefix
-        self._kind_env_prefix = kind_env_prefix
         _reconfigurables.add(self)
 
     async def reconfigure(self, new_config: ConfigT) -> None:
@@ -771,7 +785,6 @@ def resolve_config_from_mapping[C: BaseModel](
     *,
     env_prefix: str,
     mapping: Mapping[str, str],
-    kind_env_prefix: str | None = None,
     immutable_fields: frozenset[str] = frozenset(),
 ) -> C:
     """Patch `current` with values from a flat env-style `mapping`.
@@ -798,31 +811,21 @@ def resolve_config_from_mapping[C: BaseModel](
     """
     cls = type(current)
     fields = cls.model_fields
+    prefix_len = len(env_prefix)
+    prefix_upper = env_prefix.upper()
     overrides: dict[str, str] = {}
     unmatched = 0
-    # The kind prefix first, so the instance's own key overwrites it. This
-    # is the precedence construction uses, and the two have to agree: an
-    # operator who retunes a whole kind in a mounted file expects the same
-    # answer they got at startup.
-    for prefix in (kind_env_prefix, env_prefix):
-        if prefix is None:
+    for key, value in mapping.items():
+        if not key.upper().startswith(prefix_upper):
             continue
-        prefix_len = len(prefix)
-        prefix_upper = prefix.upper()
-        for key, value in mapping.items():
-            if not key.upper().startswith(prefix_upper):
-                continue
-            field = key[prefix_len:].lower()
-            if field in immutable_fields:
-                _warn_immutable_skipped(current, prefix, field, value)
-                continue
-            if field in fields:
-                overrides[field] = value
-            elif prefix is env_prefix:
-                # Counted once, under the instance's own prefix. A kind key
-                # is a broadcast, so one naming another component's field
-                # is not this instance's to report.
-                unmatched += 1
+        field = key[prefix_len:].lower()
+        if field in immutable_fields:
+            _warn_immutable_skipped(current, env_prefix, field, value)
+            continue
+        if field in fields:
+            overrides[field] = value
+        else:
+            unmatched += 1
     if unmatched:
         # Key names are not logged: in a directory-mounted Secret the
         # filename is the key, so a name itself can be sensitive.
@@ -982,7 +985,6 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
             new_config = resolve_config_from_mapping(
                 instance._config,  # noqa: SLF001
                 env_prefix=env_prefix,
-                kind_env_prefix=instance._kind_env_prefix,  # noqa: SLF001
                 mapping=mapping,
                 immutable_fields=instance._IMMUTABLE_RECONFIGURE_FIELDS,  # noqa: SLF001
             )

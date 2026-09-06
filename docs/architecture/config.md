@@ -179,7 +179,7 @@ not.
 | A rejected name is echoed, a rejected value is not | R3 makes a name the address the environment writes to and R6 keeps structure in code, so a name is a literal the caller wrote | Names start arriving from the environment |
 | A validator raises `ValueError`, never `TypeError` | Pydantic converts only `ValueError` and `AssertionError`, so a `TypeError` escapes every documented `except` | Pydantic converts `TypeError` too |
 | An HTTP component is a single-instance component selected by path, never a named pattern | Its identity is the request it acts on, and it holds no runtime object a name would address | An HTTP component gains state a name has to reach |
-| Live reload reads the kind prefix as well as the instance prefix | Construction reads both (R3), and the two paths must not disagree about what one variable does | The kind default stops being a fallback at construction |
+| Live reload reads the instance prefix only | The kind prefix is a fallback that a keyword argument beats at construction, and a reload holds no record of what code passed, so reading it would let a broadcast overwrite a pinned value | A reload learns which fields code set |
 
 ## `resolve_config()`
 

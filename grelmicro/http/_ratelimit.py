@@ -21,6 +21,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Live,
     Reconfigurable,
+    build_config,
     env_prefixes,
     resolve_config,
 )
@@ -449,7 +450,8 @@ class RateLimitMiddleware:
             if live is not None
             else Live(
                 _state_of(
-                    RateLimitedRequestsConfig(
+                    build_config(
+                        RateLimitedRequestsConfig,
                         cost=cost,
                         max_wait=max_wait,
                         include=as_patterns(include, name="include"),
@@ -1007,7 +1009,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             key=key,
             openapi=openapi,
         )
-        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(

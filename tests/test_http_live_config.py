@@ -96,7 +96,8 @@ grel:
   access_log:
     exclude: ["/livez"]
   idempotency:
-    ttl: 3600
+    http:
+      ttl: 3600
 """
 
 
@@ -180,9 +181,12 @@ async def test_the_window_is_tuned_where_the_store_lives(
 ) -> None:
     """The replay window belongs to the `Idempotency`, not to the middleware.
 
-    `IdempotentRequests` builds one named after its namespace, so the
-    kind-wide `grel.idempotency.ttl` is what reaches it. The instance's
-    own key would be `grel.idempotency.http.ttl`.
+    `IdempotentRequests` builds one named after the namespace it stores
+    under, so the key is `grel.idempotency.http.ttl`. A reload reads the
+    instance prefix only: the kind-wide one is a fallback a keyword
+    argument beats at construction, and a reload holds no record of what
+    code passed, so reading it would let a broadcast overwrite a value
+    the code pinned.
     """
     # Arrange
     component = IdempotentRequests()
@@ -1032,7 +1036,12 @@ def test_a_path_item_that_is_not_an_operation_is_left_alone() -> None:
             "/products": {
                 "summary": "The catalog",
                 "parameters": [{"name": "trace", "in": "header"}],
-                "get": {"responses": {"200": {"description": "ok"}}},
+                "get": {
+                    "responses": {
+                        "200": {"description": "ok"},
+                        "404": {"description": "gone"},
+                    }
+                },
             }
         }
     }
@@ -1046,6 +1055,10 @@ def test_a_path_item_that_is_not_an_operation_is_left_alone() -> None:
     assert item["parameters"] == [{"name": "trace", "in": "header"}]
     operation: dict[str, Any] = item["get"]
     assert "429" in operation["responses"]
+    # A success states the budget it carries. Anything else does not:
+    # what a `404` carries is not what the caller has left.
+    assert "headers" in operation["responses"]["200"]
+    assert "headers" not in operation["responses"]["404"]
 
 
 async def test_a_mounted_value_that_is_not_json_reaches_the_field(
@@ -1238,3 +1251,101 @@ def test_a_duplicate_may_be_answered_without_waiting() -> None:
 
     # Assert
     assert component.config.wait_timeout == 0.0
+
+
+def test_a_hand_wired_middleware_refuses_without_echoing_the_value() -> None:
+    """The one error every setting raises, on both doors.
+
+    A middleware built by hand builds the same config, so pydantic's own
+    error would escape unwrapped, and that one carries the input. A
+    rejected value is never repeated, whichever door rejected it.
+    """
+    # Act / Assert
+    with pytest.raises(SettingsValidationError) as caught:
+        IdempotencyMiddleware(
+            _nothing,
+            idempotency=Idempotency("test"),
+            key_header=cast("Any", b"SECRET-VALUE"),
+        )
+    assert "SECRET-VALUE" not in str(caught.value)
+    assert "input_value" not in str(caught.value)
+
+
+def test_a_broadcast_key_never_overwrites_what_the_code_pinned() -> None:
+    """Reload follows the order construction follows, or it inverts it.
+
+    A keyword argument beats the kind-wide variable at startup. A reload
+    holds no record of what code passed, so reading the kind prefix
+    would let one key in a shared file retune every instance of a kind,
+    including the ones a service pinned on purpose.
+    """
+    # Arrange
+    component = CachedResponses(name="catalog", ttl=30)
+
+    # Act / Assert
+    assert component._env_prefix == "GREL_CACHED_RESPONSES_CATALOG_"
+    assert not hasattr(component, "_kind_env_prefix")
+
+
+def test_the_schema_states_the_budget_a_success_carries() -> None:
+    """A client reads what it has left off a `200`, not off the refusal."""
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None)
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter(), trusted=TrustedProxies(["10.0.0.0/8"])
+            ),
+        ]
+    )
+
+    @app.get("/products")
+    async def products() -> list[str]:
+        return []
+
+    micro.install(app)
+
+    # Act
+    responses = app.openapi()["paths"]["/products"]["get"]["responses"]
+
+    # Assert
+    assert sorted(responses["200"]["headers"]) == [
+        "RateLimit",
+        "RateLimit-Policy",
+    ]
+    assert sorted(responses["429"]["headers"]) == [
+        "RateLimit",
+        "RateLimit-Policy",
+        "Retry-After",
+    ]
+
+
+def test_a_second_instance_says_which_one_it_is() -> None:
+    """Two rows that read the same would mean different things."""
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            CachedResponses(include={"/products/*": 60}),
+            CachedResponses(
+                name="hot",
+                include={"/products/hot": 300},
+                namespace="hot",
+            ),
+        ]
+    )
+
+    @app.get("/products/hot")
+    async def hot() -> list[str]:
+        return []
+
+    micro.install(app)
+
+    # Act
+    applies = micro.describe(app).endpoints[0].applies
+
+    # Assert
+    assert applies == ("cache 60s", "cache 300s (hot)")

@@ -21,6 +21,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Live,
     Reconfigurable,
+    build_config,
     env_prefixes,
     resolve_config,
 )
@@ -210,7 +211,8 @@ class AccessLogMiddleware:
             if live is not None
             else Live(
                 _state_of(
-                    AccessLogConfig(
+                    build_config(
+                        AccessLogConfig,
                         include=as_patterns(include, name="include"),
                         exclude=as_patterns(exclude, name="exclude"),
                         quiet=as_patterns(quiet, name="quiet"),
@@ -488,7 +490,7 @@ class AccessLog(Reconfigurable[AccessLogConfig]):
             env_load=env_load,
         )
         self._setup(config, name=name)
-        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+        self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
     def from_config(

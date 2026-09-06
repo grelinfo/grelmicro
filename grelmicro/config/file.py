@@ -168,10 +168,18 @@ def _flatten_into(
     name looks exactly like one.
 
     So both readings are written. The mapping is written as JSON under
-    its own name, and walked as a level as well. The names do not
-    collide, because walking always adds a segment. Whichever one names
-    a field is the one that fills it, and the other matches nothing and
-    is ignored, which is what an unmatched key already gets.
+    its own name, and walked as a level as well. The two never take the
+    same name, because walking always adds a segment. Whichever one names
+    a field fills it, and the other matches nothing and is ignored, which
+    is what an unmatched key already gets. A walked reading of a value
+    mapping is therefore expected, not a mistake: `include` names the
+    field, and `include_products` under it names nothing.
+
+    Two sibling keys can still normalise to one segment, `a-b` and `a_b`
+    both to `A_B`, and the last read wins. Two instances named that way
+    already share one address at construction, so the collision is the
+    one [the configuration contract](../architecture/config.md)
+    describes rather than a new one.
     """
     for key, value in data.items():
         segment = _segment(key)

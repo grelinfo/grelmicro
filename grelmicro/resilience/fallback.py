@@ -30,6 +30,7 @@ from typing_extensions import Doc
 from grelmicro._config import (
     Reconfigurable,
     _build_settings_cls,
+    default_env_prefix,
     env_load_default,
     env_prefixes,
     parse_csv_or_json,
@@ -442,7 +443,7 @@ class Fallback(Reconfigurable[FallbackConfig]):
                 env_load=env_load,
             ),
         )
-        self._track_reconfigure(*env_prefixes("FALLBACK", name))
+        self._track_reconfigure(default_env_prefix("FALLBACK", name))
 
     def _setup(self, name: str, config: FallbackConfig) -> None:
         """Wire the validated config and runtime state onto the instance."""

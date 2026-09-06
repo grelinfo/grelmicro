@@ -17,6 +17,7 @@ from typing_extensions import Doc
 
 from grelmicro._config import (
     Reconfigurable,
+    default_env_prefix,
     env_load_default,
     env_prefixes,
     warn_ignored_env,
@@ -426,7 +427,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         if register:
-            self._track_reconfigure(*env_prefixes("SHIELD", name))
+            self._track_reconfigure(default_env_prefix("SHIELD", name))
         self._time = time_source or monotonic
         self._random = random_source or random.random
         self._pending_tasks: set[asyncio.Task[Any]] = set()

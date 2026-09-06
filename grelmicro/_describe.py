@@ -363,7 +363,14 @@ def _endpoint_rules(
         reader = _ENDPOINT_READERS.get(kind or "")
         if reader is None:
             continue
-        rules.append((f"{kind}/{component.name}", reader(component)))
+        # The default instance is the only one of its kind an app usually
+        # holds, so it says what it does and stops there. A second one
+        # says which it is, or two rows would read the same and mean
+        # different things.
+        name = component.name
+        rules.append(
+            ("" if name == "default" else f" ({name})", reader(component))
+        )
     return rules
 
 
@@ -504,8 +511,8 @@ def _describe_endpoints(
                     method=method,
                     path=path,
                     applies=tuple(
-                        applied
-                        for _, read in rules
+                        f"{applied}{label}"
+                        for label, read in rules
                         if (applied := read(endpoint)) is not None
                     ),
                 )
