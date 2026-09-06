@@ -82,6 +82,7 @@ of them is that mistake.
 | A request carrying `Authorization` or `Cookie` | it was answered for one caller |
 | A response carrying `Set-Cookie` | it is one caller's session |
 | A response carrying `Cache-Control: no-store`, `no-cache` or `private` | it said so |
+| A response carrying `Cache-Control: max-age=0` or `s-maxage=0` | it is stale already |
 | Anything but `200` | a failure is not an answer to hand on |
 | A response carrying `Content-Encoding` | compression sits outside this middleware |
 | A `HEAD` response | its body is empty, and would answer the `GET` after it with nothing |
@@ -116,6 +117,11 @@ to the next one who sent a different value.
 
 `Vary: *` is never stored.
 
+A response naming its own freshness is kept no longer than it says.
+`Cache-Control: max-age=30` caps the entry at 30 seconds whatever the TTL is,
+and `s-maxage` wins over `max-age` where both are named, because it is the
+one written for a shared cache.
+
 Every occurrence of a header counts. A response carrying two `Vary` lines, or
 two `Cache-Control` lines, says all of what they say, and reading only the
 last of them is how the one that refused the store goes missing.
@@ -148,9 +154,16 @@ or `None` to leave that request uncached.
 
 ## Naming paths instead of routes
 
-`CachedResponse()` is a FastAPI dependency. Starlette and Litestar resolve
-none to hang it on, and a router you did not write cannot be changed either,
-so name the URLs and how long each is kept:
+`CachedResponse()` is a FastAPI dependency, on a route or on the whole router
+it is included with:
+
+```python
+app.include_router(products, dependencies=[CachedResponse(ttl=60)])
+```
+
+Starlette and Litestar resolve no dependencies to hang it on, and a router you
+did not write cannot be changed either, so name the URLs and how long each is
+kept:
 
 ```python
 --8<-- "http/cache_paths.py"
@@ -158,7 +171,9 @@ so name the URLs and how long each is kept:
 
 Exact match, unless the pattern ends with `*`, which matches as a prefix. It
 is the matching every grelmicro middleware uses, the same as
-`ConditionalRequests(include=...)`.
+`ConditionalRequests(include=...)`. The most specific pattern decides, so
+`{"/products/*": 60, "/products/hot": 300}` keeps the hot one for 300
+seconds.
 
 `exclude=` carves a path out again, whatever a route or a pattern says.
 
@@ -189,7 +204,19 @@ available than it was without it.
 
 Register it before `ConditionalRequests()`, so a hit is answered without
 entering it. Both are added inside whatever middleware the app itself
-installed, so a request still passes authentication before either can answer.
+installed, so a request still passes middleware authentication before either
+can answer.
+
+!!! warning "A hit answers before the app is routed"
+    A route's own `Depends` never runs on a hit, because the response is
+    already on its way back by then. `CachedResponse()` on a route gated by a
+    security scheme, an `APIKeyHeader` or an `HTTPBearer`, is refused when
+    `micro.install(app)` reads it, naming the path.
+
+    A gate that is a plain `Depends` reading a header of its own cannot be
+    seen from here. Do not declare `CachedResponse()` on a route like that:
+    cache what answers everybody the same, and use
+    [`@cached`](../cache/cached.md) on the data behind the ones that do not.
 
 ## Options
 

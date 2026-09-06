@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+import math
 from inspect import iscoroutinefunction
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
-from fastapi import Depends, FastAPI, Response
+from fastapi import APIRouter, Depends, FastAPI, Response, Security
+from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.responses import StreamingResponse
@@ -46,6 +48,8 @@ HTTP_404_NOT_FOUND = 404
 TTL = 60.0
 BIG = 2048
 TWICE = 2
+OTHER_TTL = 300.0
+READS = 3
 """How many times the handler runs when nothing was stored."""
 
 
@@ -539,7 +543,7 @@ class _BrokenStore(MemoryCacheAdapter):
         await super().set(key=key, value=value, ttl=ttl, tags=tags)
 
 
-def _through_a_broken_store(failing: str) -> list[Any]:
+def _through_a_broken_store(failing: str, reads: int = 1) -> list[Any]:
     """Return the status and the body a read is answered with anyway."""
     answered: list[Any] = []
 
@@ -561,7 +565,8 @@ def _through_a_broken_store(failing: str) -> list[Any]:
                 ),
                 paths={"/reads": TTL},
             )
-            await middleware(_read_scope(), _receive, send)
+            for _ in range(reads):
+                await middleware(_read_scope(), _receive, send)
 
     anyio.run(scenario)
     return answered
@@ -1430,6 +1435,204 @@ def test_the_declaration_is_resolved_on_the_event_loop() -> None:
 
     # Assert
     assert iscoroutinefunction(declared)
+
+
+def test_an_included_router_is_read() -> None:
+    """Most apps are built out of routers, and a rule on one has to count."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter(prefix="/v1")
+    calls = 0
+
+    @router.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
+    async def reads() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app.include_router(router, prefix="/api")
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/api/v1/reads")
+        client.get("/api/v1/reads")
+
+    # Assert
+    assert calls == 1
+
+
+def test_a_router_declares_it_for_everything_under_it() -> None:
+    """`include_router(dependencies=[...])` is how a whole router says so."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter()
+    calls = 0
+
+    @router.get("/reads")
+    async def reads() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app.include_router(
+        router, prefix="/api", dependencies=[CachedResponse(ttl=TTL)]
+    )
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/api/reads")
+        client.get("/api/reads")
+
+    # Assert
+    assert calls == 1
+
+
+def test_a_write_inside_a_router_is_refused_too() -> None:
+    """The guard has to reach the routes an included router holds."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter()
+
+    @router.post("/orders", dependencies=[CachedResponse(ttl=TTL)])
+    async def create() -> dict[str, int]:
+        return {"id": 1}
+
+    app.include_router(router, prefix="/api")
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="answers POST"):
+        micro.install(app)
+
+
+def test_a_route_behind_a_security_scheme_is_refused() -> None:
+    """A hit answers before the app is routed, so the gate would not run."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    key = APIKeyHeader(name="X-API-Key")
+
+    @app.get(
+        "/secret",
+        dependencies=[Security(key), CachedResponse(ttl=TTL)],
+    )
+    async def secret() -> dict[str, int]:
+        return {"secret": 1}
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+        micro.install(app)
+
+
+def test_a_response_is_kept_no_longer_than_it_says() -> None:
+    """`max-age` is the handler saying how long this answer is good for."""
+    # Arrange
+    calls = 0
+
+    async def handler() -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(b"ok", headers={"Cache-Control": "max-age=0"})
+
+    # Act
+    _served_twice(handler)
+
+    # Assert
+    assert calls == TWICE
+
+
+@pytest.mark.parametrize(
+    ("directive", "kept"),
+    [("max-age=30", 30.0), ("s-maxage=10, max-age=99", 10.0), ("public", None)],
+    ids=["max-age", "s-maxage", "neither"],
+)
+def test_the_freshness_a_response_names_caps_how_long_it_is_kept(
+    directive: str, kept: float | None
+) -> None:
+    """A shared cache reads `s-maxage` first, because it is written for it."""
+    # Arrange
+    middleware = CachedResponsesMiddleware(_nothing, cache=_cache())
+
+    # Act
+    seconds = middleware._storable(
+        [(b"cache-control", directive.encode())], path="/reads"
+    )
+
+    # Assert
+    assert seconds == (math.inf if kept is None else kept)
+
+
+def test_a_router_that_declares_something_else_is_passed_over() -> None:
+    """A router gate is not a cache rule, and reading it as one would cache."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter()
+    calls = 0
+
+    async def audit() -> None:
+        """Stand in for the gate a router already declares."""
+
+    @router.get("/reads")
+    async def reads() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app.include_router(router, dependencies=[Depends(audit)])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/reads")
+        client.get("/reads")
+
+    # Assert
+    assert calls == TWICE
+
+
+def test_a_freshness_that_is_not_a_number_is_passed_over() -> None:
+    """A header nobody can read decides nothing about how long it is kept."""
+    # Arrange
+    middleware = CachedResponsesMiddleware(_nothing, cache=_cache())
+
+    # Act
+    seconds = middleware._storable(
+        [(b"cache-control", b"max-age=soon")], path="/reads"
+    )
+
+    # Assert
+    assert seconds == math.inf
+
+
+def test_a_store_that_is_down_does_not_become_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """One report per reason a minute, not one traceback per request."""
+    # Act
+    with caplog.at_level(logging.WARNING, logger="grelmicro.http.cache"):
+        _through_a_broken_store("get", reads=READS)
+
+    # Assert
+    assert len(caplog.records) == TWICE
+
+
+def test_the_most_specific_pattern_decides() -> None:
+    """A rule written for one route is not answered by its router's."""
+    # Arrange
+    component = CachedResponses(
+        paths={"/products/*": TTL, "/products/hot": OTHER_TTL}
+    )
+
+    # Act
+    seconds = component._policies.ttl_for("/products/hot", TTL)
+
+    # Assert
+    assert seconds == OTHER_TTL
 
 
 def test_the_cache_it_stores_in_is_readable() -> None:

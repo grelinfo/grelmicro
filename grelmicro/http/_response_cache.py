@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from collections import OrderedDict
 from logging import getLogger
 from time import time as clock_time
@@ -87,6 +88,9 @@ _UNCACHEABLE_RESPONSE_HEADERS = frozenset({b"set-cookie", b"content-encoding"})
 _UNSTORABLE_LIMIT = 512
 """How many keys are remembered as ones nothing is ever stored under."""
 
+_REPORT_INTERVAL = 60.0
+"""Seconds between two reports that the store could not be reached."""
+
 _WARNED_LIMIT = 128
 """How many distinct `Vary` refusals are remembered before warning again."""
 
@@ -103,6 +107,7 @@ class _Entry(TypedDict):
     headers: Sequence[Sequence[str]]
     body: str
     stored_at: float
+    kept: float
 
 
 def check_ttl(
@@ -185,7 +190,15 @@ class _Policies:
             raise TypeError(msg)
         for pattern, ttl in paths.items():
             check_ttl(ttl, f"paths[{pattern!r}]")
-        self._paths = tuple(paths.items())
+        # Most specific first: an exact path beats a prefix, and a longer
+        # prefix beats the shorter one it sits under, so a rule written
+        # for one route is not answered by the one written for its router.
+        self._paths = tuple(
+            sorted(
+                paths.items(),
+                key=lambda item: (item[0].endswith("*"), -len(item[0])),
+            )
+        )
         self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
         self._app: Any = None
 
@@ -224,36 +237,83 @@ class _Policies:
 def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa: ANN401
     """Return the compiled path of every route that declared a TTL.
 
-    Walks what the app declares, mounts included, and compiles each full
-    path with the framework's own compiler, off the path the route was
-    written with, so a converter such as `{rest:path}` matches exactly
-    what the router matches it with.
+    Walks what the app declares, mounts and included routers alike, and
+    compiles each full path with the framework's own compiler, off the
+    path the route was written with, so a converter such as `{rest:path}`
+    matches exactly what the router matches it with.
 
     Raises:
-        TypeError: If a marked route answers a method other than `GET`.
+        TypeError: If a route that declared one answers a method other
+            than `GET`, or gates itself behind a security scheme the
+            cache would answer over.
     """
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
-    for prefix, route in _walk(app, ""):
+    for prefix, inherited, route in _walk(app, "", _UNMARKED):
         ttl = _declared_ttl(route)
         if ttl is _UNMARKED:
+            ttl = inherited
+        if ttl is _UNMARKED:
             continue
-        methods = {
-            method.upper() for method in (getattr(route, "methods", None) or ())
-        } - {"HEAD", "OPTIONS"}
-        if methods != {"GET"}:
-            listed = ", ".join(sorted(methods)) or "no method"
-            declared = f"{prefix}{route.path}"
-            msg = (
-                f"CachedResponse() is declared on {declared!r}, which "
-                f"answers {listed}. A response cache answers a read, and "
-                "a method that changes something must reach the handler "
-                "every time. Declare it on the GET route instead."
-            )
-            raise TypeError(msg)
-        regex, _, _ = compile_path(f"{prefix}{route.path}")
+        declared = f"{prefix}{route.path}"
+        _refuse_unreadable(route, declared)
+        regex, _, _ = compile_path(declared)
         found.append((regex, cast("float | None", ttl)))
+    return found
+
+
+def _refuse_unreadable(route: Any, declared: str) -> None:  # noqa: ANN401
+    """Refuse a route a response cache must not answer for.
+
+    Raises:
+        TypeError: If the route answers a method other than `GET`, or
+            declares a security scheme.
+    """
+    methods = {
+        method.upper() for method in (getattr(route, "methods", None) or ())
+    } - {"HEAD", "OPTIONS"}
+    if methods != {"GET"}:
+        listed = ", ".join(sorted(methods)) or "no method"
+        msg = (
+            f"CachedResponse() is declared on {declared!r}, which answers "
+            f"{listed}. A response cache answers a read, and a method that "
+            "changes something must reach the handler every time. Declare "
+            "it on the GET route instead."
+        )
+        raise TypeError(msg)
+    gates = getattr(route, "dependant", None)  # codespell:ignore
+    schemes = _security_schemes(gates)
+    if schemes:
+        named = ", ".join(sorted(set(schemes)))
+        msg = (
+            f"CachedResponse() is declared on {declared!r}, which is "
+            f"gated by {named}. A hit is answered before the app is "
+            "routed, so the gate would not run, and one caller's response "
+            "would be handed to whoever asks next. Cache a route that "
+            "answers everybody the same."
+        )
+        raise TypeError(msg)
+
+
+def _security_schemes(gates: Any) -> list[str]:  # noqa: ANN401
+    """Return the security schemes a route is gated by, by name.
+
+    Walks the whole dependency tree, because a scheme declared inside a
+    dependency of a dependency gates the route just as much as one
+    written on it.
+    """
+    try:
+        from fastapi.security.base import SecurityBase  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - the reimport test walks this
+        return []
+    found: list[str] = []
+    pending = list(getattr(gates, "dependencies", ()))
+    while pending:
+        dependency = pending.pop()
+        if isinstance(dependency.call, SecurityBase):
+            found.append(type(dependency.call).__name__)
+        pending.extend(getattr(dependency, "dependencies", ()))
     return found
 
 
@@ -272,16 +332,49 @@ def _declared_ttl(route: Any) -> Any:  # noqa: ANN401
     return _UNMARKED
 
 
-def _walk(app: Any, prefix: str) -> list[tuple[str, Any]]:  # noqa: ANN401
-    """Return every route the app declares, with the prefix it sits under."""
-    found: list[tuple[str, Any]] = []
+def _inherited_ttl(context: Any, inherited: Any) -> Any:  # noqa: ANN401
+    """Return the TTL an included router declares for everything under it."""
+    for dependency in getattr(context, "dependencies", ()) or ():
+        ttl = getattr(
+            getattr(dependency, "dependency", None), _MARKER, _UNMARKED
+        )
+        if ttl is not _UNMARKED:
+            return ttl
+    return inherited
+
+
+def _walk(app: Any, prefix: str, inherited: Any) -> list[tuple[str, Any, Any]]:  # noqa: ANN401
+    """Return every route the app declares, with what it sits under.
+
+    An included router is a node of its own rather than the routes it
+    holds, so what it was included under, prefix and dependencies alike,
+    is carried down to them from here.
+    """
+    found: list[tuple[str, Any, Any]] = []
     for route in getattr(app, "routes", ()):
+        context = getattr(route, "include_context", None)
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            found.extend(
+                _walk(
+                    included,
+                    f"{prefix}{getattr(context, 'prefix', '')}",
+                    _inherited_ttl(context, inherited),
+                )
+            )
+            continue
         inner = getattr(route, "routes", None)
         if inner:
-            found.extend(_walk(route, f"{prefix}{getattr(route, 'path', '')}"))
+            found.extend(
+                _walk(
+                    route,
+                    f"{prefix}{getattr(route, 'path', '')}",
+                    inherited,
+                )
+            )
             continue
         if getattr(route, "path", None) is not None:
-            found.append((prefix, route))
+            found.append((prefix, inherited, route))
     return found
 
 
@@ -424,6 +517,7 @@ class CachedResponsesMiddleware:
         self._max_body_size = max_body_size
         self._tag = tag
         self._warned: set[str] = set()
+        self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()
 
     async def __call__(
@@ -494,7 +588,11 @@ class CachedResponsesMiddleware:
             attempt.returned = True
             if attempt.entry is None:
                 raise _NotStored
-            await self._write(storage_key, attempt.entry, ttl=ttl)
+            await self._write(
+                storage_key,
+                attempt.entry,
+                ttl=min(ttl, attempt.entry["kept"]),
+            )
             return attempt.entry
 
         try:
@@ -542,20 +640,22 @@ class CachedResponsesMiddleware:
             )
         except _NotStored:
             raise
-        except Exception:
+        except Exception as error:
             if not attempt.ran:
-                logger.warning(
+                self._report(
+                    error,
+                    "fold",
                     "response cache could not fold this read, running the "
                     "handler",
-                    exc_info=True,
                 )
                 return await compute()
             if not attempt.returned:
                 raise
-            logger.warning(
+            self._report(
+                error,
+                "release",
                 "response cache lost hold of this read after the handler "
                 "answered it",
-                exc_info=True,
             )
             if attempt.entry is None:
                 raise _NotStored from None
@@ -570,10 +670,11 @@ class CachedResponsesMiddleware:
         """
         try:
             return cast("_Entry | None", await self._cache.get(storage_key))
-        except Exception:
-            logger.warning(
+        except Exception as error:  # noqa: BLE001
+            self._report(
+                error,
+                "read",
                 "response cache could not be read, answering from the handler",
-                exc_info=True,
             )
             return None
 
@@ -583,11 +684,25 @@ class CachedResponsesMiddleware:
         """Keep the response, and let the caller have it either way."""
         try:
             await self._cache.set(storage_key, entry, ttl, tags=(self._tag,))
-        except Exception:
-            logger.warning(
+        except Exception as error:  # noqa: BLE001
+            self._report(
+                error,
+                "write",
                 "response cache kept nothing, the response still went out",
-                exc_info=True,
             )
+
+    def _report(self, error: BaseException, reason: str, message: str) -> None:
+        """Say the store failed, at most once a minute for each reason.
+
+        A store that is down is one every request goes past, and a
+        traceback per request is the last thing an outage needs.
+        """
+        now = clock_time()
+        if now - self._reported.get(reason, -math.inf) < _REPORT_INTERVAL:
+            logger.debug(message)
+            return
+        self._reported[reason] = now
+        logger.warning(message, exc_info=error)
 
     def _remember_unstorable(self, storage_key: str) -> None:
         """Note a key nothing was stored under, so it stops taking the lock.
@@ -633,7 +748,8 @@ class CachedResponsesMiddleware:
         if start["status"] != _HTTP_200_OK:
             return None
         headers = list(start["headers"])
-        if not self._storable(headers, path=path):
+        kept = self._storable(headers, path=path)
+        if kept is None:
             return None
         body = capture.body
         named = {
@@ -653,6 +769,7 @@ class CachedResponsesMiddleware:
             headers.append((b"etag", tag.encode("latin-1")))
         headers = self._declaring_vary(headers)
         return _Entry(
+            kept=kept,
             status=start["status"],
             headers=[
                 [name.decode("latin-1"), value.decode("latin-1")]
@@ -691,36 +808,35 @@ class CachedResponsesMiddleware:
 
     def _storable(
         self, headers: Sequence[tuple[bytes, bytes]], *, path: str
-    ) -> bool:
-        """Return whether this response may be handed to another caller.
+    ) -> float | None:
+        """Return the longest this response may be kept, or `None` for never.
 
         Every occurrence of a header counts. A response carrying two
         `Cache-Control` lines, or two `Vary` lines, says all of what they
         say, and reading only the last of them is how the one that
         refused the store goes missing.
+
+        A response naming its own freshness is kept no longer than it
+        says, and one that says it is already stale is not kept at all.
         """
         directives: set[str] = set()
         varies: list[str] = []
         for name, value in headers:
             lowered = name.lower()
             if lowered in _UNCACHEABLE_RESPONSE_HEADERS:
-                return False
+                return None
             if lowered == b"cache-control":
                 directives.update(_split_field(value))
             elif lowered == b"vary":
                 varies.extend(_split_field(value))
         if directives & _UNCACHEABLE_DIRECTIVES:
-            return False
-        if not varies:
-            return True
-        vary = ", ".join(varies)
-        if "*" in varies:
-            self._warn(path, vary)
-            return False
-        if set(varies) - set(self._vary_by_headers):
-            self._warn(path, vary)
-            return False
-        return True
+            return None
+        if varies:
+            vary = ", ".join(varies)
+            if "*" in varies or set(varies) - set(self._vary_by_headers):
+                self._warn(path, vary)
+                return None
+        return _named_freshness(directives)
 
     def _warn(self, path: str, vary: str) -> None:
         """Say once that a response was not stored because of its `Vary`."""
@@ -897,6 +1013,28 @@ async def _serve(entry: _Entry, scope: Scope, send: Send) -> None:
     )
     body = b"" if scope["method"] == "HEAD" else entry["body"].encode("latin-1")
     await send({"type": "http.response.body", "body": body})
+
+
+def _named_freshness(directives: set[str]) -> float | None:
+    """Return the seconds a response says it stays fresh for.
+
+    `s-maxage` is the one written for a shared cache, so it wins over
+    `max-age` where both are named. `inf` says the response named
+    neither, and `None` that it named one it has already spent.
+    """
+    kept = math.inf
+    for directive in directives:
+        for name in ("s-maxage", "max-age"):
+            if not directive.startswith(f"{name}="):
+                continue
+            try:
+                seconds = float(directive.split("=", 1)[1])
+            except ValueError:
+                continue
+            kept = seconds if name == "s-maxage" else min(kept, seconds)
+            if name == "s-maxage":
+                return None if seconds <= 0 else seconds
+    return None if kept <= 0 else kept
 
 
 def _split_field(value: bytes) -> list[str]:
