@@ -164,17 +164,17 @@ def declare_cached(
 class _Policies:
     """The paths a middleware caches, and for how long.
 
-    Built from two sources that answer the same question. `paths` names
+    Built from two sources that answer the same question. `include` names
     URLs and is written where the component is registered. The routes come
     from `@cache_response`, and are read off the app at install and again
     when the app starts, so a route added after `install` counts too.
     """
 
-    __slots__ = ("_app", "_paths", "_routes")
+    __slots__ = ("_app", "_include", "_routes")
 
     def __init__(
         self,
-        paths: Annotated[
+        include: Annotated[
             Mapping[str, float], Doc("Path patterns and their TTL.")
         ],
     ) -> None:
@@ -184,21 +184,21 @@ class _Policies:
             ValueError: If a pattern names a lifetime a response cannot
                 be kept for.
         """
-        if isinstance(paths, str):
+        if isinstance(include, str):
             msg = (
-                f"paths={paths!r} is a string, and a mapping of path "
-                "pattern to seconds is expected. Write it as one: "
-                f"paths={{{paths!r}: 60}}."
+                f"include={include!r} is a string, and a mapping of "
+                "path pattern to seconds is expected. Write it as one: "
+                f"include={{{include!r}: 60}}."
             )
             raise TypeError(msg)
-        for pattern, ttl in paths.items():
-            check_ttl(ttl, f"paths[{pattern!r}]")
+        for pattern, ttl in include.items():
+            check_ttl(ttl, f"include[{pattern!r}]")
         # Most specific first: an exact path beats a prefix, and a longer
         # prefix beats the shorter one it sits under, so a rule written
         # for one route is not answered by the one written for its router.
-        self._paths = tuple(
+        self._include = tuple(
             sorted(
-                paths.items(),
+                include.items(),
                 key=lambda item: (item[0].endswith("*"), -len(item[0])),
             )
         )
@@ -216,7 +216,7 @@ class _Policies:
         """
         self._app = app
         self._routes = tuple(
-            _marked_routes(app, tuple(pattern for pattern, _ in self._paths))
+            _marked_routes(app, tuple(pattern for pattern, _ in self._include))
         )
 
     def reread(self) -> None:
@@ -232,12 +232,12 @@ class _Policies:
         """Return how long this path is cached, or `None` when it is not.
 
         A route that declared one says more than a pattern naming it, so
-        `paths=` fills in for the routes that declared none.
+        `include=` fills in for the routes that declared none.
         """
         for regex, marked in self._routes:
             if regex.fullmatch(path):
                 return default if marked is None else marked
-        for pattern, ttl in self._paths:
+        for pattern, ttl in self._include:
             if matches(path, (pattern,)):
                 return ttl
         return None
@@ -310,10 +310,10 @@ def _refuse_named_gate(
         return
     named = ", ".join(sorted(set(schemes)))
     msg = (
-        f"paths= names {declared!r}, which is gated by {named}. A hit is "
-        "answered before the app is routed, so the gate would not run, "
-        "and one caller's response would be handed to whoever asks next. "
-        "Name a path that answers everybody the same."
+        f"include= names {declared!r}, which is gated by {named}. A hit "
+        "is answered before the app is routed, so the gate would not "
+        "run, and one caller's response would be handed to whoever asks "
+        "next. Name a path that answers everybody the same."
     )
     raise TypeError(msg)
 
@@ -417,7 +417,7 @@ def _declared_ttl(route: Any, above: set[int]) -> Any:  # noqa: ANN401
 
     Read off the resolved dependency tree, under the framework's own
     spelling of it. A framework that resolves none declares nothing here,
-    and names its paths in `paths=` instead.
+    and names its paths in `include=` instead.
 
     What a router declared through its own constructor is resolved into
     every route it holds, so `above` says which of them the route did not
@@ -477,7 +477,7 @@ class CachedResponsesMiddleware:
     app.add_middleware(
         CachedResponsesMiddleware,
         cache=TTLCache(),
-        paths={"/products/*": 60},
+        include={"/products/*": 60},
     )
     ```
 
@@ -522,14 +522,14 @@ class CachedResponsesMiddleware:
             _Policies | None,
             Doc(
                 "The paths declaring `CachedResponse()`, filled by "
-                "`micro.install(app)`. `paths` alone needs none."
+                "`micro.install(app)`. `include` alone needs none."
             ),
         ] = None,
         ttl: Annotated[
             float,
             Doc("Seconds a response is kept when its route names none."),
         ] = _DEFAULT_TTL,
-        paths: Annotated[
+        include: Annotated[
             Mapping[str, float] | None,
             Doc(
                 "Path patterns and the seconds each is cached for. Exact "
@@ -586,7 +586,7 @@ class CachedResponsesMiddleware:
         self.app = app
         self._cache = cache
         self._policies = (
-            policies if policies is not None else _Policies(paths or {})
+            policies if policies is not None else _Policies(include or {})
         )
         self._ttl = ttl
         self._exclude = as_patterns(exclude, name="exclude")
@@ -1198,7 +1198,7 @@ class CachedResponses:
     async def list_products() -> list[Product]: ...
     ```
 
-    The bare form caches nothing until a route declares it. `paths=` names
+    The bare form caches nothing until a route declares it. `include=` names
     URLs instead, for a router whose routes you cannot touch and for a
     framework that resolves no dependencies grelmicro can read.
 
@@ -1230,18 +1230,18 @@ class CachedResponses:
                 "`CachedResponse(ttl=...)` overrides it per route."
             ),
         ] = _DEFAULT_TTL,
-        paths: Annotated[
+        include: Annotated[
             Mapping[str, float] | None,
             Doc(
-                "Path patterns and the seconds each is cached for, for a "
-                "route that carries no mark. Exact match unless the "
-                'pattern ends with `*`, as `"/products/*"`.'
+                "Path patterns and the seconds each is cached for, for "
+                "a route that declares none. Exact match unless the "
+                'pattern ends with `*`, as `{"/products/*": 60}`.'
             ),
         ] = None,
         exclude: Annotated[
             tuple[str, ...],
             Doc(
-                "Paths never cached, whatever a mark or `paths` says. "
+                "Paths never cached, whatever a route or `include` says. "
                 "Same matching."
             ),
         ] = (),
@@ -1308,7 +1308,7 @@ class CachedResponses:
             if cache is not None
             else TTLCache(ttl=ttl, serializer=JsonSerializer())
         )
-        self._policies = _Policies(paths or {})
+        self._policies = _Policies(include or {})
         self._tag = f"grelmicro:{namespace}:{name}"
         self._options: dict[str, Any] = {
             "cache": self._cache,

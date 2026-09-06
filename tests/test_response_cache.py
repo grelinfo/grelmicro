@@ -175,7 +175,7 @@ def test_a_head_never_fills_the_cache() -> None:
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            CachedResponses(paths={"/reads": TTL}),
+            CachedResponses(include={"/reads": TTL}),
         ]
     )
     micro.install(app)
@@ -286,7 +286,7 @@ def test_a_websocket_scope_passes_through() -> None:
 def test_paths_cache_a_route_that_carries_no_mark() -> None:
     """A router whose handlers you cannot mark is named by its URL."""
     # Arrange
-    app = _app(CachedResponses(paths={"/live": TTL}))
+    app = _app(CachedResponses(include={"/live": TTL}))
 
     # Act
     with TestClient(app) as client:
@@ -311,7 +311,7 @@ def test_a_prefix_pattern_covers_the_router_under_it() -> None:
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            CachedResponses(paths={"/shop/*": TTL}),
+            CachedResponses(include={"/shop/*": TTL}),
         ]
     )
     micro.install(app)
@@ -499,7 +499,7 @@ def _ran_twice(headers: list[tuple[bytes, bytes]]) -> int:
                 cache=TTLCache(
                     ttl=TTL, backend=backend, serializer=JsonSerializer()
                 ),
-                paths={"/reads": TTL},
+                include={"/reads": TTL},
             )
             scope = {
                 "type": "http",
@@ -565,7 +565,7 @@ def _through_a_broken_store(failing: str, reads: int = 1) -> list[Any]:
                 cache=TTLCache(
                     ttl=TTL, backend=backend, serializer=JsonSerializer()
                 ),
-                paths={"/reads": TTL},
+                include={"/reads": TTL},
             )
             for _ in range(reads):
                 await middleware(_read_scope(), _receive, send)
@@ -589,7 +589,7 @@ def _streaming_middleware() -> tuple[
         await send({"type": "http.response.body", "body": b"two"})
 
     return (
-        CachedResponsesMiddleware(app, cache=_cache(), paths={"/reads": TTL}),
+        CachedResponsesMiddleware(app, cache=_cache(), include={"/reads": TTL}),
         _read_scope(),
     )
 
@@ -832,7 +832,7 @@ def test_a_response_the_app_never_finished_is_released() -> None:
         sent.append(message)
 
     middleware = CachedResponsesMiddleware(
-        app, cache=_cache(), paths={"/reads": TTL}
+        app, cache=_cache(), include={"/reads": TTL}
     )
 
     # Act
@@ -866,7 +866,7 @@ def test_a_response_declaring_trailers_is_forwarded() -> None:
         sent.append(message)
 
     middleware = CachedResponsesMiddleware(
-        app, cache=_cache(), paths={"/reads": TTL}
+        app, cache=_cache(), include={"/reads": TTL}
     )
 
     # Act
@@ -1023,7 +1023,7 @@ def test_a_response_that_carries_its_own_tag_keeps_it() -> None:
 def test_a_path_no_pattern_names_is_left_alone() -> None:
     """A rule that names another path decides nothing about this one."""
     # Arrange
-    app = _app(CachedResponses(paths={"/elsewhere": TTL}))
+    app = _app(CachedResponses(include={"/elsewhere": TTL}))
 
     # Act
     with TestClient(app) as client:
@@ -1082,7 +1082,7 @@ def test_an_app_that_answers_nothing_is_forwarded_as_it_is() -> None:
         sent.append(message)
 
     middleware = CachedResponsesMiddleware(
-        app, cache=_cache(), paths={"/reads": TTL}
+        app, cache=_cache(), include={"/reads": TTL}
     )
 
     # Act
@@ -1109,7 +1109,7 @@ def test_a_message_that_is_neither_start_nor_body_releases_what_is_held() -> (
         sent.append(message["type"])
 
     middleware = CachedResponsesMiddleware(
-        app, cache=_cache(), paths={"/reads": TTL}
+        app, cache=_cache(), include={"/reads": TTL}
     )
 
     # Act
@@ -1186,7 +1186,7 @@ def test_a_handler_that_raises_is_never_swallowed() -> None:
         raise RuntimeError(msg)
 
     middleware = CachedResponsesMiddleware(
-        app, cache=_cache(), paths={"/reads": TTL}
+        app, cache=_cache(), include={"/reads": TTL}
     )
 
     # Act / Assert
@@ -1251,7 +1251,7 @@ def test_a_lifetime_a_response_cannot_be_kept_for_is_refused(
     """Zero is how a reader writes "not this one", and it is not that."""
     # Act / Assert
     with pytest.raises(ValueError, match="number of seconds"):
-        CachedResponses(paths={"/reads": ttl})
+        CachedResponses(include={"/reads": ttl})
     with pytest.raises(ValueError, match="number of seconds"):
         CachedResponses(ttl=ttl)
     with pytest.raises(ValueError, match="number of seconds"):
@@ -1272,7 +1272,7 @@ def test_a_head_miss_never_takes_the_key_a_read_is_waiting_for() -> None:
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            CachedResponses(paths={"/reads": TTL}),
+            CachedResponses(include={"/reads": TTL}),
         ]
     )
     micro.install(app)
@@ -1308,7 +1308,7 @@ def test_a_stored_response_survives_a_fold_that_fails_on_its_way_out() -> None:
                 cache=TTLCache(
                     ttl=TTL, backend=backend, serializer=JsonSerializer()
                 ),
-                paths={"/reads": TTL},
+                include={"/reads": TTL},
             )
             middleware._cache._stampede = _LosingGuard()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
             await middleware(_read_scope(), _receive, send)
@@ -1340,7 +1340,7 @@ def test_a_response_lost_after_a_fold_that_never_kept_it_is_released() -> None:
                 cache=TTLCache(
                     ttl=TTL, backend=backend, serializer=JsonSerializer()
                 ),
-                paths={"/reads": TTL},
+                include={"/reads": TTL},
             )
             middleware._cache._stampede = _LosingGuard()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
             await middleware(_read_scope(), _receive, send)
@@ -1358,7 +1358,7 @@ def test_a_stored_response_says_what_the_key_reads() -> None:
         uses=[
             Cache(MemoryCacheAdapter()),
             CachedResponses(
-                paths={"/reads": TTL}, vary_by_headers=("accept-language",)
+                include={"/reads": TTL}, vary_by_headers=("accept-language",)
             ),
         ]
     )
@@ -1408,7 +1408,7 @@ def test_a_bare_string_is_a_missing_comma() -> None:
     with pytest.raises(TypeError, match="is a string"):
         CachedResponses(vary_by_query="page")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match="is a string"):
-        CachedResponses(paths="/reads")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        CachedResponses(include="/reads")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_two_services_behind_one_gateway_are_two_resources() -> None:
@@ -1766,12 +1766,12 @@ def test_an_app_built_with_it_leaves_its_writes_alone() -> None:
 
 
 def test_a_pattern_naming_a_gated_read_is_refused_too() -> None:
-    """`paths=` reaches the same route by another road, and the same gate."""
+    """`include=` reaches the same route by another road, and the same gate."""
     # Arrange
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            CachedResponses(paths={"/admin/*": TTL}),
+            CachedResponses(include={"/admin/*": TTL}),
         ]
     )
     app = FastAPI()
@@ -1786,7 +1786,7 @@ def test_a_pattern_naming_a_gated_read_is_refused_too() -> None:
     )
 
     # Act / Assert
-    with pytest.raises(TypeError, match="paths= names"):
+    with pytest.raises(TypeError, match="include= names"):
         micro.install(app)
 
 
@@ -1796,7 +1796,7 @@ def test_a_pattern_naming_a_gated_write_is_left_alone() -> None:
     micro = Grelmicro(
         uses=[
             Cache(MemoryCacheAdapter()),
-            CachedResponses(paths={"/admin/*": TTL}),
+            CachedResponses(include={"/admin/*": TTL}),
         ]
     )
     app = FastAPI()
@@ -1823,7 +1823,7 @@ def test_a_pattern_naming_a_gated_write_is_left_alone() -> None:
 def test_a_pattern_naming_an_open_read_is_left_alone() -> None:
     """Nothing stands in front of it, so the pattern is what it says."""
     # Arrange
-    app = _app(CachedResponses(paths={"/live": TTL}))
+    app = _app(CachedResponses(include={"/live": TTL}))
 
     # Act
     with TestClient(app) as client:
@@ -1891,9 +1891,9 @@ def test_a_router_built_with_it_leaves_its_writes_alone() -> None:
 
 
 def test_a_route_that_declared_one_is_not_overridden_by_a_pattern() -> None:
-    """`paths=` fills in for the routes that declared none."""
+    """`include=` fills in for the routes that declared none."""
     # Arrange
-    component = CachedResponses(paths={"/products/*": TTL})
+    component = CachedResponses(include={"/products/*": TTL})
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), component])
     app = FastAPI()
 
@@ -1926,7 +1926,7 @@ def test_a_message_after_a_complete_body_closes_what_is_held() -> None:
         sent.append(message)
 
     middleware = CachedResponsesMiddleware(
-        app, cache=_cache(), paths={"/reads": TTL}
+        app, cache=_cache(), include={"/reads": TTL}
     )
 
     # Act
@@ -2048,7 +2048,7 @@ def test_the_most_specific_pattern_decides() -> None:
     """A rule written for one route is not answered by its router's."""
     # Arrange
     component = CachedResponses(
-        paths={"/products/*": TTL, "/products/hot": OTHER_TTL}
+        include={"/products/*": TTL, "/products/hot": OTHER_TTL}
     )
 
     # Act
