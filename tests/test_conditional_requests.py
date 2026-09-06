@@ -1039,6 +1039,37 @@ def test_the_header_is_optional_until_it_is_enforced() -> None:
     assert [p["required"] for p in strict if p["in"] == "header"] == [True]
 
 
+def test_a_route_of_an_included_router_is_documented_too() -> None:
+    """A router is a node of its own, and the routes it holds are under it."""
+    # Arrange
+    from fastapi import APIRouter  # noqa: PLC0415
+
+    router = APIRouter(prefix="/v1")
+
+    @router.patch("/carts/{cart_id}")
+    async def update(
+        cart_id: int,
+        conditional: ConditionalRequired,  # noqa: ARG001
+    ) -> dict[str, int]:
+        """Take the guard as a declaration, so the schema says so."""
+        return {"id": cart_id}
+
+    app = FastAPI()
+    app.include_router(router)
+    Grelmicro(uses=[ConditionalRequests()]).install(app)
+
+    # Act
+    operation = app.openapi()["paths"]["/v1/carts/{cart_id}"]["patch"]
+    headers = {
+        parameter["name"]: parameter["required"]
+        for parameter in operation["parameters"]
+        if parameter["in"] == "header"
+    }
+
+    # Assert
+    assert headers["If-Match"] is True
+
+
 def test_a_create_carries_no_precondition() -> None:
     """`POST` has nothing to match against, so nothing is added to it."""
     # Arrange

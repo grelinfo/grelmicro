@@ -26,7 +26,7 @@ from typing_extensions import Doc
 
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
-from grelmicro._paths import selects
+from grelmicro._paths import selects, walk_routes
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._endpoints import (
     JSON_MEDIA_TYPE,
@@ -548,14 +548,16 @@ def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
 
     A guard called inside a handler body is invisible from here, which is
     why requiring one is something a route declares rather than calls.
+
+    Walks the routers the app includes as well as the routes it declares
+    itself, since an included router is a node of its own and the routes
+    it holds are reached through it.
     """
     found: set[tuple[str, str]] = set()
-    for route in app.routes:
+    for prefix, route, _ in walk_routes(app):
         # The resolved dependency tree, under FastAPI's own spelling of it.
-        # `path` is only on the routes that have one.
         declared = getattr(route, "dependant", None)  # codespell:ignore
-        path = getattr(route, "path", None)
-        if declared is None or path is None:
+        if declared is None:
             continue
         if not any(
             getattr(dependency.call, "__name__", "") == "_required_conditional"
@@ -563,7 +565,7 @@ def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
         ):
             continue
         for method in getattr(route, "methods", ()):
-            found.add((path, method.lower()))
+            found.add((f"{prefix}{route.path}", method.lower()))
     return found
 
 

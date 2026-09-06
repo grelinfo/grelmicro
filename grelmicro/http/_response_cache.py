@@ -19,7 +19,7 @@ from typing import (
 
 from typing_extensions import Doc
 
-from grelmicro._paths import as_patterns, matches, route_path
+from grelmicro._paths import as_patterns, matches, route_path, walk_routes
 from grelmicro.cache._stampede import compute_with_stampede
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
@@ -250,10 +250,12 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
-    for prefix, inherited, route in _walk(app, "", _UNMARKED):
+    for prefix, route, contexts in walk_routes(app):
         ttl = _declared_ttl(route)
-        if ttl is _UNMARKED:
-            ttl = inherited
+        for context in contexts:
+            if ttl is not _UNMARKED:
+                break
+            ttl = _inherited_ttl(context)
         if ttl is _UNMARKED:
             continue
         declared = f"{prefix}{route.path}"
@@ -332,7 +334,7 @@ def _declared_ttl(route: Any) -> Any:  # noqa: ANN401
     return _UNMARKED
 
 
-def _inherited_ttl(context: Any, inherited: Any) -> Any:  # noqa: ANN401
+def _inherited_ttl(context: Any) -> Any:  # noqa: ANN401
     """Return the TTL an included router declares for everything under it."""
     for dependency in getattr(context, "dependencies", ()) or ():
         ttl = getattr(
@@ -340,42 +342,7 @@ def _inherited_ttl(context: Any, inherited: Any) -> Any:  # noqa: ANN401
         )
         if ttl is not _UNMARKED:
             return ttl
-    return inherited
-
-
-def _walk(app: Any, prefix: str, inherited: Any) -> list[tuple[str, Any, Any]]:  # noqa: ANN401
-    """Return every route the app declares, with what it sits under.
-
-    An included router is a node of its own rather than the routes it
-    holds, so what it was included under, prefix and dependencies alike,
-    is carried down to them from here.
-    """
-    found: list[tuple[str, Any, Any]] = []
-    for route in getattr(app, "routes", ()):
-        context = getattr(route, "include_context", None)
-        included = getattr(route, "original_router", None)
-        if included is not None:
-            found.extend(
-                _walk(
-                    included,
-                    f"{prefix}{getattr(context, 'prefix', '')}",
-                    _inherited_ttl(context, inherited),
-                )
-            )
-            continue
-        inner = getattr(route, "routes", None)
-        if inner:
-            found.extend(
-                _walk(
-                    route,
-                    f"{prefix}{getattr(route, 'path', '')}",
-                    inherited,
-                )
-            )
-            continue
-        if getattr(route, "path", None) is not None:
-            found.append((prefix, inherited, route))
-    return found
+    return _UNMARKED
 
 
 class CachedResponsesMiddleware:
