@@ -4,6 +4,7 @@
 
 ### Breaking
 * 💥 `CachedResponses`, `ConditionalRequests`, `IdempotentRequests`, `RateLimitedRequests` and `AccessLog` refuse a bad value with `SettingsValidationError` instead of `TypeError` or `ValueError`, the one error every component field raises. The middleware under each of them is hand-wired ASGI and still raises `TypeError`. ([#813](https://github.com/grelinfo/grelmicro/issues/813))
+* 💥 `IdempotentRequests(methods=...)` and `ConditionalRequests(require_precondition=...)` refuse a bare string. `tuple("POST")` is four one-letter methods, so the middleware metered nothing while reporting that it did. ([#813](https://github.com/grelinfo/grelmicro/issues/813))
 * 💥 `IdempotentRequests(key_header=...)` and `replay_header=` refuse `bytes`. A header name is a string, and pydantic decoded the bytes rather than refusing them. ([#813](https://github.com/grelinfo/grelmicro/issues/813))
 * 💥 A nested mapping in a config file stops being flattened into variable names where its keys cannot be one, and is read as a value instead. `include: {"/products/*": 60}` now reaches the field as JSON. A key holding only letters, digits and underscores is still a level of nesting. ([#813](https://github.com/grelinfo/grelmicro/issues/813))
 * 💥 A live reload reads the kind-wide prefix as well as the instance one, so `GREL_LOCK_LEASE_DURATION` in a mounted ConfigMap now retunes every lock, as it already did at startup. The instance's own key still wins. ([#813](https://github.com/grelinfo/grelmicro/issues/813))
