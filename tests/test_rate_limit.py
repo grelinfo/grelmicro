@@ -22,6 +22,7 @@ from grelmicro.http import (
 )
 from grelmicro.integrations.fastapi import RateLimited
 from grelmicro.resilience import RateLimiter
+from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.security import ClientAddressMiddleware, TrustedProxies
 
@@ -41,7 +42,7 @@ PROXIES = ("10.0.0.0/8",)
 TWO_METERS = 2
 
 
-def _limiter(name: str, limit: int, window: int = WINDOW) -> RateLimiter:
+def _limiter(name: str, limit: int, window: float = WINDOW) -> RateLimiter:
     """Return a limiter over a backend of its own."""
     return RateLimiter.sliding_window(
         name, limit=limit, window=window, backend=MemoryRateLimiterAdapter()
@@ -760,6 +761,156 @@ def test_a_window_under_a_second_is_a_second() -> None:
 
     # Assert
     assert response.headers["ratelimit-policy"] == '"api";q=10;w=1'
+
+
+@pytest.mark.parametrize("cost", [0, 50], ids=["nothing", "more than exists"])
+def test_a_route_cost_no_limiter_can_serve_is_refused(cost: int) -> None:
+    """The route checks what the middleware checks, where it is written."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="cost"):
+        RateLimited(_limiter("search", 5), cost=cost)
+
+
+def test_a_route_name_a_header_cannot_carry_is_refused() -> None:
+    """It would fail on every call it was declared to meter."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="RateLimit header"):
+        RateLimited(_limiter('bad"name', 5))
+
+
+def test_a_route_metering_nothing_says_so(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Silently metering nothing is the one thing it must not do."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get("/search", dependencies=[RateLimited(_limiter("search", 1))])
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.integrations"),
+        TestClient(app, client=CALLER) as client,
+    ):
+        client.get("/search")
+        response = client.get("/search")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert "metered not at all" in caplog.text
+    assert len(caplog.records) == 1
+
+
+def test_a_route_that_resolves_nobody_meters_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A peer the transport did not give is not a caller to meter."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[
+            RateLimited(
+                _limiter("search", 1),
+                trusted=TrustedProxies(list(PROXIES)),
+            )
+        ],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.integrations"),
+        TestClient(app) as client,
+    ):
+        client.get("/search")
+        response = client.get("/search")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert "metered not at all" in caplog.text
+
+
+def test_the_superseded_fields_carry_the_meter_that_refuses_first() -> None:
+    """A client reading only those must not be told the wrong budget."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter("burst", 3),
+                trusted=TrustedProxies(list(PROXIES)),
+                legacy_headers=True,
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[
+            RateLimited(_limiter("route", 1000), legacy_headers=True)
+        ],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/search")
+
+    # Assert
+    assert response.headers["x-ratelimit-limit"] == "3"
+    assert response.headers["x-ratelimit-remaining"] == "2"
+
+
+def test_a_window_shorter_than_a_second_states_no_policy() -> None:
+    """A whole second would publish half the rate it enforces."""
+    # Arrange
+    app = _app(_limiter("api", 100, window=0.5))
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        response = client.get("/read")
+
+    # Assert
+    assert "ratelimit-policy" not in response.headers
+
+
+def test_a_rejection_carrying_header_pairs_is_answered() -> None:
+    """A list of pairs is what an ASGI-minded caller reaches for."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter("api", 10), trusted=TrustedProxies(list(PROXIES))
+            ),
+        ]
+    ).install(app)
+
+    @app.get("/boom")
+    async def boom() -> dict[str, int]:
+        error = RateLimitExceededError(key="one", retry_after=1.0)
+        error.headers = [("x-mine", "yes")]  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        raise error
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/boom")
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["x-mine"] == "yes"
 
 
 # --- What the component exposes ---

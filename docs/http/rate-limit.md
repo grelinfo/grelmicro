@@ -42,8 +42,9 @@ limiter is closest to being spent.
     `RateLimit-Policy` describes a quota over a window. A token bucket refills
     continuously, so its reset is the wait for the next token rather than the
     edge of a window, and a policy built from it would promise a reset that
-    never comes. It states `RateLimit` and nothing else. Reach for
-    `RateLimiter.sliding_window(...)` when the headers matter.
+    never comes. A window shorter than a second is left out for the same
+    reason: written as the whole second the header takes, it would publish
+    half the rate it enforces. Both state `RateLimit` and nothing else.
 
 ## Who is metered
 
@@ -91,11 +92,14 @@ async def do_search(query: str) -> list[Hit]: ...
 Both budgets are spent, and both are stated in the answer: the standard
 fields are lists, so the route's policy and the app's join into one. The
 superseded `X-RateLimit-*` fields are single integers that cannot be read
-twice, so the route's stand, being the narrower quota.
+twice, so the meter with less left answers for both: a client reading only
+those is told the budget that refuses it first.
 
 `cost=` is how many tokens the call takes, for an endpoint worth more than
 one. A cost no limiter could ever serve is refused where it is written rather
-than failing every request.
+than failing every request, on the route and on the app alike. A route that
+finds no caller to meter says so once rather than metering nothing in
+silence.
 
 ## Waiting instead of refusing
 

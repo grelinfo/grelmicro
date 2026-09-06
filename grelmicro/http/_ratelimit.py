@@ -40,9 +40,12 @@ __all__ = ["RateLimitMiddleware", "RateLimitedRequests"]
 
 logger = getLogger("grelmicro.http.ratelimit")
 
+_REMAINING_HEADER = b"x-ratelimit-remaining"
+"""The superseded field the two meters are compared on."""
+
 _LEGACY_HEADERS = (
     b"x-ratelimit-limit",
-    b"x-ratelimit-remaining",
+    _REMAINING_HEADER,
     b"x-ratelimit-reset",
 )
 """The superseded three fields, for a client that reads only those."""
@@ -72,6 +75,28 @@ def _policy_name(limiter: RateLimiter) -> str:
         )
         raise ValueError(msg)
     return name
+
+
+def check_route_limiters(
+    limiters: Annotated[
+        Sequence[RateLimiter], Doc("The limiters a route declares.")
+    ],
+    *,
+    cost: Annotated[int, Doc("Tokens one call of it spends of each.")],
+) -> None:
+    """Refuse what a route could never meter, where it is written.
+
+    The middleware checks the same two things when it is built. A route
+    declares its own, so it checks them itself rather than failing every
+    call it was supposed to meter.
+
+    Raises:
+        ValueError: If a limiter is named something a `RateLimit` header
+            cannot carry, or `cost` is more than one of them can serve.
+    """
+    for limiter in limiters:
+        _policy_name(limiter)
+        _validate_cost(cost, _config_limit(limiter._state.config))  # noqa: SLF001
 
 
 async def spend_one(
@@ -105,14 +130,17 @@ async def spend_one(
 def _window_of(limiter: RateLimiter) -> int | None:
     """Return the seconds the limiter's quota is measured over.
 
-    `None` for an algorithm that has no window. A token bucket refills
+    `None` for an algorithm that has no window, and for one shorter than
+    the second the header is written in. A token bucket refills
     continuously, so its `reset_after` is the wait for the next token
     rather than the edge of a window, and a `RateLimit-Policy` built from
-    it would tell a client to expect a reset that never comes.
+    it would tell a client to expect a reset that never comes. A window
+    under a second would be published as a whole one, which is a rate a
+    client pacing itself off it would be refused for.
     """
     config = limiter._state.config  # noqa: SLF001
-    if isinstance(config, SlidingWindowConfig):
-        return ceil(config.window)
+    if isinstance(config, SlidingWindowConfig) and config.window >= 1:
+        return round(config.window)
     return None
 
 
@@ -127,17 +155,24 @@ def _rate_limit_headers(
     daily one states both, which is what a client needs to know which one
     it is about to spend.
     """
-    served: list[tuple[bytes, bytes]] = []
-    limits = ", ".join(
-        f'"{_policy_name(limiter)}";r={max(result.remaining, 0)};'
-        f"t={ceil(result.reset_after)}"
+    stated = [
+        (_policy_name(limiter), result, _window_of(limiter))
         for limiter, result in seen
-    )
-    served.append((b"ratelimit", limits.encode("latin-1")))
+    ]
+    served: list[tuple[bytes, bytes]] = [
+        (
+            b"ratelimit",
+            ", ".join(
+                f'"{name}";r={max(result.remaining, 0)};'
+                f"t={ceil(result.reset_after)}"
+                for name, result, _ in stated
+            ).encode("latin-1"),
+        )
+    ]
     policies = ", ".join(
-        f'"{_policy_name(limiter)}";q={result.limit};w={window}'
-        for limiter, result in seen
-        if (window := _window_of(limiter)) is not None
+        f'"{name}";q={result.limit};w={window}'
+        for name, result, window in stated
+        if window is not None
     )
     if policies:
         served.append((b"ratelimit-policy", policies.encode("latin-1")))
@@ -365,8 +400,8 @@ class RateLimitMiddleware:
         self._reported = True
         logger.warning(
             "rate limiter found no caller to meter, letting the request "
-            "through: the transport peer is absent or unparsable, and "
-            "neither trusted= nor key= names another bucket"
+            "through: no proxy vouched for one and the transport peer is "
+            "absent or unreadable"
         )
 
     async def _refuse(
@@ -459,20 +494,41 @@ def _stating(send: Send, headers: Sequence[tuple[bytes, bytes]]) -> Send:
     return stating
 
 
+def _has_less_left(
+    already: Sequence[tuple[bytes, bytes]], ours: dict[bytes, bytes]
+) -> bool:
+    """Return whether what is already stated is the tighter budget.
+
+    Only the superseded fields need this. They are single integers, so
+    one of the two meters has to answer for both, and the one a caller
+    will be refused by first is the honest one.
+    """
+    theirs = next(
+        (value for name, value in already if name.lower() == _REMAINING_HEADER),
+        None,
+    )
+    mine = ours.get(_REMAINING_HEADER)
+    if theirs is None or mine is None:
+        return True
+    return int(theirs) <= int(mine)
+
+
 def _merged(
     already: Sequence[tuple[bytes, bytes]], ours: dict[bytes, bytes]
 ) -> list[tuple[bytes, bytes]]:
     """Return one field per name, with both meters in the Lists."""
     kept: list[tuple[bytes, bytes]] = []
     stated = dict(ours)
+    narrower = _has_less_left(already, ours)
     for name, value in already:
         lowered = name.lower()
         mine = stated.pop(lowered, None)
         if mine is None:
             kept.append((name, value))
         elif lowered in _LEGACY_HEADERS:
-            # A single integer, and the route's is the narrower quota.
-            kept.append((name, value))
+            # A single integer a client cannot read twice, so the meter
+            # with less left is the one that answers for the pair.
+            kept.append((name, value if narrower else mine))
         else:
             kept.append((name, b", ".join((value, mine))))
     kept.extend(stated.items())

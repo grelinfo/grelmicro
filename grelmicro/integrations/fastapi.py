@@ -50,6 +50,7 @@ from grelmicro.http._conditional import _check_sent_precondition
 from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
+from grelmicro.http._ratelimit import check_route_limiters
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -446,6 +447,8 @@ def RateLimited(  # noqa: N802
             "none would meter nothing while reporting that it does."
         )
         raise TypeError(msg)
+    check_route_limiters(limiters, cost=cost)
+    reported: list[bool] = []
 
     async def metered(request: _Request, response: _Response) -> None:
         """Spend this call's tokens, and state what is left."""
@@ -458,11 +461,25 @@ def RateLimited(  # noqa: N802
         if key is not None:
             bucket = key(request)
         else:
-            resolved = scope.get("state", {}).get("client_address")
+            state = scope.setdefault("state", {})
+            resolved = state.get("client_address")
             if resolved is None and trusted is not None:
                 resolved = resolve_client_address(scope, trusted)
+                if resolved is not None:
+                    # Left where every other reader looks, so a second
+                    # declaration on this route walks nothing again.
+                    state["client_address"] = resolved
             bucket = None if resolved is None else resolved.key
         if bucket is None:
+            if not reported:
+                reported.append(True)
+                _logger.warning(
+                    "RateLimited() found no caller to meter on %s, so this "
+                    "route is metered not at all: nothing resolved a "
+                    "client address, and neither trusted= nor key= names "
+                    "another bucket",
+                    scope.get("path", "the route"),
+                )
             return
         stated = await spend(
             limiters,
