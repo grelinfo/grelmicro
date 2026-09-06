@@ -3,7 +3,8 @@ from pydantic import BaseModel
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
-from grelmicro.http import CachedResponses, cache_response
+from grelmicro.http import CachedResponses
+from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider("redis://localhost:6379/0")
@@ -18,8 +19,7 @@ class Product(BaseModel):
     name: str
 
 
-@app.get("/products")
-@cache_response(ttl=60)
+@app.get("/products", dependencies=[CachedResponse(ttl=60)])
 async def list_products() -> list[Product]:
     return await load_products()
 

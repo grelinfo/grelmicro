@@ -26,6 +26,7 @@ from grelmicro.http._conditional import (
     _tags,
     etag_of,
 )
+from grelmicro.http._idempotency import StoredResponse
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -45,19 +46,17 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 __all__ = [
-    "CachedResponse",
     "CachedResponses",
     "CachedResponsesMiddleware",
-    "cache_response",
 ]
 
 logger = getLogger("grelmicro.http.cache")
 
 _MARKER = "__grelmicro_response_cache__"
-"""Attribute `cache_response` leaves on a handler, holding its TTL."""
+"""Attribute the declared dependency carries, holding the route's TTL."""
 
 _UNMARKED: Any = object()
-"""Marks a handler `cache_response` never touched, which `None` cannot."""
+"""Marks a route that declared nothing, which a `None` TTL cannot."""
 
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
 """Methods a response cache answers. Everything else passes through."""
@@ -84,19 +83,6 @@ _WARNED_LIMIT = 128
 """How many distinct `Vary` refusals are remembered before warning again."""
 
 
-class CachedResponse(TypedDict):
-    """The response `CachedResponsesMiddleware` is about to store.
-
-    Handed to `skip` so a route's own rule decides whether it is kept.
-    `headers` maps lowercased names to their value, keeping the last of a
-    repeated name.
-    """
-
-    status: int
-    headers: dict[str, str]
-    body: bytes
-
-
 class _Entry(TypedDict):
     """A stored response as it rides the cache.
 
@@ -111,49 +97,24 @@ class _Entry(TypedDict):
     stored_at: float
 
 
-def cache_response(
-    *,
+def declare_cached(
     ttl: Annotated[
-        float | None,
-        Doc(
-            "Seconds this route's response is served from the cache. "
-            "Defaults to the `ttl` the registered `CachedResponses` "
-            "carries."
-        ),
-    ] = None,
-) -> Callable[[Any], Any]:
-    """Mark a route handler so its response is cached.
+        float | None, Doc("Seconds the route's response is served from.")
+    ],
+) -> Callable[[], None]:
+    """Return the callable a route declares to have its response cached.
 
-    `micro.install(app)` reads the mark off every route the app declares
-    and hands the middleware the paths it applies to, so a request to one
-    of them is answered from the cache without reaching the handler:
-
-    ```python
-    from grelmicro.http import cache_response
-
-    @app.get("/products")
-    @cache_response(ttl=60)
-    async def list_products() -> list[Product]: ...
-    ```
-
-    It marks the function and returns it unchanged, so it sits on either
-    side of the route decorator and wraps nothing.
-
-    `@cached` caches what a function returns, which is not what the route
-    answers: the framework still has to serialize it, and a header the
-    handler set is not part of it. This caches the response.
-
-    Only `GET` routes take the mark. `micro.install(app)` refuses one on
-    a route that answers anything else, where it is written.
-
-    Read more in the [Response Cache](../http/cache.md) docs.
+    `grelmicro.integrations.fastapi.CachedResponse` wraps it in a
+    `Depends`, which is how a route says so, and `micro.install(app)`
+    reads it back off the dependency tree. It computes nothing: what it
+    carries is the TTL, and where it is declared.
     """
 
-    def mark(fn: Any) -> Any:  # noqa: ANN401
-        setattr(fn, _MARKER, ttl)
-        return fn
+    def cached_response() -> None:
+        """Declare that this route's response is cached."""
 
-    return mark
+    setattr(cached_response, _MARKER, ttl)
+    return cached_response
 
 
 class _Policies:
@@ -180,9 +141,9 @@ class _Policies:
 
     def read(
         self,
-        app: Annotated[Any, Doc("The application to read the marks off.")],  # noqa: ANN401
+        app: Annotated[Any, Doc("The application to read the rules off.")],  # noqa: ANN401
     ) -> None:
-        """Read every marked route the app declares.
+        """Read every route the app declares that asked to be cached.
 
         Raises:
             TypeError: If a marked route answers a method other than `GET`.
@@ -211,7 +172,7 @@ class _Policies:
 
 
 def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa: ANN401
-    """Return the compiled path of every route carrying the mark.
+    """Return the compiled path of every route that declared a TTL.
 
     Walks what the app declares, mounts included, and compiles each full
     path with the framework's own compiler, so a path parameter matches
@@ -224,10 +185,7 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
 
     found: list[tuple[Pattern[str], float | None]] = []
     for prefix, route in _walk(app, ""):
-        endpoint = getattr(route, "endpoint", None)
-        if endpoint is None:
-            continue
-        ttl = getattr(endpoint, _MARKER, _UNMARKED)
+        ttl = _declared_ttl(route)
         if ttl is _UNMARKED:
             continue
         methods = {
@@ -236,7 +194,8 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
         if methods != {"GET"}:
             listed = ", ".join(sorted(methods)) or "no method"
             msg = (
-                f"@cache_response marks {prefix}{route.path_format!r}, "
+                f"CachedResponse() is declared on "
+                f"{prefix}{route.path_format!r}, "
                 f"which answers {listed}. A response cache answers a read, "
                 "and a method that changes something must reach the "
                 "handler every time. Mark the GET route instead."
@@ -245,6 +204,21 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
         regex, _, _ = compile_path(f"{prefix}{route.path_format}")
         found.append((regex, cast("float | None", ttl)))
     return found
+
+
+def _declared_ttl(route: Any) -> Any:  # noqa: ANN401
+    """Return the TTL this route declared, or `_UNMARKED` for one that did not.
+
+    Read off the resolved dependency tree, under the framework's own
+    spelling of it. A framework that resolves none declares nothing here,
+    and names its paths in `paths=` instead.
+    """
+    declared = getattr(route, "dependant", None)  # codespell:ignore
+    for dependency in getattr(declared, "dependencies", ()):
+        ttl = getattr(dependency.call, _MARKER, _UNMARKED)
+        if ttl is not _UNMARKED:
+            return ttl
+    return _UNMARKED
 
 
 def _walk(app: Any, prefix: str) -> list[tuple[str, Any]]:  # noqa: ANN401
@@ -312,7 +286,7 @@ class CachedResponsesMiddleware:
         policies: Annotated[
             _Policies | None,
             Doc(
-                "The paths marked with `@cache_response`, filled by "
+                "The paths declaring `CachedResponse()`, filled by "
                 "`micro.install(app)`. `paths` alone needs none."
             ),
         ] = None,
@@ -358,7 +332,7 @@ class CachedResponsesMiddleware:
             ),
         ] = None,
         skip: Annotated[
-            Callable[[CachedResponse], bool] | None,
+            Callable[[StoredResponse], bool] | None,
             Doc("Returns whether one response is left unstored."),
         ] = None,
         max_body_size: Annotated[
@@ -498,7 +472,7 @@ class CachedResponsesMiddleware:
             return None
         body = capture.body
         if self._skip is not None and self._skip(
-            CachedResponse(
+            StoredResponse(
                 status=start["status"],
                 headers=named,
                 body=body,
@@ -768,7 +742,8 @@ class CachedResponses:
 
     from grelmicro import Grelmicro
     from grelmicro.cache import Cache
-    from grelmicro.http import CachedResponses, cache_response
+    from grelmicro.http import CachedResponses
+    from grelmicro.integrations.fastapi import CachedResponse
     from grelmicro.providers.redis import RedisProvider
 
     redis = RedisProvider("redis://localhost:6379/0")
@@ -776,14 +751,13 @@ class CachedResponses:
     app = FastAPI()
     micro.install(app)
 
-    @app.get("/products")
-    @cache_response(ttl=60)
+    @app.get("/products", dependencies=[CachedResponse(ttl=60)])
     async def list_products() -> list[Product]: ...
     ```
 
-    The bare form caches nothing until a route is marked. `paths=` names
-    URLs instead, for a router whose handlers you cannot mark and for a
-    framework that declares no routes grelmicro can read.
+    The bare form caches nothing until a route declares it. `paths=` names
+    URLs instead, for a router whose routes you cannot touch and for a
+    framework that resolves no dependencies grelmicro can read.
 
     It rides the registered `Cache`, so a response one replica computed
     answers the callers of every other one. Pass a `TTLCache` of your own
@@ -810,7 +784,7 @@ class CachedResponses:
             float,
             Doc(
                 "Seconds a response is kept when its route names none. "
-                "`@cache_response(ttl=...)` overrides it per route."
+                "`CachedResponse(ttl=...)` overrides it per route."
             ),
         ] = _DEFAULT_TTL,
         paths: Annotated[
@@ -852,7 +826,7 @@ class CachedResponses:
             ),
         ] = None,
         skip: Annotated[
-            Callable[[CachedResponse], bool] | None,
+            Callable[[StoredResponse], bool] | None,
             Doc("Returns whether one response is left unstored."),
         ] = None,
         max_body_size: Annotated[
@@ -925,9 +899,9 @@ class CachedResponses:
 
     def read_routes(
         self,
-        app: Annotated[Any, Doc("The application to read the marks off.")],  # noqa: ANN401
+        app: Annotated[Any, Doc("The application to read the rules off.")],  # noqa: ANN401
     ) -> None:
-        """Read `@cache_response` off every route the app declares.
+        """Read `CachedResponse()` off every route the app declares.
 
         Called by the integration after the middleware is added. The app
         is read again when it starts, so a route added between the two

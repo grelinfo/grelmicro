@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
-from fastapi import FastAPI, Response
+from fastapi import Depends, FastAPI, Response
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.responses import StreamingResponse
@@ -18,12 +18,12 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.http import (
-    CachedResponse,
     CachedResponses,
     CachedResponsesMiddleware,
-    cache_response,
+    StoredResponse,
 )
 from grelmicro.http._response_cache import _WARNED_LIMIT
+from grelmicro.integrations.fastapi import CachedResponse
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator, MutableMapping
@@ -46,8 +46,7 @@ def _app(component: CachedResponses) -> FastAPI:
     app.state.calls = 0
     micro.install(app)
 
-    @app.get("/reads")
-    @cache_response(ttl=TTL)
+    @app.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
     async def reads() -> dict[str, int]:
         app.state.calls += 1
         return {"calls": app.state.calls}
@@ -156,9 +155,13 @@ def test_a_head_never_fills_the_cache() -> None:
         calls += 1
         return Response(b"ok")
 
-    cache_response(ttl=TTL)(handler)
     app = Starlette(routes=[Route("/reads", handler)])
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(paths={"/reads": TTL}),
+        ]
+    )
     micro.install(app)
 
     # Act
@@ -173,7 +176,7 @@ def test_a_head_never_fills_the_cache() -> None:
 
 
 def test_a_marked_route_takes_the_components_ttl_when_it_names_none() -> None:
-    """`@cache_response()` with no `ttl` is the component's."""
+    """`CachedResponse()` with no `ttl` is the component's."""
     # Arrange
     micro = Grelmicro(
         uses=[Cache(MemoryCacheAdapter()), CachedResponses(ttl=TTL)]
@@ -182,8 +185,7 @@ def test_a_marked_route_takes_the_components_ttl_when_it_names_none() -> None:
     calls = 0
     micro.install(app)
 
-    @app.get("/reads")
-    @cache_response()
+    @app.get("/reads", dependencies=[CachedResponse()])
     async def reads() -> dict[str, int]:
         nonlocal calls
         calls += 1
@@ -319,18 +321,19 @@ def test_a_prefix_pattern_covers_the_router_under_it() -> None:
 
 
 def test_a_mounted_route_is_read_with_its_prefix() -> None:
-    """A mark under a mount names the path the request actually asks for."""
+    """A rule under a mount names the path the request actually asks for."""
     # Arrange
     calls = 0
+    inner = FastAPI()
 
-    async def handler(request: Any) -> Response:  # noqa: ANN401, ARG001
+    @inner.get("/items", dependencies=[CachedResponse(ttl=TTL)])
+    async def items() -> dict[str, int]:
         nonlocal calls
         calls += 1
-        return Response(b"ok")
+        return {"calls": calls}
 
-    cache_response(ttl=TTL)(handler)
-    inner = Starlette(routes=[Route("/items", handler)])
-    app = Starlette(routes=[Mount("/shop", app=inner)])
+    app = FastAPI()
+    app.mount("/shop", inner)
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
     micro.install(app)
 
@@ -343,14 +346,42 @@ def test_a_mounted_route_is_read_with_its_prefix() -> None:
     assert calls == 1
 
 
-def test_a_mark_on_a_write_is_refused_where_it_is_written() -> None:
+def test_a_route_with_other_dependencies_is_read_too() -> None:
+    """The declaration sits beside whatever else the route depends on."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    micro.install(app)
+    calls = 0
+
+    async def audit() -> None:
+        """Stand in for the gate a route already declares."""
+
+    @app.get(
+        "/reads",
+        dependencies=[Depends(audit), CachedResponse(ttl=TTL)],
+    )
+    async def reads() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/reads")
+        client.get("/reads")
+
+    # Assert
+    assert calls == 1
+
+
+def test_a_declaration_on_a_write_is_refused_where_it_is_written() -> None:
     """A method that changes something reaches the handler every time."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
     app = FastAPI()
 
-    @app.post("/orders")
-    @cache_response(ttl=TTL)
+    @app.post("/orders", dependencies=[CachedResponse(ttl=TTL)])
     async def create() -> dict[str, int]:
         return {"id": 1}
 
@@ -367,8 +398,7 @@ def test_a_route_added_after_install_is_read_when_the_app_starts() -> None:
     micro.install(app)
     calls = 0
 
-    @app.get("/late")
-    @cache_response(ttl=TTL)
+    @app.get("/late", dependencies=[CachedResponse(ttl=TTL)])
     async def late() -> dict[str, int]:
         nonlocal calls
         calls += 1
@@ -469,7 +499,10 @@ def _served_twice(
     app = FastAPI()
     micro.install(app)
     app.add_api_route(
-        "/reads", cache_response(ttl=TTL)(handler), methods=["GET"]
+        "/reads",
+        handler,
+        methods=["GET"],
+        dependencies=[CachedResponse(ttl=TTL)],
     )
     with TestClient(app) as client:
         return client.get("/reads"), client.get("/reads")
@@ -596,7 +629,10 @@ def test_a_declared_vary_is_stored_and_keyed_by_its_header() -> None:
     app = FastAPI()
     micro.install(app)
     app.add_api_route(
-        "/reads", cache_response(ttl=TTL)(handler), methods=["GET"]
+        "/reads",
+        handler,
+        methods=["GET"],
+        dependencies=[CachedResponse(ttl=TTL)],
     )
 
     # Act
@@ -613,14 +649,14 @@ def test_a_response_the_skip_rule_refuses_is_not_stored() -> None:
     """A route's own rule is the last word on what is kept."""
     # Arrange
     calls = 0
-    seen: list[CachedResponse] = []
+    seen: list[StoredResponse] = []
 
     async def handler() -> Response:
         nonlocal calls
         calls += 1
         return Response(b"ok")
 
-    def skip(response: CachedResponse) -> bool:
+    def skip(response: StoredResponse) -> bool:
         seen.append(response)
         return True
 
@@ -812,8 +848,7 @@ def test_one_cold_key_runs_the_handler_once() -> None:
         app = FastAPI()
         micro.install(app)
 
-        @app.get("/reads")
-        @cache_response(ttl=TTL)
+        @app.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
         async def reads() -> dict[str, int]:
             nonlocal calls
             calls += 1

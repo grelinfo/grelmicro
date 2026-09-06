@@ -52,10 +52,8 @@ from grelmicro.http._problem import (
     ProblemDetail,
 )
 from grelmicro.http._response_cache import (
-    CachedResponse,
     CachedResponses,
     CachedResponsesMiddleware,
-    cache_response,
 )
 from grelmicro.http._server import OpsServer, OpsServerConfig
 from grelmicro.http._tmf import TMFError
@@ -69,7 +67,6 @@ from grelmicro.http.errors import (
 __all__ = [
     "ERROR_DOCS_BASE",
     "PROBLEM_MEDIA_TYPE",
-    "CachedResponse",
     "CachedResponses",
     "CachedResponsesMiddleware",
     "ConditionalRequests",
@@ -87,7 +84,6 @@ __all__ = [
     "RenderedError",
     "StoredResponse",
     "TMFError",
-    "cache_response",
     "check_freshness",
     "check_precondition",
     "etag_of",

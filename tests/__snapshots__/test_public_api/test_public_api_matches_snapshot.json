@@ -254,7 +254,6 @@
     }
   },
   "grelmicro.http": {
-    "CachedResponse": null,
     "CachedResponses": {
       "()": "(*, ttl=60.0, paths=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, cache=None, namespace='http', name='default') -> 'None'"
     },
@@ -305,9 +304,6 @@
     "TMFError": {
       "()": "(*, code, reason, message=None, referenceError=None, type_='Error', **extra_data) -> None"
     },
-    "cache_response": {
-      "()": "(*, ttl=None) -> 'Callable[[Any], Any]'"
-    },
     "check_freshness": {
       "()": "(version=<object object at 0x...>, *, etag=None) -> 'bool'"
     },
@@ -350,6 +346,9 @@
   },
   "grelmicro.integrations": {},
   "grelmicro.integrations.fastapi": {
+    "CachedResponse": {
+      "()": "(*, ttl=None) -> Any"
+    },
     "CheckResultResponse": {
       "()": "(*, status, critical=True, error=None, details=None) -> None"
     },

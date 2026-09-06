@@ -12,9 +12,14 @@ header the handler set is not part of the return value. Cache the response.
 --8<-- "http/cache.py"
 ```
 
-Mark the route, and the second caller is answered without reaching the
-handler. It rides the registered [Cache](../cache/index.md), so a response
-one replica computed answers the callers of every other one.
+Declare it on the route and the second caller is answered without reaching
+the handler. It rides the registered [Cache](../cache/index.md), so a
+response one replica computed answers the callers of every other one.
+
+`CachedResponse` is declared rather than called, because the middleware has
+to answer before the app is routed, and a handler body runs long after that.
+It is the same shape as [`Conditional`](conditional.md): the component holds
+the rules every route shares, and the route says it wants them.
 
 ## What a hit looks like
 
@@ -74,8 +79,8 @@ of them is that mistake.
 A `HEAD` still reads what a `GET` stored, and is answered with the same
 headers and no body.
 
-Only `GET` is cached. `@cache_response` on a route that answers anything else
-is refused when `micro.install(app)` reads it, where it is written.
+Only `GET` is cached. `CachedResponse()` on a route that answers anything
+else is refused when `micro.install(app)` reads it, naming the path.
 
 ## Vary
 
@@ -121,18 +126,19 @@ or `None` to leave that request uncached.
 
 ## Naming paths instead of routes
 
-`@cache_response` needs the handler. For a router you did not write, or a
-framework whose routes grelmicro cannot read, name the URLs and how long each
-is kept:
+`CachedResponse()` is a FastAPI dependency. Starlette and Litestar resolve
+none to hang it on, and a router you did not write cannot be changed either,
+so name the URLs and how long each is kept:
 
 ```python
 --8<-- "http/cache_paths.py"
 ```
 
 Exact match, unless the pattern ends with `*`, which matches as a prefix. It
-is the matching every grelmicro middleware uses.
+is the matching every grelmicro middleware uses, the same as
+`ConditionalRequests(include=...)`.
 
-`exclude=` carves a path out again, whatever a mark or a pattern says.
+`exclude=` carves a path out again, whatever a route or a pattern says.
 
 ## Invalidating
 
