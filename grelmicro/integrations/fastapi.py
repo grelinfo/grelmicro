@@ -50,7 +50,7 @@ from grelmicro.http._conditional import _check_sent_precondition
 from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
-from grelmicro.http._ratelimit import check_route_limiters
+from grelmicro.http._ratelimit import bucket_of, check_route_limiters
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -64,6 +64,7 @@ from grelmicro.integrations.starlette import (
 from grelmicro.integrations.starlette import (
     install_middleware as _install_middleware_starlette,
 )
+from grelmicro.resilience.errors import RateLimitExceededError
 
 if TYPE_CHECKING:
     import inspect
@@ -396,8 +397,9 @@ def RateLimited(  # noqa: N802
     key: Annotated[
         "Callable[[Any], str | None] | None",
         Doc(
-            "Builds the bucket key from the request, replacing the "
-            "resolved caller. Return `None` to leave a call unmetered."
+            "Builds the bucket key from the ASGI scope, replacing the "
+            "resolved caller, the same as the middleware takes. Return "
+            "`None` to leave a call unmetered."
         ),
     ] = None,
     trusted: Annotated[
@@ -452,24 +454,13 @@ def RateLimited(  # noqa: N802
 
     async def metered(request: _Request, response: _Response) -> None:
         """Spend this call's tokens, and state what is left."""
-        from grelmicro.http._ratelimit import spend  # noqa: PLC0415
-        from grelmicro.security.clientip import (  # noqa: PLC0415
-            resolve_client_address,
+        from grelmicro.http._ratelimit import (  # noqa: PLC0415
+            spend,
+            state_on,
         )
 
         scope = request.scope
-        if key is not None:
-            bucket = key(request)
-        else:
-            state = scope.setdefault("state", {})
-            resolved = state.get("client_address")
-            if resolved is None and trusted is not None:
-                resolved = resolve_client_address(scope, trusted)
-                if resolved is not None:
-                    # Left where every other reader looks, so a second
-                    # declaration on this route walks nothing again.
-                    state["client_address"] = resolved
-            bucket = None if resolved is None else resolved.key
+        bucket = bucket_of(scope, key=key, trusted=trusted)
         if bucket is None:
             if not reported:
                 reported.append(True)
@@ -481,13 +472,21 @@ def RateLimited(  # noqa: N802
                     scope.get("path", "the route"),
                 )
             return
-        stated = await spend(
-            limiters,
-            bucket,
-            cost=cost,
-            max_wait=max_wait,
-            legacy_headers=legacy_headers,
-        )
+        try:
+            stated = await spend(
+                limiters,
+                bucket,
+                cost=cost,
+                max_wait=max_wait,
+                legacy_headers=legacy_headers,
+            )
+        except RateLimitExceededError as refusal:
+            state_on(scope, getattr(refusal, "headers", {}))
+            raise
+        # The framework merges these into a response it builds itself,
+        # and not into one the handler returned, so the middleware is
+        # handed them too and states them whatever the route answered.
+        state_on(scope, stated)
         for name, value in stated.items():
             response.headers[name] = value
 

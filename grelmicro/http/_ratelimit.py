@@ -40,6 +40,9 @@ __all__ = ["RateLimitMiddleware", "RateLimitedRequests"]
 
 logger = getLogger("grelmicro.http.ratelimit")
 
+_STATED = "grelmicro_rate_limit_stated"
+"""Where a route leaves what it metered, for the middleware to state."""
+
 _REMAINING_HEADER = b"x-ratelimit-remaining"
 """The superseded field the two meters are compared on."""
 
@@ -136,11 +139,13 @@ def _window_of(limiter: RateLimiter) -> int | None:
     rather than the edge of a window, and a `RateLimit-Policy` built from
     it would tell a client to expect a reset that never comes. A window
     under a second would be published as a whole one, which is a rate a
-    client pacing itself off it would be refused for.
+    client pacing itself off it would be refused for. A longer one is
+    rounded up for the same reason: published short, it invites a
+    client to pace itself faster than the limiter allows.
     """
     config = limiter._state.config  # noqa: SLF001
     if isinstance(config, SlidingWindowConfig) and config.window >= 1:
-        return round(config.window)
+        return ceil(config.window)
     return None
 
 
@@ -355,6 +360,7 @@ class RateLimitMiddleware:
             _stating(
                 send,
                 _rate_limit_headers(seen, legacy=self._legacy_headers),
+                scope,
             ),
         )
 
@@ -365,27 +371,11 @@ class RateLimitMiddleware:
         )
 
     def _key_of(self, scope: Scope) -> str | None:
-        """Return the bucket this request is metered under.
-
-        The address `ClientAddressMiddleware` already resolved is reused
-        where there is one, so an app running both walks the forwarded
-        header once.
-        """
-        if self._key is not None:
-            return self._key(scope)
-        state = scope.setdefault("state", {})
-        resolved = state.get("client_address")
-        if resolved is None and self._trusted is not None:
-            resolved = resolve_client_address(scope, self._trusted)
-            if resolved is not None:
-                # Kept where `ClientAddressMiddleware` keeps it, so a route
-                # that meters itself reads the same caller rather than
-                # walking the forwarded header a second time.
-                state["client_address"] = resolved
-        if resolved is None:
+        """Return the bucket this request is metered under."""
+        bucket = bucket_of(scope, key=self._key, trusted=self._trusted)
+        if bucket is None and self._key is None:
             self._report_no_caller()
-            return None
-        return resolved.key
+        return bucket
 
     def _report_no_caller(self) -> None:
         """Say once that there is nobody to meter.
@@ -476,7 +466,9 @@ def _stated(
     }
 
 
-def _stating(send: Send, headers: Sequence[tuple[bytes, bytes]]) -> Send:
+def _stating(
+    send: Send, headers: Sequence[tuple[bytes, bytes]], scope: Scope
+) -> Send:
     """Return a `send` that states what the caller has left.
 
     A route metering itself has already stated its own quota, so the two
@@ -488,7 +480,10 @@ def _stating(send: Send, headers: Sequence[tuple[bytes, bytes]]) -> Send:
 
     async def stating(message: Message) -> None:
         if message["type"] == "http.response.start":
-            message["headers"] = _merged(message["headers"], ours)
+            # Read here rather than at wrap time: the routes ran since.
+            message["headers"] = _merged(
+                message["headers"], _combined(_stated_on(scope), ours)
+            )
         await send(message)
 
     return stating
@@ -503,14 +498,121 @@ def _has_less_left(
     one of the two meters has to answer for both, and the one a caller
     will be refused by first is the honest one.
     """
-    theirs = next(
-        (value for name, value in already if name.lower() == _REMAINING_HEADER),
-        None,
+    theirs = _remaining(
+        next(
+            (
+                value
+                for name, value in already
+                if name.lower() == _REMAINING_HEADER
+            ),
+            None,
+        )
     )
-    mine = ours.get(_REMAINING_HEADER)
+    mine = _remaining(ours.get(_REMAINING_HEADER))
     if theirs is None or mine is None:
         return True
-    return int(theirs) <= int(mine)
+    return theirs <= mine
+
+
+def _remaining(value: bytes | None) -> int | None:
+    """Return a stated remaining count, or `None` when it is not one.
+
+    The value beside ours was written by something else, so a word
+    where a number was expected leaves the two meters incomparable
+    rather than failing a response the handler already produced.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def bucket_of(
+    scope: Annotated[Scope, Doc("The ASGI scope of the request.")],
+    *,
+    key: Annotated[
+        Callable[[Scope], str | None] | None,
+        Doc("Builds the bucket itself, replacing the resolved caller."),
+    ],
+    trusted: Annotated[
+        TrustedProxies | None,
+        Doc("The proxies whose forwarded entries may be believed."),
+    ],
+) -> str | None:
+    """Return the bucket this request is metered under, or `None` for none.
+
+    The address a middleware already resolved is reused, and one this
+    resolves is left where the next reader looks, so the forwarded header
+    is walked once however many meters a request passes.
+    """
+    if key is not None:
+        return key(scope)
+    state = scope.setdefault("state", {})
+    resolved = state.get("client_address")
+    if resolved is None and trusted is not None:
+        resolved = resolve_client_address(scope, trusted)
+        if resolved is not None:
+            state["client_address"] = resolved
+    return None if resolved is None else resolved.key
+
+
+def state_on(
+    scope: Annotated[Scope, Doc("The ASGI scope of the request.")],
+    headers: Annotated[
+        dict[str, str], Doc("What one meter has to tell the caller.")
+    ],
+) -> None:
+    """Leave what a route metered where the middleware will state it.
+
+    A framework merges a dependency's headers into the response it
+    builds, and not into a `Response` a handler returned itself. The
+    middleware writes the response start either way, so what it is
+    handed here reaches the caller whatever the route returned.
+    """
+    stated = scope.setdefault("state", {}).setdefault(_STATED, {})
+    stated.update(headers)
+
+
+def _stated_on(scope: Scope) -> dict[bytes, bytes]:
+    """Return what the routes under this request have already stated."""
+    return {
+        name.lower().encode("latin-1"): value.encode("latin-1")
+        for name, value in scope.get("state", {}).get(_STATED, {}).items()
+    }
+
+
+def _combined(
+    theirs: dict[bytes, bytes], ours: dict[bytes, bytes]
+) -> dict[bytes, bytes]:
+    """Return what two meters state as one set of fields.
+
+    The standard fields are Lists and hold both, keyed by the policy
+    name so the same meter counted twice appears once. The superseded
+    ones are single integers, so the meter with less left answers.
+    """
+    combined = dict(theirs)
+    for name, mine in ours.items():
+        theirs_value = combined.get(name)
+        if theirs_value is None or name in _LEGACY_HEADERS:
+            combined[name] = mine
+            continue
+        combined[name] = _joined(theirs_value, mine)
+    if _has_less_left(list(theirs.items()), ours):
+        for name in _LEGACY_HEADERS:
+            if name in theirs:
+                combined[name] = theirs[name]
+    return combined
+
+
+def _joined(theirs: bytes, mine: bytes) -> bytes:
+    """Return two Lists as one, with each policy named once."""
+    items: dict[bytes, bytes] = {}
+    for value in (theirs, mine):
+        for item in value.split(b", "):
+            items[item.split(b";", 1)[0]] = item
+    return b", ".join(items.values())
 
 
 def _merged(
@@ -530,7 +632,7 @@ def _merged(
             # with less left is the one that answers for the pair.
             kept.append((name, value if narrower else mine))
         else:
-            kept.append((name, b", ".join((value, mine))))
+            kept.append((name, _joined(value, mine)))
     kept.extend(stated.items())
     return kept
 

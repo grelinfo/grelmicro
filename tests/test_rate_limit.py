@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from grelmicro import Grelmicro
@@ -596,7 +596,9 @@ def test_a_route_key_builder_replaces_the_caller() -> None:
         dependencies=[
             RateLimited(
                 _limiter("search", 1),
-                key=lambda request: request.headers.get("x-tenant", "none"),
+                key=lambda scope: (
+                    dict(scope["headers"]).get(b"x-tenant", b"none").decode()
+                ),
             )
         ],
     )
@@ -749,10 +751,10 @@ def test_a_reset_is_rounded_up() -> None:
     assert response.headers["x-ratelimit-reset"] == "1"
 
 
-def test_a_window_under_a_second_is_a_second() -> None:
-    """A policy of zero seconds is a reset the client never waits for."""
+def test_a_window_is_never_published_shorter_than_it_is() -> None:
+    """Published short, it invites a pace the limiter refuses."""
     # Arrange
-    app = _app(_limiter("api", 10, window=1))
+    app = _app(_limiter("api", 10, window=1.4))
     client = TestClient(app, client=CALLER)
 
     # Act
@@ -760,7 +762,7 @@ def test_a_window_under_a_second_is_a_second() -> None:
         response = client.get("/read")
 
     # Assert
-    assert response.headers["ratelimit-policy"] == '"api";q=10;w=1'
+    assert response.headers["ratelimit-policy"] == '"api";q=10;w=2'
 
 
 @pytest.mark.parametrize("cost", [0, 50], ids=["nothing", "more than exists"])
@@ -911,6 +913,63 @@ def test_a_rejection_carrying_header_pairs_is_answered() -> None:
     # Assert
     assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
     assert response.headers["x-mine"] == "yes"
+
+
+def test_a_route_returning_a_response_states_its_quota_too() -> None:
+    """A framework merges a dependency's headers into what it builds only."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter("api", 100), trusted=TrustedProxies(list(PROXIES))
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get("/search", dependencies=[RateLimited(_limiter("search", 5))])
+    async def do_search() -> Response:
+        return JSONResponse({"hits": 1})
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/search")
+
+    # Assert
+    assert '"search"' in response.headers["ratelimit"]
+    assert '"api"' in response.headers["ratelimit"]
+
+
+def test_a_stated_header_that_is_not_a_number_is_passed_over() -> None:
+    """A value written by something else is not ours to fail a response on."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter("api", 10),
+                trusted=TrustedProxies(list(PROXIES)),
+                legacy_headers=True,
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get("/read")
+    async def read() -> Response:
+        return JSONResponse(
+            {"read": 1}, headers={"X-RateLimit-Remaining": "unlimited"}
+        )
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
 
 
 # --- What the component exposes ---

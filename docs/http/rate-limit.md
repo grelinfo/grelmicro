@@ -74,7 +74,7 @@ same caller.
 
 `key=` replaces the whole thing, for a service that meters by tenant or by API
 key. It takes the ASGI scope and returns the bucket, or `None` to leave a
-request unmetered.
+request unmetered, on the component and on a route alike.
 
 ## Metering one route
 
