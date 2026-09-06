@@ -499,12 +499,12 @@ The queue binds the stream at `configure()` time, so replacing
 hand the stream to a handler once. Turning the queue on brings structlog
 into line with them rather than changing the rule.
 
-!!! note "Uvicorn's own lines are not queued"
-    With `uvicorn_enabled=True` (the default) grelmicro reformats uvicorn's
-    handlers but leaves them on the streams uvicorn gave them, which keeps
-    uvicorn's stdout and stderr split intact. So the access line for each
-    request is written directly, not through the queue. Pass
-    `--log-config` to put uvicorn's own logging on a handler you control.
+!!! note "Uvicorn's own lines are queued too"
+    With `uvicorn_enabled=True` (the default) grelmicro takes over uvicorn's
+    handlers, format and stream both, so the access line for each request
+    goes through the queue instead of being written on the event loop. A
+    handler uvicorn was given on a stream of its own keeps it, and so does a
+    `FileHandler`.
 
 !!! note "One queue owner per process"
     `Log` gives the root logger back on exit, and it takes the queue out

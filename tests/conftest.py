@@ -1,11 +1,12 @@
 """grelmicro Test Config."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Generator
 
 import pytest
 
 from grelmicro import _config, _environment
 from grelmicro.clock import VirtualClock
+from grelmicro.log import _queue as log_queue
 
 
 @pytest.fixture
@@ -46,6 +47,21 @@ def _declare_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     `GREL_ENVIRONMENT` themselves or pass `environment=`.
     """
     monkeypatch.setenv("GREL_ENVIRONMENT", "test")
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_log_queue() -> Generator[None, None, None]:
+    """Take out a log queue a test left installed.
+
+    `configure(queue_enabled=True)` starts a writer that lives until the
+    process ends, and a snippet or a component test can leave one behind.
+    The next test to configure logging would bind the sink to that writer,
+    which holds the stream of the test that started it, and read nothing
+    back from `capsys`.
+    """
+    yield
+
+    log_queue.uninstall()
 
 
 @pytest.fixture(autouse=True)

@@ -1290,6 +1290,33 @@ class TestRenderTextLine:
         assert "mod:fn:1" in result
         assert "hello" in result
 
+    def test_the_level_is_colored_and_still_aligned(self) -> None:
+        """The level is looked up before it is padded, so it matches."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "INFO",
+            "msg": "hello",
+            "logger": "mod",
+        }
+
+        result = render_text_line(record, colors=True)
+
+        assert "\x1b[32mINFO\x1b[0m    " in result
+
+    def test_a_level_with_no_color_of_its_own_is_still_padded(self) -> None:
+        """Uvicorn adds `TRACE`, and a level of your own is as welcome."""
+        record = {
+            "time": datetime(2026, 4, 1, 10, 30, 0, tzinfo=UTC),
+            "level": "TRACE",
+            "msg": "hello",
+            "logger": "mod",
+        }
+
+        result = render_text_line(record, colors=True)
+
+        assert "TRACE    " in result
+        assert "\x1b[32mTRACE" not in result
+
     def test_with_extras(self) -> None:
         """Test text line includes extras as key=value."""
         record = {

@@ -8,9 +8,14 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, tzinfo
 from typing import Any, Literal, NamedTuple
 
+from pydantic import ValidationError
+
 from grelmicro._config import resolve_config
 from grelmicro._timezone import SHARED_TIMEZONE_ENV, resolve_timezone
-from grelmicro.errors import DependencyNotFoundError
+from grelmicro.errors import (
+    DependencyNotFoundError,
+    SettingsValidationError,
+)
 from grelmicro.log.config import (
     LogConfig,
     LogFormatType,
@@ -30,6 +35,9 @@ try:
 except ImportError:  # pragma: no cover
     _orjson_dumps: Any = None  # type: ignore[no-redef]
     _OPT_NON_STR_KEYS = 0
+
+_LEVEL_WIDTH = 8
+"""Column the level is padded to in the text format."""
 
 KeyMode = Literal["logger", "level", "global", "template", "rendered"]
 """Shared key strategy vocabulary for the log filters."""
@@ -199,6 +207,54 @@ def should_colorize() -> bool:
     return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 
 
+def as_log_config(
+    config: LogConfig | Mapping[str, Any] | None,
+) -> LogConfig | None:
+    """Read `config` as a `LogConfig`, whatever shape it arrived in.
+
+    A `dictConfig` document carries its settings as a plain mapping, so it
+    stays JSON, and the factories it names take them back as a config.
+
+    Raises:
+        SettingsValidationError: If the mapping is not a valid config.
+    """
+    if config is None or isinstance(config, LogConfig):
+        return config
+    try:
+        return LogConfig.model_validate(config)
+    except ValidationError as error:
+        # The raw pydantic error carries `input_value`, and a document is
+        # written from settings that can name a credential.
+        # `SettingsValidationError` renders the field and the reason
+        # without the input, the same as every other way in.
+        raise SettingsValidationError(error) from None
+
+
+def resolve_use_colors(
+    resolved_format: LogFormatType | str,
+    *,
+    colors: bool,
+    use_colors: bool | None,
+) -> bool:
+    """Return whether to colorize, letting `use_colors` override the detection.
+
+    `None` keeps what `load_settings` worked out from `NO_COLOR`,
+    `FORCE_COLOR` and the terminal. A bool is the answer an application
+    server was told to give, which is how `--no-use-colors` reaches a
+    formatter built from a `dictConfig`.
+
+    A format that has no colors to turn on stays uncolored either way.
+    JSON and logfmt are read by a machine, and an escape sequence in a
+    field would break the parse rather than brighten it.
+    """
+    if use_colors is None:
+        return colors
+    return use_colors and resolve_template_format(resolved_format) in (
+        LogFormatType.TEXT,
+        LogFormatType.PRETTY,
+    )
+
+
 def colorize_level(level: str) -> str:
     """Return the level string wrapped in its ANSI color."""
     color = _LEVEL_COLORS.get(level, "")
@@ -343,7 +399,11 @@ def render_text_line(
 ) -> str:
     """Render a single-line text log from a flat record dict."""
     localtime = _format_localtime(record["time"])
-    level = f"{record['level']:<8}"
+    level = record["level"]
+    # Padded after colorizing, not before. A padded level does not match
+    # the color table, and padding the colored string counts the escape
+    # sequence as width, so the columns stop lining up.
+    padding = " " * max(_LEVEL_WIDTH - len(level), 0)
     logger = record["logger"]
     caller = record.get("caller")
     source = f"{logger}:{caller}" if caller else logger
@@ -353,11 +413,11 @@ def render_text_line(
 
     if colors:
         return (
-            f"{dim(localtime)} {colorize_level(level)} "
+            f"{dim(localtime)} {colorize_level(level)}{padding} "
             f"{colorize_caller(source)} - {msg}"
             f"{dim(extras_suffix)}"
         )
-    return f"{localtime} {level} {source} - {msg}{extras_suffix}"
+    return f"{localtime} {level}{padding} {source} - {msg}{extras_suffix}"
 
 
 def _render_pretty_field(key: str, value: object, *, colors: bool) -> str:
@@ -484,7 +544,11 @@ class LoadedSettings(NamedTuple):
     colors: bool
 
 
-def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
+def load_settings(
+    settings: LogConfig | None = None,
+    *,
+    env_load: bool | None = None,
+) -> LoadedSettings:
     """Validate and prepare runtime values from a logging config.
 
     When `settings` is `None`, reads `GREL_LOG_*` environment
@@ -501,6 +565,7 @@ def load_settings(settings: LogConfig | None = None) -> LoadedSettings:
             kwargs={},
             env_prefix="GREL_LOG_",
             shared_env=SHARED_TIMEZONE_ENV,
+            env_load=env_load,
         )
 
     json_dumps: Callable[[Mapping[str, Any]], str]

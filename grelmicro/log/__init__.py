@@ -10,11 +10,13 @@ from grelmicro.log._access import AccessLog, AccessLogMiddleware
 from grelmicro.log._apply import apply as _apply
 from grelmicro.log._component import Log
 from grelmicro.log._dedup import DuplicateFilter, DuplicateFilterConfig
+from grelmicro.log._dictconfig import dict_config, dict_config_with
 from grelmicro.log._probes import ProbeFilter
 from grelmicro.log._ratelimit import (
     RateLimitFilter,
     RateLimitFilterConfig,
 )
+from grelmicro.log._stdlib import formatter, handler
 from grelmicro.log.config import (
     LogBackendType,
     LogConfig,
@@ -74,10 +76,12 @@ def configure(  # noqa: PLR0913
         bool | None,
         Doc(
             """
-            Reformat uvicorn's own loggers to match this format.
+            Take over uvicorn's own loggers so they match this format.
 
-            Default: True. Pass False when uvicorn's logging is configured
-            elsewhere, such as with `uvicorn --log-config`.
+            Default: True. Pass False when something other than grelmicro
+            owns uvicorn's logging. Leave it on when the server was given
+            [`dict_config()`][grelmicro.log.dict_config], which is how the
+            access handler follows the stream this call installs.
             """
         ),
     ] = None,
@@ -193,4 +197,8 @@ __all__ = [
     "RateLimitFilterConfig",
     "configure",
     "configure_with",
+    "dict_config",
+    "dict_config_with",
+    "formatter",
+    "handler",
 ]
