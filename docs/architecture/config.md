@@ -234,6 +234,20 @@ Build both prefixes with `grelmicro._config.env_prefixes`, which returns the ins
 
 The trade-off: a named instance whose name collides with a field prefix can alias a kind field. A `Lock("lease")` reads `GREL_LOCK_LEASE_DURATION` for a field named `duration`, the same key the kind default uses for `lease_duration`. Under the kind-default rule this reaches **every** lock rather than only the default one, so the blast radius is wider than it looks. The rule: name instances so their segment cannot start a field name of the same component.
 
+A mounted document reaches one step further. `FileConfigAdapter` writes a
+nested mapping both ways, as JSON under its own name and walked as a level,
+because the document does not say which it is. So a level whose key *equals*
+a field name fills that field with the JSON. `grel.fallback.default: {...}`,
+written meaning an instance called `default`, sets `FallbackConfig.default`,
+which takes `Any` and accepts it.
+
+The same rule covers it, one word wider: name instances so their segment
+cannot start **or equal** a field name of the same component. The two
+readings are not separable from here, because the adapter builds a flat
+mapping and does not know which component will read a key: dropping the JSON
+one would leave every field that takes a mapping, `Metrics(headers=...)`
+among them, unfillable from a file.
+
 ## App-wide variables
 
 Almost every grelmicro variable belongs to one component instance and is named

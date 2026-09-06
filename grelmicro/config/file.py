@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
 from typing_extensions import Doc
 
+from grelmicro._config import env_segment
 from grelmicro._json import json_dumps_str, json_loads
 from grelmicro.errors import SettingsValidationError
 
@@ -197,8 +198,6 @@ def _segment(key: object) -> str | None:
     filled by a document that writes `cart.v2` as it was named. `None`
     for a key no segment can be built from, such as a path pattern.
     """
-    from grelmicro._config import env_segment  # noqa: PLC0415
-
     try:
         return env_segment(str(key))
     except SettingsValidationError:
