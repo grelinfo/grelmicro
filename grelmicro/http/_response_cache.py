@@ -128,7 +128,7 @@ def declare_cached(
     ttl: Annotated[
         float | None, Doc("Seconds the route's response is served from.")
     ],
-) -> Callable[[], None]:
+) -> Callable[[], Awaitable[None]]:
     """Return the callable a route declares to have its response cached.
 
     `grelmicro.integrations.fastapi.CachedResponse` wraps it in a
@@ -141,8 +141,13 @@ def declare_cached(
     """
     check_ttl(ttl, "ttl")
 
-    def cached_response() -> None:
-        """Declare that this route's response is cached."""
+    async def cached_response() -> None:
+        """Declare that this route's response is cached.
+
+        Async so the framework resolves it on the event loop. A sync
+        dependency goes through a worker thread, and this one is a
+        declaration with nothing in it to run there.
+        """
 
     setattr(cached_response, _MARKER, ttl)
     return cached_response
@@ -171,6 +176,13 @@ class _Policies:
             ValueError: If a pattern names a lifetime a response cannot
                 be kept for.
         """
+        if isinstance(paths, str):
+            msg = (
+                f"paths={paths!r} is a string, and a mapping of path "
+                "pattern to seconds is expected. Write it as one: "
+                f"paths={{{paths!r}: 60}}."
+            )
+            raise TypeError(msg)
         for pattern, ttl in paths.items():
             check_ttl(ttl, f"paths[{pattern!r}]")
         self._paths = tuple(paths.items())
@@ -398,8 +410,15 @@ class CachedResponsesMiddleware:
         )
         self._ttl = ttl
         self._exclude = as_patterns(exclude, name="exclude")
-        self._vary_by_headers = tuple(name.lower() for name in vary_by_headers)
-        self._vary_by_query = vary_by_query
+        self._vary_by_headers = tuple(
+            name.lower()
+            for name in as_patterns(vary_by_headers, name="vary_by_headers")
+        )
+        self._vary_by_query = (
+            None
+            if vary_by_query is None
+            else as_patterns(vary_by_query, name="vary_by_query")
+        )
         self._key = key
         self._skip = skip
         self._max_body_size = max_body_size
@@ -457,21 +476,29 @@ class CachedResponsesMiddleware:
             await _serve(entry, scope, send)
             return
         capture = _ResponseCapture(send, max_body_size=self._max_body_size)
-        stores = scope["method"] == "GET"
-        ran: list[bool] = []
-
-        async def compute() -> _Entry:
-            ran.append(True)
+        if scope["method"] != "GET":
+            # A `HEAD` reads what a `GET` stored and fills nothing, so
+            # folding it would hold the key a `GET` is waiting for while
+            # producing a response nobody keeps.
             await self.app(scope, receive, capture)
             await capture.flush()
-            stored = self._entry_of(capture, path=path) if stores else None
-            if stored is None:
+            await capture.release(complete=capture.complete)
+            return
+        attempt = _Attempt()
+
+        async def compute() -> _Entry:
+            attempt.ran = True
+            await self.app(scope, receive, capture)
+            await capture.flush()
+            attempt.entry = self._entry_of(capture, path=path)
+            attempt.returned = True
+            if attempt.entry is None:
                 raise _NotStored
-            await self._write(storage_key, stored, ttl=ttl)
-            return stored
+            await self._write(storage_key, attempt.entry, ttl=ttl)
+            return attempt.entry
 
         try:
-            entry = await self._folded(storage_key, compute, ran)
+            entry = await self._folded(storage_key, compute, attempt)
         except _NotStored:
             self._remember_unstorable(storage_key)
             await capture.release(complete=capture.complete)
@@ -483,7 +510,7 @@ class CachedResponsesMiddleware:
         self,
         storage_key: str,
         compute: Callable[[], Awaitable[_Entry]],
-        ran: list[bool],
+        attempt: _Attempt,
     ) -> _Entry:
         """Run `compute` once for this key, however the store behaves.
 
@@ -491,6 +518,10 @@ class CachedResponsesMiddleware:
         does not queue every caller behind the one in front of it. A
         store that cannot be reached takes none either: the read still
         has to be answered, and the handler is what answers it.
+
+        A lock that fails on its way out arrives here after the handler
+        has already answered. What it answered is what the caller gets,
+        because the request succeeded and only the bookkeeping did not.
 
         Raises:
             _NotStored: If the response is not one to keep.
@@ -512,13 +543,23 @@ class CachedResponsesMiddleware:
         except _NotStored:
             raise
         except Exception:
-            if ran:
+            if not attempt.ran:
+                logger.warning(
+                    "response cache could not fold this read, running the "
+                    "handler",
+                    exc_info=True,
+                )
+                return await compute()
+            if not attempt.returned:
                 raise
             logger.warning(
-                "response cache could not fold this read, running the handler",
+                "response cache lost hold of this read after the handler "
+                "answered it",
                 exc_info=True,
             )
-            return await compute()
+            if attempt.entry is None:
+                raise _NotStored from None
+            return attempt.entry
 
     async def _read(self, storage_key: str) -> _Entry | None:
         """Return the stored response, or nothing when the store cannot say.
@@ -562,12 +603,15 @@ class CachedResponsesMiddleware:
     def _built(self, scope: Scope, path: str) -> str:
         """Return the key this request reads.
 
-        The scheme and the host are part of it, so an app answering for
-        two hostnames never hands one of them the other's response.
+        The scheme, the host, and the prefix the app is served under are
+        part of it, so an app answering for two hostnames, and two
+        services behind one gateway sharing one store, never hand out
+        each other's responses.
         """
         parts = [
             scope.get("scheme", "http"),
             _header_of(scope, "host"),
+            scope.get("root_path", ""),
             path,
             _query_of(scope, self._vary_by_query),
         ]
@@ -607,6 +651,7 @@ class CachedResponsesMiddleware:
         if "etag" not in named:
             tag = etag_of(body)
             headers.append((b"etag", tag.encode("latin-1")))
+        headers = self._declaring_vary(headers)
         return _Entry(
             status=start["status"],
             headers=[
@@ -616,6 +661,33 @@ class CachedResponsesMiddleware:
             body=body.decode("latin-1"),
             stored_at=clock_time(),
         )
+
+    def _declaring_vary(
+        self, headers: list[tuple[bytes, bytes]]
+    ) -> list[tuple[bytes, bytes]]:
+        """Return the headers with what the key reads named in `Vary`.
+
+        The middleware keys on these, so the response does vary on them,
+        and everything downstream has to be told: a CDN, a proxy, or the
+        browser's own cache would otherwise hand one caller's copy to the
+        next one who sent a different value.
+        """
+        if not self._vary_by_headers:
+            return headers
+        kept = [
+            (name, value) for name, value in headers if name.lower() != b"vary"
+        ]
+        named = dict.fromkeys(
+            [
+                part
+                for name, value in headers
+                if name.lower() == b"vary"
+                for part in _split_field(value)
+            ]
+            + list(self._vary_by_headers)
+        )
+        kept.append((b"vary", ", ".join(named).encode("latin-1")))
+        return kept
 
     def _storable(
         self, headers: Sequence[tuple[bytes, bytes]], *, path: str
@@ -664,6 +736,25 @@ class CachedResponsesMiddleware:
             path,
             vary,
         )
+
+
+class _Attempt:
+    """What one run of the app under the fold got as far as.
+
+    Read when the fold itself fails, to tell a handler that never ran
+    from one that answered and only lost the lock on its way out.
+    """
+
+    __slots__ = ("entry", "ran", "returned")
+
+    def __init__(self) -> None:
+        """Start with a run that has not happened."""
+        self.ran = False
+        """Whether the app was called at all."""
+        self.returned = False
+        """Whether it returned, so what it said has been decided."""
+        self.entry: _Entry | None = None
+        """What it said, when that is something to keep."""
 
 
 class _NotStored(Exception):  # noqa: N818
@@ -987,8 +1078,14 @@ class CachedResponses:
             "policies": self._policies,
             "ttl": ttl,
             "exclude": as_patterns(exclude, name="exclude"),
-            "vary_by_headers": tuple(vary_by_headers),
-            "vary_by_query": vary_by_query,
+            "vary_by_headers": as_patterns(
+                vary_by_headers, name="vary_by_headers"
+            ),
+            "vary_by_query": (
+                None
+                if vary_by_query is None
+                else as_patterns(vary_by_query, name="vary_by_query")
+            ),
             "key": key,
             "skip": skip,
             "max_body_size": max_body_size,

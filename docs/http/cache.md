@@ -67,7 +67,9 @@ caller would let anybody spend the handler at will.
 
 A path whose responses are never storable, a stream above all, stops taking
 the lock once the first one has shown that nothing is kept for it, so it is
-never queued behind itself.
+never queued behind itself. A `HEAD` takes it never: it reads what a `GET`
+stored and fills nothing, so folding it would hold up the read it shares a
+key with.
 
 ## What is never stored
 
@@ -107,6 +109,11 @@ A response whose own `Vary` names a header outside that set is not stored, and
 the refusal is logged. So a handler that starts varying on something new stops
 being cached rather than starting to answer the wrong callers.
 
+What the key reads is written into the stored response's `Vary`, joined with
+whatever the handler set. The cache in front of yours has to be told too: a
+CDN, a corporate proxy, or the browser would otherwise hand one caller's copy
+to the next one who sent a different value.
+
 `Vary: *` is never stored.
 
 Every occurrence of a header counts. A response carrying two `Vary` lines, or
@@ -115,10 +122,12 @@ last of them is how the one that refused the store goes missing.
 
 ## The key
 
-By default the key is the scheme, the host, the path and the whole query
-string, in one order whatever order the client sent it in, plus the value of
-every header named in `vary_by_headers`. The host is in it so an app
-answering for two hostnames never hands one of them the other's response.
+By default the key is the scheme, the host, the prefix the app is served
+under, the path, and the whole query string, in one order whatever order the
+client sent it in, plus the value of every header named in `vary_by_headers`.
+The host and the prefix are in it so an app answering for two hostnames, and
+two services behind one gateway sharing one store, never hand out each other's
+responses.
 
 Name the parameters that matter and the rest is ignored, so a tracking
 parameter does not turn one resource into a thousand:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from inspect import iscoroutinefunction
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +23,11 @@ from grelmicro.http import (
     CachedResponsesMiddleware,
     StoredResponse,
 )
-from grelmicro.http._response_cache import _UNSTORABLE_LIMIT, _WARNED_LIMIT
+from grelmicro.http._response_cache import (
+    _UNSTORABLE_LIMIT,
+    _WARNED_LIMIT,
+    declare_cached,
+)
 from grelmicro.integrations.fastapi import CachedResponse
 
 if TYPE_CHECKING:
@@ -421,6 +426,31 @@ async def _receive() -> MutableMapping[str, Any]:
 
 async def _nowhere(message: MutableMapping[str, Any]) -> None:
     """Take a response nowhere."""
+
+
+def _split(value: str) -> list[str]:
+    """Return one comma-separated header value as its parts."""
+    return [part.strip().lower() for part in value.split(",")]
+
+
+class _LosingLock:
+    """A lock that fails on its way out, after the handler answered."""
+
+    async def __aenter__(self) -> None:
+        """Take it."""
+
+    async def __aexit__(self, *args: object) -> None:
+        """Refuse to give it back."""
+        msg = "the lease is gone"
+        raise ConnectionError(msg)
+
+
+class _LosingGuard:
+    """A stampede guard whose lock refuses to be let go of."""
+
+    async def get_lock(self, key: str) -> _LosingLock:  # noqa: ARG002
+        """Return a lock that raises where the caller lets go of it."""
+        return _LosingLock()
 
 
 def _read_scope() -> MutableMapping[str, Any]:
@@ -1219,6 +1249,187 @@ def test_a_lifetime_a_response_cannot_be_kept_for_is_refused(
         CachedResponses(ttl=ttl)
     with pytest.raises(ValueError, match="number of seconds"):
         CachedResponse(ttl=ttl)
+
+
+def test_a_head_miss_never_takes_the_key_a_read_is_waiting_for() -> None:
+    """Folding a `HEAD` would hold a `GET` up for a response nobody keeps."""
+    # Arrange
+    calls = 0
+
+    async def handler(request: Any) -> Response:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        return Response(b"ok")
+
+    app = Starlette(routes=[Route("/reads", handler)])
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(paths={"/reads": TTL}),
+        ]
+    )
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.head("/reads")
+        client.get("/reads")
+        client.get("/reads")
+
+    # Assert
+    assert calls == TWICE
+
+
+def test_a_stored_response_survives_a_fold_that_fails_on_its_way_out() -> None:
+    """The handler answered, so the caller gets what it answered."""
+    # Arrange
+    answered: list[Any] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        answered.append(message.get("status", message.get("body")))
+
+    async def scenario() -> None:
+        async with MemoryCacheAdapter() as backend:
+            middleware = CachedResponsesMiddleware(
+                app,
+                cache=TTLCache(
+                    ttl=TTL, backend=backend, serializer=JsonSerializer()
+                ),
+                paths={"/reads": TTL},
+            )
+            middleware._cache._stampede = _LosingGuard()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+            await middleware(_read_scope(), _receive, send)
+
+    anyio.run(scenario)
+
+    # Assert
+    assert answered == [HTTP_200_OK, b"ok"]
+
+
+def test_a_response_lost_after_a_fold_that_never_kept_it_is_released() -> None:
+    """A stream is not stored, and the lock failing does not lose it either."""
+    # Arrange
+    sent: list[Any] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        await send(
+            {"type": "http.response.start", "status": 404, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"gone"})
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message.get("status", message.get("body")))
+
+    async def scenario() -> None:
+        async with MemoryCacheAdapter() as backend:
+            middleware = CachedResponsesMiddleware(
+                app,
+                cache=TTLCache(
+                    ttl=TTL, backend=backend, serializer=JsonSerializer()
+                ),
+                paths={"/reads": TTL},
+            )
+            middleware._cache._stampede = _LosingGuard()  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+            await middleware(_read_scope(), _receive, send)
+
+    anyio.run(scenario)
+
+    # Assert
+    assert sent == [HTTP_404_NOT_FOUND, b"gone"]
+
+
+def test_a_stored_response_says_what_the_key_reads() -> None:
+    """A CDN in front of this must not hand one caller's copy to another."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(
+                paths={"/reads": TTL}, vary_by_headers=("accept-language",)
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get("/reads")
+    async def reads() -> dict[str, int]:
+        return {"calls": 1}
+
+    # Act
+    with TestClient(app) as client:
+        response = client.get("/reads")
+
+    # Assert
+    assert response.headers["vary"] == "accept-language"
+
+
+def test_a_vary_the_handler_set_is_kept_beside_it() -> None:
+    """What the response says it varies on is not replaced, it is joined."""
+    # Arrange
+    calls = 0
+
+    async def handler() -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(b"ok", headers={"Vary": "accept-encoding"})
+
+    # Act
+    first, _ = _served_twice(
+        handler,
+        CachedResponses(vary_by_headers=("accept-encoding", "accept-language")),
+    )
+
+    # Assert
+    assert set(_split(first.headers["vary"])) == {
+        "accept-encoding",
+        "accept-language",
+    }
+
+
+def test_a_bare_string_is_a_missing_comma() -> None:
+    """A string is a sequence of characters, and it fails silently."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="is a string"):
+        CachedResponses(vary_by_headers="accept-language")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="is a string"):
+        CachedResponses(vary_by_query="page")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="is a string"):
+        CachedResponses(paths="/reads")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_two_services_behind_one_gateway_are_two_resources() -> None:
+    """One store shared by two deployments must not cross-serve."""
+    # Arrange
+    middleware = CachedResponsesMiddleware(_nothing, cache=_cache())
+    orders = _read_scope()
+    orders["root_path"] = "/orders"
+    billing = _read_scope()
+    billing["root_path"] = "/billing"
+
+    # Act
+    keys = {
+        middleware._built(orders, "/reads"),
+        middleware._built(billing, "/reads"),
+    }
+
+    # Assert
+    assert len(keys) == TWICE
+
+
+def test_the_declaration_is_resolved_on_the_event_loop() -> None:
+    """A sync dependency costs a worker thread, and this one does nothing."""
+    # Act
+    declared = declare_cached(TTL)
+
+    # Assert
+    assert iscoroutinefunction(declared)
 
 
 def test_the_cache_it_stores_in_is_readable() -> None:
