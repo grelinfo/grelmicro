@@ -79,6 +79,9 @@ _DEFAULT_MAX_BODY_SIZE = 1024 * 1024
 _PRIVATE_REQUEST_HEADERS = (b"authorization", b"cookie")
 """Request headers that make a response one caller's, never a cache's."""
 
+_PARTIAL_REQUEST_HEADER = b"range"
+"""Header asking for part of a resource, which a stored whole is not."""
+
 _UNCACHEABLE_DIRECTIVES = frozenset({"no-store", "no-cache", "private"})
 """`Cache-Control` directives that refuse the store outright."""
 
@@ -252,50 +255,83 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
     found: list[tuple[Pattern[str], float | None]] = []
     for prefix, route, contexts in walk_routes(app):
         ttl = _declared_ttl(route)
-        for context in contexts:
+        on_the_route = ttl is not _UNMARKED
+        for context in reversed(contexts):
             if ttl is not _UNMARKED:
                 break
             ttl = _inherited_ttl(context)
         if ttl is _UNMARKED:
             continue
         declared = f"{prefix}{route.path}"
-        _refuse_unreadable(route, declared)
+        refusal = _unreadable(route, contexts, declared)
+        if refusal is not None:
+            if on_the_route:
+                raise TypeError(refusal)
+            # A router declares it for what it holds, and holds more than
+            # reads. What cannot be answered from a cache is left to its
+            # handler rather than refused.
+            continue
         regex, _, _ = compile_path(declared)
         found.append((regex, cast("float | None", ttl)))
     return found
 
 
-def _refuse_unreadable(route: Any, declared: str) -> None:  # noqa: ANN401
-    """Refuse a route a response cache must not answer for.
+def _unreadable(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+    declared: str,
+) -> str | None:
+    """Return why a response cache must not answer for this route.
 
-    Raises:
-        TypeError: If the route answers a method other than `GET`, or
-            declares a security scheme.
+    `None` says it may. A route that answers anything but a read, and one
+    gated by a security scheme, are the two it must not: a hit is answered
+    before the app is routed, so a gate declared on the route or on the
+    router that holds it would never run, and one caller's response would
+    go to whoever asks next.
     """
     methods = {
         method.upper() for method in (getattr(route, "methods", None) or ())
     } - {"HEAD", "OPTIONS"}
     if methods != {"GET"}:
         listed = ", ".join(sorted(methods)) or "no method"
-        msg = (
+        return (
             f"CachedResponse() is declared on {declared!r}, which answers "
             f"{listed}. A response cache answers a read, and a method that "
             "changes something must reach the handler every time. Declare "
             "it on the GET route instead."
         )
-        raise TypeError(msg)
     gates = getattr(route, "dependant", None)  # codespell:ignore
     schemes = _security_schemes(gates)
-    if schemes:
-        named = ", ".join(sorted(set(schemes)))
-        msg = (
-            f"CachedResponse() is declared on {declared!r}, which is "
-            f"gated by {named}. A hit is answered before the app is "
-            "routed, so the gate would not run, and one caller's response "
-            "would be handed to whoever asks next. Cache a route that "
-            "answers everybody the same."
+    for context in contexts:
+        schemes.extend(_declared_schemes(context))
+    if not schemes:
+        return None
+    named = ", ".join(sorted(set(schemes)))
+    return (
+        f"CachedResponse() is declared on {declared!r}, which is gated by "
+        f"{named}. A hit is answered before the app is routed, so the gate "
+        "would not run, and one caller's response would be handed to "
+        "whoever asks next. Cache a route that answers everybody the same."
+    )
+
+
+def _declared_schemes(context: Any) -> list[str]:  # noqa: ANN401
+    """Return the security schemes an included router gates everything with.
+
+    An include's dependencies are held as they were written rather than
+    resolved into each route, so they are read here as they were written.
+    """
+    try:
+        from fastapi.security.base import SecurityBase  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - the reimport test walks this
+        return []
+    return [
+        type(scheme).__name__
+        for dependency in getattr(context, "dependencies", ()) or ()
+        if isinstance(
+            scheme := getattr(dependency, "dependency", None), SecurityBase
         )
-        raise TypeError(msg)
+    ]
 
 
 def _security_schemes(gates: Any) -> list[str]:  # noqa: ANN401
@@ -371,6 +407,9 @@ class CachedResponsesMiddleware:
     waits for that one and is answered from what it stored, in process and
     across replicas, so a cold key never fans one computation out to every
     caller at once.
+
+    A request asking for a range is passed through, because what is
+    stored is the whole resource.
 
     A response is stored only when it is safe to hand to somebody else:
     status `200`, no `Set-Cookie`, no `Content-Encoding`, no
@@ -502,7 +541,7 @@ class CachedResponsesMiddleware:
         if ttl is None:
             await self.app(scope, receive, send)
             return
-        if _carries_credentials(scope):
+        if _carries_credentials(scope) or _asks_for_part(scope):
             await self.app(scope, receive, send)
             return
         built = (
@@ -1002,6 +1041,17 @@ def _named_freshness(directives: set[str]) -> float | None:
             if name == "s-maxage":
                 return None if seconds <= 0 else seconds
     return None if kept <= 0 else kept
+
+
+def _asks_for_part(scope: Scope) -> bool:
+    """Return whether the request asked for a range rather than the whole.
+
+    A stored `200` is the whole resource, and answering a range with it
+    would turn every partial read into a full download, quietly.
+    """
+    return any(
+        name.lower() == _PARTIAL_REQUEST_HEADER for name, _ in scope["headers"]
+    )
 
 
 def _split_field(value: bytes) -> list[str]:

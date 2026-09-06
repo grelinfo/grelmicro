@@ -86,6 +86,7 @@ of them is that mistake.
 | Anything but `200` | a failure is not an answer to hand on |
 | A response carrying `Content-Encoding` | compression sits outside this middleware |
 | A `HEAD` response | its body is empty, and would answer the `GET` after it with nothing |
+| A request carrying `Range` | what is stored is the whole resource, not the part asked for |
 
 A `HEAD` still reads what a `GET` stored, and is answered with the same
 headers and no body.
@@ -161,6 +162,13 @@ it is included with:
 app.include_router(products, dependencies=[CachedResponse(ttl=60)])
 ```
 
+A router holds more than reads, so what a cache cannot answer for is left
+to its handler rather than refused: a write under it, or a route the router
+gates, is simply not cached. Declared on one route, the same thing is a
+mistake, and it is refused where it is written. The nearest declaration
+decides, so a route beats the router it sits in, and an inner router beats
+the one that includes it.
+
 Starlette and Litestar resolve no dependencies to hang it on, and a router you
 did not write cannot be changed either, so name the URLs and how long each is
 kept:
@@ -211,7 +219,8 @@ can answer.
     A route's own `Depends` never runs on a hit, because the response is
     already on its way back by then. `CachedResponse()` on a route gated by a
     security scheme, an `APIKeyHeader` or an `HTTPBearer`, is refused when
-    `micro.install(app)` reads it, naming the path.
+    `micro.install(app)` reads it, naming the path. A scheme the router was
+    included with counts the same way.
 
     A gate that is a plain `Depends` reading a header of its own cannot be
     seen from here. Do not declare `CachedResponse()` on a route like that:

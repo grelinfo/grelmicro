@@ -1528,6 +1528,100 @@ def test_a_route_behind_a_security_scheme_is_refused() -> None:
         micro.install(app)
 
 
+def test_a_router_gate_is_refused_like_a_route_one() -> None:
+    """An include's gate never runs on a hit either."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter()
+
+    @router.get("/secret", dependencies=[CachedResponse(ttl=TTL)])
+    async def secret() -> dict[str, int]:
+        return {"secret": 1}
+
+    app.include_router(
+        router, dependencies=[Security(APIKeyHeader(name="X-API-Key"))]
+    )
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+        micro.install(app)
+
+
+def test_a_router_declaration_leaves_what_it_cannot_answer_alone() -> None:
+    """A router holds more than reads, and a write is not one to refuse."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter()
+    reads = 0
+    writes = 0
+
+    @router.get("/items")
+    async def list_items() -> dict[str, int]:
+        nonlocal reads
+        reads += 1
+        return {"reads": reads}
+
+    @router.post("/items")
+    async def create() -> dict[str, int]:
+        nonlocal writes
+        writes += 1
+        return {"writes": writes}
+
+    app.include_router(router, dependencies=[CachedResponse(ttl=TTL)])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/items")
+        client.get("/items")
+        client.post("/items")
+        client.post("/items")
+
+    # Assert
+    assert reads == 1
+    assert writes == TWICE
+
+
+def test_the_nearest_router_declaration_decides() -> None:
+    """Every other override here goes to the more specific one."""
+    # Arrange
+    component = CachedResponses()
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), component])
+    app = FastAPI()
+    inner = APIRouter()
+
+    @inner.get("/x")
+    async def x() -> dict[str, int]:
+        return {"x": 1}
+
+    middle = APIRouter()
+    middle.include_router(inner, dependencies=[CachedResponse(ttl=TTL)])
+    app.include_router(middle, dependencies=[CachedResponse(ttl=OTHER_TTL)])
+    micro.install(app)
+
+    # Act
+    seconds = component._policies.ttl_for("/x", OTHER_TTL)
+
+    # Assert
+    assert seconds == TTL
+
+
+def test_a_range_request_is_left_to_the_handler() -> None:
+    """A stored whole is not the part the client asked for."""
+    # Arrange
+    app = _app(CachedResponses())
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/reads")
+        ranged = client.get("/reads", headers={"Range": "bytes=0-3"})
+
+    # Assert
+    assert ranged.json() == {"calls": TWICE}
+
+
 def test_a_response_is_kept_no_longer_than_it_says() -> None:
     """`max-age` is the handler saying how long this answer is good for."""
     # Arrange
