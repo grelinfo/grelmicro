@@ -391,7 +391,9 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
             endpoint.path, config.exclude
         ):
             return None
-        declared, ttl = declared_ttl(endpoint.route, endpoint.contexts)
+        declared, ttl = declared_ttl(
+            endpoint.route, endpoint.contexts, endpoint.path
+        )
         seconds = (
             (config.ttl if ttl is None else ttl)
             if declared

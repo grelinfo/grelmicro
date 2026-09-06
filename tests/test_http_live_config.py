@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Security
 from fastapi.security import APIKeyHeader
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -1176,3 +1176,65 @@ async def test_code_may_still_swap_a_configuration_a_file_may_not() -> None:
     # Assert
     assert before.methods == frozenset({"POST"})
     assert component._live.state.methods == frozenset({"POST", "PUT"})
+
+
+def test_a_gated_read_under_a_marked_router_is_not_reported_as_cached() -> None:
+    """An audit asking whether a gated response is cached must be told no.
+
+    A router declares caching for what it holds, and holds more than
+    reads. The write under it and the read behind a security scheme are
+    left to their handlers, and the report has to say the same, or it
+    answers the one question it exists to answer in the dangerous
+    direction.
+    """
+    # Arrange
+    gate = APIKeyHeader(name="X-Key")
+    router = APIRouter(dependencies=[CachedResponse(ttl=60)])
+
+    @router.get("/secret", dependencies=[Security(gate)])
+    async def secret() -> dict[str, str]:
+        return {}
+
+    @router.get("/open")
+    async def open_read() -> dict[str, str]:
+        return {}
+
+    @router.post("/write")
+    async def write() -> dict[str, str]:
+        return {}
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.include_router(router)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            CachedResponses(),
+        ]
+    )
+    micro.install(app)
+    component = _cached_responses(micro)
+
+    # Act
+    rows = {
+        (row.method, row.path): row.applies
+        for row in micro.describe(app).endpoints
+    }
+
+    # Assert: the report and the runtime agree, endpoint by endpoint.
+    assert rows[("GET", "/open")] == ("cache 60s",)
+    assert rows[("GET", "/secret")] == ()
+    assert rows[("POST", "/write")] == ()
+    policies = component._live.state.policies
+    assert policies.ttl_for("/open", DEFAULT_TTL) == DEFAULT_TTL
+    assert policies.ttl_for("/secret", DEFAULT_TTL) is None
+    assert policies.ttl_for("/write", DEFAULT_TTL) is None
+
+
+def test_a_duplicate_may_be_answered_without_waiting() -> None:
+    """Zero is how "do not wait" is written, not a value to refuse."""
+    # Act
+    component = IdempotentRequests(wait_timeout=0)
+
+    # Assert
+    assert component.config.wait_timeout == 0.0

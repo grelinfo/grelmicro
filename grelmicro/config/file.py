@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Self, cast
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 from typing_extensions import Doc
 
 from grelmicro._json import json_dumps_str, json_loads
+from grelmicro.errors import SettingsValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -34,10 +34,15 @@ class FileConfigAdapter:
       Either a flat mapping of `GREL_...` keys to scalar values, or a
       nested mapping whose segments join with `_` and uppercase, so
       `grel: {lock: {cart: {lease_duration: 30}}}` reads as
-      `GREL_LOCK_CART_LEASE_DURATION=30`. Nesting stops where the keys
-      stop looking like a variable name, so a field taking path patterns
-      is written as `include: {"/products/*": 60}` and arrives as the
-      JSON its field parses. A list is written as a list.
+      `GREL_LOCK_CART_LEASE_DURATION=30`. A name is normalised the way it
+      is on its way into a prefix, so `cart.v2` reads as `CART_V2`.
+
+      A nested mapping is written both ways, because the document does
+      not say which it is: as JSON under its own name, for a field that
+      takes a mapping such as `include: {"/products/*": 60}` or
+      `headers: {authorization: ...}`, and walked as a level as well.
+      Whichever name reaches a field is the one that fills it, and the
+      other matches nothing. A list is written as JSON.
     - Any other file: `KEY=VALUE` lines, blank lines and `#` comments
       ignored, matching a `.env` file.
 
@@ -149,35 +154,68 @@ def _flatten_document(data: object, path: Path) -> dict[str, str]:
     return result
 
 
-_SEGMENT = re.compile(r"[A-Za-z0-9_]+")
-"""What a key has to look like to become part of a variable name."""
-
-
-def _addressable(data: dict[Any, Any]) -> bool:
-    """Return whether this mapping's keys can become name segments.
-
-    A variable name holds letters, digits and underscores, so a mapping
-    keyed by anything else is a value rather than a level of nesting. A
-    field taking a mapping of path patterns is written as
-    `include: {"/products/*": 60}`, and `/products/*` is no more a
-    variable name than `60` is a component.
-
-    An empty mapping is a value too. Recursing into it would write
-    nothing at all, which drops the key the document named.
-    """
-    return bool(data) and all(_SEGMENT.fullmatch(str(key)) for key in data)
-
-
 def _flatten_into(
     result: dict[str, str], data: dict[Any, Any], *, prefix: str
 ) -> None:
-    """Walk a mapping, recursing while the keys can name a variable."""
+    """Walk a mapping, writing every reading of it a field could want.
+
+    A nested mapping is two things at once and the document does not say
+    which: `lock: {cart: {lease_duration: 30}}` is a level of nesting,
+    while `include: {"/products/*": 60}` is one field's value. Deciding
+    by the shape of the keys guesses wrong both ways. `cart.v2` is a
+    valid instance name and not a variable segment, and an OTel header
+    name looks exactly like one.
+
+    So both readings are written. The mapping is written as JSON under
+    its own name, and walked as a level as well. The names do not
+    collide, because walking always adds a segment. Whichever one names
+    a field is the one that fills it, and the other matches nothing and
+    is ignored, which is what an unmatched key already gets.
+    """
     for key, value in data.items():
-        name = f"{prefix}_{key}" if prefix else str(key)
-        if isinstance(value, dict) and _addressable(value):
+        segment = _segment(key)
+        if segment is None:
+            # No variable name can be built from it, so the level below
+            # is unreachable. The mapping above still wrote itself as
+            # JSON, which is the reading that names a field here.
+            continue
+        name = f"{prefix}_{segment}" if prefix else segment
+        if isinstance(value, dict):
+            encoded = _encoded(value)
+            if encoded is not None:
+                result[name] = encoded
             _flatten_into(result, value, prefix=name)
         else:
-            result[name.upper()] = _stringify(value)
+            result[name] = _stringify(value)
+
+
+def _segment(key: object) -> str | None:
+    """Return the variable-name segment this key writes to.
+
+    The same normalisation an instance name goes through on its way into
+    a prefix, so a `Lock("cart.v2")` reading `GREL_LOCK_CART_V2_*` is
+    filled by a document that writes `cart.v2` as it was named. `None`
+    for a key no segment can be built from, such as a path pattern.
+    """
+    from grelmicro._config import env_segment  # noqa: PLC0415
+
+    try:
+        return env_segment(str(key))
+    except SettingsValidationError:
+        return None
+
+
+def _encoded(value: dict[Any, Any]) -> str | None:
+    """Return the mapping as JSON, or `None` when it does not encode.
+
+    A document may hold a value JSON has no form for, a date above all.
+    That reading is simply not offered, and walking the mapping as a
+    level still is.
+    """
+    try:
+        return json_dumps_str(cast("JSONEncodable", value))
+    except TypeError:
+        return None
 
 
 def _stringify(value: object) -> str:

@@ -22,7 +22,7 @@ from typing import (
     cast,
 )
 
-from pydantic import BaseModel, PositiveFloat, PositiveInt, StrictStr
+from pydantic import BaseModel, NonNegativeFloat, PositiveInt, StrictStr
 from typing_extensions import Doc
 
 from grelmicro._config import (
@@ -316,7 +316,7 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("Largest body held in memory, in bytes."),
     ] = 1024 * 1024
     wait_timeout: Annotated[
-        PositiveFloat,
+        NonNegativeFloat,
         Doc(
             "Seconds a duplicate waits for an execution already in "
             "flight, before it is answered with `409`."

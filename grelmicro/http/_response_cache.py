@@ -327,10 +327,7 @@ class _Policies:
         for regex, marked in self._routes:
             if regex.fullmatch(path):
                 return default if marked is None else marked
-        for pattern, ttl in self._include:
-            if matches(path, (pattern,)):
-                return default if ttl is None else ttl
-        return None
+        return self.pattern_ttl(path, default)
 
 
 def declared_ttl(
@@ -339,6 +336,7 @@ def declared_ttl(
         tuple[Any, ...],
         Doc("What was declared above it, outermost first."),
     ],
+    declared: Annotated[str, Doc("The full path the route sits under.")],
 ) -> tuple[bool, float | None]:
     """Return whether this route declares a TTL, and the seconds it names.
 
@@ -351,6 +349,13 @@ def declared_ttl(
     path is compiled before it matches anything: a route declared as
     `/products/{pid:int}` is a pattern, not a URL, and matching one
     against the other answers `no` for every typed converter.
+
+    A declaration a route inherited from the router that holds it counts
+    only where the cache may answer for it. A router holds more than
+    reads, so the write under it, and the read behind a security scheme,
+    are left to their handlers, and this says so too. Declared on the
+    route itself the same thing is refused outright, at install, so it
+    never reaches here.
     """
     ttl = _declared_ttl(route, _declaring_above(contexts))
     for context in reversed(contexts):
@@ -358,6 +363,8 @@ def declared_ttl(
             break
         ttl = _inherited_ttl(context)
     if ttl is _UNMARKED:
+        return False, None
+    if _unreadable(route, contexts, declared) is not None:
         return False, None
     return True, ttl
 
