@@ -103,6 +103,38 @@ where it is held rather than where it is spent.
 
 ## What a reload may not do
 
+**Live reload tunes what a request costs, never what it is protected by.**
+
+`ConditionalRequests` and `IdempotentRequests` fix their reach at startup,
+because narrowing either one silently removes a guarantee: a retry that runs
+an operation twice, or an unconditional write that erases an update. The
+header names, `require_key` and `reused_status` are fixed for a second
+reason, that the OpenAPI schema states them and the schema is built once.
+`CachedResponses`, `RateLimitedRequests` and `AccessLog` are fully live,
+because losing any of them costs latency or capacity rather than
+correctness.
+
+Every mature configurable system classifies its settings this way, in code
+rather than per deployment: PostgreSQL's `pg_settings.context`, MySQL's
+dynamic and static variables, Kafka's `read-only`, `per-broker` and
+`cluster-wide` update modes. Two buckets is fewer than any of them.
+
+It is an authorization boundary too. Write access to a ConfigMap is granted
+far more widely than the right to ship an image, so the fields a mounted
+file may change are the fields somebody holding only that permission may
+change. `_IMMUTABLE_RECONFIGURE_FIELDS` is enforced in
+`resolve_config_from_mapping`, so every adapter is covered, and the
+construction path still reads them because that is the Deployment manifest,
+shipped and reviewed with the image.
+
+`RateLimitedRequests` keeps its reach live because its contract can be
+stated as a superset: the schema documents `429` and the `RateLimit` fields
+on every operation once the component is registered, which stays true
+whichever paths are metered at the time. A rule that says what a client
+*must send* has no superset form, which is why the other two are fixed.
+
+### The route checks run again
+
 `micro.install(app)` refuses a cache pattern naming a route that answers
 something other than `GET`, or a read behind a security scheme, because a hit
 answers before the route's own dependencies run.
@@ -142,6 +174,8 @@ taken out of the very sentence offering it.
 | `include` and `exclude` are values a file may tune | They scope a component the code registered, and a file can never add one, or choose a store, a limiter, or a callable | A pattern starts choosing structure |
 | The middleware reads a cell, not the values | A framework will not rebuild its middleware stack once it is serving | A framework gains a supported way to rebuild it |
 | The cell holds one snapshot, never a field each | Two fields from two configurations can answer one caller with another's response | The fields stop being read together |
+| Live reload tunes what a request costs, never what it is protected by | Editing a mounted file is a wider permission than shipping an image, and neither reviewed nor versioned with the code | A mounted source becomes as reviewed as a deploy |
+| The OpenAPI schema is built once, from the app as installed | It is a published contract, and each replica polls on its own clock, so a live one would have two pods publishing two documents | The schema stops being served per replica |
 
 ## Related
 

@@ -316,8 +316,8 @@
       "()": "(app, *, limiters, trusted=None, key=None, cost=1, max_wait=0.0, include=(), exclude=(), legacy_headers=False, live=None) -> 'None'"
     },
     "RateLimitedRequests": {
-      "()": "(*limiters, trusted=None, key=None, cost=None, max_wait=None, include=None, exclude=None, legacy_headers=None, name='default', env_prefix=None, env_load=None) -> 'None'",
-      ".from_config": "(config, *limiters, name='default', trusted=None, key=None) -> 'RateLimitedRequests'"
+      "()": "(*limiters, trusted=None, key=None, cost=None, max_wait=None, include=None, exclude=None, legacy_headers=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *limiters, name='default', trusted=None, key=None, openapi=True) -> 'RateLimitedRequests'"
     },
     "RateLimitedRequestsConfig": {
       "()": "(*, cost=1, max_wait=0.0, include=(), exclude=(), legacy_headers=False) -> None"
@@ -397,6 +397,9 @@
     },
     "document_idempotency": {
       "()": "(app, *, idempotency=None) -> None"
+    },
+    "document_rate_limited_requests": {
+      "()": "(app) -> None"
     },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"

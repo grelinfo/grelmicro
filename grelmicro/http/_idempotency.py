@@ -1124,6 +1124,37 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
 
     kind: ClassVar[str] = "idempotent_requests"
 
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "exclude",
+            "include",
+            "key_header",
+            "methods",
+            "replay_header",
+            "require_key",
+            "reused_status",
+        }
+    )
+    """Everything that decides whether a repeated request is replayed.
+
+    Live reload tunes what a request costs, never what it is protected
+    by. Take a path out of this middleware's reach and the next retry
+    runs the operation a second time, which for a payment is the one
+    outcome idempotency exists to prevent. So the reach is wired in code
+    and changed by a deploy, where it is reviewed.
+
+    The header names, `require_key` and `reused_status` are fixed for a
+    second reason: the OpenAPI schema states them, and the schema is
+    built once from the app as installed. It is a published contract
+    rather than a tuning knob, and each replica polls its own source on
+    its own clock, so a live one would have two pods publishing two
+    different documents.
+
+    `max_body_size` and `wait_timeout` stay live. They cap what is held
+    and how long a duplicate waits, which are costs rather than
+    guarantees.
+    """
+
     def __init__(  # noqa: PLR0913
         self,
         *,

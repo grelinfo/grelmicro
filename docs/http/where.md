@@ -107,17 +107,61 @@ grel:
     exclude: ["/livez", "/readyz"]
 ```
 
+A flat `GREL_...` key says the same thing in JSON, which is what a variable
+can carry: `GREL_ACCESS_LOG_EXCLUDE='["/livez", "/readyz"]'`.
+
 Register [`ExternalConfig`](../configuration/reconfigure-from-configmap.md)
 and the next request is answered with the new values. Nothing is rebuilt: the
 middleware reads a snapshot the component publishes, so a request already
 running finishes on the configuration it started with.
 
-What a file may not do is change what the app is made of. It cannot register
-a component, choose a cache store, add a rate limiter, or supply a `key=`
-function. Those are code, and a file only tunes what the code already
-declared. So a pattern arriving from a ConfigMap is checked against the same
-rules `micro.install(app)` checks: one naming a write, or a read behind a
-security scheme, is refused and the running configuration is kept.
+### What a file may not change
+
+**Live reload tunes what a request costs, never what it is protected by.**
+
+| Component | What it protects | Where it is changed |
+|---|---|---|
+| `CachedResponses` | latency | live |
+| `RateLimitedRequests` | the service's capacity | live |
+| `AccessLog` | nothing, it observes | live |
+| `ConditionalRequests` | the client's data, from a lost update | a deploy |
+| `IdempotentRequests` | the client's data, from a duplicate | a deploy |
+
+A cache miss runs the handler, so turning caching off costs time and nothing
+else. Take a path out of idempotency and the next retry runs the operation a
+second time, which for a payment is the outcome idempotency exists to
+prevent. Take one out of conditional requests and an unconditional write
+erases an update nobody is told about.
+
+So `include`, `exclude` and `methods` on those two are wired in code and
+changed by a deploy, where they are reviewed. Their costs stay live:
+`max_body_size`, and `wait_timeout` on idempotency.
+
+This is an authorization boundary as much as a design one. Editing a
+ConfigMap is a much more widely granted permission than shipping an image,
+so what a file may change is what somebody with only that permission may
+change.
+
+The same holds for what a client has to send. The OpenAPI schema is built
+once, from the app as installed, because it is a published contract rather
+than a tuning knob, and each replica polls its own source on its own clock,
+so a live schema would have two pods publishing two different documents.
+Nothing the schema states is live either: `require_key`, the header names,
+and `reused_status` move only with a deploy.
+
+`RateLimitedRequests` keeps its reach live, because its contract has a
+superset form: the schema documents the `429` on every operation, which stays
+true whichever paths are metered. A rule that says what a client *must send*
+has no superset form, which is why the other two are fixed.
+
+A key a file may not change is reported, naming the variable, and every
+other key in the same file still applies.
+
+And a file never changes what the app is made of. It cannot register a
+component, choose a cache store, add a rate limiter, or supply a `key=`
+function. So a cache pattern arriving from a ConfigMap is checked against
+the same rules `micro.install(app)` checks: one naming a write, or a read
+behind a security scheme, is refused and the running configuration is kept.
 
 ## Where the budget lives
 

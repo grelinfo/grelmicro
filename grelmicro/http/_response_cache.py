@@ -146,10 +146,14 @@ message, so a validator that named it would be quoting a blank.
 def _seconds(value: float) -> float:
     """Return `value`, refusing a lifetime a response cannot be kept for.
 
+    Written as `not value > 0` rather than `value <= 0`, so a NaN is
+    refused too. Every comparison with a NaN is false, so the negated
+    test is the one that turns it away.
+
     Raises:
         ValueError: If it is not a positive number of seconds.
     """
-    if value <= 0:
+    if not value > 0:
         msg = f"ttl {NOT_SECONDS}"
         raise ValueError(msg)
     return value
@@ -167,7 +171,7 @@ def _seconds_per_path(
     """
     if isinstance(value, abc.Mapping):
         for pattern, ttl in value.items():
-            if ttl <= 0:
+            if not ttl > 0:
                 msg = f"include[{pattern!r}] {NOT_SECONDS}"
                 raise ValueError(msg)
     return value

@@ -900,7 +900,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
 
     kind: ClassVar[str] = "rate_limited_requests"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *limiters: Annotated[
             RateLimiter,
@@ -947,6 +947,14 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             bool | None,
             Doc("Also send the superseded `X-RateLimit-*` fields."),
         ] = None,
+        openapi: Annotated[
+            bool,
+            Doc(
+                "Describe the `429` and the `RateLimit` fields on every "
+                "operation in the OpenAPI schema. Only FastAPI builds one. "
+                "Read once when the schema is built, so it is not live."
+            ),
+        ] = True,
         name: Annotated[
             str,
             Doc("Registration name, for a second set of rules on one app."),
@@ -992,7 +1000,12 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             env_load=env_load,
         )
         self._setup(
-            config, name=name, limiters=limiters, trusted=trusted, key=key
+            config,
+            name=name,
+            limiters=limiters,
+            trusted=trusted,
+            key=key,
+            openapi=openapi,
         )
         self._track_reconfigure(resolved_env_prefix, kind_prefix)
 
@@ -1019,6 +1032,10 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             Callable[[Scope], str | None] | None,
             Doc("Builds the bucket key from the ASGI scope."),
         ] = None,
+        openapi: Annotated[
+            bool,
+            Doc("Describe the `429` in the OpenAPI schema."),
+        ] = True,
     ) -> RateLimitedRequests:
         """Build the component from a configuration that is already whole.
 
@@ -1030,7 +1047,12 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         """
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001
-            config, name=name, limiters=limiters, trusted=trusted, key=key
+            config,
+            name=name,
+            limiters=limiters,
+            trusted=trusted,
+            key=key,
+            openapi=openapi,
         )
         return instance
 
@@ -1042,9 +1064,11 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         limiters: tuple[RateLimiter, ...],
         trusted: TrustedProxies | None,
         key: Callable[[Scope], str | None] | None,
+        openapi: bool,
     ) -> None:
         """Hold the configuration, the limiters, and the middleware's cell."""
         self._name = name
+        self._openapi = openapi
         self._limiters = limiters
         self._trusted = trusted
         self._key = key
@@ -1104,6 +1128,30 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         the opt-in for answering those the same way.
         """
         return (RateLimitExceededError,)
+
+    def document_openapi(
+        self,
+        app: Annotated[Any, Doc("The FastAPI application to describe.")],  # noqa: ANN401
+    ) -> None:
+        """Describe the `429` a metered app can answer with, in the schema.
+
+        Every operation, not the metered ones. Which paths are metered is
+        tuned while the service runs, and the schema is built once, so
+        naming the current set would publish a document that stops being
+        true the first time an operator narrows it. A `429` says only what
+        a client may be answered with, never what it must send, so stating
+        it everywhere stays true whichever paths are metered.
+
+        Called by the FastAPI integration after the middleware is added. A
+        framework that builds no schema never calls it.
+        """
+        if not self._openapi:
+            return
+        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
+            document_rate_limited_requests,
+        )
+
+        document_rate_limited_requests(app)
 
     async def __aenter__(self) -> Self:
         """Open the component.

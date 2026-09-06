@@ -1128,6 +1128,33 @@ class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
 
     kind: ClassVar[str] = "conditional_requests"
 
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"etag_responses", "exclude", "include", "require_precondition"}
+    )
+    """Everything that decides whether a write is protected.
+
+    Live reload tunes what a request costs, never what it is protected
+    by. Narrowing this middleware's reach lets an unconditional write
+    through, and the update it erases is one nobody is told about, so the
+    reach is wired in code and changed by a deploy.
+
+    The OpenAPI schema is built once, from the app as installed, because
+    it is a published contract rather than a tuning knob: a file that
+    rewrote it would change the API with no code change and no review,
+    and each replica polls on its own clock, so two of them would publish
+    two different documents. Nothing the schema states is live either, or
+    the schema and the middleware would disagree.
+
+    `require_precondition` decides whether a write is refused without a
+    precondition, which the schema states. `etag_responses` decides
+    whether a read carries the tag at all, and turning it off would leave
+    a client that reads and then writes conditionally with nothing to
+    send, losing the protection it had without being told.
+
+    `max_body_size` stays live. It caps what is held in memory to hash,
+    which is a cost rather than a guarantee.
+    """
+
     def __init__(
         self,
         *,

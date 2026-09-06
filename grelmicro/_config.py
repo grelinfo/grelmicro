@@ -374,8 +374,11 @@ def resolve_config[C: BaseModel](
         # A complex field (a dict or a list) is JSON-decoded by
         # pydantic-settings in the source stage, before validation runs, so a
         # malformed `GREL_METRICS_HEADERS` never reaches `ValidationError`.
-        # The field name is in the message, the value is not.
-        raise SettingsValidationError(str(error)) from None
+        # The field name is in the message, the value is not. The hint is
+        # added because the message alone does not say what shape was
+        # expected, and JSON is not the first guess for an env var.
+        message = f"{error}. A field holding many values is written as JSON."
+        raise SettingsValidationError(message) from None
 
 
 _warned_ignored_env: set[str] = set()
@@ -846,9 +849,13 @@ _CONTAINER_ORIGINS: Final = (tuple, list, set, frozenset, dict, abc.Mapping)
 def _is_container(annotation: object) -> bool:
     """Return whether this annotation holds many values in one field.
 
-    Walks a union, so `tuple[str, ...] | None` counts as one. A scalar
-    is left alone, because pydantic already builds one from a string.
+    Walks a union, so `tuple[str, ...] | None` counts as one, and unwraps
+    `Annotated`, which pydantic keeps inside a union because the metadata
+    on one arm cannot be lifted out of it. A scalar is left alone,
+    because pydantic already builds one from a string.
     """
+    if get_origin(annotation) is Annotated:
+        return _is_container(get_args(annotation)[0])
     origin = get_origin(annotation)
     if origin in {Union, UnionType}:
         return any(
@@ -860,11 +867,17 @@ def _is_container(annotation: object) -> bool:
 
 
 def _decode_external(annotation: object, value: str) -> object:
-    """Decode one mounted value the way the environment path decodes it.
+    """Decode one mounted value the way the environment source decodes it.
 
     A mounted source carries strings, and a field holding many values has
-    to say all of them in one. `parse_csv_or_json` reads both the JSON a
-    file writes and the comma-separated list an operator types.
+    to say all of them in one. pydantic-settings JSON-decodes a complex
+    field before validation runs, so this does the same and the two
+    external doors answer alike: the same ConfigMap says the same thing
+    whether it is mounted as a volume or read through `envFrom`.
+
+    Only JSON, for that reason. A field that also reads a comma-separated
+    list says so with a validator of its own, which then sees the string
+    on both doors rather than on one.
 
     A scalar field is passed through untouched: pydantic builds an `int`,
     a `float` or a `bool` from its string already, and decoding first
@@ -876,8 +889,11 @@ def _decode_external(annotation: object, value: str) -> object:
     """
     if not _is_container(annotation):
         return value
+    text = value.strip()
+    if not text.startswith(("[", "{")):
+        return value
     try:
-        return parse_csv_or_json(value)
+        return json_loads(text)
     except ValueError:
         return value
 

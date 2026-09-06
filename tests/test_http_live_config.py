@@ -21,6 +21,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from grelmicro import Grelmicro
+from grelmicro._config import _is_container
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.config import ExternalConfig
@@ -35,11 +36,15 @@ from grelmicro.http import (
     IdempotencyMiddleware,
     IdempotentRequests,
     IdempotentRequestsConfig,
+    ProblemDetail,
     RateLimitedRequests,
     RateLimitedRequestsConfig,
 )
 from grelmicro.idempotency import Idempotency
-from grelmicro.integrations.fastapi import CachedResponse
+from grelmicro.integrations.fastapi import (
+    CachedResponse,
+    _annotate_rate_limited,
+)
 from grelmicro.log import AccessLog, AccessLogConfig
 from grelmicro.resilience import RateLimiter
 from grelmicro.security import TrustedProxies
@@ -76,6 +81,15 @@ NAMED_TTL = 600.0
 BUILT = 5
 """How many components the declarative door is swept over."""
 
+BODY_LIMIT = 2048
+"""Bytes the file says a body is held to."""
+
+RAISED_BODY_LIMIT = 4096
+"""Bytes a cost knob beside a refused key still moves to."""
+
+WAIT = 5.0
+"""Seconds the file says a duplicate waits."""
+
 YAML = """\
 grel:
   cached_responses:
@@ -86,11 +100,9 @@ grel:
     exclude: ["/admin/*"]
     vary_by_headers: ["accept-language"]
   conditional_requests:
-    require_precondition: ["PUT", "DELETE"]
-    include: ["/carts/*"]
+    max_body_size: 2048
   idempotent_requests:
-    methods: ["POST", "PATCH"]
-    include: ["/payments/*"]
+    wait_timeout: 5
   rate_limited_requests:
     max_wait: 0.5
     exclude: ["/livez", "/readyz"]
@@ -144,9 +156,8 @@ async def test_one_yaml_document_retunes_every_http_component(
         assert cache.config.ttl == DEFAULT_TTL
         assert cache.config.vary_by_headers == ("accept-language",)
         assert cache.config.exclude == ("/admin/*",)
-        assert conditional.config.require_precondition == ("PUT", "DELETE")
-        assert conditional.config.include == ("/carts/*",)
-        assert idempotent.config.methods == ("POST", "PATCH")
+        assert conditional.config.max_body_size == BODY_LIMIT
+        assert idempotent.config.wait_timeout == WAIT
         assert rate.config.max_wait == MAX_WAIT
         assert rate.config.exclude == ("/livez", "/readyz")
         assert access.config.exclude == ("/livez",)
@@ -413,9 +424,9 @@ def test_the_rendered_report_carries_the_endpoint_table() -> None:
             id="json-list",
         ),
         pytest.param(
-            "grel:\n  access_log:\n    exclude: /a, /b\n",
+            'grel:\n  access_log:\n    exclude: \'["/a", "/b"]\'\n',
             ("/a", "/b"),
-            id="comma-separated",
+            id="json-in-a-scalar",
         ),
     ],
 )
@@ -424,7 +435,13 @@ async def test_a_set_of_paths_reads_the_way_it_is_written(
     document: str,
     expected: tuple[str, ...],
 ) -> None:
-    """A file writes a list, and an operator types a comma-separated one."""
+    """A file writes a list, and a flat key writes the JSON one.
+
+    The same shape either way, because pydantic-settings JSON-decodes a
+    complex field from the environment and the mounted door has to
+    answer the same: one ConfigMap says one thing whether it is mounted
+    as a volume or read through `envFrom`.
+    """
     # Arrange
     access = AccessLog()
 
@@ -723,3 +740,334 @@ def test_the_middleware_refuses_a_bare_method_too(
     # Act / Assert
     with pytest.raises(TypeError, match="set of HTTP methods"):
         build()
+
+
+async def test_the_schema_is_fixed_at_startup() -> None:
+    """A published contract is not something a mounted file rewrites.
+
+    Each replica polls its own source on its own clock, so a live schema
+    would have two pods behind one load balancer publishing two
+    different documents. The schema describes the app as installed, and
+    what it states is not live either, so the two cannot disagree.
+    """
+    # Arrange
+    app = FastAPI()
+    micro = Grelmicro(uses=[ErrorResponses(), ConditionalRequests()])
+
+    @app.put("/carts/{cart}")
+    async def replace(cart: str) -> dict[str, str]:
+        return {"cart": cart}
+
+    micro.install(app)
+    component = cast(
+        "ConditionalRequests",
+        next(
+            one
+            for one in micro.components
+            if one.kind == "conditional_requests"
+        ),
+    )
+
+    # Act
+    before = _if_match(app)
+    await component.reconfigure(
+        ConditionalRequestsConfig(
+            require_precondition=("PUT",), include=("/carts/*",)
+        )
+    )
+    after = _if_match(app)
+
+    # Assert: the published document is the one the app was installed
+    # with, whatever a caller does to the component afterwards.
+    assert before == after
+    assert before["required"] is False
+
+
+def _if_match(app: FastAPI) -> dict[str, Any]:
+    """Return the `If-Match` parameter the schema documents on the write."""
+    operation = app.openapi()["paths"]["/carts/{cart}"]["put"]
+    return next(
+        parameter
+        for parameter in operation["parameters"]
+        if parameter["name"] == "If-Match"
+    )
+
+
+def test_every_container_field_is_decoded_from_a_mounted_value() -> None:
+    """A field pydantic cannot build from a string has to be decoded first.
+
+    An `Annotated` type inside a union is the one shape that reads as a
+    scalar unless it is unwrapped, and a field skipped here takes the
+    whole instance down with it: `reconfigure_all` drops every co-located
+    key in the same file when one of them fails.
+    """
+    # Arrange
+    configs = [
+        CachedResponsesConfig,
+        ConditionalRequestsConfig,
+        IdempotentRequestsConfig,
+        RateLimitedRequestsConfig,
+        AccessLogConfig,
+    ]
+    swept = [
+        (config.__name__, name, field.annotation)
+        for config in configs
+        for name, field in config.model_fields.items()
+    ]
+
+    # Act
+    missed = [
+        (owner, name)
+        for owner, name, annotation in swept
+        if _looks_plural(annotation) and not _is_container(annotation)
+    ]
+
+    # Assert
+    assert swept, "the sweep found no fields to check"
+    assert missed == []
+
+
+def _looks_plural(annotation: object) -> bool:
+    """Return whether this annotation names more than one value.
+
+    Read off the string, not off `_is_container`, so the sweep cannot
+    agree with the helper it is checking.
+    """
+    text = str(annotation)
+    return "tuple[" in text or "Mapping[" in text
+
+
+async def test_a_mounted_sequence_applies_beside_its_neighbours(
+    tmp_path: Path,
+) -> None:
+    """One field the decoder skipped used to drop the whole file's patch."""
+    # Arrange
+    cache = CachedResponses()
+    document = (
+        "grel:\n"
+        "  cached_responses:\n"
+        "    ttl: 120\n"
+        '    vary_by_query: ["page", "size"]\n'
+    )
+
+    # Act
+    async with ExternalConfig(_mounted(tmp_path, document), reload_interval=60):
+        # Assert
+        assert cache.config.vary_by_query == ("page", "size")
+        assert cache.config.ttl == KIND_TTL
+
+
+@pytest.mark.parametrize(
+    ("component", "field"),
+    [
+        pytest.param(
+            ConditionalRequests(), "require_precondition", id="precondition"
+        ),
+        pytest.param(IdempotentRequests(), "require_key", id="require-key"),
+        pytest.param(IdempotentRequests(), "key_header", id="key-header"),
+    ],
+)
+async def test_what_the_schema_states_is_not_live(
+    component: Any,  # noqa: ANN401
+    field: str,
+    tmp_path: Path,
+) -> None:
+    """A file must not change what a client has to send.
+
+    The schema is built once, so a field it states cannot move under it.
+    The key is reported to the operator rather than dropped in silence,
+    and every other key in the same file still applies.
+    """
+    # Arrange
+    prefix = f"GREL_{component.kind.upper()}_"
+    path = tmp_path / "config.env"
+    path.write_text(
+        f"{prefix}{field.upper()}=true\n"
+        f"{prefix}MAX_BODY_SIZE={RAISED_BODY_LIMIT}\n"
+    )
+    before = getattr(component.config, field)
+
+    # Act
+    async with ExternalConfig(str(path), reload_interval=60):
+        # Assert: refused, and the cost knob beside it still applies.
+        assert getattr(component.config, field) == before
+        assert component.config.max_body_size == RAISED_BODY_LIMIT
+
+
+@pytest.mark.parametrize(
+    ("component", "field", "value"),
+    [
+        pytest.param(
+            ConditionalRequests(), "exclude", '["/legacy"]', id="conditional"
+        ),
+        pytest.param(
+            IdempotentRequests(), "exclude", '["/pay"]', id="idempotent"
+        ),
+        pytest.param(IdempotentRequests(), "methods", '["PUT"]', id="methods"),
+    ],
+)
+async def test_what_protects_a_client_is_wired_in_code(
+    component: Any,  # noqa: ANN401
+    field: str,
+    value: str,
+    tmp_path: Path,
+) -> None:
+    """Live reload tunes what a request costs, never what protects it.
+
+    Take a path out of idempotency and the next retry runs the operation
+    twice. Take one out of conditional requests and an unconditional
+    write erases an update nobody is told about. Both are changed by a
+    deploy, where they are reviewed.
+    """
+    # Arrange
+    prefix = f"GREL_{component.kind.upper()}_"
+    path = tmp_path / "config.env"
+    path.write_text(
+        f"{prefix}{field.upper()}={value}\n{prefix}MAX_BODY_SIZE=4096\n"
+    )
+    before = getattr(component.config, field)
+
+    # Act
+    async with ExternalConfig(str(path), reload_interval=60):
+        # Assert: refused, and the cost knob beside it still applies.
+        assert getattr(component.config, field) == before
+        assert component.config.max_body_size == RAISED_BODY_LIMIT
+
+
+async def test_what_only_costs_time_is_tuned_live(tmp_path: Path) -> None:
+    """A cache miss runs the handler, so turning one off is safe to do live."""
+    # Arrange
+    cache = CachedResponses(include=("/products/*",))
+    path = tmp_path / "config.env"
+    path.write_text('GREL_CACHED_RESPONSES_EXCLUDE=["/products/hot"]\n')
+
+    # Act
+    async with ExternalConfig(str(path), reload_interval=60):
+        # Assert
+        assert cache.config.exclude == ("/products/hot",)
+
+
+def test_the_schema_documents_the_refusal_on_every_operation() -> None:
+    """A `429` is a superset, so it stays true whichever paths are metered.
+
+    Which paths are metered is live, and the schema is built once, so
+    naming the metered set would publish a document that stops being true
+    the first time an operator narrows it. A `429` says only what a
+    client may be answered with, never what it must send, so stating it
+    everywhere is the form that survives.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None)
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter(),
+                trusted=TrustedProxies(["10.0.0.0/8"]),
+                exclude=("/livez",),
+            ),
+        ]
+    )
+
+    @app.get("/products")
+    async def products() -> list[str]:
+        return []
+
+    @app.get("/livez")
+    async def livez() -> dict[str, str]:
+        return {}
+
+    micro.install(app)
+
+    # Act
+    paths = app.openapi()["paths"]
+
+    # Assert: the excluded path carries it too, because what is excluded
+    # is tuned live and the schema is not.
+    for path in ("/products", "/livez"):
+        responses = paths[path]["get"]["responses"]
+        assert "429" in responses
+        assert sorted(responses["429"]["headers"]) == [
+            "RateLimit",
+            "RateLimit-Policy",
+            "Retry-After",
+        ]
+
+
+def test_the_refusal_is_left_out_when_the_service_says_so() -> None:
+    """A service that publishes its own schema keeps it untouched."""
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None)
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter(),
+                trusted=TrustedProxies(["10.0.0.0/8"]),
+                openapi=False,
+            ),
+        ]
+    )
+
+    @app.get("/products")
+    async def products() -> list[str]:
+        return []
+
+    micro.install(app)
+
+    # Act
+    responses = app.openapi()["paths"]["/products"]["get"]["responses"]
+
+    # Assert
+    assert "429" not in responses
+
+
+def test_a_path_item_that_is_not_an_operation_is_left_alone() -> None:
+    """A path item carries more than operations, and only those take a `429`.
+
+    OpenAPI lets a path item hold `summary`, `description` and a shared
+    `parameters` list beside its operations. Writing a response into one
+    of those would publish a document no client can read.
+    """
+    # Arrange
+    schema: dict[str, Any] = {
+        "paths": {
+            "/products": {
+                "summary": "The catalog",
+                "parameters": [{"name": "trace", "in": "header"}],
+                "get": {"responses": {"200": {"description": "ok"}}},
+            }
+        }
+    }
+
+    # Act
+    _annotate_rate_limited(schema, "application/problem+json", ProblemDetail)
+
+    # Assert
+    item: dict[str, Any] = schema["paths"]["/products"]
+    assert item["summary"] == "The catalog"
+    assert item["parameters"] == [{"name": "trace", "in": "header"}]
+    operation: dict[str, Any] = item["get"]
+    assert "429" in operation["responses"]
+
+
+async def test_a_mounted_value_that_is_not_json_reaches_the_field(
+    tmp_path: Path,
+) -> None:
+    """The decoder does not guess, so the field says what it takes.
+
+    A complex value is JSON, the same as it is from the environment.
+    Anything else arrives as the string it was, and the field refuses it
+    with the message that says what to write instead.
+    """
+    # Arrange
+    access = AccessLog(exclude=("/kept",))
+    path = tmp_path / "config.env"
+    path.write_text(
+        "GREL_ACCESS_LOG_EXCLUDE=/livez\nGREL_ACCESS_LOG_QUERY=false\n"
+    )
+
+    # Act
+    async with ExternalConfig(str(path), reload_interval=60):
+        # Assert
+        assert access.config.exclude == ("/kept",)
