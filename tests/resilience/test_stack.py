@@ -255,6 +255,70 @@ async def test_run_refuses_a_sync_function() -> None:
         await stack.run(lambda: None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
+async def test_run_meters_through_the_limiter() -> None:
+    """`run` takes its tokens from the bucket the stack was given."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=1, refill_rate=SLOW_REFILL, backend=backend
+        )
+        stack = Stack("recs", patterns=[limiter])
+
+        async def work() -> str:
+            return "ok"
+
+        assert await stack.run(work) == "ok"
+        with pytest.raises(RateLimitExceededError):
+            await stack.run(work)
+
+
+async def test_run_hides_its_rate_limit_refusal_from_the_breaker() -> None:
+    """A call `run` never made cannot have failed the dependency."""
+    async with (
+        MemoryCircuitBreakerAdapter() as cb_backend,
+        MemoryRateLimiterAdapter() as rl_backend,
+    ):
+        breaker = CircuitBreaker.consecutive_count(
+            "recs", error_threshold=1, backend=cb_backend
+        )
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=1, refill_rate=SLOW_REFILL, backend=rl_backend
+        )
+        stack = Stack("recs", patterns=[breaker, limiter])
+
+        async def work() -> str:
+            return "ok"
+
+        assert await stack.run(work) == "ok"
+        with pytest.raises(RateLimitExceededError):
+            await stack.run(work)
+
+        metrics = breaker.metrics()
+        assert metrics.total_success_count == 1
+        assert metrics.total_error_count == 0
+
+
+async def test_run_refuses_a_key_the_target_does_not_take() -> None:
+    """A key template is checked before any pattern sees the call."""
+    async with MemoryRateLimiterAdapter() as backend:
+        limiter = RateLimiter.token_bucket(
+            "recs", capacity=CAPACITY, refill_rate=1, backend=backend
+        )
+        stack = Stack(
+            "recs",
+            patterns=[a_fallback(), a_retry(), limiter(key="user:{user_id}")],
+        )
+        calls = 0
+
+        async def work() -> str:
+            nonlocal calls
+            calls += 1
+            return "ok"
+
+        with pytest.raises(ValueError, match=r"which .* does not take"):
+            await stack.run(work)
+        assert calls == 0
+
+
 # --- The coordination contract ---
 
 
@@ -1024,6 +1088,28 @@ def test_a_generator_function_is_refused(kind: str) -> None:
         yield 1
 
     target = async_gen if kind == "async" else sync_gen
+    with pytest.raises(TypeError, match="runs its body while it is iterated"):
+        stack(target)
+
+
+@pytest.mark.parametrize(
+    "kind", ["method", "partial"], ids=["method", "partial"]
+)
+def test_a_generator_that_is_not_a_plain_function_is_refused(
+    kind: str,
+) -> None:
+    """A generator is refused however it is passed."""
+
+    class Service:
+        """A service whose method builds a generator."""
+
+        def stream(self) -> Iterator[int]:
+            yield 1
+
+    stack = Stack("recs", patterns=[a_retry()])
+    method = Service().stream
+    target = method if kind == "method" else functools.partial(method)
+
     with pytest.raises(TypeError, match="runs its body while it is iterated"):
         stack(target)
 
