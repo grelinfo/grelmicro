@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI, Security
+from fastapi import APIRouter, Depends, FastAPI, Security, WebSocket
 from fastapi.security import APIKeyHeader
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -1401,3 +1401,65 @@ def test_no_pattern_check_without_an_app() -> None:
 
     # Assert
     assert not [c for c in report.checks if c.name == "path-patterns"]
+
+
+def test_a_concrete_path_under_a_parameterized_route_is_not_dead() -> None:
+    """A pattern is matched against the URL, not against the template.
+
+    `/users/me` does select the request `GET /users/{uid}` answers, so
+    calling it dead would be a warning that cries wolf on the shape the
+    docs themselves recommend.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            AccessLog(exclude=("/users/me", "/typoo")),
+            CachedResponses(include={"/products/hot": 300, "/nope/*": 60}),
+        ]
+    )
+
+    @app.get("/users/{uid}")
+    async def user(uid: str) -> dict[str, str]:
+        return {"uid": uid}
+
+    @app.get("/products/{slug}")
+    async def product(slug: str) -> dict[str, str]:
+        return {"slug": slug}
+
+    micro.install(app)
+
+    # Act
+    warned = sorted(
+        check.detail
+        for check in micro.describe(app).checks
+        if check.name == "path-patterns"
+    )
+
+    # Assert: only the two that name nothing at all.
+    assert warned == [
+        "access_log/default names /typoo, which no route matches",
+        "cached_responses/default names /nope/*, which no route matches",
+    ]
+
+
+def test_a_route_with_no_method_still_counts_as_declared() -> None:
+    """A websocket route has no row in the table and is still a route."""
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(uses=[AccessLog(exclude=("/live",))])
+
+    @app.websocket("/live")
+    async def live(websocket: WebSocket) -> None:  # pragma: no cover
+        await websocket.accept()
+
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+
+    # Assert
+    assert not [c for c in report.checks if c.name == "path-patterns"]
+    assert report.endpoints == ()

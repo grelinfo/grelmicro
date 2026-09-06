@@ -845,12 +845,33 @@ def resolve_config_from_mapping[C: BaseModel](
     return cls.model_validate({**current.model_dump(), **decoded})
 
 
-_CONTAINER_ORIGINS: Final = (tuple, list, set, frozenset, dict, abc.Mapping)
-"""Field origins whose value arrives as one string and holds many."""
+_CONTAINER_ORIGINS: Final = (
+    tuple,
+    list,
+    set,
+    frozenset,
+    dict,
+    abc.Mapping,
+    abc.MutableMapping,
+    abc.Sequence,
+    abc.Collection,
+    abc.Set,
+)
+"""Field origins whose value arrives as one string and holds many.
+
+The abstract ones as well as the concrete, because a field annotated
+`Sequence[str]` reads from a mounted source exactly as `tuple[str, ...]`
+does.
+"""
 
 
 def _is_container(annotation: object) -> bool:
     """Return whether this annotation holds many values in one field.
+
+    The same question pydantic-settings asks of a field before it
+    JSON-decodes one from the environment, so the mounted door and the
+    environment door read a document the same way. A nested `BaseModel`
+    counts: a discriminated backoff arrives as one JSON object.
 
     Walks a union, so `tuple[str, ...] | None` counts as one, and unwraps
     `Annotated`, which pydantic keeps inside a union because the metadata
@@ -866,7 +887,9 @@ def _is_container(annotation: object) -> bool:
             for argument in get_args(annotation)
             if argument is not type(None)
         )
-    return origin in _CONTAINER_ORIGINS
+    if origin in _CONTAINER_ORIGINS:
+        return True
+    return isinstance(annotation, type) and issubclass(annotation, BaseModel)
 
 
 def _decode_external(annotation: object, value: str) -> object:

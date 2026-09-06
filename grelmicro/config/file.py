@@ -203,8 +203,13 @@ def _segment(key: object) -> str | None:
 
     The same normalisation an instance name goes through on its way into
     a prefix, so a `Lock("cart.v2")` reading `GREL_LOCK_CART_V2_*` is
-    filled by a document that writes `cart.v2` as it was named. `None`
-    for a key no segment can be built from, such as a path pattern.
+    filled by a document that writes `cart.v2` as it was named.
+
+    `None` only for a key no segment survives, one of punctuation alone
+    or one starting with a digit. A path pattern is not one of those:
+    `/products/*` normalises to `PRODUCTS`, so a mapping of patterns is
+    walked as well as written whole, and the walked names simply match
+    no field.
     """
     try:
         return env_segment(str(key))
@@ -212,7 +217,7 @@ def _segment(key: object) -> str | None:
         return None
 
 
-def _encoded(value: dict[Any, Any]) -> str | None:
+def _encoded(value: object) -> str | None:
     """Return the mapping as JSON, or `None` when it does not encode.
 
     A document may hold a value JSON has no form for, a date above all.
@@ -232,11 +237,17 @@ def _stringify(value: object) -> str:
     a mapping is written as JSON, which is what pydantic-settings parses
     a complex field from. `str()` would render a list as `['/a']`, whose
     quotes are not JSON, so the field it fills would refuse it.
+
+    A value JSON has no form for, a date inside a list above all, falls
+    back to `str()`. Raising here would take the whole document down,
+    every poll, over one key nothing may even read.
     """
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (list, tuple, dict)):
-        return json_dumps_str(cast("JSONEncodable", value))
+        encoded = _encoded(value)
+        if encoded is not None:
+            return encoded
     return str(value)
 
 

@@ -16,13 +16,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BARE_METHOD_MESSAGE",
+    "BARE_NAME_MESSAGE",
     "BARE_STRING_MESSAGE",
     "MALFORMED_JSON_MESSAGE",
+    "FieldNames",
     "MethodNames",
     "PathPatterns",
     "as_patterns",
     "matches",
     "refuse_bare_method",
+    "refuse_bare_name",
     "refuse_bare_string",
     "route_path",
     "selects",
@@ -49,6 +52,7 @@ it.
 """
 
 BARE_METHOD_MESSAGE = f"a set of HTTP methods is expected, {_WHY_NOT_A_STRING}"
+BARE_NAME_MESSAGE = f"a set of names is expected, {_WHY_NOT_A_STRING}"
 """Why a bare string is refused where a set of methods is expected.
 
 `methods="POST"` reads as `("P", "O", "S", "T")`, none of which is a
@@ -107,6 +111,15 @@ def refuse_bare_method(value: Any) -> Any:  # noqa: ANN401
     return _refuse(value, BARE_METHOD_MESSAGE)
 
 
+def refuse_bare_name(value: Any) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of names is expected.
+
+    Raises:
+        ValueError: If the value is a string.
+    """
+    return _refuse(value, BARE_NAME_MESSAGE)
+
+
 PathPatterns = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_string)]
 """A set of path patterns on a config, with the bare string refused.
 
@@ -119,6 +132,14 @@ MethodNames = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_method)]
 
 The same mistake as `PathPatterns` refuses, said in the words of the
 field it happened on, because `methods="POST"` is not a path.
+"""
+
+FieldNames = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_name)]
+"""A set of header or query names, with the bare string refused.
+
+`vary_by_headers="accept-language"` is the same missing comma, and
+nothing about a path pattern describes it: there is no prefix to match
+and no `*` to warn about.
 """
 
 _PREFIX = "*"

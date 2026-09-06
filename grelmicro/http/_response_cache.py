@@ -35,6 +35,7 @@ from grelmicro._config import (
 )
 from grelmicro._paths import (
     BARE_STRING_MESSAGE,
+    FieldNames,
     PathPatterns,
     as_patterns,
     matches,
@@ -174,13 +175,18 @@ def _seconds_per_path(
 
     Raises:
         ValueError: If a pattern names a lifetime that is not a positive
-            number of seconds. The pattern is named and the lifetime is
-            not, because the pattern locates the mistake.
+            number of seconds. Located by its position, never by the
+            pattern: this mapping can arrive from a mounted source, and
+            a key there is as much operator input as a value, which is
+            why the reload path keeps key names out of its logs too.
     """
     if isinstance(value, abc.Mapping):
-        for pattern, ttl in value.items():
+        for position, ttl in enumerate(value.values(), start=1):
             if not ttl > 0:
-                msg = f"include[{pattern!r}] {NOT_SECONDS}{_LEAVE_THE_PATH_OUT}"
+                msg = (
+                    f"pattern {position} in include "
+                    f"{NOT_SECONDS}{_LEAVE_THE_PATH_OUT}"
+                )
                 raise ValueError(msg)
     return value
 
@@ -624,14 +630,14 @@ class CachedResponsesConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("Paths never cached, whatever a route or `include` says."),
     ] = ()
     vary_by_headers: Annotated[
-        PathPatterns,
+        FieldNames,
         Doc(
             "Request headers whose value is part of the key. A response "
             "whose `Vary` names a header outside this set is not stored."
         ),
     ] = ()
     vary_by_query: Annotated[
-        PathPatterns | None,
+        FieldNames | None,
         Doc(
             "Query parameters that are part of the key. `None` keys on "
             "the whole query string."

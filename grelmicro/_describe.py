@@ -22,6 +22,7 @@ from grelmicro._redact import redact_url
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
+    from re import Pattern
 
     from grelmicro._app import Grelmicro
     from grelmicro._component import Component
@@ -520,9 +521,47 @@ def _describe_endpoints(
     return tuple(sorted(found, key=lambda row: (row.path, row.method)))
 
 
+def _declared_paths(app: object) -> list[tuple[str, Pattern[str]]]:
+    """Return every route the app declares, as its template and its regex.
+
+    The template answers a pattern written the way the route was, and
+    the regex answers one written as a URL the route serves.
+    """
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    found: list[tuple[str, Pattern[str]]] = []
+    for prefix, route, _ in walk_routes(app):
+        template = f"{prefix}{getattr(route, 'path', '')}"
+        regex, _, _ = compile_path(template)
+        found.append((template, regex))
+    return found
+
+
+def _names_a_route(
+    pattern: str, declared: list[tuple[str, Pattern[str]]]
+) -> bool:
+    """Return whether any declared route could be selected by `pattern`.
+
+    A prefix pattern needs a route sitting under it, which the template
+    answers. An exact one needs a route it names, which the template
+    answers when it was written the same way and the regex answers when
+    it was written as a URL.
+    """
+    if pattern.endswith("*"):
+        under = pattern[:-1]
+        return any(
+            template.startswith(under) or template == under.rstrip("/")
+            for template, _ in declared
+        )
+    return any(
+        template == pattern or regex.fullmatch(pattern)
+        for template, regex in declared
+    )
+
+
 def _pattern_checks(
     micro: Grelmicro,
-    endpoints: tuple[EndpointReport, ...],
+    app: object,
 ) -> list[CheckReport]:
     """Report a path pattern that names none of the app's routes.
 
@@ -531,11 +570,17 @@ def _pattern_checks(
     table shows no row for it because rows come from routes. This is
     where it becomes visible.
 
+    A pattern naming a concrete path under a parameterized route counts
+    as matched, because at runtime it is matched against the URL and not
+    against the template: `"/users/me"` does select the request that
+    `GET /users/{uid}` answers. Every route is read, including the ones
+    that declare no method and so have no row in the table.
+
     A warning rather than a failure. A router mounted after `install` is
     legitimate, and so is a pattern written for a path another service
     behind the same prefix serves.
     """
-    declared = {endpoint.path for endpoint in endpoints}
+    declared = _declared_paths(app)
     if not declared:
         return []
     found: list[CheckReport] = []
@@ -548,7 +593,7 @@ def _pattern_checks(
         missing = sorted(
             pattern
             for pattern in patterns
-            if not any(matches(path, (pattern,)) for path in declared)
+            if not _names_a_route(pattern, declared)
         )
         if missing:
             found.append(
@@ -579,7 +624,7 @@ def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     checks = _scope_checks(list(micro.components), micro.environment)
     endpoints = () if app is None else _describe_endpoints(micro, app)
     if app is not None:
-        checks += _pattern_checks(micro, endpoints)
+        checks += _pattern_checks(micro, app)
     return AppReport(
         environment=micro.environment,
         components=components,

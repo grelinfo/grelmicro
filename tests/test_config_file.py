@@ -268,3 +268,25 @@ async def test_a_value_json_has_no_form_for_is_still_walked(
     assert loaded is not None
     assert loaded["GREL_OUTBOX_BATCH_SIZE"] == "10"
     assert "GREL_OUTBOX" not in loaded
+
+
+async def test_a_list_json_has_no_form_for_is_still_written(
+    tmp_path: Path,
+) -> None:
+    """A key nothing may even read must not take the document down.
+
+    Raising here would fail every poll over one value, and
+    `ExternalConfig` would log it and keep the last good config, so the
+    whole mounted file would go quiet.
+    """
+    # Arrange
+    path = tmp_path / "config.yaml"
+    path.write_text("GREL_OUTBOX_SEEDS:\n  - !!binary aGk=\n")
+    adapter = FileConfigAdapter(path)
+
+    # Act
+    loaded = await adapter.load()
+
+    # Assert
+    assert loaded is not None
+    assert "GREL_OUTBOX_SEEDS" in loaded
