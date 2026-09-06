@@ -1349,3 +1349,55 @@ def test_a_second_instance_says_which_one_it_is() -> None:
 
     # Assert
     assert applies == ("cache 60s", "cache 300s (hot)")
+
+
+def test_a_pattern_matching_no_route_is_reported() -> None:
+    """A mistyped pattern turns a rule off and leaves no other trace.
+
+    It gets no row of its own, because rows come from routes, so the
+    only place it can surface is beside the table. A warning rather than
+    a failure: a router mounted after `install` is legitimate.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            CachedResponses(include={"/typoo": 60}),
+            AccessLog(exclude=("/livez",)),
+        ]
+    )
+
+    @app.get("/products")
+    async def products() -> list[str]:
+        return []
+
+    @app.get("/livez")
+    async def livez() -> dict[str, str]:
+        return {}
+
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+    warned = [check for check in report.checks if check.name == "path-patterns"]
+
+    # Assert
+    assert [check.detail for check in warned] == [
+        "cached_responses/default names /typoo, which no route matches"
+    ]
+    assert report.ok is True
+    assert "/typoo" not in {endpoint.path for endpoint in report.endpoints}
+
+
+def test_no_pattern_check_without_an_app() -> None:
+    """The routes are read off the application, so there is nothing to check."""
+    # Arrange
+    micro = Grelmicro(uses=[AccessLog(exclude=("/livez",))])
+
+    # Act
+    report = micro.describe()
+
+    # Assert
+    assert not [c for c in report.checks if c.name == "path-patterns"]

@@ -520,6 +520,50 @@ def _describe_endpoints(
     return tuple(sorted(found, key=lambda row: (row.path, row.method)))
 
 
+def _pattern_checks(
+    micro: Grelmicro,
+    endpoints: tuple[EndpointReport, ...],
+) -> list[CheckReport]:
+    """Report a path pattern that names none of the app's routes.
+
+    A pattern is a string, and a mistyped one turns a rule off without
+    saying so: nothing matches, so nothing happens, and the endpoint
+    table shows no row for it because rows come from routes. This is
+    where it becomes visible.
+
+    A warning rather than a failure. A router mounted after `install` is
+    legitimate, and so is a pattern written for a path another service
+    behind the same prefix serves.
+    """
+    declared = {endpoint.path for endpoint in endpoints}
+    if not declared:
+        return []
+    found: list[CheckReport] = []
+    for entry in micro.components:
+        if getattr(entry, "kind", "") not in _ENDPOINT_READERS:
+            continue
+        component: Any = entry
+        config = component.config
+        patterns = (*config.include, *config.exclude)
+        missing = sorted(
+            pattern
+            for pattern in patterns
+            if not any(matches(path, (pattern,)) for path in declared)
+        )
+        if missing:
+            found.append(
+                CheckReport(
+                    name="path-patterns",
+                    status="warn",
+                    detail=(
+                        f"{component.kind}/{component.name} names "
+                        f"{', '.join(missing)}, which no route matches"
+                    ),
+                )
+            )
+    return found
+
+
 def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     """Build the full report for `micro`.
 
@@ -533,12 +577,15 @@ def build_report(micro: Grelmicro, app: object = None) -> AppReport:
         describe_provider(provider) for provider in micro.providers
     )
     checks = _scope_checks(list(micro.components), micro.environment)
+    endpoints = () if app is None else _describe_endpoints(micro, app)
+    if app is not None:
+        checks += _pattern_checks(micro, endpoints)
     return AppReport(
         environment=micro.environment,
         components=components,
         providers=providers,
         checks=tuple(checks),
-        endpoints=(() if app is None else _describe_endpoints(micro, app)),
+        endpoints=endpoints,
     )
 
 

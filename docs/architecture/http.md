@@ -63,8 +63,8 @@ async def __call__(self, scope, receive, send):
     config = state.config
 ```
 
-Two plain attribute reads per request, both on slotted objects, and a single
-assignment to publish. Both stay atomic on free-threaded builds, so neither
+Two plain attribute reads per request, the second off a slotted cell, and a
+single assignment to publish. Both stay atomic on free-threaded builds, so neither
 side takes a lock.
 
 The cell holds one `_State`, never a field each. A cache that read its

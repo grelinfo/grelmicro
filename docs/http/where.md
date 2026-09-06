@@ -84,8 +84,12 @@ Endpoints
 ```
 
 One line per endpoint, read from the routes the app declares and the
-components registered beside them. It is computed, so it cannot drift, and a
-pattern that names no route shows up as a row nothing applies to.
+components registered beside them. It is computed, so it cannot drift.
+
+A pattern gets no row of its own, because rows come from routes. One that
+matches no route at all is reported beside the table instead, as a check: a
+mistyped pattern turns a rule off without saying so, and nothing matching is
+the only trace it leaves.
 
 `micro.describe(app).endpoints` returns the same thing as data.
 

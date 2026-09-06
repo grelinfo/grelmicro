@@ -36,9 +36,12 @@ micro.install(app)
 Nothing happens without the component. grelmicro installs into a framework you
 chose, so it changes nothing about how that framework answers until you ask.
 
-Every one of them takes `include` and `exclude` to say which paths it acts on,
-and every value on them is tunable from a mounted ConfigMap while the service
-runs. [Where a rule applies](where.md) covers both, once, for all of them.
+Every one of them takes `include` and `exclude` to say which paths it acts on.
+The response cache, the rate limiter and the access log are tuned from a
+mounted ConfigMap while the service runs. Conditional and idempotent requests
+are configured at startup, because what they protect is not a thing to change
+without a deploy. [Where a rule applies](where.md) covers both, once, for all
+of them.
 
 Every one of them is pure ASGI underneath, so it runs on FastAPI, Starlette,
 and Litestar alike, and a framework that serves no HTTP simply skips it. Read
