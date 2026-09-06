@@ -321,6 +321,10 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
 
     A handler the app registered first wins, and so does the one
     `install_error_responses` registered, which renders the same way.
+
+    A rejection carrying `headers` puts them on the answer, so what the
+    refusal has to tell the client, the quota it just spent above all,
+    travels with the status.
     """
     handled = getattr(component, "handled_exceptions", None)
     if handled is None:
@@ -341,7 +345,7 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
             content=rendered.body,
             status_code=rendered.status,
             media_type=rendered.media_type,
-            headers=rendered.headers,
+            headers=merge_headers(rendered, getattr(exc, "headers", None)),
         )
 
     for klass in handled():

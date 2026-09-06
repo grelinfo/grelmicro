@@ -101,6 +101,7 @@ nav:
         - http/conditional.md
         - http/idempotency.md
         - http/cache.md
+        - http/rate-limit.md
         - http/server.md
     - Security:
         - security/index.md

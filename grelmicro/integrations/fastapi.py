@@ -15,6 +15,8 @@ try:
     # has to import without it.
     from fastapi import Depends as _Depends
     from fastapi import Header as _Header
+    from fastapi import Request as _Request
+    from fastapi import Response as _Response
 
     HAS_FASTAPI = True
 except ImportError:  # pragma: no cover - the reimport test walks this
@@ -71,6 +73,8 @@ if TYPE_CHECKING:
 
     from grelmicro import Grelmicro
     from grelmicro.idempotency import Idempotency
+    from grelmicro.resilience.ratelimiter import RateLimiter
+    from grelmicro.security.clientip import TrustedProxies
     from grelmicro.trace._component import Trace
 
 __all__ = [
@@ -80,6 +84,7 @@ __all__ = [
     "ConditionalRequest",
     "ConditionalRequired",
     "HealthzResponse",
+    "RateLimited",
     "document_conditional_requests",
     "document_idempotency",
     "error_response",
@@ -369,6 +374,107 @@ def CachedResponse(  # noqa: N802
 
         raise DependencyNotFoundError(module="fastapi")
     return _Depends(declare_cached(ttl))
+
+
+def RateLimited(  # noqa: N802
+    *limiters: Annotated[
+        "RateLimiter",
+        Doc("The limiters this route spends, in the order given."),
+    ],
+    cost: Annotated[
+        int,
+        Doc("Tokens one call of this route spends of each."),
+    ] = 1,
+    max_wait: Annotated[
+        float,
+        Doc(
+            "Seconds a throttled call waits before it is refused. `0.0` "
+            "refuses as soon as the budget is spent."
+        ),
+    ] = 0.0,
+    key: Annotated[
+        "Callable[[Any], str | None] | None",
+        Doc(
+            "Builds the bucket key from the request, replacing the "
+            "resolved caller. Return `None` to leave a call unmetered."
+        ),
+    ] = None,
+    trusted: Annotated[
+        "TrustedProxies | None",
+        Doc(
+            "The proxies whose forwarded entries may be believed. Not "
+            "needed when a middleware already resolved the caller."
+        ),
+    ] = None,
+    legacy_headers: Annotated[
+        bool,
+        Doc("Also send the superseded `X-RateLimit-*` fields."),
+    ] = False,
+) -> Any:  # noqa: ANN401
+    """Meter one route, on top of whatever the app meters.
+
+    `RateLimitedRequests(...)` meters the whole app. Declare this on the
+    route that costs more than the rest, or that has a quota of its own:
+
+    ```python
+    from grelmicro.integrations.fastapi import RateLimited
+
+
+    @app.post("/search", dependencies=[RateLimited(search, cost=5)])
+    async def search(query: str) -> list[Hit]: ...
+    ```
+
+    Allowed or refused, the response states what the caller has left in
+    the `RateLimit` and `RateLimit-Policy` fields, and a refusal answers
+    `429` through the same path every other rejection takes.
+
+    The caller is the address a middleware already resolved, or the one
+    `trusted` resolves here. Without either, and without `key`, the call
+    is left unmetered rather than metered under the ingress.
+
+    Read more in the [Rate Limit](../http/rate-limit.md) docs.
+    """
+    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
+        from grelmicro.errors import (  # noqa: PLC0415
+            DependencyNotFoundError,
+        )
+
+        raise DependencyNotFoundError(module="fastapi")
+    if not limiters:
+        msg = (
+            "RateLimited() takes at least one limiter. Declaring it with "
+            "none would meter nothing while reporting that it does."
+        )
+        raise TypeError(msg)
+
+    async def metered(request: _Request, response: _Response) -> None:
+        """Spend this call's tokens, and state what is left."""
+        from grelmicro.http._ratelimit import spend  # noqa: PLC0415
+        from grelmicro.security.clientip import (  # noqa: PLC0415
+            resolve_client_address,
+        )
+
+        scope = request.scope
+        if key is not None:
+            bucket = key(request)
+        else:
+            resolved = scope.get("state", {}).get("client_address")
+            if resolved is None and trusted is not None:
+                resolved = resolve_client_address(scope, trusted)
+            bucket = None if resolved is None else resolved.key
+        if bucket is None:
+            return
+        stated = await spend(
+            limiters,
+            bucket,
+            cost=cost,
+            max_wait=max_wait,
+            legacy_headers=legacy_headers,
+        )
+        for name, value in stated.items():
+            response.headers[name] = value
+
+    return _Depends(metered)
 
 
 class ConditionalRequest:
