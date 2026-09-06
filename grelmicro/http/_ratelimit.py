@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from logging import getLogger
+from math import ceil
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
 from grelmicro._paths import as_patterns, matches, route_path
 from grelmicro.http._component import ErrorResponses, send_error
+from grelmicro.resilience._protocol import RateLimitResult
 from grelmicro.resilience.errors import RateLimitExceededError
+from grelmicro.resilience.ratelimiter import _config_limit, _validate_cost
 from grelmicro.resilience.ratelimiter.sliding_window import (
     SlidingWindowConfig,
 )
@@ -24,7 +27,6 @@ if TYPE_CHECKING:
     )
     from types import TracebackType
 
-    from grelmicro.resilience._protocol import RateLimitResult
     from grelmicro.resilience.ratelimiter import RateLimiter
     from grelmicro.security.clientip import TrustedProxies
 
@@ -59,8 +61,8 @@ def _policy_name(limiter: RateLimiter) -> str:
     if not name.isascii() or not name.isprintable():
         msg = (
             f"RateLimiter {name!r} cannot be named in a RateLimit header, "
-            "which carries printable ASCII. Name the limiter in ASCII, or "
-            "pass legacy_headers=True and no standard ones."
+            "which carries printable ASCII. Name the limiter in printable "
+            "ASCII: the name is what the header calls the policy."
         )
         raise ValueError(msg)
     if any(character in name for character in _SF_UNSAFE):
@@ -70,6 +72,34 @@ def _policy_name(limiter: RateLimiter) -> str:
         )
         raise ValueError(msg)
     return name
+
+
+async def spend_one(
+    limiter: Annotated[RateLimiter, Doc("The limiter to take tokens of.")],
+    key: Annotated[str, Doc("The bucket the caller is metered under.")],
+    *,
+    cost: Annotated[int, Doc("Tokens the call spends.")],
+    max_wait: Annotated[float, Doc("Seconds it waits before refusing.")],
+) -> RateLimitResult:
+    """Take one call's tokens, and return what the limiter decided.
+
+    A budget that runs out is a refusal like any other, so the result
+    says so rather than the wait raising it past the middleware that has
+    to answer for it. What the limiter knew is kept: the quota from its
+    own configuration, and the delay it named.
+    """
+    if not max_wait:
+        return await limiter.acquire(key=key, cost=cost)
+    try:
+        return await limiter.wait(key=key, cost=cost, max_wait=max_wait)
+    except RateLimitExceededError as refusal:
+        return RateLimitResult(
+            allowed=False,
+            limit=_config_limit(limiter._state.config),  # noqa: SLF001
+            remaining=0,
+            retry_after=refusal.retry_after,
+            reset_after=refusal.retry_after,
+        )
 
 
 def _window_of(limiter: RateLimiter) -> int | None:
@@ -82,7 +112,7 @@ def _window_of(limiter: RateLimiter) -> int | None:
     """
     config = limiter._state.config  # noqa: SLF001
     if isinstance(config, SlidingWindowConfig):
-        return int(config.window)
+        return ceil(config.window)
     return None
 
 
@@ -100,7 +130,7 @@ def _rate_limit_headers(
     served: list[tuple[bytes, bytes]] = []
     limits = ", ".join(
         f'"{_policy_name(limiter)}";r={max(result.remaining, 0)};'
-        f"t={int(result.reset_after)}"
+        f"t={ceil(result.reset_after)}"
         for limiter, result in seen
     )
     served.append((b"ratelimit", limits.encode("latin-1")))
@@ -119,7 +149,7 @@ def _rate_limit_headers(
                 (
                     str(result.limit).encode("latin-1"),
                     str(max(result.remaining, 0)).encode("latin-1"),
-                    str(int(result.reset_after)).encode("latin-1"),
+                    str(ceil(result.reset_after)).encode("latin-1"),
                 ),
                 strict=True,
             )
@@ -184,10 +214,12 @@ class RateLimitMiddleware:
         trusted: Annotated[
             TrustedProxies | None,
             Doc(
-                "The proxies whose forwarded entries may be believed, for "
-                "resolving the caller. Not needed when "
-                "`ClientAddressMiddleware` already resolved one, or when "
-                "`key` builds the key itself."
+                "The proxies whose forwarded entries may be believed, "
+                "for resolving the caller. Give this or `key`: without "
+                "either, the only bucket left is the socket peer, which "
+                "behind an ingress is the ingress. An address "
+                "`ClientAddressMiddleware` already resolved is reused, "
+                "and this says which proxies to believe when it has not."
             ),
         ] = None,
         key: Annotated[
@@ -233,7 +265,8 @@ class RateLimitMiddleware:
             TypeError: If no limiter is given, or the caller cannot be
                 resolved because neither `trusted` nor `key` was given.
             ValueError: If a limiter is named something a `RateLimit`
-                header cannot carry.
+                header cannot carry, or `cost` is more than one of them
+                can ever serve.
         """
         self.app = app
         self._limiters = tuple(limiters)
@@ -254,6 +287,7 @@ class RateLimitMiddleware:
             raise TypeError(msg)
         for limiter in self._limiters:
             _policy_name(limiter)
+            _validate_cost(cost, _config_limit(limiter._state.config))  # noqa: SLF001
         self._trusted = trusted
         self._key = key
         self._cost = cost
@@ -291,11 +325,9 @@ class RateLimitMiddleware:
 
     async def _spend(self, limiter: RateLimiter, key: str) -> RateLimitResult:
         """Take this request's tokens, waiting only if there is a budget."""
-        if self._max_wait:
-            return await limiter.wait(
-                key=key, cost=self._cost, max_wait=self._max_wait
-            )
-        return await limiter.acquire(key=key, cost=self._cost)
+        return await spend_one(
+            limiter, key, cost=self._cost, max_wait=self._max_wait
+        )
 
     def _key_of(self, scope: Scope) -> str | None:
         """Return the bucket this request is metered under.
@@ -386,38 +418,65 @@ def spend(
     async def spending() -> dict[str, str]:
         seen: list[tuple[RateLimiter, RateLimitResult]] = []
         for limiter in limiters:
-            result = (
-                await limiter.wait(key=key, cost=cost, max_wait=max_wait)
-                if max_wait
-                else await limiter.acquire(key=key, cost=cost)
-            )
+            result = await spend_one(limiter, key, cost=cost, max_wait=max_wait)
             seen.append((limiter, result))
-            stated = {
-                name.decode("latin-1"): value.decode("latin-1")
-                for name, value in _rate_limit_headers(
-                    seen, legacy=legacy_headers
-                )
-            }
             if not result.allowed:
                 error = RateLimitExceededError(
                     key=key, retry_after=result.retry_after
                 )
-                error.headers = stated  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+                error.headers = _stated(seen, legacy=legacy_headers)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
                 raise error
-        return stated
+        return _stated(seen, legacy=legacy_headers)
 
     return spending()
 
 
+def _stated(
+    seen: Sequence[tuple[RateLimiter, RateLimitResult]], *, legacy: bool
+) -> dict[str, str]:
+    """Return the same headers, named the way a response sets them."""
+    return {
+        name.decode("latin-1"): value.decode("latin-1")
+        for name, value in _rate_limit_headers(seen, legacy=legacy)
+    }
+
+
 def _stating(send: Send, headers: Sequence[tuple[bytes, bytes]]) -> Send:
-    """Return a `send` that states what the caller has left."""
+    """Return a `send` that states what the caller has left.
+
+    A route metering itself has already stated its own quota, so the two
+    are merged rather than appended: the standard fields are Lists and
+    join into one, and the superseded ones are single integers that a
+    client cannot read twice, so the route's stand.
+    """
+    ours = dict(headers)
 
     async def stating(message: Message) -> None:
         if message["type"] == "http.response.start":
-            message["headers"] = [*message["headers"], *headers]
+            message["headers"] = _merged(message["headers"], ours)
         await send(message)
 
     return stating
+
+
+def _merged(
+    already: Sequence[tuple[bytes, bytes]], ours: dict[bytes, bytes]
+) -> list[tuple[bytes, bytes]]:
+    """Return one field per name, with both meters in the Lists."""
+    kept: list[tuple[bytes, bytes]] = []
+    stated = dict(ours)
+    for name, value in already:
+        lowered = name.lower()
+        mine = stated.pop(lowered, None)
+        if mine is None:
+            kept.append((name, value))
+        elif lowered in _LEGACY_HEADERS:
+            # A single integer, and the route's is the narrower quota.
+            kept.append((name, value))
+        else:
+            kept.append((name, b", ".join((value, mine))))
+    kept.extend(stated.items())
+    return kept
 
 
 class RateLimitedRequests:

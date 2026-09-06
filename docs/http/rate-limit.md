@@ -88,8 +88,14 @@ from grelmicro.integrations.fastapi import RateLimited
 async def do_search(query: str) -> list[Hit]: ...
 ```
 
-Both budgets are spent, and both are stated in the answer. `cost=` is how many
-tokens the call takes, for an endpoint worth more than one.
+Both budgets are spent, and both are stated in the answer: the standard
+fields are lists, so the route's policy and the app's join into one. The
+superseded `X-RateLimit-*` fields are single integers that cannot be read
+twice, so the route's stand, being the narrower quota.
+
+`cost=` is how many tokens the call takes, for an endpoint worth more than
+one. A cost no limiter could ever serve is refused where it is written rather
+than failing every request.
 
 ## Waiting instead of refusing
 
@@ -102,6 +108,9 @@ Give a budget where a short wait is better than a retry:
 ```python
 RateLimitedRequests(burst, trusted=..., max_wait=0.5)
 ```
+
+A budget that runs out is still a refusal: the caller is answered `429` with
+the same headers, not an error.
 
 ## What is never metered
 

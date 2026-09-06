@@ -38,6 +38,7 @@ BURST = 2
 WINDOW = 60
 DAY = 86400
 PROXIES = ("10.0.0.0/8",)
+TWO_METERS = 2
 
 
 def _limiter(name: str, limit: int, window: int = WINDOW) -> RateLimiter:
@@ -636,6 +637,129 @@ def test_a_budget_waits_rather_than_refusing() -> None:
 
     # Assert
     assert response.status_code == HTTP_200_OK
+
+
+def test_a_budget_that_runs_out_is_a_refusal_not_a_failure() -> None:
+    """A wait that gives up is still the limiter turning a caller away."""
+    # Arrange
+    app = _app(_limiter("api", 1), max_wait=0.05)
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        client.get("/read")
+        response = client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["retry-after"]
+    assert response.headers["ratelimit"].startswith('"api";r=0')
+    assert response.headers["content-type"] == "application/problem+json"
+
+
+def test_a_route_budget_that_runs_out_states_its_quota_too() -> None:
+    """The refusal carries what it spent, whichever path refused it."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[
+            RateLimited(
+                _limiter("search", 1),
+                max_wait=0.05,
+                trusted=TrustedProxies(list(PROXIES)),
+            )
+        ],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        client.get("/search")
+        response = client.get("/search")
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert '"search";r=0' in response.headers["ratelimit"]
+
+
+@pytest.mark.parametrize("cost", [0, 50], ids=["nothing", "more than exists"])
+def test_a_cost_no_limiter_can_serve_is_refused(cost: int) -> None:
+    """Every request would fail, and it would fail as a server error."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="cost"):
+        RateLimitedRequests(
+            _limiter("api", 5),
+            trusted=TrustedProxies(list(PROXIES)),
+            cost=cost,
+        )
+
+
+def test_two_meters_state_one_field_each() -> None:
+    """A client reads one `RateLimit`, and one of each superseded field."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter("api", 10),
+                trusted=TrustedProxies(list(PROXIES)),
+                legacy_headers=True,
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[RateLimited(_limiter("search", 2), legacy_headers=True)],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/search")
+
+    # Assert
+    assert response.headers["x-ratelimit-limit"].isdigit()
+    assert '"search"' in response.headers["ratelimit"]
+    assert '"api"' in response.headers["ratelimit"]
+    assert response.headers["ratelimit"].count('";r=') == TWO_METERS
+
+
+def test_a_reset_is_rounded_up() -> None:
+    """Rounding down invites a retry that is refused again."""
+    # Arrange
+    app = _app(_limiter("api", 1, window=1), legacy_headers=True)
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        client.get("/read")
+        response = client.get("/read")
+
+    # Assert
+    assert response.headers["ratelimit"] == '"api";r=0;t=1'
+    assert response.headers["x-ratelimit-reset"] == "1"
+
+
+def test_a_window_under_a_second_is_a_second() -> None:
+    """A policy of zero seconds is a reset the client never waits for."""
+    # Arrange
+    app = _app(_limiter("api", 10, window=1))
+    client = TestClient(app, client=CALLER)
+
+    # Act
+    with client:
+        response = client.get("/read")
+
+    # Assert
+    assert response.headers["ratelimit-policy"] == '"api";q=10;w=1'
 
 
 # --- What the component exposes ---
