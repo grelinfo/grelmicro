@@ -1644,6 +1644,92 @@ def test_a_declaration_with_nothing_to_call_gates_nothing() -> None:
     assert schemes == []
 
 
+async def _require_key(
+    key: str = Security(APIKeyHeader(name="X-API-Key")),
+) -> str:
+    """Stand in for the gate a service writes once and reuses."""
+    return key
+
+
+async def _through_a_gate(key: str = Depends(_require_key)) -> str:
+    """Stand in for a gate reached through another one."""
+    return key
+
+
+def _cached_router(dependencies: list[Any] | None = None) -> APIRouter:
+    """Return a router holding one read that asks to be cached."""
+    router = APIRouter(dependencies=dependencies)
+
+    @router.get("/secret", dependencies=[CachedResponse(ttl=TTL)])
+    async def secret() -> dict[str, int]:
+        return {"secret": 1}
+
+    return router
+
+
+def _gated_app(spelling: str) -> FastAPI:
+    """Return an app whose cached read is gated, spelled one of seven ways."""
+    app = FastAPI()
+    gate = Security(APIKeyHeader(name="X-API-Key"))
+    if spelling == "on the route":
+        app.add_api_route(
+            "/secret",
+            lambda: {"secret": 1},
+            methods=["GET"],
+            dependencies=[gate, CachedResponse(ttl=TTL)],
+        )
+    elif spelling == "on the include":
+        app.include_router(_cached_router(), dependencies=[gate])
+    elif spelling == "through the include":
+        app.include_router(
+            _cached_router(), dependencies=[Depends(_require_key)]
+        )
+    elif spelling == "two deep":
+        app.include_router(
+            _cached_router(), dependencies=[Depends(_through_a_gate)]
+        )
+    elif spelling == "on the router":
+        app.include_router(_cached_router([gate]))
+    elif spelling == "on the app":
+        app = FastAPI(dependencies=[gate])
+        app.include_router(_cached_router())
+    elif spelling == "nested":  # pragma: no branch
+        middle = APIRouter()
+        middle.include_router(_cached_router(), dependencies=[gate])
+        app.include_router(middle, prefix="/api")
+    return app
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "on the route",
+        "on the include",
+        "through the include",
+        "two deep",
+        "on the router",
+        "on the app",
+        "nested",
+    ],
+)
+def test_a_gated_read_is_refused_however_the_gate_is_spelled(
+    spelling: str,
+) -> None:
+    """A hit answers before the app is routed, so no gate would run.
+
+    The whole surface, because each spelling reaches the route by a road
+    of its own, and one that is not read is a cached response handed to
+    whoever asks for it next.
+    """
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = _gated_app(spelling)
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+        micro.install(app)
+
+
 def test_a_router_built_with_it_leaves_its_writes_alone() -> None:
     """`APIRouter(dependencies=[...])` says the same as including with it."""
     # Arrange
