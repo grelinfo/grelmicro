@@ -254,7 +254,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             ),
             uses,
         )
-        self._track_reconfigure(env_prefix)
+        self._track_reconfigure(env_prefix, kind_prefix)
 
     def _setup(
         self,

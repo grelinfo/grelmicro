@@ -19,7 +19,10 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Mount, Route
 
 from grelmicro import Grelmicro
-from grelmicro.errors import MiddlewarePlacementWarning
+from grelmicro.errors import (
+    MiddlewarePlacementWarning,
+    SettingsValidationError,
+)
 from grelmicro.http import ConditionalRequests
 from grelmicro.log import AccessLog, AccessLogMiddleware
 
@@ -699,10 +702,14 @@ def test_a_bare_string_of_patterns_is_refused(field: str) -> None:
     # see, and which fails silently without it.
     mistake = cast("Any", {field: "/internal/*"})
 
+    # Two doors, and each refuses in the vocabulary of its own layer. The
+    # middleware is hand-wired ASGI, where a wrong argument type is a
+    # `TypeError`. The component takes settings, and every component
+    # field refuses a bad value with the one error the library raises.
     with pytest.raises(TypeError, match="is a string"):
         AccessLogMiddleware(_answers(200), **mistake)
 
-    with pytest.raises(TypeError, match="is a string"):
+    with pytest.raises(SettingsValidationError, match="is a string"):
         AccessLog(**mistake)
 
 

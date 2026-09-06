@@ -17,10 +17,11 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from typing_extensions import Doc
 
 from grelmicro._environment import unmet_requirements
+from grelmicro._paths import matches, selects, walk_routes
 from grelmicro._redact import redact_url
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from grelmicro._app import Grelmicro
     from grelmicro._component import Component
@@ -31,6 +32,7 @@ __all__ = [
     "AppReport",
     "CheckReport",
     "ComponentReport",
+    "EndpointReport",
     "ProviderReport",
 ]
 
@@ -127,6 +129,28 @@ class CheckReport:
 
 
 @dataclass(frozen=True)
+class EndpointReport:
+    """One endpoint, and what every registered component does to it.
+
+    Answers "what happens to `GET /products`" in one line, read from the
+    routes the app declares and the components registered beside them.
+    It is a view, never a second place to configure: what it says is
+    computed from the one source of truth, so it cannot drift from it.
+    """
+
+    method: Annotated[str, Doc('The HTTP method, such as `"GET"`.')]
+    path: Annotated[str, Doc("The path the route is declared under.")]
+    applies: Annotated[
+        tuple[str, ...],
+        Doc(
+            "What each component does to this endpoint, one entry per "
+            'component, such as `"cache 60s"` or `"idempotent POST"`. '
+            "Empty when nothing acts on it."
+        ),
+    ] = ()
+
+
+@dataclass(frozen=True)
 class AppReport:
     """What a `Grelmicro` app is wired with.
 
@@ -149,6 +173,14 @@ class AppReport:
     checks: Annotated[
         tuple[CheckReport, ...],
         Doc("Startup checks, in the order they are reported."),
+    ] = ()
+    endpoints: Annotated[
+        tuple[EndpointReport, ...],
+        Doc(
+            "What each registered component does to each endpoint. Empty "
+            "unless `describe(app)` was given the application, since the "
+            "routes are read off it."
+        ),
     ] = ()
 
     @property
@@ -306,7 +338,147 @@ def _scope_checks(
     ]
 
 
-def build_report(micro: Grelmicro) -> AppReport:
+def _endpoint_rules(
+    components: Sequence[Any],
+) -> list[tuple[str, Callable[[str, str], str | None]]]:
+    """Return what each registered component says about one endpoint.
+
+    Each entry is the component's label and a reader that answers for one
+    `(method, path)`, or `None` when the component leaves it alone. Built
+    once per report rather than per route.
+    """
+    rules: list[tuple[str, Callable[[str, str], str | None]]] = []
+    for component in components:
+        kind = getattr(component, "kind", None)
+        reader = _ENDPOINT_READERS.get(kind or "")
+        if reader is None:
+            continue
+        rules.append((f"{kind}/{component.name}", reader(component)))
+    return rules
+
+
+def _selected(config: Any, path: str) -> bool:  # noqa: ANN401
+    """Return whether a component acting on paths acts on this one."""
+    return selects(
+        path, include=tuple(config.include), exclude=tuple(config.exclude)
+    )
+
+
+def _reads_cache(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+    """Return what a `CachedResponses` does to one endpoint."""
+
+    def read(method: str, path: str) -> str | None:
+        state = component._live.state  # noqa: SLF001
+        config = state.config
+        if method not in {"GET", "HEAD"} or matches(path, config.exclude):
+            return None
+        ttl = state.policies.ttl_for(path, config.ttl)
+        return None if ttl is None else f"cache {ttl:g}s"
+
+    return read
+
+
+def _reads_conditional(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+    """Return what a `ConditionalRequests` does to one endpoint."""
+
+    def read(method: str, path: str) -> str | None:
+        config = component.config
+        if not _selected(config, path):
+            return None
+        required = {name.upper() for name in config.require_precondition}
+        return "conditional required" if method in required else "conditional"
+
+    return read
+
+
+def _reads_idempotent(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+    """Return what an `IdempotentRequests` does to one endpoint."""
+
+    def read(method: str, path: str) -> str | None:
+        config = component.config
+        methods = {name.upper() for name in config.methods}
+        if method not in methods or not _selected(config, path):
+            return None
+        return f"idempotent {component.idempotency.config.ttl:g}s"
+
+    return read
+
+
+def _reads_rate_limited(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+    """Return what a `RateLimitedRequests` does to one endpoint."""
+
+    def read(method: str, path: str) -> str | None:  # noqa: ARG001
+        config = component.config
+        if not _selected(config, path):
+            return None
+        named = ", ".join(limiter.name for limiter in component.limiters)
+        return f"rate-limit {named}"
+
+    return read
+
+
+def _reads_access_log(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+    """Return what an `AccessLog` does to one endpoint."""
+
+    def read(method: str, path: str) -> str | None:  # noqa: ARG001
+        config = component.config
+        if not _selected(config, path):
+            return None
+        quiet = matches(path, tuple(config.quiet))
+        return "access-log quiet" if quiet else "access-log"
+
+    return read
+
+
+_ENDPOINT_READERS: Mapping[
+    str, Callable[[Any], Callable[[str, str], str | None]]
+] = {
+    "cached_responses": _reads_cache,
+    "conditional_requests": _reads_conditional,
+    "idempotent_requests": _reads_idempotent,
+    "rate_limited_requests": _reads_rate_limited,
+    "access_log": _reads_access_log,
+}
+"""Which components answer for an endpoint, and how to read each.
+
+A component absent from here does nothing per endpoint, so it is left out
+of the view rather than reported as doing nothing.
+"""
+
+
+def _describe_endpoints(
+    micro: Grelmicro,
+    app: object,
+) -> tuple[EndpointReport, ...]:
+    """Return one row per endpoint the app declares, in path order.
+
+    Reads the routes off the application the same way the response cache
+    reads them, so a mounted app and an included router are walked too.
+    """
+    rules = _endpoint_rules(list(micro.components))
+    if not rules:
+        return ()
+    found: list[EndpointReport] = []
+    for prefix, route, _ in walk_routes(app):
+        path = f"{prefix}{getattr(route, 'path', '')}"
+        for method in sorted(getattr(route, "methods", ()) or ()):
+            if method == "HEAD":
+                continue
+            found.append(
+                EndpointReport(
+                    method=method,
+                    path=path,
+                    applies=tuple(
+                        applied
+                        for _, read in rules
+                        if (applied := read(method, path)) is not None
+                    ),
+                )
+            )
+    return tuple(sorted(found, key=lambda row: (row.path, row.method)))
+
+
+def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     """Build the full report for `micro`.
 
     Reads only what is already registered, so it is safe before the app is
@@ -324,6 +496,7 @@ def build_report(micro: Grelmicro) -> AppReport:
         components=components,
         providers=providers,
         checks=tuple(checks),
+        endpoints=(() if app is None else _describe_endpoints(micro, app)),
     )
 
 
@@ -359,12 +532,27 @@ def _render_providers(report: AppReport) -> list[str]:
     return lines
 
 
+def _render_endpoints(report: AppReport) -> list[str]:
+    """Return the Endpoints block, aligned on the longest route."""
+    if not report.endpoints:
+        return []
+    labels = [f"{row.method:<6} {row.path}" for row in report.endpoints]
+    width = max(len(text) for text in labels)
+    lines = ["Endpoints"]
+    for text, row in zip(labels, report.endpoints, strict=True):
+        applied = "  ".join(row.applies) or "-"
+        lines.append(f"  {text.ljust(width)}  {applied}")
+    lines.append("")
+    return lines
+
+
 def _render(report: AppReport) -> str:
     """Render the whole report as plain text."""
     environment = report.environment or "undeclared"
     lines = [f"Environment: {environment}", ""]
     lines += _render_components(report)
     lines += _render_providers(report)
+    lines += _render_endpoints(report)
     lines.append("Checks")
     for check in report.checks:
         marker = {"ok": "ok  ", "warn": "warn", "fail": "FAIL"}[check.status]

@@ -7,10 +7,11 @@ so `micro.install(app)` adds it.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -21,10 +22,17 @@ from typing import (
     cast,
 )
 
+from pydantic import BaseModel, PositiveFloat, PositiveInt, StrictStr
 from typing_extensions import Doc
 
+from grelmicro._config import (
+    Live,
+    Reconfigurable,
+    env_prefixes,
+    resolve_config,
+)
 from grelmicro._guards import is_instance, type_name
-from grelmicro._paths import as_patterns, route_path, selects
+from grelmicro._paths import PathPatterns, as_patterns, route_path, selects
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -163,10 +171,15 @@ _KEY_SEPARATOR = "\x1f"
 
 
 def _field_name(value: str, argument: str, example: str) -> str:
-    """Return `value`, or raise when it is not an HTTP field name."""
-    if not is_instance(value, str):
-        msg = f"{argument} must be a string, got {type_name(value)}."
-        raise SettingsValidationError(msg)
+    """Return `value`, or raise when it is not an HTTP field name.
+
+    Only the shape is checked here. Whether it is a string at all is
+    settled by the config's `StrictStr`, which refuses `bytes` rather
+    than decoding them, so this is only ever handed one.
+
+    Raises:
+        SettingsValidationError: If it is not an HTTP field name.
+    """
     if not _FIELD_NAME.fullmatch(value):
         msg = (
             f"{argument} is not an HTTP field name. Use letters, digits, "
@@ -252,6 +265,103 @@ class _Entry(TypedDict):
     status: int
     headers: Sequence[Sequence[str]]
     body: str
+
+
+class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
+    """Idempotent Requests Config.
+
+    The window a key replays for lives on the `Idempotency` this rides,
+    under `GREL_IDEMPOTENCY_TTL`, because that is the object that stores
+    the response.
+    """
+
+    key_header: Annotated[
+        StrictStr,
+        Doc("Request header carrying the idempotency key."),
+    ] = "Idempotency-Key"
+    replay_header: Annotated[
+        StrictStr,
+        Doc("Response header marking a replayed response."),
+    ] = _DEFAULT_REPLAY_HEADER
+    methods: Annotated[
+        PathPatterns,
+        Doc(
+            "Methods that take an idempotency key. Every other method "
+            "passes through."
+        ),
+    ] = ("POST",)
+    require_key: Annotated[
+        bool,
+        Doc(
+            "Answer `400` when a method in `methods` arrives without the "
+            "header, instead of passing it through."
+        ),
+    ] = False
+    fingerprint_body: Annotated[
+        bool,
+        Doc(
+            "Hash the request body and store the hash with the response, "
+            "so a key reused with a different body is refused."
+        ),
+    ] = False
+    max_body_size: Annotated[
+        PositiveInt,
+        Doc("Largest body held in memory, in bytes."),
+    ] = 1024 * 1024
+    wait_timeout: Annotated[
+        PositiveFloat,
+        Doc(
+            "Seconds a duplicate waits for an execution already in "
+            "flight, before it is answered with `409`."
+        ),
+    ] = 10.0
+    include: Annotated[
+        PathPatterns,
+        Doc("Paths this middleware acts on. Empty means every path."),
+    ] = ()
+    exclude: Annotated[
+        PathPatterns,
+        Doc("Paths this middleware leaves alone, whatever `include` says."),
+    ] = ()
+    reused_status: Annotated[
+        int,
+        Doc("Status answering a key reused with a different payload."),
+    ] = IDEMPOTENCY_KEY_REUSED.status
+
+
+@dataclass(frozen=True, slots=True)
+class _State:
+    """What the middleware answers one request from.
+
+    Holds the configuration beside the values derived from it, so a
+    reader takes both in one read. The header names are folded to the
+    lower-case bytes a scope carries, and the methods to the upper case,
+    because a request is matched against them and a caller may have
+    written either.
+    """
+
+    config: IdempotentRequestsConfig
+    methods: frozenset[str]
+    header: bytes
+    replay_header: bytes
+    reused: Kind
+
+
+def _state_of(config: IdempotentRequestsConfig) -> _State:
+    """Derive what the request path needs from a configuration."""
+    return _State(
+        config=config,
+        methods=frozenset(method.upper() for method in config.methods),
+        header=_key_name(config.key_header).lower().encode("ascii"),
+        replay_header=(
+            _replay_name(config.replay_header).lower().encode("ascii")
+        ),
+        reused=(
+            IDEMPOTENCY_KEY_REUSED
+            if config.reused_status == IDEMPOTENCY_KEY_REUSED.status
+            else replace(IDEMPOTENCY_KEY_REUSED, status=config.reused_status)
+        ),
+    )
 
 
 class IdempotencyMiddleware:
@@ -445,56 +555,74 @@ class IdempotencyMiddleware:
                 """
             ),
         ] = IDEMPOTENCY_KEY_REUSED.status,
+        live: Annotated[
+            Live[_State] | None,
+            Doc(
+                "The cell a registered `IdempotentRequests` publishes its "
+                "snapshot into, filled by `micro.install(app)`. Passing it "
+                "makes the other options the component's to decide."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the middleware with the idempotency store and policy."""
         self.app = app
         self._idempotency = idempotency
-        self._header = _key_name(key_header).lower().encode("ascii")
-        self._header_name = key_header
-        self._replay_header = (
-            _replay_name(replay_header).lower().encode("ascii")
-        )
-        self._replay_header_name = replay_header
-        self._replay_collision_logged = False
-        self._methods = frozenset(method.upper() for method in methods)
         self._key_maker = key_maker
         self._skip = skip
-        self._require_key = require_key
-        self._fingerprint_body = fingerprint_body
-        self._max_body_size = max_body_size
-        self._wait_timeout = wait_timeout
-        self._include = as_patterns(include, name="include")
-        self._exclude = as_patterns(exclude, name="exclude")
-        self._reused = (
-            IDEMPOTENCY_KEY_REUSED
-            if reused_status == IDEMPOTENCY_KEY_REUSED.status
-            else replace(IDEMPOTENCY_KEY_REUSED, status=reused_status)
+        self._replay_collision_logged = False
+        # A middleware built by hand owns its cell and never sees a new
+        # snapshot, so the two doors read exactly the same way.
+        self._live = (
+            live
+            if live is not None
+            else Live(
+                _state_of(
+                    IdempotentRequestsConfig(
+                        key_header=key_header,
+                        replay_header=replay_header,
+                        methods=as_patterns(tuple(methods), name="methods"),
+                        require_key=require_key,
+                        fingerprint_body=fingerprint_body,
+                        max_body_size=max_body_size,
+                        wait_timeout=wait_timeout,
+                        include=as_patterns(include, name="include"),
+                        exclude=as_patterns(exclude, name="exclude"),
+                        reused_status=reused_status,
+                    )
+                )
+            )
         )
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Replay, execute, or pass the request through."""
+        # One read, at the top, for the whole request. A reconfigure
+        # publishes a new snapshot between requests, and one already
+        # running finishes on the one it started with.
+        state = self._live.state
+        config = state.config
         if (
             scope["type"] != "http"
-            or scope["method"] not in self._methods
+            or scope["method"] not in state.methods
             or not selects(
                 route_path(scope),
-                include=self._include,
-                exclude=self._exclude,
+                include=config.include,
+                exclude=config.exclude,
             )
         ):
             await self.app(scope, receive, send)
             return
 
-        key = _header_value(scope["headers"], self._header)
+        header_name = config.key_header
+        key = _header_value(scope["headers"], state.header)
         if not key:
-            if self._require_key:
+            if config.require_key:
                 await _refuse(
                     send,
                     scope,
                     IDEMPOTENCY_KEY_INVALID,
-                    f"The {self._header_name} header is required on this "
+                    f"The {header_name} header is required on this "
                     f"request and was not sent.",
                 )
                 return
@@ -506,7 +634,7 @@ class IdempotencyMiddleware:
                 send,
                 scope,
                 IDEMPOTENCY_KEY_INVALID,
-                f"The {self._header_name} header is longer than "
+                f"The {header_name} header is longer than "
                 f"{_MAX_KEY_LENGTH} characters.",
             )
             return
@@ -516,15 +644,15 @@ class IdempotencyMiddleware:
                 send,
                 scope,
                 IDEMPOTENCY_KEY_INVALID,
-                f"The {self._header_name} header holds a character it "
+                f"The {header_name} header holds a character it "
                 f"cannot carry. Use printable ASCII, such as a UUID.",
             )
             return
 
         fingerprint = None
-        if self._fingerprint_body:
+        if config.fingerprint_body:
             body, too_large, receive = await _buffer_request(
-                receive, self._max_body_size
+                receive, config.max_body_size
             )
             if too_large:
                 await _refuse(send, scope, REQUEST_BODY_TOO_LARGE)
@@ -533,7 +661,12 @@ class IdempotencyMiddleware:
                 fingerprint = hashlib.sha256(body).hexdigest()
 
         await self._execute(
-            scope, receive, send, self._storage_key(scope, key), fingerprint
+            scope,
+            receive,
+            send,
+            state,
+            self._storage_key(scope, key),
+            fingerprint,
         )
 
     async def _execute(
@@ -541,14 +674,21 @@ class IdempotencyMiddleware:
         scope: Scope,
         receive: Receive,
         send: Send,
+        state: _State,
         storage_key: str,
         fingerprint: str | None,
     ) -> None:
-        """Run the request under the idempotency block, or replay it."""
+        """Run the request under the idempotency block, or replay it.
+
+        Takes the snapshot `__call__` read rather than reading its own, so
+        one request answers from one configuration throughout.
+        """
+        config = state.config
+        header_name = config.key_header
         block = self._idempotency(
             storage_key,
             fingerprint=fingerprint,
-            wait_timeout=self._wait_timeout,
+            wait_timeout=config.wait_timeout,
         )
         try:
             operation = await block.__aenter__()
@@ -556,8 +696,8 @@ class IdempotencyMiddleware:
             await _refuse(
                 send,
                 scope,
-                self._reused,
-                f"The {self._header_name} header was already used with a "
+                state.reused,
+                f"The {header_name} header was already used with a "
                 f"different request payload. Use a fresh key, or resend the "
                 f"original payload.",
             )
@@ -567,7 +707,7 @@ class IdempotencyMiddleware:
                 send,
                 scope,
                 IDEMPOTENCY_IN_FLIGHT,
-                f"A request with this {self._header_name} is still running. "
+                f"A request with this {header_name} is still running. "
                 f"Retry after the delay in the Retry-After header to read "
                 f"its response.",
                 retry_after=_IN_FLIGHT_RETRY_AFTER,
@@ -585,18 +725,20 @@ class IdempotencyMiddleware:
                     send,
                     operation.result(),
                     head=scope["method"] == "HEAD",
-                    replay_header=self._replay_header,
+                    replay_header=state.replay_header,
                 )
             else:
                 capture = _ResponseCapture(
                     send,
-                    self._max_body_size,
+                    config.max_body_size,
                     self._skip,
-                    self._replay_header,
+                    state.replay_header,
                     scope,
                 )
                 await self.app(scope, receive, capture)
-                self._report_collision(replaced=capture.replaced)
+                self._report_collision(
+                    config.replay_header, replaced=capture.replaced
+                )
                 if capture.stored is not None:
                     operation.store(capture.stored)
         except BaseException as exc:
@@ -605,7 +747,7 @@ class IdempotencyMiddleware:
         else:
             await block.__aexit__(None, None, None)
 
-    def _report_collision(self, *, replaced: bool) -> None:
+    def _report_collision(self, name: str, *, replaced: bool) -> None:
         """Say once that a response carried the marker's name itself.
 
         A response is captured without the marker, so this is a value of
@@ -619,7 +761,7 @@ class IdempotencyMiddleware:
             "The %s header a response carried made way for the replay "
             "marker. Give replay_header a name of its own where that "
             "value matters.",
-            self._replay_header_name,
+            name,
         )
 
     def _storage_key(self, scope: Scope, key: str) -> str:
@@ -931,7 +1073,7 @@ def _registered_errors(scope: Scope) -> ErrorResponses:
     return registered if registered is not None else ErrorResponses()
 
 
-class IdempotentRequests:
+class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
     """Replay repeated requests, wired by `micro.install(app)`.
 
     Register it and `install` adds `IdempotencyMiddleware` to the app and
@@ -973,16 +1115,17 @@ class IdempotentRequests:
         ttl: Annotated[
             float | None,
             Doc(
-                "Seconds a stored response replays for. Defaults to a day, "
-                "or to `GREL_IDEMPOTENCY_TTL` where the environment sets "
-                "one."
+                "Seconds a stored response replays for. Defaults to a day. "
+                "Held by the `Idempotency` this rides, so it is tuned live "
+                "under `GREL_IDEMPOTENCY_TTL`."
             ),
         ] = None,
         namespace: Annotated[
             str,
             Doc(
                 "Namespace the stored keys sit under, so two sets of rules "
-                "on one app never read each other's responses."
+                "on one app never read each other's responses. Part of "
+                "every stored key, so it is not live."
             ),
         ] = "http",
         cache: Annotated[
@@ -993,23 +1136,23 @@ class IdempotentRequests:
             ),
         ] = None,
         key_header: Annotated[
-            str,
+            str | None,
             Doc("Request header carrying the idempotency key."),
-        ] = "Idempotency-Key",
+        ] = None,
         replay_header: Annotated[
-            str,
+            str | None,
             Doc(
                 "Response header marking a replayed response. No standard "
                 "names one, so pick what the clients already read."
             ),
-        ] = _DEFAULT_REPLAY_HEADER,
+        ] = None,
         methods: Annotated[
-            Collection[str],
+            Collection[str] | None,
             Doc(
                 "Methods that take an idempotency key. Every other method "
                 "passes through."
             ),
-        ] = ("POST",),
+        ] = None,
         key_maker: Annotated[
             Callable[[Scope, str], str] | None,
             Doc(
@@ -1026,85 +1169,195 @@ class IdempotentRequests:
             ),
         ] = None,
         require_key: Annotated[
-            bool,
+            bool | None,
             Doc(
                 "Answer `400` when a method in `methods` arrives without "
                 "the header, instead of passing it through."
             ),
-        ] = False,
+        ] = None,
         fingerprint_body: Annotated[
-            bool,
+            bool | None,
             Doc(
                 "Hash the request body and store the hash with the "
                 "response, so a key reused with a different body gets "
                 "`422` instead of a wrong replay."
             ),
-        ] = False,
+        ] = None,
         max_body_size: Annotated[
-            int,
+            int | None,
             Doc("Largest body held in memory, in bytes."),
-        ] = 1024 * 1024,
+        ] = None,
         wait_timeout: Annotated[
-            float,
+            float | None,
             Doc(
                 "Seconds a duplicate waits for an execution already in "
                 "flight, before it is answered with `409`."
             ),
-        ] = 10.0,
+        ] = None,
         include: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths this middleware acts on. Empty means every path. "
                 "Name the prefix of a router to select it, as "
                 '`"/payments/*"`.'
             ),
-        ] = (),
+        ] = None,
         exclude: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths this middleware leaves alone, whatever `include` "
                 "says. Same matching."
             ),
-        ] = (),
+        ] = None,
         reused_status: Annotated[
-            int,
+            int | None,
             Doc(
                 "Status answering a key reused with a different payload. "
                 "`422` is what the Idempotency-Key header draft asks for, "
                 "and `400` is what some APIs answer instead."
             ),
-        ] = IDEMPOTENCY_KEY_REUSED.status,
+        ] = None,
         openapi: Annotated[
             bool,
             Doc(
                 "Describe both headers and the responses the middleware "
-                "returns in the OpenAPI schema. Only FastAPI builds one, "
-                "and every other framework ignores this."
+                "returns in the OpenAPI schema. Only FastAPI builds one. "
+                "Read once when the schema is built, so it is not live."
             ),
         ] = True,
         name: Annotated[
             str,
             Doc("Registration name, for a second set of rules on one app."),
         ] = "default",
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                "Override the derived prefix, `GREL_IDEMPOTENT_REQUESTS_` "
+                "for the default instance."
+            ),
+        ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the "
+                "process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> None:
         """Replay repeated requests through the registered cache."""
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "IDEMPOTENT_REQUESTS", name, env_prefix
+        )
+        config = resolve_config(
+            IdempotentRequestsConfig,
+            explicit=None,
+            kwargs={
+                "key_header": key_header,
+                "replay_header": replay_header,
+                "methods": methods,
+                "require_key": require_key,
+                "fingerprint_body": fingerprint_body,
+                "max_body_size": max_body_size,
+                "wait_timeout": wait_timeout,
+                "include": include,
+                "exclude": exclude,
+                "reused_status": reused_status,
+            },
+            env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
+            env_load=env_load,
+        )
+        self._setup(
+            config,
+            name=name,
+            openapi=openapi,
+            idempotency=Idempotency(namespace, ttl=ttl, cache=cache),
+            key_maker=key_maker,
+            skip=skip,
+        )
+        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            IdempotentRequestsConfig,
+            Doc("The pre-built idempotent requests configuration."),
+        ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name, for a second set of rules on one app."),
+        ] = "default",
+        namespace: Annotated[
+            str,
+            Doc("Namespace the stored keys sit under."),
+        ] = "http",
+        ttl: Annotated[
+            float | None,
+            Doc("Seconds a stored response replays for."),
+        ] = None,
+        cache: Annotated[
+            TTLCache[Any] | None,
+            Doc("The `TTLCache` responses are stored in."),
+        ] = None,
+        key_maker: Annotated[
+            Callable[[Scope, str], str] | None,
+            Doc("Build the stored key from the scope and the client key."),
+        ] = None,
+        skip: Annotated[
+            Callable[[StoredResponse], bool] | None,
+            Doc("Return `True` to leave one response unstored."),
+        ] = None,
+        openapi: Annotated[
+            bool,
+            Doc("Describe the headers in the OpenAPI schema."),
+        ] = True,
+    ) -> IdempotentRequests:
+        """Build the component from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no
+        environment variable is read, and the instance is not registered
+        for live reload. The store, the key maker and the skip predicate
+        stay here rather than in the config, because they are objects and
+        callables rather than values.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            config,
+            name=name,
+            openapi=openapi,
+            idempotency=Idempotency(namespace, ttl=ttl, cache=cache),
+            key_maker=key_maker,
+            skip=skip,
+        )
+        return instance
+
+    def _setup(
+        self,
+        config: IdempotentRequestsConfig,
+        *,
+        name: str,
+        openapi: bool,
+        idempotency: Idempotency[Any],
+        key_maker: Callable[[Scope, str], str] | None,
+        skip: Callable[[StoredResponse], bool] | None,
+    ) -> None:
+        """Hold the configuration and the cell the middleware reads."""
         self._name = name
         self._openapi = openapi
-        self._options: dict[str, Any] = {
-            "idempotency": Idempotency(namespace, ttl=ttl, cache=cache),
-            "key_header": _key_name(key_header),
-            "replay_header": _replay_name(replay_header),
-            "methods": methods,
-            "key_maker": key_maker,
-            "skip": skip,
-            "require_key": require_key,
-            "fingerprint_body": fingerprint_body,
-            "max_body_size": max_body_size,
-            "wait_timeout": wait_timeout,
-            "include": as_patterns(include, name="include"),
-            "exclude": as_patterns(exclude, name="exclude"),
-            "reused_status": reused_status,
-        }
+        self._idempotency = idempotency
+        self._key_maker = key_maker
+        self._skip = skip
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
+        self._live: Live[_State] = Live(_state_of(config))
+
+    async def _apply_reconfigure(
+        self, new_config: IdempotentRequestsConfig
+    ) -> None:
+        """Publish the snapshot the next request reads."""
+        self._live.state = _state_of(new_config)
 
     @property
     def name(self) -> str:
@@ -1119,7 +1372,7 @@ class IdempotentRequests:
         an operator asked about. Handlers need none of it: the middleware
         does the storing.
         """
-        return cast("Idempotency[Any]", self._options["idempotency"])
+        return self._idempotency
 
     def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
         """Return the middleware class and the arguments to build it with.
@@ -1129,7 +1382,12 @@ class IdempotentRequests:
         the middleware the way its framework takes one. A component
         without it wires no middleware.
         """
-        return IdempotencyMiddleware, dict(self._options)
+        return IdempotencyMiddleware, {
+            "idempotency": self._idempotency,
+            "key_maker": self._key_maker,
+            "skip": self._skip,
+            "live": self._live,
+        }
 
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
         """Return what this component answers rather than letting through.

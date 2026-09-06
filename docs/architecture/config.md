@@ -13,7 +13,7 @@ Components fall in two categories.
 | `__init__(name, **kwargs)` | Positional name + optional fields | Programmatic and environmental construction |
 | `from_config(name, config)` | Positional name + frozen config | Declarative construction from a settings tree |
 
-**Single-instance components** (`HealthChecks`, `Log`, `Trace`, `Metrics`, `RateLimitFilter`, `DuplicateFilter`, `log.configure`) drop the positional name because the application typically holds one:
+**Single-instance components** (`HealthChecks`, `Log`, `Trace`, `Metrics`, `RateLimitFilter`, `DuplicateFilter`, `log.configure`, and every HTTP component: `CachedResponses`, `ConditionalRequests`, `IdempotentRequests`, `RateLimitedRequests`, `AccessLog`) drop the positional name because the application typically holds one:
 
 | Surface | Form | Intent |
 |---|---|---|
@@ -178,6 +178,8 @@ not.
 | The rejected value is never echoed, with no closed-set exemption | The echoed string is one the domain rejected, so it is arbitrary input whatever the field accepts | A field's input is bounded before it reaches the message |
 | A rejected name is echoed, a rejected value is not | R3 makes a name the address the environment writes to and R6 keeps structure in code, so a name is a literal the caller wrote | Names start arriving from the environment |
 | A validator raises `ValueError`, never `TypeError` | Pydantic converts only `ValueError` and `AssertionError`, so a `TypeError` escapes every documented `except` | Pydantic converts `TypeError` too |
+| An HTTP component is a single-instance component selected by path, never a named pattern | Its identity is the request it acts on, and it holds no runtime object a name would address | An HTTP component gains state a name has to reach |
+| Live reload reads the kind prefix as well as the instance prefix | Construction reads both (R3), and the two paths must not disagree about what one variable does | The kind default stops being a fallback at construction |
 
 ## `resolve_config()`
 
@@ -344,6 +346,11 @@ We keep `self._config` as the single source of truth. If a future profile shows 
 | `HealthChecksConfig` | `grelmicro.health` |
 | `LogConfig` | `grelmicro.log` |
 | `TasksConfig` | `grelmicro.task` |
+| `CachedResponsesConfig` | `grelmicro.http` |
+| `ConditionalRequestsConfig` | `grelmicro.http` |
+| `IdempotentRequestsConfig` | `grelmicro.http` |
+| `RateLimitedRequestsConfig` | `grelmicro.http` |
+| `AccessLogConfig` | `grelmicro.log` |
 
 Each is a `BaseModel, frozen=True, extra="forbid"`. Field docs live in `Annotated[T, Doc("...")]` blocks and surface in IDEs and the API reference.
 
@@ -351,3 +358,4 @@ Each is a `BaseModel, frozen=True, extra="forbid"`. Field docs live in `Annotate
 
 - [Configuration](../config.md): the user-facing guide for the three paths, prefix table, and recipes.
 - [Backends and Adapters](backends.md): companion contract for runtime-pluggable backends.
+- [HTTP component internals](http.md): how the HTTP family reads this contract, and where it deliberately does not.

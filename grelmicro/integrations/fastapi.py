@@ -918,10 +918,28 @@ def _every_middleware_options(
             options = _bound_options(own, entry.kwargs)
             for name, value in _bound_options(base, entry.kwargs).items():
                 options.setdefault(name, value)
-            found.append(options)
+            found.append(_with_live(options))
     if not found:
         raise TypeError(missing)
     return found
+
+
+def _with_live(options: dict[str, Any]) -> dict[str, Any]:
+    """Fill the options from the snapshot cell, where one was passed.
+
+    A registered component hands its middleware the cell rather than the
+    values, so the signature's own defaults are not what the wire
+    carries. The configuration inside the cell is, and its field names
+    are the middleware's parameter names, so it fills them directly.
+
+    Read here rather than per request: the schema is built once and
+    cached by the framework, so it describes the app as it was installed.
+    """
+    live = options.get("live")
+    if live is None:
+        return options
+    options.update(live.state.config.model_dump())
+    return options
 
 
 def _bound_options(

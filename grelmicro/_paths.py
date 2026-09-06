@@ -8,12 +8,60 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
+from pydantic import BeforeValidator
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
-__all__ = ["as_patterns", "matches", "route_path", "selects", "walk_routes"]
+__all__ = [
+    "BARE_STRING_MESSAGE",
+    "PathPatterns",
+    "as_patterns",
+    "matches",
+    "refuse_bare_string",
+    "route_path",
+    "selects",
+    "walk_routes",
+]
+
+BARE_STRING_MESSAGE = (
+    "a set of path patterns is expected, and this is a string. A string is "
+    "a sequence of characters, so it would be walked one character at a "
+    "time, and one ending in `*` matches every path. Write it as a tuple "
+    "with a trailing comma, or as a JSON list."
+)
+"""Why a bare string is refused where a set of patterns is expected.
+
+Carries no example path. `SettingsValidationError` removes the rejected
+value from the message it renders, so an example that happened to equal
+what the caller passed would be taken out of the very sentence offering
+it.
+"""
+
+
+def refuse_bare_string(value: Any) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of path patterns is expected.
+
+    Raises:
+        ValueError: If the value is a string. A validator raises
+            `ValueError` and never `TypeError`, because pydantic converts
+            only the first into a validation error.
+    """
+    if isinstance(value, str):
+        # `ValueError`, never `TypeError`: pydantic converts only the
+        # first into a validation error, so a `TypeError` here would
+        # escape `except SettingsValidationError` and the reload loop.
+        raise ValueError(BARE_STRING_MESSAGE)  # noqa: TRY004
+    return value
+
+
+PathPatterns = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_string)]
+"""A set of path patterns on a config, with the bare string refused.
+
+Every HTTP component declares its `include` and `exclude` with this, so
+one missing comma is refused the same way wherever it is written.
+"""
 
 _PREFIX = "*"
 """What turns a pattern into a prefix match, at the end of it."""

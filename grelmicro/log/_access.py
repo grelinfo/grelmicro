@@ -12,12 +12,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self
 
+from pydantic import BaseModel
 from typing_extensions import Doc
 
+from grelmicro._config import (
+    Live,
+    Reconfigurable,
+    env_prefixes,
+    resolve_config,
+)
 from grelmicro._paths import (
     _PREFIX,
+    PathPatterns,
     as_patterns,
     matches,
     route_path,
@@ -62,6 +71,74 @@ class _Silence(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: ARG002
         """Refuse the record."""
         return False
+
+
+class AccessLogConfig(BaseModel, frozen=True, extra="forbid"):
+    """Access Log Config."""
+
+    include: Annotated[
+        PathPatterns,
+        Doc(
+            "Paths to log. Empty means every path. A pattern ending in `*` "
+            "matches as a prefix."
+        ),
+    ] = ()
+    exclude: Annotated[
+        PathPatterns,
+        Doc(
+            "Paths to leave alone, whatever `include` says. Nothing is "
+            "written for them, at any level."
+        ),
+    ] = ()
+    quiet: Annotated[
+        PathPatterns,
+        Doc(
+            "Paths logged at debug while they answer, and at the level "
+            "their status earns when they do not."
+        ),
+    ] = DEFAULT_QUIET
+    query: Annotated[
+        bool,
+        Doc("Whether the record carries `url.query`, redacted."),
+    ] = True
+    user_agent: Annotated[
+        bool,
+        Doc("Whether the record carries `user_agent.original`."),
+    ] = True
+
+
+@dataclass(frozen=True, slots=True)
+class _State:
+    """What the middleware answers one request from.
+
+    Holds the configuration beside the values derived from it, so a
+    reader takes both in one read and can never pair a new pattern set
+    with the lookup table built for the old one.
+    """
+
+    config: AccessLogConfig
+    filtering: bool
+    quiet_paths: frozenset[str]
+    quiet_patterns: tuple[str, ...]
+
+
+def _state_of(config: AccessLogConfig) -> _State:
+    """Derive what the request path needs from a configuration.
+
+    Decided once per configuration, because the answers are the same for
+    every request. Nothing named means nothing to match, and a plain path
+    is a set lookup rather than a walk through the patterns.
+    """
+    return _State(
+        config=config,
+        filtering=bool(config.include or config.exclude),
+        quiet_paths=frozenset(
+            path for path in config.quiet if not path.endswith(_PREFIX)
+        ),
+        quiet_patterns=tuple(
+            path for path in config.quiet if path.endswith(_PREFIX)
+        ),
+    )
 
 
 class AccessLogMiddleware:
@@ -114,24 +191,34 @@ class AccessLogMiddleware:
             bool,
             Doc("Whether the record carries `user_agent.original`."),
         ] = True,
+        live: Annotated[
+            Live[_State] | None,
+            Doc(
+                "The cell a registered `AccessLog` publishes its snapshot "
+                "into, filled by `micro.install(app)`. Passing it makes "
+                "the other options the component's to decide."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the middleware with what to log and what to leave out."""
         self.app = app
-        self.include = as_patterns(include, name="include")
-        self.exclude = as_patterns(exclude, name="exclude")
-        self.quiet = as_patterns(quiet, name="quiet")
-        self.query = query
-        self.user_agent = user_agent
-        # Decided once, because the answers are the same for every request
-        # and this runs on the request path. Nothing named means nothing to
-        # match, and a plain path is a set lookup rather than a walk
-        # through the patterns.
-        self._filtering = bool(self.include or self.exclude)
-        self._quiet_paths = frozenset(
-            path for path in self.quiet if not path.endswith(_PREFIX)
-        )
-        self._quiet_patterns = tuple(
-            path for path in self.quiet if path.endswith(_PREFIX)
+        # A middleware built by hand owns its cell and never sees a new
+        # snapshot, so the two doors read exactly the same way and the
+        # request path has one shape rather than a branch.
+        self._live = (
+            live
+            if live is not None
+            else Live(
+                _state_of(
+                    AccessLogConfig(
+                        include=as_patterns(include, name="include"),
+                        exclude=as_patterns(exclude, name="exclude"),
+                        quiet=as_patterns(quiet, name="quiet"),
+                        query=query,
+                        user_agent=user_agent,
+                    )
+                )
+            )
         )
 
     async def __call__(
@@ -141,14 +228,20 @@ class AccessLogMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        # One read, at the top, for the whole request. A reconfigure
+        # publishes a new snapshot between requests, and one already
+        # running finishes on the one it started with.
+        state = self._live.state
         # Read before the app runs, and kept. A router rewrites `path` in
         # place on some frameworks and a mount rewrites `root_path`, so
         # reading either afterwards answers for a different request than
         # the one that arrived, and the two matches would disagree.
         asked = scope.get("path", "")
         route = route_path(scope)
-        if self._filtering and not selects(
-            route, include=self.include, exclude=self.exclude
+        if state.filtering and not selects(
+            route,
+            include=state.config.include,
+            exclude=state.config.exclude,
         ):
             await self.app(scope, receive, send)
             return
@@ -173,6 +266,7 @@ class AccessLogMiddleware:
         finally:
             self._write(
                 scope,
+                state=state,
                 asked=asked,
                 route=route,
                 status=status,
@@ -184,6 +278,7 @@ class AccessLogMiddleware:
         self,
         scope: Scope,
         *,
+        state: _State,
         asked: str,
         route: str,
         status: int | None,
@@ -203,11 +298,16 @@ class AccessLogMiddleware:
             and not isinstance(error, asyncio.CancelledError)
         ):
             status = _SERVER_ERROR
-        level = _level_of(status, error=error, quiet=self._is_quiet(route))
+        level = _level_of(status, error=error, quiet=_is_quiet(state, route))
         if not logger.isEnabledFor(level):
             return
         fields = self._fields(
-            scope, asked=asked, status=status, error=error, duration=duration
+            scope,
+            state=state,
+            asked=asked,
+            status=status,
+            error=error,
+            duration=duration,
         )
         method = scope.get("method", "")
         logger.log(
@@ -223,6 +323,7 @@ class AccessLogMiddleware:
         self,
         scope: Scope,
         *,
+        state: _State,
         asked: str,
         status: int | None,
         error: BaseException | None,
@@ -251,11 +352,11 @@ class AccessLogMiddleware:
         version = scope.get("http_version")
         if version:
             fields["network.protocol.version"] = version
-        if self.query:
+        if state.config.query:
             query = _query(scope)
             if query is not None:
                 fields["url.query"] = query
-        if self.user_agent:
+        if state.config.user_agent:
             agent = _header(scope, b"user-agent")
             if agent is not None:
                 fields["user_agent.original"] = agent
@@ -263,14 +364,15 @@ class AccessLogMiddleware:
             fields["error.type"] = type(error).__qualname__
         return fields
 
-    def _is_quiet(self, path: str) -> bool:
-        """Return whether this path only speaks up when it fails."""
-        return path in self._quiet_paths or (
-            bool(self._quiet_patterns) and matches(path, self._quiet_patterns)
-        )
+
+def _is_quiet(state: _State, path: str) -> bool:
+    """Return whether this path only speaks up when it fails."""
+    return path in state.quiet_paths or (
+        bool(state.quiet_patterns) and matches(path, state.quiet_patterns)
+    )
 
 
-class AccessLog:
+class AccessLog(Reconfigurable[AccessLogConfig]):
     """Write one structured record per HTTP request.
 
     Register it and `micro.install(app)` adds the middleware:
@@ -292,6 +394,11 @@ class AccessLog:
     debug while they answer, so they stay out of the way without going
     missing when they fail.
 
+    Every field is live: a mounted ConfigMap that adds a path to
+    `GREL_ACCESS_LOG_EXCLUDE` stops the records for it on the next
+    request, without a restart. Read more in [Live
+    reconfiguration](../architecture/reconfigure.md).
+
     Read more in the [Access Log](../logging/access.md) docs.
     """
 
@@ -307,56 +414,121 @@ class AccessLog:
         self,
         *,
         include: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths to log. Empty (the default) means every path. A "
-                "pattern ending in `*` matches as a prefix."
+                "pattern ending in `*` matches as a prefix. Reads "
+                "`GREL_ACCESS_LOG_INCLUDE` when unset."
             ),
-        ] = (),
+        ] = None,
         exclude: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths to leave alone, whatever `include` says. Nothing is "
-                "written for them, at any level."
+                "written for them, at any level. Reads "
+                "`GREL_ACCESS_LOG_EXCLUDE` when unset."
             ),
-        ] = (),
+        ] = None,
         quiet: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths logged at debug while they answer, and at the level "
                 "their status earns when they do not. Defaults to the probe "
                 "paths and `/metrics`. Pass `()` to log them like anything "
                 "else."
             ),
-        ] = DEFAULT_QUIET,
+        ] = None,
         query: Annotated[
-            bool,
+            bool | None,
             Doc(
                 "Whether the record carries `url.query`. Redacted through "
                 "the same rules the rest of the library redacts a URL with, "
                 "so a token in a query string never reaches the sink."
             ),
-        ] = True,
+        ] = None,
         user_agent: Annotated[
-            bool,
+            bool | None,
             Doc("Whether the record carries `user_agent.original`."),
-        ] = True,
+        ] = None,
         name: Annotated[
             str,
             Doc("Registration name. Only one may be registered."),
         ] = "default",
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                "Override the derived prefix, `GREL_ACCESS_LOG_` for the "
+                "default instance."
+            ),
+        ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the "
+                "process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the component with what to log and what to leave out."""
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "ACCESS_LOG", name, env_prefix
+        )
+        config = resolve_config(
+            AccessLogConfig,
+            explicit=None,
+            kwargs={
+                "include": include,
+                "exclude": exclude,
+                "quiet": quiet,
+                "query": query,
+                "user_agent": user_agent,
+            },
+            env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
+            env_load=env_load,
+        )
+        self._setup(config, name=name)
+        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            AccessLogConfig,
+            Doc("The pre-built access log configuration."),
+        ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name. Only one may be registered."),
+        ] = "default",
+    ) -> AccessLog:
+        """Build the component from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no
+        environment variable is read, and the instance is not registered
+        for live reload.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(config, name=name)  # noqa: SLF001
+        return instance
+
+    def _setup(self, config: AccessLogConfig, *, name: str) -> None:
+        """Hold the configuration and the cell the middleware reads."""
         self._name = name
-        self._options: dict[str, Any] = {
-            "include": as_patterns(include, name="include"),
-            "exclude": as_patterns(exclude, name="exclude"),
-            "quiet": as_patterns(quiet, name="quiet"),
-            "query": query,
-            "user_agent": user_agent,
-        }
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
+        self._live: Live[_State] = Live(_state_of(config))
         self._silence = _Silence()
         self._wired = False
+
+    async def _apply_reconfigure(self, new_config: AccessLogConfig) -> None:
+        """Publish the snapshot the next request reads.
+
+        One assignment, so a request either answers entirely from the
+        previous configuration or entirely from this one.
+        """
+        self._live.state = _state_of(new_config)
 
     @property
     def name(self) -> str:
@@ -370,9 +542,13 @@ class AccessLog:
         uvicorn's access log worth silencing. A FastStream app serves
         none, so `install` never asks, and its uvicorn access log is left
         exactly where it was.
+
+        The middleware is handed the cell rather than the values, so a
+        live reconfigure reaches it without the stack being rebuilt,
+        which a framework will not do once it is serving.
         """
         self._wired = True
-        return AccessLogMiddleware, dict(self._options)
+        return AccessLogMiddleware, {"live": self._live}
 
     async def __aenter__(self) -> Self:
         """Silence uvicorn's access log for as long as this one is open.

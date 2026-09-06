@@ -24,15 +24,26 @@ import logging
 import os
 import re
 import warnings
-from collections import deque
 
 # Imported at runtime, not under `TYPE_CHECKING`: both appear in the
 # annotations of `resolve_config` and `defer_report`, which
 # `typing.get_type_hints` has to resolve from module globals.
+from collections import abc, deque
 from collections.abc import Callable, Mapping  # noqa: TC003
 from copy import copy
 from functools import lru_cache
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, TypeVar
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Final,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 from weakref import WeakSet
 
 from pydantic import AliasChoices, BaseModel, ValidationError
@@ -56,17 +67,19 @@ _REPEATED_UNDERSCORES = re.compile(r"_+")
 
 
 def parse_csv_or_json(value: Any) -> Any:  # noqa: ANN401
-    """Coerce a string into a list, accepting CSV or JSON-array form.
+    """Coerce a string into a list or mapping, accepting CSV or JSON form.
 
-    Pass-through for any non-string value. Strings starting with `[`
-    are parsed as JSON arrays. Otherwise the string is split on commas
-    and each item is stripped. Empty items are dropped.
+    Pass-through for any non-string value. A string starting with `[` or
+    `{` is parsed as JSON, so a field holding a mapping of path patterns
+    reads the same from a variable as from a file. Otherwise the string
+    is split on commas and each item is stripped, which is what an
+    operator writes into a ConfigMap by hand. Empty items are dropped.
     """
     if isinstance(value, str):
-        s = value.strip()
-        if s.startswith("["):
-            return json_loads(s)
-        return [item.strip() for item in s.split(",") if item.strip()]
+        text = value.strip()
+        if text.startswith(("[", "{")):
+            return json_loads(text)
+        return [item.strip() for item in text.split(",") if item.strip()]
     return value
 
 
@@ -607,6 +620,32 @@ def _build_settings_cls[C: BaseModel](
     )
 
 
+class Live[StateT]:
+    """One slot a middleware reads its snapshot from.
+
+    An ASGI middleware is built once and handed to the framework, which
+    holds it for the life of the process, so a live reconfigure cannot
+    rebuild it. It reads its snapshot through this cell instead: one
+    plain attribute read on the request path, and a reconfigure
+    publishes a new snapshot with a single assignment.
+
+    The slot holds the whole snapshot rather than a field each, so a
+    reader can never see one field from the new configuration beside
+    another from the old. The read and the write are single attribute
+    operations on a plain object, which stay atomic on free-threaded
+    builds, so neither side takes a lock.
+
+    A middleware built by hand owns a cell of its own holding the one
+    snapshot it was constructed with, so both doors read the same way.
+    """
+
+    __slots__ = ("state",)
+
+    def __init__(self, state: StateT) -> None:
+        """Hold the first snapshot."""
+        self.state = state
+
+
 class Reconfigurable[ConfigT: BaseModel]:
     """Mixin that adds atomic live reconfiguration to a component.
 
@@ -622,6 +661,7 @@ class Reconfigurable[ConfigT: BaseModel]:
     _config: ConfigT
     _reconfigure_lock: asyncio.Lock
     _env_prefix: str | None = None
+    _kind_env_prefix: str | None = None
 
     _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset()
     """Field names a live reconfigure must never patch from external config.
@@ -636,8 +676,10 @@ class Reconfigurable[ConfigT: BaseModel]:
         """Return the current configuration."""
         return self._config
 
-    def _track_reconfigure(self, env_prefix: str) -> None:
-        """Record the env prefix and register for external reload.
+    def _track_reconfigure(
+        self, env_prefix: str, kind_env_prefix: str | None = None
+    ) -> None:
+        """Record the env prefixes and register for external reload.
 
         Called from a component's constructor under its derived
         name-as-namespace `env_prefix`. The recorded prefix lets
@@ -647,8 +689,15 @@ class Reconfigurable[ConfigT: BaseModel]:
         environment at construction. Instances built from a pre-built
         config (the declarative `from_config` path) skip this and stay
         static.
+
+        `kind_env_prefix` is the kind-wide prefix a named instance falls
+        back to, the same one construction reads. Recording it keeps the
+        two paths agreeing: `GREL_LOCK_LEASE_DURATION` retunes every lock
+        on a reload exactly as it does at startup, and the instance's own
+        key still wins. Build both with `env_prefixes`.
         """
         self._env_prefix = env_prefix
+        self._kind_env_prefix = kind_env_prefix
         _reconfigurables.add(self)
 
     async def reconfigure(self, new_config: ConfigT) -> None:
@@ -719,6 +768,7 @@ def resolve_config_from_mapping[C: BaseModel](
     *,
     env_prefix: str,
     mapping: Mapping[str, str],
+    kind_env_prefix: str | None = None,
     immutable_fields: frozenset[str] = frozenset(),
 ) -> C:
     """Patch `current` with values from a flat env-style `mapping`.
@@ -745,21 +795,31 @@ def resolve_config_from_mapping[C: BaseModel](
     """
     cls = type(current)
     fields = cls.model_fields
-    prefix_len = len(env_prefix)
-    prefix_upper = env_prefix.upper()
     overrides: dict[str, str] = {}
     unmatched = 0
-    for key, value in mapping.items():
-        if not key.upper().startswith(prefix_upper):
+    # The kind prefix first, so the instance's own key overwrites it. This
+    # is the precedence construction uses, and the two have to agree: an
+    # operator who retunes a whole kind in a mounted file expects the same
+    # answer they got at startup.
+    for prefix in (kind_env_prefix, env_prefix):
+        if prefix is None:
             continue
-        field = key[prefix_len:].lower()
-        if field in immutable_fields:
-            _warn_immutable_skipped(current, env_prefix, field, value)
-            continue
-        if field in fields:
-            overrides[field] = value
-        else:
-            unmatched += 1
+        prefix_len = len(prefix)
+        prefix_upper = prefix.upper()
+        for key, value in mapping.items():
+            if not key.upper().startswith(prefix_upper):
+                continue
+            field = key[prefix_len:].lower()
+            if field in immutable_fields:
+                _warn_immutable_skipped(current, prefix, field, value)
+                continue
+            if field in fields:
+                overrides[field] = value
+            elif prefix is env_prefix:
+                # Counted once, under the instance's own prefix. A kind key
+                # is a broadcast, so one naming another component's field
+                # is not this instance's to report.
+                unmatched += 1
     if unmatched:
         # Key names are not logged: in a directory-mounted Secret the
         # filename is the key, so a name itself can be sensitive.
@@ -772,7 +832,54 @@ def resolve_config_from_mapping[C: BaseModel](
         )
     if not overrides:
         return current
-    return cls.model_validate({**current.model_dump(), **overrides})
+    decoded = {
+        field: _decode_external(fields[field].annotation, value)
+        for field, value in overrides.items()
+    }
+    return cls.model_validate({**current.model_dump(), **decoded})
+
+
+_CONTAINER_ORIGINS: Final = (tuple, list, set, frozenset, dict, abc.Mapping)
+"""Field origins whose value arrives as one string and holds many."""
+
+
+def _is_container(annotation: object) -> bool:
+    """Return whether this annotation holds many values in one field.
+
+    Walks a union, so `tuple[str, ...] | None` counts as one. A scalar
+    is left alone, because pydantic already builds one from a string.
+    """
+    origin = get_origin(annotation)
+    if origin in {Union, UnionType}:
+        return any(
+            _is_container(argument)
+            for argument in get_args(annotation)
+            if argument is not type(None)
+        )
+    return origin in _CONTAINER_ORIGINS
+
+
+def _decode_external(annotation: object, value: str) -> object:
+    """Decode one mounted value the way the environment path decodes it.
+
+    A mounted source carries strings, and a field holding many values has
+    to say all of them in one. `parse_csv_or_json` reads both the JSON a
+    file writes and the comma-separated list an operator types.
+
+    A scalar field is passed through untouched: pydantic builds an `int`,
+    a `float` or a `bool` from its string already, and decoding first
+    would turn a `str` field holding `60` into an integer it then refuses.
+
+    Malformed JSON is left as it arrived, so the model reports the field
+    rather than this helper reporting the syntax, and the value stays out
+    of the message either way.
+    """
+    if not _is_container(annotation):
+        return value
+    try:
+        return parse_csv_or_json(value)
+    except ValueError:
+        return value
 
 
 _warned_immutable_skipped: set[str] = set()
@@ -859,6 +966,7 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
             new_config = resolve_config_from_mapping(
                 instance._config,  # noqa: SLF001
                 env_prefix=env_prefix,
+                kind_env_prefix=instance._kind_env_prefix,  # noqa: SLF001
                 mapping=mapping,
                 immutable_fields=instance._IMMUTABLE_RECONFIGURE_FIELDS,  # noqa: SLF001
             )

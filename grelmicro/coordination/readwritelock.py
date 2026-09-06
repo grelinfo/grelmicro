@@ -211,7 +211,7 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
             env_load=env_load,
         )
         self._setup(name, config, backend)
-        self._track_reconfigure(resolved_env_prefix)
+        self._track_reconfigure(resolved_env_prefix, kind_prefix)
 
     @classmethod
     def from_config(

@@ -415,7 +415,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             env_load=env_load,
         )
         self._setup(name, config, fingerprint, cache, serializer)
-        self._track_reconfigure(resolved_env_prefix)
+        self._track_reconfigure(resolved_env_prefix, kind_prefix)
 
     @classmethod
     def from_config(

@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
-from collections import OrderedDict
+from collections import OrderedDict, abc
+
+# Imported at runtime, not under `TYPE_CHECKING`: it appears in a config
+# field's annotation, which pydantic resolves from module globals.
+from collections.abc import Mapping
+from dataclasses import dataclass
 from logging import getLogger
 from time import time as clock_time
 from typing import (
@@ -17,9 +23,23 @@ from typing import (
     cast,
 )
 
+from pydantic import AfterValidator, BaseModel, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._paths import as_patterns, matches, route_path, walk_routes
+from grelmicro._config import (
+    Live,
+    Reconfigurable,
+    env_prefixes,
+    resolve_config,
+)
+from grelmicro._paths import (
+    BARE_STRING_MESSAGE,
+    PathPatterns,
+    as_patterns,
+    matches,
+    route_path,
+    walk_routes,
+)
 from grelmicro.cache._stampede import compute_with_stampede
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
@@ -35,7 +55,6 @@ if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
         Callable,
-        Mapping,
         MutableMapping,
         Sequence,
     )
@@ -113,6 +132,47 @@ class _Entry(TypedDict):
     kept: float
 
 
+NOT_SECONDS = (
+    "is not a number of seconds a response is kept for. Leave the path "
+    "out, or name it in exclude=, to cache it not at all."
+)
+"""Why a lifetime was refused, without repeating what it was.
+
+`SettingsValidationError` takes the rejected value back out of the
+message, so a validator that named it would be quoting a blank.
+"""
+
+
+def _seconds(value: float) -> float:
+    """Return `value`, refusing a lifetime a response cannot be kept for.
+
+    Raises:
+        ValueError: If it is not a positive number of seconds.
+    """
+    if value <= 0:
+        msg = f"ttl {NOT_SECONDS}"
+        raise ValueError(msg)
+    return value
+
+
+def _seconds_per_path(
+    value: tuple[str, ...] | Mapping[str, float],
+) -> tuple[str, ...] | Mapping[str, float]:
+    """Return `value`, refusing a pattern that names an impossible lifetime.
+
+    Raises:
+        ValueError: If a pattern names a lifetime that is not a positive
+            number of seconds. The pattern is named and the lifetime is
+            not, because the pattern locates the mistake.
+    """
+    if isinstance(value, abc.Mapping):
+        for pattern, ttl in value.items():
+            if ttl <= 0:
+                msg = f"include[{pattern!r}] {NOT_SECONDS}"
+                raise ValueError(msg)
+    return value
+
+
 def check_ttl(
     ttl: Annotated[float | None, Doc("What was given as a lifetime.")],
     where: Annotated[str, Doc("The argument's name, for the message.")],
@@ -175,30 +235,40 @@ class _Policies:
     def __init__(
         self,
         include: Annotated[
-            Mapping[str, float], Doc("Path patterns and their TTL.")
+            Mapping[str, float] | Sequence[str],
+            Doc(
+                "The paths cached. A sequence keeps each for the "
+                "component's own TTL, and a mapping gives each its own."
+            ),
         ],
     ) -> None:
         """Hold the path rules, with no routes read yet.
+
+        A bare string is refused before this: by the config on the
+        component's door, and by the middleware on the hand-wired one.
 
         Raises:
             ValueError: If a pattern names a lifetime a response cannot
                 be kept for.
         """
-        if isinstance(include, str):
-            msg = (
-                f"include={include!r} is a string, and a mapping of "
-                "path pattern to seconds is expected. Write it as one: "
-                f"include={{{include!r}: 60}}."
-            )
-            raise TypeError(msg)
-        for pattern, ttl in include.items():
-            check_ttl(ttl, f"include[{pattern!r}]")
+        # A sequence names the paths and leaves the seconds to the
+        # component, which is how every other middleware reads. `None`
+        # stands for "whatever the component says", the same as a route
+        # that declared no seconds of its own.
+        items: list[tuple[str, float | None]] = (
+            [(pattern, None) for pattern in include]
+            if not isinstance(include, abc.Mapping)
+            else list(include.items())
+        )
+        for pattern, ttl in items:
+            if ttl is not None:
+                check_ttl(ttl, f"include[{pattern!r}]")
         # Most specific first: an exact path beats a prefix, and a longer
         # prefix beats the shorter one it sits under, so a rule written
         # for one route is not answered by the one written for its router.
-        self._include = tuple(
+        self._include: tuple[tuple[str, float | None], ...] = tuple(
             sorted(
-                include.items(),
+                items,
                 key=lambda item: (item[0].endswith("*"), -len(item[0])),
             )
         )
@@ -239,7 +309,7 @@ class _Policies:
                 return default if marked is None else marked
         for pattern, ttl in self._include:
             if matches(path, (pattern,)):
-                return ttl
+                return default if ttl is None else ttl
         return None
 
 
@@ -462,6 +532,81 @@ def _inherited_ttl(context: Any) -> Any:  # noqa: ANN401
     return _UNMARKED
 
 
+class CachedResponsesConfig(BaseModel, frozen=True, extra="forbid"):
+    """Cached Responses Config.
+
+    `include` is the one field in the HTTP family whose patterns carry a
+    value, because the cache is the one rule with something to say per
+    path. A tuple names the paths at the component's own `ttl`, and a
+    mapping gives each its own seconds.
+    """
+
+    ttl: Annotated[
+        float,
+        AfterValidator(_seconds),
+        Doc("Seconds a response is kept when its route names none."),
+    ] = _DEFAULT_TTL
+    include: Annotated[
+        PathPatterns | Mapping[str, float],
+        AfterValidator(_seconds_per_path),
+        Doc(
+            "The paths cached. A tuple keeps each for `ttl`, and a "
+            'mapping such as `{"/products/*": 60}` gives each its own '
+            "seconds. The most specific pattern decides."
+        ),
+    ] = ()
+    exclude: Annotated[
+        PathPatterns,
+        Doc("Paths never cached, whatever a route or `include` says."),
+    ] = ()
+    vary_by_headers: Annotated[
+        PathPatterns,
+        Doc(
+            "Request headers whose value is part of the key. A response "
+            "whose `Vary` names a header outside this set is not stored."
+        ),
+    ] = ()
+    vary_by_query: Annotated[
+        PathPatterns | None,
+        Doc(
+            "Query parameters that are part of the key. `None` keys on "
+            "the whole query string."
+        ),
+    ] = None
+    max_body_size: Annotated[
+        PositiveInt,
+        Doc("Largest response body stored, in bytes."),
+    ] = _DEFAULT_MAX_BODY_SIZE
+
+
+@dataclass(frozen=True, slots=True)
+class _State:
+    """What the middleware answers one request from.
+
+    Holds the configuration beside the values derived from it. A cache
+    is the one middleware where reading two of these from different
+    snapshots could answer one caller with another's response, so they
+    are taken together or not at all.
+    """
+
+    config: CachedResponsesConfig
+    policies: _Policies
+    vary_by_headers: tuple[str, ...]
+
+
+def _state_of(config: CachedResponsesConfig, policies: _Policies) -> _State:
+    """Derive what the request path needs from a configuration.
+
+    Header names are folded to lower case once here, because a scope
+    carries them lower case and a caller may not have.
+    """
+    return _State(
+        config=config,
+        policies=policies,
+        vary_by_headers=tuple(name.lower() for name in config.vary_by_headers),
+    )
+
+
 class CachedResponsesMiddleware:
     """Answer a repeated read from the cache instead of the handler.
 
@@ -581,28 +726,59 @@ class CachedResponsesMiddleware:
             str,
             Doc("Tag every entry carries, so `purge()` deletes them all."),
         ] = "grelmicro:http:default",
+        live: Annotated[
+            Live[_State] | None,
+            Doc(
+                "The cell a registered `CachedResponses` publishes its "
+                "snapshot into, filled by `micro.install(app)`. Passing it "
+                "makes the other options the component's to decide."
+            ),
+        ] = None,
     ) -> None:
-        """Initialize the middleware with the paths it answers for."""
+        """Initialize the middleware with the paths it answers for.
+
+        Raises:
+            TypeError: If a set of path patterns was given as a string.
+        """
         self.app = app
+        # Refused before the configuration is built, so hand-wired ASGI
+        # gets the argument error its layer speaks rather than pydantic's
+        # report that a string is not a mapping.
+        if isinstance(include, str):
+            raise TypeError(BARE_STRING_MESSAGE)
         self._cache = cache
-        self._policies = (
-            policies if policies is not None else _Policies(include or {})
-        )
-        self._ttl = ttl
-        self._exclude = as_patterns(exclude, name="exclude")
-        self._vary_by_headers = tuple(
-            name.lower()
-            for name in as_patterns(vary_by_headers, name="vary_by_headers")
-        )
-        self._vary_by_query = (
-            None
-            if vary_by_query is None
-            else as_patterns(vary_by_query, name="vary_by_query")
-        )
         self._key = key
         self._skip = skip
-        self._max_body_size = max_body_size
         self._tag = tag
+        # A middleware built by hand owns its cell and never sees a new
+        # snapshot, so the two doors read exactly the same way.
+        self._live = (
+            live
+            if live is not None
+            else Live(
+                _state_of(
+                    CachedResponsesConfig(
+                        ttl=ttl,
+                        include=include or (),
+                        exclude=as_patterns(exclude, name="exclude"),
+                        vary_by_headers=as_patterns(
+                            vary_by_headers, name="vary_by_headers"
+                        ),
+                        vary_by_query=(
+                            None
+                            if vary_by_query is None
+                            else as_patterns(
+                                vary_by_query, name="vary_by_query"
+                            )
+                        ),
+                        max_body_size=max_body_size,
+                    ),
+                    policies
+                    if policies is not None
+                    else _Policies(include or {}),
+                )
+            )
+        )
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()
@@ -614,11 +790,16 @@ class CachedResponsesMiddleware:
         if scope["type"] != "http" or scope["method"] not in _SAFE_METHODS:
             await self.app(scope, receive, send)
             return
+        # One read, at the top, for the whole request. A cache is the one
+        # middleware where two fields from two snapshots could answer one
+        # caller with another's response, so they are taken together.
+        state = self._live.state
+        config = state.config
         path = route_path(scope)
-        if matches(path, self._exclude):
+        if matches(path, config.exclude):
             await self.app(scope, receive, send)
             return
-        ttl = self._policies.ttl_for(path, self._ttl)
+        ttl = state.policies.ttl_for(path, config.ttl)
         if ttl is None:
             await self.app(scope, receive, send)
             return
@@ -628,12 +809,14 @@ class CachedResponsesMiddleware:
         built = (
             self._key(scope)
             if self._key is not None
-            else self._built(scope, path)
+            else self._built(state, scope, path)
         )
         if built is None:
             await self.app(scope, receive, send)
             return
-        await self._answer(scope, receive, send, key=built, ttl=ttl, path=path)
+        await self._answer(
+            scope, receive, send, state=state, key=built, ttl=ttl, path=path
+        )
 
     async def _answer(
         self,
@@ -641,6 +824,7 @@ class CachedResponsesMiddleware:
         receive: Receive,
         send: Send,
         *,
+        state: _State,
         key: str,
         ttl: float,
         path: str,
@@ -656,7 +840,9 @@ class CachedResponsesMiddleware:
         if entry is not None:
             await _serve(entry, scope, send)
             return
-        capture = _ResponseCapture(send, max_body_size=self._max_body_size)
+        capture = _ResponseCapture(
+            send, max_body_size=state.config.max_body_size
+        )
         if scope["method"] != "GET":
             # A `HEAD` reads what a `GET` stored and fills nothing, so
             # folding it would hold the key a `GET` is waiting for while
@@ -671,7 +857,7 @@ class CachedResponsesMiddleware:
             attempt.ran = True
             await self.app(scope, receive, capture)
             await capture.flush()
-            attempt.entry = self._entry_of(capture, path=path)
+            attempt.entry = self._entry_of(capture, state=state, path=path)
             attempt.returned = True
             if attempt.entry is None:
                 raise _NotStored
@@ -802,7 +988,7 @@ class CachedResponsesMiddleware:
         while len(self._unstorable) > _UNSTORABLE_LIMIT:
             self._unstorable.popitem(last=False)
 
-    def _built(self, scope: Scope, path: str) -> str:
+    def _built(self, state: _State, scope: Scope, path: str) -> str:
         """Return the key this request reads.
 
         The scheme, the host, and the prefix the app is served under are
@@ -815,9 +1001,9 @@ class CachedResponsesMiddleware:
             _header_of(scope, "host"),
             scope.get("root_path", ""),
             path,
-            _query_of(scope, self._vary_by_query),
+            _query_of(scope, state.config.vary_by_query),
         ]
-        parts.extend(_header_of(scope, name) for name in self._vary_by_headers)
+        parts.extend(_header_of(scope, name) for name in state.vary_by_headers)
         return "\x00".join(parts)
 
     def _storage_key(self, key: str) -> str:
@@ -826,7 +1012,7 @@ class CachedResponsesMiddleware:
         return f"{self._tag}:{digest}"
 
     def _entry_of(
-        self, capture: _ResponseCapture, *, path: str
+        self, capture: _ResponseCapture, *, state: _State, path: str
     ) -> _Entry | None:
         """Return the entry this response is stored as, or `None` to skip it."""
         start = capture.start
@@ -835,7 +1021,7 @@ class CachedResponsesMiddleware:
         if start["status"] != _HTTP_200_OK:
             return None
         headers = list(start["headers"])
-        kept = self._storable(headers, path=path)
+        kept = self._storable(headers, state=state, path=path)
         if kept is None:
             return None
         body = capture.body
@@ -854,7 +1040,7 @@ class CachedResponsesMiddleware:
         if "etag" not in named:
             tag = etag_of(body)
             headers.append((b"etag", tag.encode("latin-1")))
-        headers = self._declaring_vary(headers)
+        headers = self._declaring_vary(state, headers)
         return _Entry(
             kept=kept,
             status=start["status"],
@@ -867,7 +1053,7 @@ class CachedResponsesMiddleware:
         )
 
     def _declaring_vary(
-        self, headers: list[tuple[bytes, bytes]]
+        self, state: _State, headers: list[tuple[bytes, bytes]]
     ) -> list[tuple[bytes, bytes]]:
         """Return the headers with what the key reads named in `Vary`.
 
@@ -876,7 +1062,7 @@ class CachedResponsesMiddleware:
         browser's own cache would otherwise hand one caller's copy to the
         next one who sent a different value.
         """
-        if not self._vary_by_headers:
+        if not state.vary_by_headers:
             return headers
         kept = [
             (name, value) for name, value in headers if name.lower() != b"vary"
@@ -888,13 +1074,17 @@ class CachedResponsesMiddleware:
                 if name.lower() == b"vary"
                 for part in _split_field(value)
             ]
-            + list(self._vary_by_headers)
+            + list(state.vary_by_headers)
         )
         kept.append((b"vary", ", ".join(named).encode("latin-1")))
         return kept
 
     def _storable(
-        self, headers: Sequence[tuple[bytes, bytes]], *, path: str
+        self,
+        headers: Sequence[tuple[bytes, bytes]],
+        *,
+        state: _State,
+        path: str,
     ) -> float | None:
         """Return the longest this response may be kept, or `None` for never.
 
@@ -920,7 +1110,7 @@ class CachedResponsesMiddleware:
             return None
         if varies:
             vary = ", ".join(varies)
-            if "*" in varies or set(varies) - set(self._vary_by_headers):
+            if "*" in varies or set(varies) - set(state.vary_by_headers):
                 self._warn(path, vary)
                 return None
         return _named_freshness(directives)
@@ -1174,7 +1364,7 @@ def _header_of(scope: Scope, name: str) -> str:
     )
 
 
-class CachedResponses:
+class CachedResponses(Reconfigurable[CachedResponsesConfig]):
     """Serve repeated reads from the cache, wired by `micro.install(app)`.
 
     Register it, mark the routes it answers for, and `install` adds
@@ -1224,35 +1414,36 @@ class CachedResponses:
         self,
         *,
         ttl: Annotated[
-            float,
+            float | None,
             Doc(
                 "Seconds a response is kept when its route names none. "
                 "`CachedResponse(ttl=...)` overrides it per route."
             ),
-        ] = _DEFAULT_TTL,
+        ] = None,
         include: Annotated[
-            Mapping[str, float] | None,
+            Mapping[str, float] | tuple[str, ...] | None,
             Doc(
-                "Path patterns and the seconds each is cached for, for "
-                "a route that declares none. Exact match unless the "
-                'pattern ends with `*`, as `{"/products/*": 60}`.'
+                "The paths cached, for a route that declares none. A "
+                "tuple keeps each for `ttl`, and a mapping gives each its "
+                'own seconds, as `{"/products/*": 60}`. Exact match '
+                "unless the pattern ends with `*`."
             ),
         ] = None,
         exclude: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths never cached, whatever a route or `include` says. "
                 "Same matching."
             ),
-        ] = (),
+        ] = None,
         vary_by_headers: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Request headers whose value is part of the key. A "
                 "response whose `Vary` names a header outside this set is "
                 "not stored, because one value would answer another."
             ),
-        ] = (),
+        ] = None,
         vary_by_query: Annotated[
             tuple[str, ...] | None,
             Doc(
@@ -1273,9 +1464,9 @@ class CachedResponses:
             Doc("Returns whether one response is left unstored."),
         ] = None,
         max_body_size: Annotated[
-            int,
+            int | None,
             Doc("Largest response body stored, in bytes."),
-        ] = _DEFAULT_MAX_BODY_SIZE,
+        ] = None,
         cache: Annotated[
             TTLCache[Any] | None,
             Doc(
@@ -1287,47 +1478,152 @@ class CachedResponses:
             str,
             Doc(
                 "Namespace the stored keys sit under, so two sets of "
-                "rules on one app never read each other's responses."
+                "rules on one app never read each other's responses. Part "
+                "of every stored key, so it is not live."
             ),
         ] = "http",
         name: Annotated[
             str,
             Doc("Registration name, for a second set of rules on one app."),
         ] = "default",
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                "Override the derived prefix, `GREL_CACHED_RESPONSES_` for "
+                "the default instance."
+            ),
+        ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the "
+                "process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> None:
         """Answer repeated reads through the registered middleware.
 
         Raises:
-            ValueError: If `ttl`, or one a pattern names, is not a
-                positive number of seconds.
+            SettingsValidationError: If `ttl`, or one a pattern names, is
+                not a positive number of seconds.
         """
-        check_ttl(ttl, "ttl")
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "CACHED_RESPONSES", name, env_prefix
+        )
+        config = resolve_config(
+            CachedResponsesConfig,
+            explicit=None,
+            kwargs={
+                "ttl": ttl,
+                "include": include,
+                "exclude": exclude,
+                "vary_by_headers": vary_by_headers,
+                "vary_by_query": vary_by_query,
+                "max_body_size": max_body_size,
+            },
+            env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
+            env_load=env_load,
+        )
+        self._setup(
+            config,
+            name=name,
+            namespace=namespace,
+            cache=cache,
+            key=key,
+            skip=skip,
+        )
+        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            CachedResponsesConfig,
+            Doc("The pre-built cached responses configuration."),
+        ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name, for a second set of rules on one app."),
+        ] = "default",
+        namespace: Annotated[
+            str,
+            Doc("Namespace the stored keys sit under."),
+        ] = "http",
+        cache: Annotated[
+            TTLCache[Any] | None,
+            Doc("The `TTLCache` responses are stored in."),
+        ] = None,
+        key: Annotated[
+            Callable[[Scope], str | None] | None,
+            Doc("Builds the key from the ASGI scope."),
+        ] = None,
+        skip: Annotated[
+            Callable[[StoredResponse], bool] | None,
+            Doc("Returns whether one response is left unstored."),
+        ] = None,
+    ) -> CachedResponses:
+        """Build the component from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no
+        environment variable is read, and the instance is not registered
+        for live reload. The store and the two callables stay here rather
+        than in the config, because they are objects rather than values.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            config,
+            name=name,
+            namespace=namespace,
+            cache=cache,
+            key=key,
+            skip=skip,
+        )
+        return instance
+
+    def _setup(
+        self,
+        config: CachedResponsesConfig,
+        *,
+        name: str,
+        namespace: str,
+        cache: TTLCache[Any] | None,
+        key: Callable[[Scope], str | None] | None,
+        skip: Callable[[StoredResponse], bool] | None,
+    ) -> None:
+        """Hold the configuration, the store, and the middleware's cell."""
         self._name = name
+        self._key = key
+        self._skip = skip
         self._cache: TTLCache[Any] = (
             cache
             if cache is not None
-            else TTLCache(ttl=ttl, serializer=JsonSerializer())
+            else TTLCache(ttl=config.ttl, serializer=JsonSerializer())
         )
-        self._policies = _Policies(include or {})
         self._tag = f"grelmicro:{namespace}:{name}"
-        self._options: dict[str, Any] = {
-            "cache": self._cache,
-            "policies": self._policies,
-            "ttl": ttl,
-            "exclude": as_patterns(exclude, name="exclude"),
-            "vary_by_headers": as_patterns(
-                vary_by_headers, name="vary_by_headers"
-            ),
-            "vary_by_query": (
-                None
-                if vary_by_query is None
-                else as_patterns(vary_by_query, name="vary_by_query")
-            ),
-            "key": key,
-            "skip": skip,
-            "max_body_size": max_body_size,
-            "tag": self._tag,
-        }
+        self._policies = _Policies(config.include)
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
+        self._live: Live[_State] = Live(_state_of(config, self._policies))
+
+    async def _apply_reconfigure(
+        self, new_config: CachedResponsesConfig
+    ) -> None:
+        """Publish the snapshot the next request reads.
+
+        The new patterns are read against the app's own routes first, the
+        same reading `micro.install(app)` does. A pattern naming a write,
+        or a read behind a security scheme, is refused at install, and it
+        has to be refused here too: a mounted file must not be able to
+        start caching what the static path would not.
+        """
+        policies = _Policies(new_config.include)
+        app = self._policies._app  # noqa: SLF001
+        if app is not None:
+            policies.read(app)
+        self._policies = policies
+        self._live.state = _state_of(new_config, policies)
 
     @property
     def name(self) -> str:
@@ -1349,8 +1645,19 @@ class CachedResponses:
         await self._cache.delete_tags(self._tag)
 
     def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
-        """Return the middleware class and the arguments to build it with."""
-        return CachedResponsesMiddleware, dict(self._options)
+        """Return the middleware class and the arguments to build it with.
+
+        The middleware is handed the cell rather than the values, so a
+        live reconfigure reaches it without the stack being rebuilt,
+        which a framework will not do once it is serving.
+        """
+        return CachedResponsesMiddleware, {
+            "cache": self._cache,
+            "key": self._key,
+            "skip": self._skip,
+            "tag": self._tag,
+            "live": self._live,
+        }
 
     def read_routes(
         self,

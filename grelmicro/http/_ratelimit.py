@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 from logging import getLogger
 from math import ceil, inf
 from typing import (
@@ -13,9 +15,21 @@ from typing import (
     Self,
 )
 
+from pydantic import BaseModel, NonNegativeFloat, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._paths import as_patterns, matches, route_path
+from grelmicro._config import (
+    Live,
+    Reconfigurable,
+    env_prefixes,
+    resolve_config,
+)
+from grelmicro._paths import (
+    PathPatterns,
+    as_patterns,
+    route_path,
+    selects,
+)
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.resilience._protocol import RateLimitResult
 from grelmicro.resilience.errors import RateLimitExceededError
@@ -227,6 +241,60 @@ def _rate_limit_headers(
     return served
 
 
+class RateLimitedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
+    """Rate Limited Requests Config.
+
+    The budget itself lives on each `RateLimiter`, under
+    `GREL_RATELIMITER_{NAME}_*`, because that is the object holding the
+    buckets. This says what one request costs and where the rule applies.
+    """
+
+    cost: Annotated[
+        PositiveInt,
+        Doc("Tokens one request spends of every limiter."),
+    ] = 1
+    max_wait: Annotated[
+        NonNegativeFloat,
+        Doc(
+            "Seconds a throttled request waits for tokens before it is "
+            "refused. `0.0` refuses as soon as the budget is spent."
+        ),
+    ] = 0.0
+    include: Annotated[
+        PathPatterns,
+        Doc("Paths this middleware meters. Empty means every path."),
+    ] = ()
+    exclude: Annotated[
+        PathPatterns,
+        Doc("Paths never metered, whatever `include` says."),
+    ] = ()
+    legacy_headers: Annotated[
+        bool,
+        Doc("Also send the superseded `X-RateLimit-*` fields."),
+    ] = False
+
+
+@dataclass(frozen=True, slots=True)
+class _State:
+    """What the middleware answers one request from."""
+
+    config: RateLimitedRequestsConfig
+    filtering: bool
+
+
+def _state_of(config: RateLimitedRequestsConfig) -> _State:
+    """Derive what the request path needs from a configuration.
+
+    Nothing named means nothing to match, and the common deployment
+    meters the whole app, so the check is one boolean rather than two
+    walks through empty tuples.
+    """
+    return _State(
+        config=config,
+        filtering=bool(config.include or config.exclude),
+    )
+
+
 class RateLimitMiddleware:
     """Turn a caller away at the edge, and say what it has left.
 
@@ -313,11 +381,19 @@ class RateLimitMiddleware:
                 "connection open."
             ),
         ] = 0.0,
+        include: Annotated[
+            tuple[str, ...],
+            Doc(
+                "Paths this middleware meters. Empty (the default) means "
+                "every path. Exact match unless the pattern ends with "
+                "`*`, which matches as a prefix."
+            ),
+        ] = (),
         exclude: Annotated[
             tuple[str, ...],
             Doc(
-                "Paths this middleware leaves alone. Exact match unless "
-                "the pattern ends with `*`, which matches as a prefix."
+                "Paths this middleware leaves alone, whatever `include` "
+                "says. Same matching."
             ),
         ] = (),
         legacy_headers: Annotated[
@@ -328,6 +404,14 @@ class RateLimitMiddleware:
                 "those. They carry the limiter closest to being spent."
             ),
         ] = False,
+        live: Annotated[
+            Live[_State] | None,
+            Doc(
+                "The cell a registered `RateLimitedRequests` publishes its "
+                "snapshot into, filled by `micro.install(app)`. Passing it "
+                "makes the other options the component's to decide."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the middleware with the limiters it spends.
 
@@ -355,22 +439,48 @@ class RateLimitMiddleware:
                 "which is the ingress rather than the caller behind it."
             )
             raise TypeError(msg)
-        for limiter in self._limiters:
-            _policy_name(limiter)
-            _validate_cost(cost, _config_limit(limiter._state.config))  # noqa: SLF001
         self._trusted = trusted
         self._key = key
-        self._cost = cost
-        self._max_wait = max_wait
-        self._exclude = as_patterns(exclude, name="exclude")
-        self._legacy_headers = legacy_headers
         self._reported = False
+        # A middleware built by hand owns its cell and never sees a new
+        # snapshot, so the two doors read exactly the same way.
+        self._live = (
+            live
+            if live is not None
+            else Live(
+                _state_of(
+                    RateLimitedRequestsConfig(
+                        cost=cost,
+                        max_wait=max_wait,
+                        include=as_patterns(include, name="include"),
+                        exclude=as_patterns(exclude, name="exclude"),
+                        legacy_headers=legacy_headers,
+                    )
+                )
+            )
+        )
+        for limiter in self._limiters:
+            _policy_name(limiter)
+            _validate_cost(
+                self._live.state.config.cost,
+                _config_limit(limiter._state.config),  # noqa: SLF001
+            )
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Spend the caller's tokens, then serve or refuse."""
-        if scope["type"] != "http" or matches(route_path(scope), self._exclude):
+        # One read, at the top, for the whole request.
+        state = self._live.state
+        config = state.config
+        if scope["type"] != "http" or (
+            state.filtering
+            and not selects(
+                route_path(scope),
+                include=config.include,
+                exclude=config.exclude,
+            )
+        ):
             await self.app(scope, receive, send)
             return
         key = self._key_of(scope)
@@ -379,25 +489,36 @@ class RateLimitMiddleware:
             return
         seen: list[tuple[RateLimiter, RateLimitResult]] = []
         for limiter in self._limiters:
-            result = await self._spend(limiter, key)
+            result = await self._spend(limiter, key, config)
             seen.append((limiter, result))
             if not result.allowed:
-                await self._refuse(scope, send, key=key, seen=seen)
+                await self._refuse(
+                    scope, send, key=key, seen=seen, config=config
+                )
                 return
         await self.app(
             scope,
             receive,
             _stating(
                 send,
-                _rate_limit_headers(seen, legacy=self._legacy_headers),
+                _rate_limit_headers(seen, legacy=config.legacy_headers),
                 scope,
             ),
         )
 
-    async def _spend(self, limiter: RateLimiter, key: str) -> RateLimitResult:
-        """Take this request's tokens, waiting only if there is a budget."""
+    async def _spend(
+        self,
+        limiter: RateLimiter,
+        key: str,
+        config: RateLimitedRequestsConfig,
+    ) -> RateLimitResult:
+        """Take this request's tokens, waiting only if there is a budget.
+
+        Takes the snapshot `__call__` read rather than reading its own,
+        so every limiter of one request is spent at one cost.
+        """
         return await spend_one(
-            limiter, key, cost=self._cost, max_wait=self._max_wait
+            limiter, key, cost=config.cost, max_wait=config.max_wait
         )
 
     def _key_of(self, scope: Scope) -> str | None:
@@ -438,8 +559,13 @@ class RateLimitMiddleware:
         *,
         key: str,
         seen: Sequence[tuple[RateLimiter, RateLimitResult]],
+        config: RateLimitedRequestsConfig,
     ) -> None:
-        """Answer `429` in the format the app answers every refusal with."""
+        """Answer `429` in the format the app answers every refusal with.
+
+        Takes the snapshot `__call__` read, so the refusal states what
+        the request was actually metered against.
+        """
         _, result = seen[-1]
         error = RateLimitExceededError(key=key, retry_after=result.retry_after)
         app = scope.get("app")
@@ -451,7 +577,7 @@ class RateLimitMiddleware:
         if rendered is None:  # pragma: no cover - the kind is always known
             raise error
         for name, value in _rate_limit_headers(
-            seen, legacy=self._legacy_headers
+            seen, legacy=config.legacy_headers
         ):
             rendered.headers[name.decode("latin-1")] = value.decode("latin-1")
         await send_error(send, rendered)
@@ -738,7 +864,7 @@ def _merged(
     return kept
 
 
-class RateLimitedRequests:
+class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
     """Turn a caller away at the edge, wired by `micro.install(app)`.
 
     Register it and `install` adds `RateLimitMiddleware` to the app:
@@ -796,28 +922,49 @@ class RateLimitedRequests:
             ),
         ] = None,
         cost: Annotated[
-            int,
+            int | None,
             Doc("Tokens one request spends of every limiter."),
-        ] = 1,
+        ] = None,
         max_wait: Annotated[
-            float,
+            float | None,
             Doc(
                 "Seconds a throttled request waits before it is refused. "
                 "`0.0` refuses as soon as the budget is spent."
             ),
-        ] = 0.0,
+        ] = None,
+        include: Annotated[
+            tuple[str, ...] | None,
+            Doc(
+                "Paths metered. Empty (the default) means every path. "
+                "Same matching as every other middleware."
+            ),
+        ] = None,
         exclude: Annotated[
-            tuple[str, ...],
-            Doc("Paths never metered. Same matching."),
-        ] = (),
+            tuple[str, ...] | None,
+            Doc("Paths never metered, whatever `include` says."),
+        ] = None,
         legacy_headers: Annotated[
-            bool,
+            bool | None,
             Doc("Also send the superseded `X-RateLimit-*` fields."),
-        ] = False,
+        ] = None,
         name: Annotated[
             str,
             Doc("Registration name, for a second set of rules on one app."),
         ] = "default",
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                "Override the derived prefix, "
+                "`GREL_RATE_LIMITED_REQUESTS_` for the default instance."
+            ),
+        ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the "
+                "process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> None:
         """Meter every request through the registered middleware.
 
@@ -827,19 +974,108 @@ class RateLimitedRequests:
             ValueError: If a limiter is named something a `RateLimit`
                 header cannot carry.
         """
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "RATE_LIMITED_REQUESTS", name, env_prefix
+        )
+        config = resolve_config(
+            RateLimitedRequestsConfig,
+            explicit=None,
+            kwargs={
+                "cost": cost,
+                "max_wait": max_wait,
+                "include": include,
+                "exclude": exclude,
+                "legacy_headers": legacy_headers,
+            },
+            env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
+            env_load=env_load,
+        )
+        self._setup(
+            config, name=name, limiters=limiters, trusted=trusted, key=key
+        )
+        self._track_reconfigure(resolved_env_prefix, kind_prefix)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            RateLimitedRequestsConfig,
+            Doc("The pre-built rate limited requests configuration."),
+        ],
+        *limiters: Annotated[
+            RateLimiter,
+            Doc("The limiters every request spends, in the order given."),
+        ],
+        name: Annotated[
+            str,
+            Doc("Registration name, for a second set of rules on one app."),
+        ] = "default",
+        trusted: Annotated[
+            TrustedProxies | None,
+            Doc("The proxies whose forwarded entries may be believed."),
+        ] = None,
+        key: Annotated[
+            Callable[[Scope], str | None] | None,
+            Doc("Builds the bucket key from the ASGI scope."),
+        ] = None,
+    ) -> RateLimitedRequests:
+        """Build the component from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no
+        environment variable is read, and the instance is not registered
+        for live reload. The limiters stay here rather than in the
+        config, because they are objects with buckets of their own, each
+        tuned under its own `GREL_RATELIMITER_` address.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            config, name=name, limiters=limiters, trusted=trusted, key=key
+        )
+        return instance
+
+    def _setup(
+        self,
+        config: RateLimitedRequestsConfig,
+        *,
+        name: str,
+        limiters: tuple[RateLimiter, ...],
+        trusted: TrustedProxies | None,
+        key: Callable[[Scope], str | None] | None,
+    ) -> None:
+        """Hold the configuration, the limiters, and the middleware's cell."""
         self._name = name
-        self._options: dict[str, Any] = {
-            "limiters": limiters,
-            "trusted": trusted,
-            "key": key,
-            "cost": cost,
-            "max_wait": max_wait,
-            "exclude": as_patterns(exclude, name="exclude"),
-            "legacy_headers": legacy_headers,
-        }
+        self._limiters = limiters
+        self._trusted = trusted
+        self._key = key
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
+        self._live: Live[_State] = Live(_state_of(config))
         # Built once here so a mistake is refused where it is written,
         # rather than on the first request the app serves.
-        RateLimitMiddleware(_nothing, **self._options)
+        RateLimitMiddleware(
+            _nothing,
+            limiters=limiters,
+            trusted=trusted,
+            key=key,
+            live=self._live,
+        )
+
+    async def _apply_reconfigure(
+        self, new_config: RateLimitedRequestsConfig
+    ) -> None:
+        """Publish the snapshot the next request reads.
+
+        A `cost` raised past what a limiter can ever serve is refused
+        here, so a mounted file that would leave every request refused
+        is skipped and the running configuration is kept.
+        """
+        for limiter in self._limiters:
+            _validate_cost(
+                new_config.cost,
+                _config_limit(limiter._state.config),  # noqa: SLF001
+            )
+        self._live.state = _state_of(new_config)
 
     @property
     def name(self) -> str:
@@ -849,11 +1085,16 @@ class RateLimitedRequests:
     @property
     def limiters(self) -> tuple[RateLimiter, ...]:
         """Return the limiters every request spends."""
-        return tuple(self._options["limiters"])
+        return self._limiters
 
     def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
         """Return the middleware class and the arguments to build it with."""
-        return RateLimitMiddleware, dict(self._options)
+        return RateLimitMiddleware, {
+            "limiters": self._limiters,
+            "trusted": self._trusted,
+            "key": self._key,
+            "live": self._live,
+        }
 
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
         """Return what this component answers rather than letting through.

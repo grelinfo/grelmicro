@@ -12,14 +12,19 @@ from typing import Any, cast
 
 import pytest
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
+    CachedResponses,
     ConditionalRequests,
     ConditionalRequestsMiddleware,
     IdempotencyMiddleware,
     IdempotentRequests,
+    RateLimitedRequests,
 )
 from grelmicro.idempotency import Idempotency
 from grelmicro.log import AccessLog, AccessLogMiddleware
+from grelmicro.resilience import RateLimiter
+from grelmicro.security import TrustedProxies
 
 
 async def app(scope: object, receive: object, send: object) -> None:
@@ -32,7 +37,18 @@ def components() -> list[tuple[str, Any]]:
         ("AccessLog", AccessLog),
         ("IdempotentRequests", IdempotentRequests),
         ("ConditionalRequests", ConditionalRequests),
+        ("CachedResponses", CachedResponses),
+        ("RateLimitedRequests", _rate_limited),
     ]
+
+
+def _rate_limited(**kwargs: Any) -> RateLimitedRequests:  # noqa: ANN401
+    """Build a `RateLimitedRequests` with the one limiter it requires."""
+    return RateLimitedRequests(
+        RateLimiter.sliding_window("sweep", limit=10, window=60),
+        trusted=TrustedProxies(["10.0.0.0/8"]),
+        **kwargs,
+    )
 
 
 @pytest.mark.parametrize(("name", "component"), components())
@@ -42,10 +58,15 @@ def test_a_component_refuses_a_bare_string(
     component: Any,  # noqa: ANN401
     field: str,
 ) -> None:
-    """The component says so where the mistake is written."""
+    """The component says so where the mistake is written.
+
+    A component field is a setting, so it refuses with the one error
+    every component raises for a bad value. The middleware under it is
+    hand-wired ASGI, where a wrong argument type is a `TypeError`.
+    """
     mistake = cast("Any", {field: "/internal/*"})
 
-    with pytest.raises(TypeError, match="is a string"):
+    with pytest.raises(SettingsValidationError, match="is a string"):
         component(**mistake)
 
 

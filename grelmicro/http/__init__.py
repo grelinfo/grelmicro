@@ -36,6 +36,7 @@ from grelmicro.http._component import (
 )
 from grelmicro.http._conditional import (
     ConditionalRequests,
+    ConditionalRequestsConfig,
     ConditionalRequestsMiddleware,
     check_freshness,
     check_precondition,
@@ -44,6 +45,7 @@ from grelmicro.http._conditional import (
 from grelmicro.http._idempotency import (
     IdempotencyMiddleware,
     IdempotentRequests,
+    IdempotentRequestsConfig,
     StoredResponse,
 )
 from grelmicro.http._problem import (
@@ -53,10 +55,12 @@ from grelmicro.http._problem import (
 )
 from grelmicro.http._ratelimit import (
     RateLimitedRequests,
+    RateLimitedRequestsConfig,
     RateLimitMiddleware,
 )
 from grelmicro.http._response_cache import (
     CachedResponses,
+    CachedResponsesConfig,
     CachedResponsesMiddleware,
 )
 from grelmicro.http._server import OpsServer, OpsServerConfig
@@ -72,12 +76,15 @@ __all__ = [
     "ERROR_DOCS_BASE",
     "PROBLEM_MEDIA_TYPE",
     "CachedResponses",
+    "CachedResponsesConfig",
     "CachedResponsesMiddleware",
     "ConditionalRequests",
+    "ConditionalRequestsConfig",
     "ConditionalRequestsMiddleware",
     "ErrorResponses",
     "IdempotencyMiddleware",
     "IdempotentRequests",
+    "IdempotentRequestsConfig",
     "OpsServer",
     "OpsServerConfig",
     "OpsServerError",
@@ -87,6 +94,7 @@ __all__ = [
     "ProblemDetail",
     "RateLimitMiddleware",
     "RateLimitedRequests",
+    "RateLimitedRequestsConfig",
     "RenderedError",
     "StoredResponse",
     "TMFError",

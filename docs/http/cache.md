@@ -187,6 +187,13 @@ is the matching every grelmicro middleware uses, the same as
 `{"/products/*": 60, "/products/hot": 300}` keeps the hot one for 300
 seconds.
 
+A tuple says the same thing when every path is kept for the same time, and
+reads like every other middleware:
+
+```python
+CachedResponses(ttl=60, include=("/products/*", "/catalog"))
+```
+
 `exclude=` carves a path out again, whatever a route or a pattern says.
 
 A pattern naming a read that sits behind a security scheme is refused where
@@ -236,6 +243,24 @@ can answer.
     seen from here. Do not declare `CachedResponse()` on a route like that:
     cache what answers everybody the same, and use
     [`@cached`](../cache/cached.md) on the data behind the ones that do not.
+
+## Changing it while it runs
+
+Every option below except the store and the two callables is tuned from a
+mounted ConfigMap, so a TTL is raised under load without a redeploy:
+
+```yaml
+grel:
+  cached_responses:
+    ttl: 60
+    include:
+      "/products/*": 60
+      "/products/hot": 300
+```
+
+A pattern arriving that way is checked against the app's routes the same way
+`micro.install(app)` checks one, so a file cannot start caching a write or a
+read behind a security scheme. Read [Where a rule applies](where.md).
 
 ## Options
 

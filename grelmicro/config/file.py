@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
 from typing_extensions import Doc
 
-from grelmicro._json import json_loads
+from grelmicro._json import json_dumps_str, json_loads
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from os import PathLike
     from types import TracebackType
+
+    from grelmicro._json import JSONEncodable
 
 
 class FileConfigAdapter:
@@ -31,7 +34,10 @@ class FileConfigAdapter:
       Either a flat mapping of `GREL_...` keys to scalar values, or a
       nested mapping whose segments join with `_` and uppercase, so
       `grel: {lock: {cart: {lease_duration: 30}}}` reads as
-      `GREL_LOCK_CART_LEASE_DURATION=30`.
+      `GREL_LOCK_CART_LEASE_DURATION=30`. Nesting stops where the keys
+      stop looking like a variable name, so a field taking path patterns
+      is written as `include: {"/products/*": 60}` and arrives as the
+      JSON its field parses. A list is written as a list.
     - Any other file: `KEY=VALUE` lines, blank lines and `#` comments
       ignored, matching a `.env` file.
 
@@ -143,22 +149,49 @@ def _flatten_document(data: object, path: Path) -> dict[str, str]:
     return result
 
 
+_SEGMENT = re.compile(r"[A-Za-z0-9_]+")
+"""What a key has to look like to become part of a variable name."""
+
+
+def _addressable(data: dict[Any, Any]) -> bool:
+    """Return whether this mapping's keys can become name segments.
+
+    A variable name holds letters, digits and underscores, so a mapping
+    keyed by anything else is a value rather than a level of nesting. A
+    field taking a mapping of path patterns is written as
+    `include: {"/products/*": 60}`, and `/products/*` is no more a
+    variable name than `60` is a component.
+
+    An empty mapping is a value too. Recursing into it would write
+    nothing at all, which drops the key the document named.
+    """
+    return bool(data) and all(_SEGMENT.fullmatch(str(key)) for key in data)
+
+
 def _flatten_into(
     result: dict[str, str], data: dict[Any, Any], *, prefix: str
 ) -> None:
-    """Walk a mapping, recursing into nested mappings, writing leaf scalars."""
+    """Walk a mapping, recursing while the keys can name a variable."""
     for key, value in data.items():
         name = f"{prefix}_{key}" if prefix else str(key)
-        if isinstance(value, dict):
+        if isinstance(value, dict) and _addressable(value):
             _flatten_into(result, value, prefix=name)
         else:
             result[name.upper()] = _stringify(value)
 
 
 def _stringify(value: object) -> str:
-    """Stringify a scalar, rendering bool as lowercase `true`/`false`."""
+    """Stringify a value the way the field reading it parses.
+
+    A scalar is written as it reads, with bool lowercased. A sequence or
+    a mapping is written as JSON, which is what pydantic-settings parses
+    a complex field from. `str()` would render a list as `['/a']`, whose
+    quotes are not JSON, so the field it fills would refuse it.
+    """
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, (list, tuple, dict)):
+        return json_dumps_str(cast("JSONEncodable", value))
     return str(value)
 
 

@@ -27,7 +27,7 @@ from tests._contract_support import base_names, module_name
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
-_MIN_RECONFIGURABLES = 14
+_MIN_RECONFIGURABLES = 19
 """Exact count today, so a class dropping out of discovery fails.
 
 Slack here would let members erode silently, which is the failure this
@@ -127,6 +127,11 @@ def test_reconfigure_declares_the_config_class_it_accepts(
 
 
 KIND_SEGMENTS = {
+    "AccessLog": "ACCESS_LOG",
+    "CachedResponses": "CACHED_RESPONSES",
+    "ConditionalRequests": "CONDITIONAL_REQUESTS",
+    "IdempotentRequests": "IDEMPOTENT_REQUESTS",
+    "RateLimitedRequests": "RATE_LIMITED_REQUESTS",
     "Lock": "LOCK",
     "TaskLock": "TASKLOCK",
     "LeaderElection": "LEADERELECTION",

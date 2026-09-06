@@ -7,6 +7,13 @@ its checks into an exit code so CI can run it:
 python -m grelmicro check app:micro
 ```
 
+Add `--app` to name the web application too. The report then carries the
+endpoint table, which says what each registered component does to each route:
+
+```bash
+python -m grelmicro check app:micro --app app:app
+```
+
 Read more in the [wiring](wiring.md) docs.
 """
 
@@ -22,7 +29,7 @@ if TYPE_CHECKING:
 
     from grelmicro._app import Grelmicro
 
-__all__ = ["main"]
+__all__ = ["load_object", "load_target", "main"]
 
 _TARGET_HELP = """\
 The app to check, as `module:attribute`, for example `app:micro`. The module
@@ -30,19 +37,25 @@ is imported, so it runs whatever it runs at import time.\
 """
 
 
+_APP_HELP = """\
+The web application the app is installed on, as `module:attribute`, for
+example `app:app`. Adds the endpoint table, which says what each registered
+component does to each route, and checks that `micro.install(app)` was
+called.\
+"""
+
+
 class TargetError(Exception):
     """Raised when the `module:attribute` target cannot be resolved."""
 
 
-def load_target(target: str) -> Grelmicro:
-    """Import `module:attribute` and return the `Grelmicro` it names.
+def load_object(target: str) -> object:
+    """Import `module:attribute` and return whatever it names.
 
     Raises:
-        TargetError: If the target is malformed, the module does not import,
-            the attribute is missing, or it is not a `Grelmicro`.
+        TargetError: If the target is malformed, the module does not
+            import, or the attribute is missing.
     """
-    from grelmicro._app import Grelmicro  # noqa: PLC0415
-
     if ":" not in target:
         msg = (
             f"{target!r} is not a module:attribute target. "
@@ -60,6 +73,19 @@ def load_target(target: str) -> Grelmicro:
     except AttributeError as exc:
         msg = f"module {module_name!r} has no attribute {attribute!r}"
         raise TargetError(msg) from exc
+    return app
+
+
+def load_target(target: str) -> Grelmicro:
+    """Import `module:attribute` and return the `Grelmicro` it names.
+
+    Raises:
+        TargetError: If the target is malformed, the module does not import,
+            the attribute is missing, or it is not a `Grelmicro`.
+    """
+    from grelmicro._app import Grelmicro  # noqa: PLC0415
+
+    app = load_object(target)
     if not isinstance(app, Grelmicro):
         msg = (
             f"{target!r} is a {type(app).__name__}, not a Grelmicro app. "
@@ -85,6 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     check.add_argument("target", help=_TARGET_HELP)
+    check.add_argument("--app", help=_APP_HELP, default=None)
     return parser
 
 
@@ -102,10 +129,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.path.insert(0, "")
     try:
         micro = load_target(args.target)
+        web = None if args.app is None else load_object(args.app)
     except TargetError as exc:
         print(f"error: {exc}", file=sys.stderr)  # noqa: T201
         return 2
-    report = micro.describe()
+    report = micro.describe(web)
     print(report.render())  # noqa: T201
     return 0 if report.ok else 1
 

@@ -131,6 +131,12 @@ order is wrapping order, and a cache hit or an idempotent replay answers
 without reaching what sits inside it: put the limiter outside, or a caller
 spends no tokens on the requests it repeats.
 
+## Which endpoints it applies to
+
+`include` names the paths metered and `exclude` names the ones left alone,
+the same two words every grelmicro middleware takes. [Where a rule
+applies](where.md) covers the matching and what wins.
+
 ## What is never metered
 
 `exclude=` names the paths that pass through, and takes the same patterns
@@ -174,6 +180,7 @@ same.
 | `key` | builds the bucket key itself |
 | `cost` | tokens one request spends of each |
 | `max_wait` | seconds a throttled request waits before it is refused |
-| `exclude` | paths never metered |
+| `include` | paths metered, empty means every path |
+| `exclude` | paths never metered, whatever `include` says |
 | `legacy_headers` | also send the superseded `X-RateLimit-*` fields |
 | `name` | keep two sets of rules apart on one app |

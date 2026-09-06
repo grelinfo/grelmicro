@@ -802,12 +802,23 @@ class Grelmicro:
         assert [c.kind for c in report.components] == ["cache", "coordination"]
         ```
 
+        Passing the app adds `endpoints`, one row per route saying what
+        each registered component does to it, which answers "what happens
+        to `GET /products`" without reading five registrations:
+
+        ```python
+        report = micro.describe(app)
+
+        for endpoint in report.endpoints:
+            print(endpoint.method, endpoint.path, endpoint.applies)
+        ```
+
         `python -m grelmicro check` renders the same report and turns its
         checks into an exit code. Read more in the [Wiring an App](../wiring.md) docs.
         """
         from grelmicro._describe import build_report  # noqa: PLC0415
 
-        report = build_report(self)
+        report = build_report(self, app)
         if app is None:
             return report
         return replace(
