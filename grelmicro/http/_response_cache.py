@@ -227,13 +227,17 @@ class _Policies:
         path: Annotated[str, Doc("The path the request is asking for.")],
         default: Annotated[float, Doc("The component's own TTL.")],
     ) -> float | None:
-        """Return how long this path is cached, or `None` when it is not."""
-        for pattern, ttl in self._paths:
-            if matches(path, (pattern,)):
-                return ttl
+        """Return how long this path is cached, or `None` when it is not.
+
+        A route that declared one says more than a pattern naming it, so
+        `paths=` fills in for the routes that declared none.
+        """
         for regex, marked in self._routes:
             if regex.fullmatch(path):
                 return default if marked is None else marked
+        for pattern, ttl in self._paths:
+            if matches(path, (pattern,)):
+                return ttl
         return None
 
 
@@ -254,7 +258,8 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
 
     found: list[tuple[Pattern[str], float | None]] = []
     for prefix, route, contexts in walk_routes(app):
-        ttl = _declared_ttl(route)
+        above = _declaring_above(contexts)
+        ttl = _declared_ttl(route, above)
         on_the_route = ttl is not _UNMARKED
         for context in reversed(contexts):
             if ttl is not _UNMARKED:
@@ -319,19 +324,25 @@ def _declared_schemes(context: Any) -> list[str]:  # noqa: ANN401
     """Return the security schemes an included router gates everything with.
 
     An include's dependencies are held as they were written rather than
-    resolved into each route, so they are read here as they were written.
+    resolved into each route, so each one is resolved here the way the
+    framework resolves it, and a scheme a dependency of its own declares
+    counts as much as one written on the include.
     """
     try:
+        from fastapi.dependencies.utils import get_dependant  # noqa: PLC0415
         from fastapi.security.base import SecurityBase  # noqa: PLC0415
     except ImportError:  # pragma: no cover - the reimport test walks this
         return []
-    return [
-        type(scheme).__name__
-        for dependency in getattr(context, "dependencies", ()) or ()
-        if isinstance(
-            scheme := getattr(dependency, "dependency", None), SecurityBase
-        )
-    ]
+    found: list[str] = []
+    for dependency in getattr(context, "dependencies", ()) or ():
+        call = getattr(dependency, "dependency", None)
+        if call is None:
+            continue
+        if isinstance(call, SecurityBase):
+            found.append(type(call).__name__)
+            continue
+        found.extend(_security_schemes(get_dependant(path="/", call=call)))
+    return found
 
 
 def _security_schemes(gates: Any) -> list[str]:  # noqa: ANN401
@@ -355,19 +366,43 @@ def _security_schemes(gates: Any) -> list[str]:  # noqa: ANN401
     return found
 
 
-def _declared_ttl(route: Any) -> Any:  # noqa: ANN401
+def _declared_ttl(route: Any, above: set[int]) -> Any:  # noqa: ANN401
     """Return the TTL this route declared, or `_UNMARKED` for one that did not.
 
     Read off the resolved dependency tree, under the framework's own
     spelling of it. A framework that resolves none declares nothing here,
     and names its paths in `paths=` instead.
+
+    What a router declared through its own constructor is resolved into
+    every route it holds, so `above` says which of them the route did not
+    write itself.
     """
     declared = getattr(route, "dependant", None)  # codespell:ignore
     for dependency in getattr(declared, "dependencies", ()):
         ttl = getattr(dependency.call, _MARKER, _UNMARKED)
-        if ttl is not _UNMARKED:
+        if ttl is not _UNMARKED and id(dependency.call) not in above:
             return ttl
     return _UNMARKED
+
+
+def _declaring_above(contexts: tuple[Any, ...]) -> set[int]:
+    """Return what the routers above this route declared, by identity.
+
+    A declaration is a callable of its own, so the one a router was built
+    with is the same object in every route it holds, and telling it from
+    one written on the route is a matter of which object it is.
+    """
+    return {
+        id(marked)
+        for context in contexts
+        for dependency in getattr(context, "dependencies", ()) or ()
+        if getattr(
+            marked := getattr(dependency, "dependency", None),
+            _MARKER,
+            _UNMARKED,
+        )
+        is not _UNMARKED
+    }
 
 
 def _inherited_ttl(context: Any) -> Any:  # noqa: ANN401
@@ -928,7 +963,7 @@ class _ResponseCapture:
                 await self.release()
             return
         if message["type"] != "http.response.body":
-            await self.release()
+            await self.release(complete=self.complete)
             await self._send(message)
             return
         if message.get("more_body", False):

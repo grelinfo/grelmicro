@@ -28,6 +28,7 @@ from grelmicro.http import (
 from grelmicro.http._response_cache import (
     _UNSTORABLE_LIMIT,
     _WARNED_LIMIT,
+    _declared_schemes,
     declare_cached,
 )
 from grelmicro.integrations.fastapi import CachedResponse
@@ -1606,6 +1607,126 @@ def test_the_nearest_router_declaration_decides() -> None:
 
     # Assert
     assert seconds == TTL
+
+
+def test_a_gate_inside_a_router_dependency_is_refused_too() -> None:
+    """A scheme is a scheme however deep the dependency that declares it."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter()
+
+    async def require_key(
+        key: str = Security(APIKeyHeader(name="X-API-Key")),
+    ) -> str:
+        """Stand in for the gate a service writes once and reuses."""
+        return key
+
+    @router.get("/secret", dependencies=[CachedResponse(ttl=TTL)])
+    async def secret() -> dict[str, int]:
+        return {"secret": 1}
+
+    app.include_router(router, dependencies=[Depends(require_key)])
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+        micro.install(app)
+
+
+def test_a_declaration_with_nothing_to_call_gates_nothing() -> None:
+    """What names no callable declares no scheme to walk."""
+    # Act
+    schemes = _declared_schemes(
+        SimpleNamespace(dependencies=[SimpleNamespace(dependency=None)])
+    )
+
+    # Assert
+    assert schemes == []
+
+
+def test_a_router_built_with_it_leaves_its_writes_alone() -> None:
+    """`APIRouter(dependencies=[...])` says the same as including with it."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    router = APIRouter(
+        prefix="/products", dependencies=[CachedResponse(ttl=TTL)]
+    )
+    reads = 0
+    writes = 0
+
+    @router.get("/")
+    async def list_products() -> dict[str, int]:
+        nonlocal reads
+        reads += 1
+        return {"reads": reads}
+
+    @router.post("/")
+    async def create() -> dict[str, int]:
+        nonlocal writes
+        writes += 1
+        return {"writes": writes}
+
+    app.include_router(router)
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/products/")
+        client.get("/products/")
+        client.post("/products/")
+        client.post("/products/")
+
+    # Assert
+    assert reads == 1
+    assert writes == TWICE
+
+
+def test_a_route_that_declared_one_is_not_overridden_by_a_pattern() -> None:
+    """`paths=` fills in for the routes that declared none."""
+    # Arrange
+    component = CachedResponses(paths={"/products/*": TTL})
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), component])
+    app = FastAPI()
+
+    @app.get("/products/hot", dependencies=[CachedResponse(ttl=OTHER_TTL)])
+    async def hot() -> dict[str, int]:
+        return {"hot": 1}
+
+    micro.install(app)
+
+    # Act
+    seconds = component._policies.ttl_for("/products/hot", TTL)
+
+    # Assert
+    assert seconds == OTHER_TTL
+
+
+def test_a_message_after_a_complete_body_closes_what_is_held() -> None:
+    """A response held open is one the client waits on for ever."""
+    # Arrange
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"hello"})
+        await send({"type": "http.response.trailers", "headers": []})
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    middleware = CachedResponsesMiddleware(
+        app, cache=_cache(), paths={"/reads": TTL}
+    )
+
+    # Act
+    anyio.run(middleware, _read_scope(), _receive, send)
+
+    # Assert
+    body = [message for message in sent if "body" in message]
+    assert [message.get("more_body", False) for message in body] == [False]
 
 
 def test_a_range_request_is_left_to_the_handler() -> None:

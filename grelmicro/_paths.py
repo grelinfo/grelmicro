@@ -61,7 +61,8 @@ def walk_routes(
 
     A route is `(prefix, route, contexts)`, where the prefix is what the
     mounts and the routers above it add to the path it was written with,
-    and the contexts are those routers' inclusions, outermost first.
+    and the contexts are what was declared above it, outermost first:
+    each inclusion, and the router it included.
 
     An included router is a node of its own rather than the routes it
     holds, so what it was included under has to be carried down to them
@@ -76,7 +77,7 @@ def walk_routes(
                 walk_routes(
                     included,
                     f"{prefix}{getattr(context, 'prefix', '')}",
-                    (*contexts, context),
+                    (*contexts, context, included),
                 )
             )
             continue
