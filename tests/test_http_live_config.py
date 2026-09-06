@@ -81,15 +81,6 @@ NAMED_TTL = 600.0
 BUILT = 5
 """How many components the declarative door is swept over."""
 
-BODY_LIMIT = 2048
-"""Bytes the file says a body is held to."""
-
-RAISED_BODY_LIMIT = 4096
-"""Bytes a cost knob beside a refused key still moves to."""
-
-WAIT = 5.0
-"""Seconds the file says a duplicate waits."""
-
 YAML = """\
 grel:
   cached_responses:
@@ -99,10 +90,6 @@ grel:
       "/products/hot": 300
     exclude: ["/admin/*"]
     vary_by_headers: ["accept-language"]
-  conditional_requests:
-    max_body_size: 2048
-  idempotent_requests:
-    wait_timeout: 5
   rate_limited_requests:
     max_wait: 0.5
     exclude: ["/livez", "/readyz"]
@@ -156,8 +143,15 @@ async def test_one_yaml_document_retunes_every_http_component(
         assert cache.config.ttl == DEFAULT_TTL
         assert cache.config.vary_by_headers == ("accept-language",)
         assert cache.config.exclude == ("/admin/*",)
-        assert conditional.config.max_body_size == BODY_LIMIT
-        assert idempotent.config.wait_timeout == WAIT
+        # Neither of these two moves: both protect a request. Compared
+        # field by field, because the environment path builds a settings
+        # subclass rather than the plain config class.
+        assert conditional.config.model_dump() == (
+            ConditionalRequestsConfig().model_dump()
+        )
+        assert idempotent.config.model_dump() == (
+            IdempotentRequestsConfig().model_dump()
+        )
         assert rate.config.max_wait == MAX_WAIT
         assert rate.config.exclude == ("/livez", "/readyz")
         assert access.config.exclude == ("/livez",)
@@ -880,18 +874,19 @@ async def test_what_the_schema_states_is_not_live(
     """
     # Arrange
     prefix = f"GREL_{component.kind.upper()}_"
+    cache = CachedResponses()
     path = tmp_path / "config.env"
     path.write_text(
         f"{prefix}{field.upper()}=true\n"
-        f"{prefix}MAX_BODY_SIZE={RAISED_BODY_LIMIT}\n"
+        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL:g}\n"
     )
     before = getattr(component.config, field)
 
     # Act
     async with ExternalConfig(str(path), reload_interval=60):
-        # Assert: refused, and the cost knob beside it still applies.
+        # Assert: refused, and the live key beside it still applies.
         assert getattr(component.config, field) == before
-        assert component.config.max_body_size == RAISED_BODY_LIMIT
+        assert cache.config.ttl == KIND_TTL
 
 
 @pytest.mark.parametrize(
@@ -921,17 +916,19 @@ async def test_what_protects_a_client_is_wired_in_code(
     """
     # Arrange
     prefix = f"GREL_{component.kind.upper()}_"
+    cache = CachedResponses()
     path = tmp_path / "config.env"
     path.write_text(
-        f"{prefix}{field.upper()}={value}\n{prefix}MAX_BODY_SIZE=4096\n"
+        f"{prefix}{field.upper()}={value}\n"
+        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL:g}\n"
     )
     before = getattr(component.config, field)
 
     # Act
     async with ExternalConfig(str(path), reload_interval=60):
-        # Assert: refused, and the cost knob beside it still applies.
+        # Assert: refused, and the live key beside it still applies.
         assert getattr(component.config, field) == before
-        assert component.config.max_body_size == RAISED_BODY_LIMIT
+        assert cache.config.ttl == KIND_TTL
 
 
 async def test_what_only_costs_time_is_tuned_live(tmp_path: Path) -> None:
@@ -1071,3 +1068,111 @@ async def test_a_mounted_value_that_is_not_json_reaches_the_field(
     async with ExternalConfig(str(path), reload_interval=60):
         # Assert
         assert access.config.exclude == ("/kept",)
+
+
+def test_a_field_added_later_is_covered_by_the_decision() -> None:
+    """The set is read off the config, so no field is live by omission.
+
+    Listing the fields by hand is how one gets forgotten, and a forgotten
+    field on either of these two is a guarantee a mounted file can
+    remove.
+    """
+    # Act / Assert
+    assert (
+        frozenset(ConditionalRequestsConfig.model_fields)
+        == ConditionalRequests._IMMUTABLE_RECONFIGURE_FIELDS
+    )
+    assert (
+        frozenset(IdempotentRequestsConfig.model_fields)
+        == IdempotentRequests._IMMUTABLE_RECONFIGURE_FIELDS
+    )
+    # And the three that only cost time or capacity keep every field live.
+    for component in (
+        CachedResponses(),
+        AccessLog(),
+        RateLimitedRequests(_limiter(), trusted=TrustedProxies(["10.0.0.0/8"])),
+    ):
+        assert frozenset() == component._IMMUTABLE_RECONFIGURE_FIELDS
+
+
+async def test_payload_fingerprinting_is_not_a_cost_knob(
+    tmp_path: Path,
+) -> None:
+    """Turning it off replays the first response to a different payload."""
+    # Arrange
+    component = IdempotentRequests(fingerprint_body=True)
+    path = tmp_path / "config.env"
+    path.write_text("GREL_IDEMPOTENT_REQUESTS_FINGERPRINT_BODY=false\n")
+
+    # Act
+    async with ExternalConfig(str(path), reload_interval=60):
+        # Assert
+        assert component.config.fingerprint_body is True
+
+
+def test_a_typed_converter_is_reported_as_cached() -> None:
+    """A declared path is a pattern, not a URL, so it is read off the route.
+
+    Matching `/products/{pid:int}` against the regex compiled from it
+    answers no, and the endpoint would be reported as uncached while the
+    middleware caches it.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            CachedResponses(),
+        ]
+    )
+
+    @app.get("/products/{pid:int}", dependencies=[CachedResponse(ttl=120)])
+    async def typed(pid: int) -> dict[str, int]:
+        return {"pid": pid}
+
+    @app.get("/rest/{rest:path}", dependencies=[CachedResponse()])
+    async def rest(rest: str) -> dict[str, str]:
+        return {"rest": rest}
+
+    micro.install(app)
+
+    # Act
+    rows = {
+        (row.method, row.path): row.applies
+        for row in micro.describe(app).endpoints
+    }
+
+    # Assert
+    assert rows[("GET", "/products/{pid:int}")] == ("cache 120s",)
+    assert rows[("GET", "/rest/{rest:path}")] == ("cache 60s",)
+
+
+def test_broken_json_is_reported_as_broken_json() -> None:
+    """An operator who wrote a list is not told to write a list."""
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="does not parse"):
+        AccessLog(exclude=cast("Any", '["/livez"'))
+    with pytest.raises(SettingsValidationError, match="is a string"):
+        AccessLog(exclude=cast("Any", "/livez"))
+
+
+async def test_code_may_still_swap_a_configuration_a_file_may_not() -> None:
+    """The restriction is on the mounted source, not on the API.
+
+    `reconfigure` is called by application code, which is code: reviewed,
+    versioned, and shipped with the image. What it may not do is arrive
+    from a file that is none of those.
+    """
+    # Arrange
+    component = IdempotentRequests()
+    before = component._live.state
+
+    # Act
+    await component.reconfigure(
+        IdempotentRequestsConfig(methods=("POST", "PUT"))
+    )
+
+    # Assert
+    assert before.methods == frozenset({"POST"})
+    assert component._live.state.methods == frozenset({"POST", "PUT"})

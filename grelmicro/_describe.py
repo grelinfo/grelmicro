@@ -338,16 +338,26 @@ def _scope_checks(
     ]
 
 
+@dataclass(frozen=True, slots=True)
+class _Endpoint:
+    """One route the app declares, as the readers need to see it."""
+
+    method: str
+    path: str
+    route: Any
+    contexts: tuple[Any, ...]
+
+
 def _endpoint_rules(
     components: Sequence[Any],
-) -> list[tuple[str, Callable[[str, str], str | None]]]:
+) -> list[tuple[str, Callable[[_Endpoint], str | None]]]:
     """Return what each registered component says about one endpoint.
 
     Each entry is the component's label and a reader that answers for one
     `(method, path)`, or `None` when the component leaves it alone. Built
     once per report rather than per route.
     """
-    rules: list[tuple[str, Callable[[str, str], str | None]]] = []
+    rules: list[tuple[str, Callable[[_Endpoint], str | None]]] = []
     for component in components:
         kind = getattr(component, "kind", None)
         reader = _ENDPOINT_READERS.get(kind or "")
@@ -364,52 +374,72 @@ def _selected(config: Any, path: str) -> bool:  # noqa: ANN401
     )
 
 
-def _reads_cache(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
-    """Return what a `CachedResponses` does to one endpoint."""
+def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
+    """Return what a `CachedResponses` does to one endpoint.
 
-    def read(method: str, path: str) -> str | None:
+    The route's own declaration is read off the route, not matched
+    against its path. A declared path is a pattern rather than a URL, so
+    matching `/products/{pid:int}` against the regex compiled from it
+    answers `no` and the endpoint would be reported as uncached.
+    """
+    from grelmicro.http._response_cache import declared_ttl  # noqa: PLC0415
+
+    def read(endpoint: _Endpoint) -> str | None:
         state = component._live.state  # noqa: SLF001
         config = state.config
-        if method not in {"GET", "HEAD"} or matches(path, config.exclude):
+        if endpoint.method not in {"GET", "HEAD"} or matches(
+            endpoint.path, config.exclude
+        ):
             return None
-        ttl = state.policies.ttl_for(path, config.ttl)
-        return None if ttl is None else f"cache {ttl:g}s"
+        declared, ttl = declared_ttl(endpoint.route, endpoint.contexts)
+        seconds = (
+            (config.ttl if ttl is None else ttl)
+            if declared
+            else state.policies.pattern_ttl(endpoint.path, config.ttl)
+        )
+        return None if seconds is None else f"cache {seconds:g}s"
 
     return read
 
 
-def _reads_conditional(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+def _reads_conditional(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what a `ConditionalRequests` does to one endpoint."""
 
-    def read(method: str, path: str) -> str | None:
+    def read(endpoint: _Endpoint) -> str | None:
         config = component.config
-        if not _selected(config, path):
+        if not _selected(config, endpoint.path):
             return None
         required = {name.upper() for name in config.require_precondition}
-        return "conditional required" if method in required else "conditional"
+        return (
+            "conditional required"
+            if endpoint.method in required
+            else "conditional"
+        )
 
     return read
 
 
-def _reads_idempotent(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what an `IdempotentRequests` does to one endpoint."""
 
-    def read(method: str, path: str) -> str | None:
+    def read(endpoint: _Endpoint) -> str | None:
         config = component.config
         methods = {name.upper() for name in config.methods}
-        if method not in methods or not _selected(config, path):
+        if endpoint.method not in methods or not _selected(
+            config, endpoint.path
+        ):
             return None
         return f"idempotent {component.idempotency.config.ttl:g}s"
 
     return read
 
 
-def _reads_rate_limited(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what a `RateLimitedRequests` does to one endpoint."""
 
-    def read(method: str, path: str) -> str | None:  # noqa: ARG001
+    def read(endpoint: _Endpoint) -> str | None:
         config = component.config
-        if not _selected(config, path):
+        if not _selected(config, endpoint.path):
             return None
         named = ", ".join(limiter.name for limiter in component.limiters)
         return f"rate-limit {named}"
@@ -417,21 +447,21 @@ def _reads_rate_limited(component: Any) -> Callable[[str, str], str | None]:  # 
     return read
 
 
-def _reads_access_log(component: Any) -> Callable[[str, str], str | None]:  # noqa: ANN401
+def _reads_access_log(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what an `AccessLog` does to one endpoint."""
 
-    def read(method: str, path: str) -> str | None:  # noqa: ARG001
+    def read(endpoint: _Endpoint) -> str | None:
         config = component.config
-        if not _selected(config, path):
+        if not _selected(config, endpoint.path):
             return None
-        quiet = matches(path, tuple(config.quiet))
+        quiet = matches(endpoint.path, tuple(config.quiet))
         return "access-log quiet" if quiet else "access-log"
 
     return read
 
 
 _ENDPOINT_READERS: Mapping[
-    str, Callable[[Any], Callable[[str, str], str | None]]
+    str, Callable[[Any], Callable[[_Endpoint], str | None]]
 ] = {
     "cached_responses": _reads_cache,
     "conditional_requests": _reads_conditional,
@@ -459,11 +489,14 @@ def _describe_endpoints(
     if not rules:
         return ()
     found: list[EndpointReport] = []
-    for prefix, route, _ in walk_routes(app):
+    for prefix, route, contexts in walk_routes(app):
         path = f"{prefix}{getattr(route, 'path', '')}"
         for method in sorted(getattr(route, "methods", ()) or ()):
             if method == "HEAD":
                 continue
+            endpoint = _Endpoint(
+                method=method, path=path, route=route, contexts=contexts
+            )
             found.append(
                 EndpointReport(
                     method=method,
@@ -471,7 +504,7 @@ def _describe_endpoints(
                     applies=tuple(
                         applied
                         for _, read in rules
-                        if (applied := read(method, path)) is not None
+                        if (applied := read(endpoint)) is not None
                     ),
                 )
             )

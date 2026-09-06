@@ -133,9 +133,13 @@ second time, which for a payment is the outcome idempotency exists to
 prevent. Take one out of conditional requests and an unconditional write
 erases an update nobody is told about.
 
-So `include`, `exclude` and `methods` on those two are wired in code and
-changed by a deploy, where they are reviewed. Their costs stay live:
-`max_body_size`, and `wait_timeout` on idempotency.
+So those two are configured at startup, every field of them, and changed by
+a deploy where they are reviewed. Not a chosen list of fields: every one of
+theirs turns out to protect something. Turn off `fingerprint_body` and a key
+reused with a different payload replays the first response. Lower
+`max_body_size` and a large response stops being stored, or stops carrying
+an `ETag`. A list would also have to be maintained, and the field somebody
+forgets to add to it is the one a file can then reach.
 
 This is an authorization boundary as much as a design one. Editing a
 ConfigMap is a much more widely granted permission than shipping an image,

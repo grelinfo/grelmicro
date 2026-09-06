@@ -298,6 +298,22 @@ class _Policies:
         if self._app is not None:
             self.read(self._app)
 
+    def pattern_ttl(
+        self,
+        path: Annotated[str, Doc("The path the request is asking for.")],
+        default: Annotated[float, Doc("The component's own TTL.")],
+    ) -> float | None:
+        """Return how long `include` keeps this path, or `None` for never.
+
+        The patterns only. A route's own declaration is read off the
+        route, which a report walking the app has in hand and a request
+        does not.
+        """
+        for pattern, ttl in self._include:
+            if matches(path, (pattern,)):
+                return default if ttl is None else ttl
+        return None
+
     def ttl_for(
         self,
         path: Annotated[str, Doc("The path the request is asking for.")],
@@ -315,6 +331,35 @@ class _Policies:
             if matches(path, (pattern,)):
                 return default if ttl is None else ttl
         return None
+
+
+def declared_ttl(
+    route: Annotated[Any, Doc("The route to read the declaration off.")],  # noqa: ANN401
+    contexts: Annotated[
+        tuple[Any, ...],
+        Doc("What was declared above it, outermost first."),
+    ],
+) -> tuple[bool, float | None]:
+    """Return whether this route declares a TTL, and the seconds it names.
+
+    The nearest declaration decides: the route's own beats the router it
+    sits in, and an inner router beats the one that includes it. `None`
+    seconds means the declaration named none, so the component's own TTL
+    applies.
+
+    Read off the route rather than matched against its path, because a
+    path is compiled before it matches anything: a route declared as
+    `/products/{pid:int}` is a pattern, not a URL, and matching one
+    against the other answers `no` for every typed converter.
+    """
+    ttl = _declared_ttl(route, _declaring_above(contexts))
+    for context in reversed(contexts):
+        if ttl is not _UNMARKED:
+            break
+        ttl = _inherited_ttl(context)
+    if ttl is _UNMARKED:
+        return False, None
+    return True, ttl
 
 
 def _marked_routes(

@@ -105,11 +105,21 @@ where it is held rather than where it is spent.
 
 **Live reload tunes what a request costs, never what it is protected by.**
 
-`ConditionalRequests` and `IdempotentRequests` fix their reach at startup,
-because narrowing either one silently removes a guarantee: a retry that runs
-an operation twice, or an unconditional write that erases an update. The
-header names, `require_key` and `reused_status` are fixed for a second
-reason, that the OpenAPI schema states them and the schema is built once.
+`ConditionalRequests` and `IdempotentRequests` are configured at startup,
+every field of them, because every one of theirs protects something.
+Narrowing the reach lets a retry run twice or a write erase an update.
+`fingerprint_body` off replays the first response to a different payload. A
+lowered `max_body_size` stops a large response being stored, or carrying an
+`ETag`. The header names, `require_key` and `reused_status` are fixed for a
+second reason, that the OpenAPI schema states them and the schema is built
+once.
+
+The set is read off the config with
+`frozenset(SomeConfig.model_fields)` rather than listed, so a field added
+later is covered by the decision instead of becoming live because nobody
+remembered to add it. A hand-written list is how `fingerprint_body` was
+missed the first time.
+
 `CachedResponses`, `RateLimitedRequests` and `AccessLog` are fully live,
 because losing any of them costs latency or capacity rather than
 correctness.

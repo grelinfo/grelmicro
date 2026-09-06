@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 __all__ = [
     "BARE_METHOD_MESSAGE",
     "BARE_STRING_MESSAGE",
+    "MALFORMED_JSON_MESSAGE",
     "MethodNames",
     "PathPatterns",
     "as_patterns",
@@ -55,8 +56,24 @@ method, so the middleware would act on nothing at all.
 """
 
 
+MALFORMED_JSON_MESSAGE = (
+    "this looks like JSON and does not parse. A field holding many "
+    "values is written as a JSON list, so check the brackets and the "
+    "quotes."
+)
+"""Why a bracketed string was refused.
+
+Told apart from a bare string on purpose. An operator who wrote
+`["/livez"` did write a list, and answering that one is expected would
+send them looking for the mistake they did not make.
+"""
+
+
 def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
     """Refuse a string where a set of them is expected.
+
+    A string that opens a JSON list or object is reported as malformed
+    JSON rather than as a missing comma, because that is what it is.
 
     Raises:
         ValueError: If the value is a string. A validator raises
@@ -66,6 +83,8 @@ def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
             loop alike.
     """
     if isinstance(value, str):
+        if value.strip().startswith(("[", "{")):
+            raise ValueError(MALFORMED_JSON_MESSAGE)
         raise ValueError(message)  # noqa: TRY004
     return value
 
