@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from logging import getLogger
-from math import ceil
+from math import ceil, inf
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
@@ -40,6 +40,9 @@ __all__ = ["RateLimitMiddleware", "RateLimitedRequests"]
 
 logger = getLogger("grelmicro.http.ratelimit")
 
+_reported_degraded = False
+"""Whether the trusted set has already been reported as not describing it."""
+
 _STATED = "grelmicro_rate_limit_stated"
 """Where a route leaves what it metered, for the middleware to state."""
 
@@ -53,8 +56,8 @@ _LEGACY_HEADERS = (
 )
 """The superseded three fields, for a client that reads only those."""
 
-_SF_UNSAFE = ('"', "\\")
-"""What a structured field String cannot carry unescaped."""
+_SF_UNSAFE = ('"', "\\", ",", ";", "=")
+"""What a policy name cannot carry: quoting, and the field's own punctuation."""
 
 
 def _policy_name(limiter: RateLimiter) -> str:
@@ -73,8 +76,9 @@ def _policy_name(limiter: RateLimiter) -> str:
         raise ValueError(msg)
     if any(character in name for character in _SF_UNSAFE):
         msg = (
-            f"RateLimiter {name!r} cannot be named in a RateLimit header, "
-            'which quotes the name, so it carries no `"` and no `\\`.'
+            f"RateLimiter {name!r} cannot be named in a RateLimit header. "
+            "The name is quoted into it and read back out of it, so it "
+            'carries no `"`, `\\`, `,`, `;` or `=`.'
         )
         raise ValueError(msg)
     return name
@@ -546,6 +550,10 @@ def bucket_of(
     The address a middleware already resolved is reused, and one this
     resolves is left where the next reader looks, so the forwarded header
     is walked once however many meters a request passes.
+
+    An address the walk could only take as far as one of your own
+    proxies is nobody's bucket: metering every caller behind it as
+    one would let any of them spend the budget of all of them.
     """
     if key is not None:
         return key(scope)
@@ -555,7 +563,31 @@ def bucket_of(
         resolved = resolve_client_address(scope, trusted)
         if resolved is not None:
             state["client_address"] = resolved
-    return None if resolved is None else resolved.key
+    if resolved is None:
+        return None
+    if resolved.degraded:
+        _report_degraded()
+        return None
+    return resolved.key
+
+
+def _report_degraded() -> None:
+    """Say once that the trusted set does not describe this deployment.
+
+    The walk reached one of your own proxies and stopped, so the only
+    address left is that proxy's. It is a configuration to fix rather
+    than a caller to meter, and it does not change per request.
+    """
+    global _reported_degraded  # noqa: PLW0603
+    if _reported_degraded:
+        return
+    _reported_degraded = True
+    logger.warning(
+        "rate limiter found only one of your own proxies to meter, "
+        "letting requests through: trusted= names a proxy that "
+        "forwarded no caller, so every caller behind it would share "
+        "one budget"
+    )
 
 
 def state_on(
@@ -563,16 +595,38 @@ def state_on(
     headers: Annotated[
         dict[str, str], Doc("What one meter has to tell the caller.")
     ],
-) -> None:
+) -> dict[str, str]:
     """Leave what a route metered where the middleware will state it.
 
     A framework merges a dependency's headers into the response it
     builds, and not into a `Response` a handler returned itself. The
     middleware writes the response start either way, so what it is
     handed here reaches the caller whatever the route returned.
+
+    A second meter on the same route joins the first rather than
+    replacing it, so both budgets are stated and both are spent. What
+    every meter on this request has stated so far is returned, for a
+    caller that also has to write them somewhere itself.
     """
     stated = scope.setdefault("state", {}).setdefault(_STATED, {})
-    stated.update(headers)
+    combined = _combined(
+        {
+            name.lower().encode("latin-1"): value.encode("latin-1")
+            for name, value in stated.items()
+        },
+        {
+            name.lower().encode("latin-1"): value.encode("latin-1")
+            for name, value in headers.items()
+        },
+    )
+    stated.clear()
+    stated.update(
+        {
+            name.decode("latin-1"): value.decode("latin-1")
+            for name, value in combined.items()
+        }
+    )
+    return dict(stated)
 
 
 def _stated_on(scope: Scope) -> dict[bytes, bytes]:
@@ -607,12 +661,29 @@ def _combined(
 
 
 def _joined(theirs: bytes, mine: bytes) -> bytes:
-    """Return two Lists as one, with each policy named once."""
+    """Return two Lists as one, with each policy named once.
+
+    One policy metered twice is one policy, and the count a client
+    has to pace itself off is the smaller of the two.
+    """
     items: dict[bytes, bytes] = {}
     for value in (theirs, mine):
         for item in value.split(b", "):
-            items[item.split(b";", 1)[0]] = item
+            name = item.split(b";", 1)[0]
+            seen = items.get(name)
+            if seen is None or _left(item) <= _left(seen):
+                items[name] = item
     return b", ".join(items.values())
+
+
+def _left(item: bytes) -> float:
+    """Return what one stated policy says is left, for comparing two."""
+    for parameter in item.split(b";")[1:]:
+        if parameter.startswith(b"r="):
+            remaining = _remaining(parameter[2:])
+            if remaining is not None:
+                return remaining
+    return inf
 
 
 def _merged(

@@ -20,6 +20,7 @@ from grelmicro.http import (
     RateLimitedRequests,
     RateLimitMiddleware,
 )
+from grelmicro.http._ratelimit import _joined
 from grelmicro.integrations.fastapi import RateLimited
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.errors import RateLimitExceededError
@@ -970,6 +971,115 @@ def test_a_stated_header_that_is_not_a_number_is_passed_over() -> None:
 
     # Assert
     assert response.status_code == HTTP_200_OK
+
+
+def test_a_bucket_that_is_only_your_proxy_meters_nobody(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Metering every caller behind it as one lets any spend all."""
+    # Arrange
+    app = _app(_limiter("api", 1))
+    proxy = ("10.1.2.3", 5000)
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.http.ratelimit"),
+        TestClient(app, client=proxy) as client,
+    ):
+        client.get("/read", headers={"X-Forwarded-For": "10.9.9.9"})
+        response = client.get("/read", headers={"X-Forwarded-For": "10.9.9.9"})
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert "share" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "name", ["a,b", "a;b", "a=b"], ids=["comma", "semicolon", "equals"]
+)
+def test_a_name_the_field_cannot_be_read_back_from_is_refused(
+    name: str,
+) -> None:
+    """The name is quoted into the field and parsed back out of it."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="RateLimit header"):
+        RateLimitedRequests(
+            _limiter(name, 1), trusted=TrustedProxies(list(PROXIES))
+        )
+
+
+def test_one_policy_metered_twice_states_the_smaller_count() -> None:
+    """A client paces itself off `r=`, so it reads the one that refuses."""
+    # Arrange
+    shared = _limiter("shared", 100)
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(shared, trusted=TrustedProxies(list(PROXIES))),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get("/search", dependencies=[RateLimited(shared, cost=10)])
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/search")
+
+    # Assert
+    assert re.fullmatch(r'"shared";r=89;t=\d+', response.headers["ratelimit"])
+
+
+@pytest.mark.parametrize(
+    ("stated", "kept"),
+    [
+        (b'"a";t=1', b'"a";r=0;t=2'),
+        (b'"a";r=x;t=1', b'"a";r=0;t=2'),
+        (b'"a";r=9;t=1', b'"a";r=0;t=2'),
+    ],
+    ids=["no count", "unreadable count", "larger count"],
+)
+def test_a_policy_without_a_readable_count_yields_to_one(
+    stated: bytes, kept: bytes
+) -> None:
+    """A count that cannot be read is not a count to pace off."""
+    # Act
+    joined = _joined(stated, kept)
+
+    # Assert
+    assert joined == kept
+
+
+def test_two_meters_on_one_route_are_two_policies() -> None:
+    """A router's budget and a route's are both spent, so both are said."""
+    # Arrange
+    app = FastAPI()
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+
+    @app.get(
+        "/search",
+        dependencies=[
+            RateLimited(
+                _limiter("tenant", 50), trusted=TrustedProxies(list(PROXIES))
+            ),
+            RateLimited(
+                _limiter("search", 5), trusted=TrustedProxies(list(PROXIES))
+            ),
+        ],
+    )
+    async def do_search() -> dict[str, int]:
+        return {"hits": 1}
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/search")
+
+    # Assert
+    assert '"tenant"' in response.headers["ratelimit"]
+    assert '"search"' in response.headers["ratelimit"]
 
 
 # --- What the component exposes ---

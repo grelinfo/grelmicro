@@ -486,8 +486,7 @@ def RateLimited(  # noqa: N802
         # The framework merges these into a response it builds itself,
         # and not into one the handler returned, so the middleware is
         # handed them too and states them whatever the route answered.
-        state_on(scope, stated)
-        for name, value in stated.items():
+        for name, value in state_on(scope, stated).items():
             response.headers[name] = value
 
     return _Depends(metered)

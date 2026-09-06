@@ -90,7 +90,10 @@ async def do_search(query: str) -> list[Hit]: ...
 ```
 
 Both budgets are spent, and both are stated in the answer: the standard
-fields are lists, so the route's policy and the app's join into one. The
+fields are lists, so the route's policy and the app's join into one, and two
+declarations on one route join the same way. One limiter metered twice is one
+policy, stated with the smaller count, which is the one a client has to pace
+itself off. The
 superseded `X-RateLimit-*` fields are single integers that cannot be read
 twice, so the meter with less left answers for both: a client reading only
 those is told the budget that refuses it first.
@@ -116,6 +119,13 @@ RateLimitedRequests(burst, trusted=..., max_wait=0.5)
 A budget that runs out is still a refusal: the caller is answered `429` with
 the same headers, not an error.
 
+## Where it sits
+
+Register it before `CachedResponses()` and `IdempotentRequests()`. Registration
+order is wrapping order, and a cache hit or an idempotent replay answers
+without reaching what sits inside it: put the limiter outside, or a caller
+spends no tokens on the requests it repeats.
+
 ## What is never metered
 
 `exclude=` names the paths that pass through, and takes the same patterns
@@ -125,6 +135,11 @@ budget to spend.
 
 A request whose caller cannot be read at all is let through rather than
 metered under a bucket that is not theirs, and the reason is logged once.
+
+So is one whose caller the walk could only take as far as your own proxy.
+That means `trusted=` does not describe this deployment, and metering every
+caller behind that proxy as one would let any of them spend the budget of all
+of them. It is logged once, as a configuration to fix.
 
 ## When the backend is down
 
