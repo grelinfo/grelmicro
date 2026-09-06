@@ -255,10 +255,10 @@
   },
   "grelmicro.http": {
     "CachedResponses": {
-      "()": "(*, ttl=60.0, paths=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, cache=None, namespace='http', name='default') -> 'None'"
+      "()": "(*, ttl=60.0, include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, cache=None, namespace='http', name='default') -> 'None'"
     },
     "CachedResponsesMiddleware": {
-      "()": "(app, *, cache, policies=None, ttl=60.0, paths=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default') -> 'None'"
+      "()": "(app, *, cache, policies=None, ttl=60.0, include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default') -> 'None'"
     },
     "ConditionalRequests": {
       "()": "(*, etag_responses=True, require_precondition=(), include=(), exclude=(), max_body_size=1048576, openapi=True, name='default') -> 'None'"
