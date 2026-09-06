@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import OrderedDict
 from logging import getLogger
 from time import time as clock_time
 from typing import (
@@ -18,6 +19,7 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._paths import as_patterns, matches, route_path
+from grelmicro.cache._stampede import compute_with_stampede
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.http._conditional import (
@@ -79,6 +81,12 @@ _PRIVATE_REQUEST_HEADERS = (b"authorization", b"cookie")
 _UNCACHEABLE_DIRECTIVES = frozenset({"no-store", "no-cache", "private"})
 """`Cache-Control` directives that refuse the store outright."""
 
+_UNCACHEABLE_RESPONSE_HEADERS = frozenset({b"set-cookie", b"content-encoding"})
+"""Response headers that make it one caller's, or not the body it says."""
+
+_UNSTORABLE_LIMIT = 512
+"""How many keys are remembered as ones nothing is ever stored under."""
+
 _WARNED_LIMIT = 128
 """How many distinct `Vary` refusals are remembered before warning again."""
 
@@ -97,6 +105,25 @@ class _Entry(TypedDict):
     stored_at: float
 
 
+def check_ttl(
+    ttl: Annotated[float | None, Doc("What was given as a lifetime.")],
+    where: Annotated[str, Doc("The argument's name, for the message.")],
+) -> None:
+    """Refuse a lifetime a response cannot be kept for.
+
+    Raises:
+        ValueError: If `ttl` is not a positive number of seconds.
+    """
+    if ttl is None or ttl > 0:
+        return
+    msg = (
+        f"{where}={ttl!r} is not a number of seconds a response is kept "
+        "for. Leave the path out, or name it in exclude=, to cache it "
+        "not at all."
+    )
+    raise ValueError(msg)
+
+
 def declare_cached(
     ttl: Annotated[
         float | None, Doc("Seconds the route's response is served from.")
@@ -108,7 +135,11 @@ def declare_cached(
     `Depends`, which is how a route says so, and `micro.install(app)`
     reads it back off the dependency tree. It computes nothing: what it
     carries is the TTL, and where it is declared.
+
+    Raises:
+        ValueError: If `ttl` is not a positive number of seconds.
     """
+    check_ttl(ttl, "ttl")
 
     def cached_response() -> None:
         """Declare that this route's response is cached."""
@@ -134,7 +165,14 @@ class _Policies:
             Mapping[str, float], Doc("Path patterns and their TTL.")
         ],
     ) -> None:
-        """Hold the path rules, with no routes read yet."""
+        """Hold the path rules, with no routes read yet.
+
+        Raises:
+            ValueError: If a pattern names a lifetime a response cannot
+                be kept for.
+        """
+        for pattern, ttl in paths.items():
+            check_ttl(ttl, f"paths[{pattern!r}]")
         self._paths = tuple(paths.items())
         self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
         self._app: Any = None
@@ -175,8 +213,9 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
     """Return the compiled path of every route that declared a TTL.
 
     Walks what the app declares, mounts included, and compiles each full
-    path with the framework's own compiler, so a path parameter matches
-    exactly what the router matches it with.
+    path with the framework's own compiler, off the path the route was
+    written with, so a converter such as `{rest:path}` matches exactly
+    what the router matches it with.
 
     Raises:
         TypeError: If a marked route answers a method other than `GET`.
@@ -193,15 +232,15 @@ def _marked_routes(app: Any) -> list[tuple[Pattern[str], float | None]]:  # noqa
         } - {"HEAD", "OPTIONS"}
         if methods != {"GET"}:
             listed = ", ".join(sorted(methods)) or "no method"
+            declared = f"{prefix}{route.path}"
             msg = (
-                f"CachedResponse() is declared on "
-                f"{prefix}{route.path_format!r}, "
-                f"which answers {listed}. A response cache answers a read, "
-                "and a method that changes something must reach the "
-                "handler every time. Mark the GET route instead."
+                f"CachedResponse() is declared on {declared!r}, which "
+                f"answers {listed}. A response cache answers a read, and "
+                "a method that changes something must reach the handler "
+                "every time. Declare it on the GET route instead."
             )
             raise TypeError(msg)
-        regex, _, _ = compile_path(f"{prefix}{route.path_format}")
+        regex, _, _ = compile_path(f"{prefix}{route.path}")
         found.append((regex, cast("float | None", ttl)))
     return found
 
@@ -229,7 +268,7 @@ def _walk(app: Any, prefix: str) -> list[tuple[str, Any]]:  # noqa: ANN401
         if inner:
             found.extend(_walk(route, f"{prefix}{getattr(route, 'path', '')}"))
             continue
-        if getattr(route, "path_format", None) is not None:
+        if getattr(route, "path", None) is not None:
             found.append((prefix, route))
     return found
 
@@ -254,7 +293,7 @@ class CachedResponsesMiddleware:
     ```
 
     Register `CachedResponses()` instead to have `micro.install(app)` add
-    it for you, and to mark routes with `@cache_response(ttl=...)`.
+    it for you, and to declare `CachedResponse(ttl=...)` on a route.
 
     A miss runs the handler once. Every other request for the same key
     waits for that one and is answered from what it stored, in process and
@@ -266,6 +305,10 @@ class CachedResponsesMiddleware:
     `Cache-Control` refusing it, and a `Vary` naming nothing outside
     `vary_by_headers`. A request carrying `Authorization` or `Cookie`
     never reads the cache and never fills it.
+
+    A request's own `Cache-Control` is not read. This answers for the
+    resource rather than for one caller, so a caller that could ask for
+    the handler could spend it at will.
 
     The middleware is pure ASGI and works with any ASGI framework
     (Starlette, Litestar, ...). It acts on `http` scopes and passes every
@@ -362,6 +405,7 @@ class CachedResponsesMiddleware:
         self._max_body_size = max_body_size
         self._tag = tag
         self._warned: set[str] = set()
+        self._unstorable: OrderedDict[str, None] = OrderedDict()
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -378,7 +422,7 @@ class CachedResponsesMiddleware:
         if ttl is None:
             await self.app(scope, receive, send)
             return
-        if _carries_credentials(scope) or _refuses_the_cache(scope):
+        if _carries_credentials(scope):
             await self.app(scope, receive, send)
             return
         built = (
@@ -408,44 +452,125 @@ class CachedResponsesMiddleware:
         it with nothing.
         """
         storage_key = self._storage_key(key)
-        fresh = _asks_for_a_fresh_answer(scope)
-        if not fresh:
-            entry = cast("_Entry | None", await self._cache.get(storage_key))
-            if entry is not None:
-                await _serve(entry, scope, send)
-                return
+        entry = await self._read(storage_key)
+        if entry is not None:
+            await _serve(entry, scope, send)
+            return
         capture = _ResponseCapture(send, max_body_size=self._max_body_size)
         stores = scope["method"] == "GET"
+        ran: list[bool] = []
 
-        async def run() -> _Entry:
+        async def compute() -> _Entry:
+            ran.append(True)
             await self.app(scope, receive, capture)
             await capture.flush()
             stored = self._entry_of(capture, path=path) if stores else None
             if stored is None:
                 raise _NotStored
+            await self._write(storage_key, stored, ttl=ttl)
             return stored
 
         try:
-            if fresh:
-                entry = await run()
-                await self._cache.set(
-                    storage_key, entry, ttl, tags=(self._tag,)
-                )
-            else:
-                entry = cast(
-                    "_Entry",
-                    await self._cache.get_or_set(
-                        storage_key, run, ttl=ttl, tags=(self._tag,)
-                    ),
-                )
+            entry = await self._folded(storage_key, compute, ran)
         except _NotStored:
+            self._remember_unstorable(storage_key)
             await capture.release(complete=capture.complete)
             return
+        self._unstorable.pop(storage_key, None)
         await _serve(entry, scope, send)
 
+    async def _folded(
+        self,
+        storage_key: str,
+        compute: Callable[[], Awaitable[_Entry]],
+        ran: list[bool],
+    ) -> _Entry:
+        """Run `compute` once for this key, however the store behaves.
+
+        A key nothing is ever stored under takes no lock, so a stream
+        does not queue every caller behind the one in front of it. A
+        store that cannot be reached takes none either: the read still
+        has to be answered, and the handler is what answers it.
+
+        Raises:
+            _NotStored: If the response is not one to keep.
+        """
+        if storage_key in self._unstorable:
+            return await compute()
+        try:
+            return cast(
+                "_Entry",
+                await compute_with_stampede(
+                    self._cache,
+                    storage_key,
+                    compute,
+                    self._cache._stampede,  # noqa: SLF001
+                    per_key=True,
+                    auto_distributed=True,
+                ),
+            )
+        except _NotStored:
+            raise
+        except Exception:
+            if ran:
+                raise
+            logger.warning(
+                "response cache could not fold this read, running the handler",
+                exc_info=True,
+            )
+            return await compute()
+
+    async def _read(self, storage_key: str) -> _Entry | None:
+        """Return the stored response, or nothing when the store cannot say.
+
+        A cache that cannot be reached is a cache miss. Failing the
+        request instead would make every path named here less available
+        than it was before it was cached.
+        """
+        try:
+            return cast("_Entry | None", await self._cache.get(storage_key))
+        except Exception:
+            logger.warning(
+                "response cache could not be read, answering from the handler",
+                exc_info=True,
+            )
+            return None
+
+    async def _write(
+        self, storage_key: str, entry: _Entry, *, ttl: float
+    ) -> None:
+        """Keep the response, and let the caller have it either way."""
+        try:
+            await self._cache.set(storage_key, entry, ttl, tags=(self._tag,))
+        except Exception:
+            logger.warning(
+                "response cache kept nothing, the response still went out",
+                exc_info=True,
+            )
+
+    def _remember_unstorable(self, storage_key: str) -> None:
+        """Note a key nothing was stored under, so it stops taking the lock.
+
+        A path whose responses are never storable, a stream above all,
+        would otherwise queue every caller behind the one in front of it,
+        and behind a cross-replica lock when one is configured.
+        """
+        self._unstorable[storage_key] = None
+        while len(self._unstorable) > _UNSTORABLE_LIMIT:
+            self._unstorable.popitem(last=False)
+
     def _built(self, scope: Scope, path: str) -> str:
-        """Return the key this request reads, from its path and its vary rules."""
-        parts = [path, _query_of(scope, self._vary_by_query)]
+        """Return the key this request reads.
+
+        The scheme and the host are part of it, so an app answering for
+        two hostnames never hands one of them the other's response.
+        """
+        parts = [
+            scope.get("scheme", "http"),
+            _header_of(scope, "host"),
+            path,
+            _query_of(scope, self._vary_by_query),
+        ]
         parts.extend(_header_of(scope, name) for name in self._vary_by_headers)
         return "\x00".join(parts)
 
@@ -464,13 +589,13 @@ class CachedResponsesMiddleware:
         if start["status"] != _HTTP_200_OK:
             return None
         headers = list(start["headers"])
+        if not self._storable(headers, path=path):
+            return None
+        body = capture.body
         named = {
             name.decode("latin-1").lower(): value.decode("latin-1")
             for name, value in headers
         }
-        if not self._storable(named, path=path):
-            return None
-        body = capture.body
         if self._skip is not None and self._skip(
             StoredResponse(
                 status=start["status"],
@@ -492,27 +617,35 @@ class CachedResponsesMiddleware:
             stored_at=clock_time(),
         )
 
-    def _storable(self, headers: dict[str, str], *, path: str) -> bool:
-        """Return whether this response may be handed to another caller."""
-        if "set-cookie" in headers or "content-encoding" in headers:
-            return False
-        directives = {
-            directive.strip().lower()
-            for directive in headers.get("cache-control", "").split(",")
-        }
+    def _storable(
+        self, headers: Sequence[tuple[bytes, bytes]], *, path: str
+    ) -> bool:
+        """Return whether this response may be handed to another caller.
+
+        Every occurrence of a header counts. A response carrying two
+        `Cache-Control` lines, or two `Vary` lines, says all of what they
+        say, and reading only the last of them is how the one that
+        refused the store goes missing.
+        """
+        directives: set[str] = set()
+        varies: list[str] = []
+        for name, value in headers:
+            lowered = name.lower()
+            if lowered in _UNCACHEABLE_RESPONSE_HEADERS:
+                return False
+            if lowered == b"cache-control":
+                directives.update(_split_field(value))
+            elif lowered == b"vary":
+                varies.extend(_split_field(value))
         if directives & _UNCACHEABLE_DIRECTIVES:
             return False
-        vary = headers.get("vary")
-        if vary is None:
+        if not varies:
             return True
-        named = [
-            name.strip().lower() for name in vary.split(",") if name.strip()
-        ]
-        if "*" in named:
+        vary = ", ".join(varies)
+        if "*" in varies:
             self._warn(path, vary)
             return False
-        undeclared = sorted(set(named) - set(self._vary_by_headers))
-        if undeclared:
+        if set(varies) - set(self._vary_by_headers):
             self._warn(path, vary)
             return False
         return True
@@ -675,38 +808,20 @@ async def _serve(entry: _Entry, scope: Scope, send: Send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+def _split_field(value: bytes) -> list[str]:
+    """Return one comma-separated header value as its lowercased parts."""
+    return [
+        part.strip().lower()
+        for part in value.decode("latin-1").split(",")
+        if part.strip()
+    ]
+
+
 def _carries_credentials(scope: Scope) -> bool:
     """Return whether the request is one caller's, so no cache may answer it."""
     return any(
         name.lower() in _PRIVATE_REQUEST_HEADERS for name, _ in scope["headers"]
     )
-
-
-def _refuses_the_cache(scope: Scope) -> bool:
-    """Return whether the client wants no store involved at all."""
-    return "no-store" in _request_directives(scope)
-
-
-def _asks_for_a_fresh_answer(scope: Scope) -> bool:
-    """Return whether the client wants the handler run again.
-
-    `no-cache` asks for a fresh answer, not for the store to be skipped,
-    so what the handler says is kept for the callers after it.
-    """
-    return "no-cache" in _request_directives(scope)
-
-
-def _request_directives(scope: Scope) -> set[str]:
-    """Return the `Cache-Control` directives the request carries."""
-    found: set[str] = set()
-    for name, value in scope["headers"]:
-        if name.lower() != b"cache-control":
-            continue
-        found.update(
-            directive.strip().lower()
-            for directive in value.decode("latin-1").split(",")
-        )
-    return found
 
 
 def _query_of(scope: Scope, selected: tuple[str, ...] | None) -> str:
@@ -852,7 +967,13 @@ class CachedResponses:
             Doc("Registration name, for a second set of rules on one app."),
         ] = "default",
     ) -> None:
-        """Answer repeated reads through the registered middleware."""
+        """Answer repeated reads through the registered middleware.
+
+        Raises:
+            ValueError: If `ttl`, or one a pattern names, is not a
+                positive number of seconds.
+        """
+        check_ttl(ttl, "ttl")
         self._name = name
         self._cache: TTLCache[Any] = (
             cache

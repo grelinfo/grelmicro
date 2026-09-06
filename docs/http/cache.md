@@ -61,6 +61,14 @@ the process and across replicas when a
 [Coordination](../coordination/index.md) backend is configured. It is the same
 stampede protection [`TTLCache`](../cache/index.md) already gives `@cached`.
 
+A request's own `Cache-Control` is not read. This answers for the resource
+rather than for one caller, so honouring `no-cache` from an unauthenticated
+caller would let anybody spend the handler at will.
+
+A path whose responses are never storable, a stream above all, stops taking
+the lock once the first one has shown that nothing is kept for it, so it is
+never queued behind itself.
+
 ## What is never stored
 
 A response cache is dangerous in exactly one way: answering one caller with
@@ -101,11 +109,16 @@ being cached rather than starting to answer the wrong callers.
 
 `Vary: *` is never stored.
 
+Every occurrence of a header counts. A response carrying two `Vary` lines, or
+two `Cache-Control` lines, says all of what they say, and reading only the
+last of them is how the one that refused the store goes missing.
+
 ## The key
 
-By default the key is the path and the whole query string, in one order
-whatever order the client sent it in, plus the value of every header named in
-`vary_by_headers`.
+By default the key is the scheme, the host, the path and the whole query
+string, in one order whatever order the client sent it in, plus the value of
+every header named in `vary_by_headers`. The host is in it so an app
+answering for two hostnames never hands one of them the other's response.
 
 Name the parameters that matter and the rest is ignored, so a tracking
 parameter does not turn one resource into a thousand:
@@ -155,6 +168,13 @@ async def create(product: ProductIn) -> Product:
 
 `purge()` deletes every response that component stored, and nothing else in
 the cache, because each entry carries its tag.
+
+## When the store is down
+
+A cache that cannot be reached is a cache miss. A read that fails is logged
+and answered by the handler, and a response that cannot be written still goes
+out to the caller who waited for it. Adding the cache never makes a path less
+available than it was without it.
 
 ## Where it sits
 

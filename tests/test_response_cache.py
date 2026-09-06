@@ -22,11 +22,16 @@ from grelmicro.http import (
     CachedResponsesMiddleware,
     StoredResponse,
 )
-from grelmicro.http._response_cache import _WARNED_LIMIT
+from grelmicro.http._response_cache import _UNSTORABLE_LIMIT, _WARNED_LIMIT
 from grelmicro.integrations.fastapi import CachedResponse
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator, MutableMapping
+    from collections.abc import (
+        AsyncIterator,
+        Iterator,
+        MutableMapping,
+        Sequence,
+    )
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -218,30 +223,19 @@ def test_a_credentialed_request_neither_reads_nor_fills(
     assert first.json() != second.json()
 
 
-def test_no_store_leaves_the_cache_out_of_it(client: TestClient) -> None:
-    """A client asking for the handler gets the handler."""
+def test_the_requests_own_cache_control_is_not_read(
+    client: TestClient,
+) -> None:
+    """A caller that could ask for the handler could spend it at will."""
     # Arrange
     client.get("/reads")
 
     # Act
-    response = client.get("/reads", headers={"Cache-Control": "no-store"})
+    no_store = client.get("/reads", headers={"Cache-Control": "no-store"})
+    no_cache = client.get("/reads", headers={"Cache-Control": "no-cache"})
 
     # Assert
-    assert response.json() == {"calls": 2}
-
-
-def test_no_cache_asks_for_a_fresh_answer(client: TestClient) -> None:
-    """`no-cache` skips the lookup, and the fresh answer is kept."""
-    # Arrange
-    client.get("/reads")
-
-    # Act
-    fresh = client.get("/reads", headers={"Cache-Control": "no-cache"})
-    after = client.get("/reads")
-
-    # Assert
-    assert fresh.json() == {"calls": 2}
-    assert after.json() == {"calls": 2}
+    assert no_store.json() == no_cache.json() == {"calls": 1}
 
 
 def test_a_path_that_is_excluded_is_never_cached() -> None:
@@ -483,6 +477,84 @@ def _ran_twice(headers: list[tuple[bytes, bytes]]) -> int:
 
     anyio.run(scenario)
     return calls
+
+
+class _BrokenStore(MemoryCacheAdapter):
+    """A backend that fails the one operation it is asked to fail."""
+
+    def __init__(self, failing: str) -> None:
+        """Take the name of the operation that raises."""
+        super().__init__()
+        self._failing = failing
+
+    async def get(self, *, key: str) -> bytes | None:
+        """Read, or refuse to."""
+        if self._failing == "get":
+            msg = "the store is down"
+            raise ConnectionError(msg)
+        return await super().get(key=key)
+
+    async def set(
+        self,
+        *,
+        key: str,
+        value: bytes,
+        ttl: float,
+        tags: Sequence[str] = (),
+    ) -> None:
+        """Write, or refuse to."""
+        if self._failing == "set":
+            msg = "the store is down"
+            raise ConnectionError(msg)
+        await super().set(key=key, value=value, ttl=ttl, tags=tags)
+
+
+def _through_a_broken_store(failing: str) -> list[Any]:
+    """Return the status and the body a read is answered with anyway."""
+    answered: list[Any] = []
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        answered.append(message.get("status", message.get("body")))
+
+    async def scenario() -> None:
+        async with _BrokenStore(failing) as backend:
+            middleware = CachedResponsesMiddleware(
+                app,
+                cache=TTLCache(
+                    ttl=TTL, backend=backend, serializer=JsonSerializer()
+                ),
+                paths={"/reads": TTL},
+            )
+            await middleware(_read_scope(), _receive, send)
+
+    anyio.run(scenario)
+    return answered
+
+
+def _streaming_middleware() -> tuple[
+    CachedResponsesMiddleware, MutableMapping[str, Any]
+]:
+    """Return a middleware over an app that streams, and a read of it."""
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send(
+            {"type": "http.response.body", "body": b"one", "more_body": True}
+        )
+        await send({"type": "http.response.body", "body": b"two"})
+
+    return (
+        CachedResponsesMiddleware(app, cache=_cache(), paths={"/reads": TTL}),
+        _read_scope(),
+    )
 
 
 def _served_twice(
@@ -1014,7 +1086,7 @@ def test_the_vary_warning_stops_remembering_what_it_warned_about() -> None:
     """A service with many paths must not grow a set of them forever."""
     # Arrange
     middleware = CachedResponsesMiddleware(_nothing, cache=_cache())
-    headers = {"vary": "accept-language"}
+    headers = [(b"vary", b"accept-language")]
 
     # Act
     for index in range(_WARNED_LIMIT + 2):
@@ -1022,6 +1094,131 @@ def test_the_vary_warning_stops_remembering_what_it_warned_about() -> None:
 
     # Assert
     assert len(middleware._warned) <= _WARNED_LIMIT
+
+
+def test_a_second_cache_control_line_is_read_too() -> None:
+    """Reading only the last of them is how the refusal goes missing."""
+    # Act
+    ran = _ran_twice(
+        [(b"cache-control", b"private"), (b"cache-control", b"max-age=60")]
+    )
+
+    # Assert
+    assert ran == TWICE
+
+
+def test_a_second_vary_line_is_read_too() -> None:
+    """A response says all of what its headers say, not the last of it."""
+    # Act
+    ran = _ran_twice(
+        [(b"vary", b"accept-language"), (b"vary", b"accept-encoding")]
+    )
+
+    # Assert
+    assert ran == TWICE
+
+
+@pytest.mark.parametrize("failing", ["get", "set"], ids=["read", "write"])
+def test_a_store_that_cannot_be_reached_still_answers(failing: str) -> None:
+    """A cache that is down is a cache miss, never a failed request."""
+    # Act
+    answered = _through_a_broken_store(failing)
+
+    # Assert
+    assert answered == [HTTP_200_OK, b"ok"]
+
+
+def test_a_path_nothing_is_ever_stored_for_stops_taking_the_lock() -> None:
+    """A stream would otherwise queue every caller behind the one before."""
+    # Arrange
+    middleware, scope = _streaming_middleware()
+
+    # Act
+    anyio.run(middleware, scope, _receive, _nowhere)
+
+    # Assert
+    assert list(middleware._unstorable)
+
+
+def test_a_handler_that_raises_is_never_swallowed() -> None:
+    """A failure inside the fold is the app's, and it travels."""
+
+    # Arrange
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        msg = "the handler broke"
+        raise RuntimeError(msg)
+
+    middleware = CachedResponsesMiddleware(
+        app, cache=_cache(), paths={"/reads": TTL}
+    )
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="the handler broke"):
+        anyio.run(middleware, _read_scope(), _receive, _nowhere)
+
+
+def test_the_unstorable_keys_stop_being_remembered() -> None:
+    """A service with many paths must not grow a set of them forever."""
+    # Arrange
+    middleware = CachedResponsesMiddleware(_nothing, cache=_cache())
+
+    # Act
+    for index in range(_UNSTORABLE_LIMIT + 2):
+        middleware._remember_unstorable(f"/p{index}")
+
+    # Assert
+    assert len(middleware._unstorable) <= _UNSTORABLE_LIMIT
+
+
+def test_a_path_converter_is_compiled_the_way_the_router_did() -> None:
+    """`{rest:path}` matches a nested path, and the rule has to as well."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    micro.install(app)
+    calls = 0
+
+    @app.get("/files/{rest:path}", dependencies=[CachedResponse(ttl=TTL)])
+    async def files(rest: str) -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls, "rest": len(rest)}
+
+    # Act
+    with TestClient(app) as client:
+        client.get("/files/a/b")
+        client.get("/files/a/b")
+
+    # Assert
+    assert calls == 1
+
+
+def test_two_hosts_are_two_resources() -> None:
+    """One app answering for two hostnames answers each with its own."""
+    # Arrange
+    app = _app(CachedResponses())
+
+    # Act
+    with TestClient(app) as client:
+        first = client.get("/reads", headers={"Host": "a.example.com"})
+        second = client.get("/reads", headers={"Host": "b.example.com"})
+
+    # Assert
+    assert first.json() != second.json()
+
+
+@pytest.mark.parametrize("ttl", [0, -1.0], ids=["zero", "negative"])
+def test_a_lifetime_a_response_cannot_be_kept_for_is_refused(
+    ttl: float,
+) -> None:
+    """Zero is how a reader writes "not this one", and it is not that."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="number of seconds"):
+        CachedResponses(paths={"/reads": ttl})
+    with pytest.raises(ValueError, match="number of seconds"):
+        CachedResponses(ttl=ttl)
+    with pytest.raises(ValueError, match="number of seconds"):
+        CachedResponse(ttl=ttl)
 
 
 def test_the_cache_it_stores_in_is_readable() -> None:
