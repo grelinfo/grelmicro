@@ -26,7 +26,7 @@ from typing_extensions import Doc
 
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
-from grelmicro._paths import selects
+from grelmicro._paths import selects, walk_routes
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._endpoints import (
     JSON_MEDIA_TYPE,
@@ -48,6 +48,7 @@ from grelmicro.http._conditional import _check_sent_precondition
 from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
+from grelmicro.http._response_cache import declare_cached
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     error_response,
@@ -73,6 +74,7 @@ if TYPE_CHECKING:
     from grelmicro.trace._component import Trace
 
 __all__ = [
+    "CachedResponse",
     "CheckResultResponse",
     "Conditional",
     "ConditionalRequest",
@@ -157,14 +159,17 @@ def install_middleware(
 ) -> None:
     """Add each component's ASGI middleware and describe it in the schema.
 
-    The Starlette wiring, plus the OpenAPI part: a middleware runs outside
-    the routing layer, so nothing it does reaches the generated schema
-    unless something writes it there. A component that carries
-    `document_openapi(app)` is asked to, and one that does not is added
-    silently.
+    The Starlette wiring, plus the two things a middleware cannot reach on
+    its own. It runs outside the routing layer, so a rule a route declares
+    only reaches it through `read_routes(app)`, and nothing it does
+    reaches the generated schema unless `document_openapi(app)` writes it
+    there. A component carrying neither is added silently.
     """
     _install_middleware_starlette(app, components)
     for component in components:
+        read_routes = getattr(component, "read_routes", None)
+        if read_routes is not None:
+            read_routes(app)
         document = getattr(component, "document_openapi", None)
         if document is not None:
             document(app)
@@ -312,6 +317,58 @@ def document_idempotency(
     # Drop a schema built before this call, which would otherwise be
     # served from the cache without the annotations.
     app.openapi_schema = None
+
+
+def CachedResponse(  # noqa: N802
+    *,
+    ttl: Annotated[
+        "float | None",
+        Doc(
+            "Seconds this route's response is served from the cache. "
+            "Defaults to the `ttl` the registered `CachedResponses` "
+            "carries."
+        ),
+    ] = None,
+) -> Any:  # noqa: ANN401
+    """Declare that this route's response is cached.
+
+    Declared on the route rather than called in the handler, because the
+    middleware has to answer before the app is routed. `micro.install(app)`
+    reads it off the dependency tree, so a repeated read is answered
+    without the handler running:
+
+    ```python
+    from grelmicro.integrations.fastapi import CachedResponse
+
+
+    @app.get("/products", dependencies=[CachedResponse(ttl=60)])
+    async def list_products() -> list[Product]: ...
+    ```
+
+    It needs a registered `CachedResponses()`, which holds the store and
+    the rules every route shares. Without one, nothing reads the
+    declaration and the route answers from its handler every time.
+
+    `@cached` caches what a function returns, which is not what the route
+    answers: the framework still has to serialize it, and a header the
+    handler set is not part of it. This caches the response.
+
+    Only `GET` routes take it. `micro.install(app)` refuses it on a route
+    that answers anything else, naming the path.
+
+    Starlette and Litestar resolve no dependencies to hang this on, so
+    they name their paths in `CachedResponses(paths=...)` instead, the way
+    `ConditionalRequests(include=...)` is named there.
+
+    Read more in the [Response Cache](../http/cache.md) docs.
+    """
+    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
+        from grelmicro.errors import (  # noqa: PLC0415
+            DependencyNotFoundError,
+        )
+
+        raise DependencyNotFoundError(module="fastapi")
+    return _Depends(declare_cached(ttl))
 
 
 class ConditionalRequest:
@@ -491,14 +548,16 @@ def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
 
     A guard called inside a handler body is invisible from here, which is
     why requiring one is something a route declares rather than calls.
+
+    Walks the routers the app includes as well as the routes it declares
+    itself, since an included router is a node of its own and the routes
+    it holds are reached through it.
     """
     found: set[tuple[str, str]] = set()
-    for route in app.routes:
+    for prefix, route, _ in walk_routes(app):
         # The resolved dependency tree, under FastAPI's own spelling of it.
-        # `path` is only on the routes that have one.
         declared = getattr(route, "dependant", None)  # codespell:ignore
-        path = getattr(route, "path", None)
-        if declared is None or path is None:
+        if declared is None:
             continue
         if not any(
             getattr(dependency.call, "__name__", "") == "_required_conditional"
@@ -506,7 +565,7 @@ def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
         ):
             continue
         for method in getattr(route, "methods", ()):
-            found.add((path, method.lower()))
+            found.add((f"{prefix}{route.path}", method.lower()))
     return found
 
 

@@ -13,7 +13,7 @@ from typing_extensions import Doc
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
-__all__ = ["as_patterns", "matches", "route_path", "selects"]
+__all__ = ["as_patterns", "matches", "route_path", "selects", "walk_routes"]
 
 _PREFIX = "*"
 """What turns a pattern into a prefix match, at the end of it."""
@@ -45,6 +45,58 @@ def route_path(
     if path[len(root)] == "/":
         return path[len(root) :]
     return path
+
+
+def walk_routes(
+    app: Annotated[  # noqa: ANN401
+        Any, Doc("The application, or the router, to read the routes off.")
+    ],
+    prefix: Annotated[str, Doc("What the routes below sit under.")] = "",
+    contexts: Annotated[
+        tuple[Any, ...],
+        Doc("The include contexts above them, outermost first."),
+    ] = (),
+) -> list[tuple[str, Any, tuple[Any, ...]]]:
+    """Return every route the app declares, with the path it sits under.
+
+    A route is `(prefix, route, contexts)`, where the prefix is what the
+    mounts and the routers above it add to the path it was written with,
+    and the contexts are what was declared above it, outermost first:
+    the app's own router, each inclusion, and the router it included.
+
+    An included router is a node of its own rather than the routes it
+    holds, so what it was included under has to be carried down to them
+    from here. A mount is walked the same way.
+    """
+    own = getattr(app, "router", None)
+    if own is not None:
+        contexts = (*contexts, own)
+    found: list[tuple[str, Any, tuple[Any, ...]]] = []
+    for route in getattr(app, "routes", ()):
+        context = getattr(route, "include_context", None)
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            found.extend(
+                walk_routes(
+                    included,
+                    f"{prefix}{getattr(context, 'prefix', '')}",
+                    (*contexts, context, included),
+                )
+            )
+            continue
+        inner = getattr(route, "routes", None)
+        if inner:
+            found.extend(
+                walk_routes(
+                    getattr(route, "app", route),
+                    f"{prefix}{getattr(route, 'path', '')}",
+                    contexts,
+                )
+            )
+            continue
+        if getattr(route, "path", None) is not None:
+            found.append((prefix, route, contexts))
+    return found
 
 
 def as_patterns(
