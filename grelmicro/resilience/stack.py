@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import functools
 from inspect import (
+    CO_ASYNC_GENERATOR,
+    CO_GENERATOR,
     isasyncgenfunction,
     iscoroutinefunction,
     isgeneratorfunction,
 )
+from types import FunctionType
 from typing import TYPE_CHECKING, Annotated, Any, overload
 
 from typing_extensions import Doc
@@ -128,6 +131,13 @@ _ELSEWHERE = {
 """Types users reach for that belong somewhere else, and where."""
 
 
+type _AsyncCall = Callable[..., Awaitable[Any]]
+"""A call the layers wrap, whatever arguments it carries."""
+
+type _Admit = Callable[[tuple[Any, ...], dict[str, Any]], Awaitable[object]]
+"""Consumes the tokens one call costs, from its arguments."""
+
+
 class _Control(BaseException):
     """Carries one of the stack's own refusals past the pattern above it.
 
@@ -200,8 +210,41 @@ def _as_coroutine_function[**P, R](
     return target
 
 
+async def _invoke(
+    target: Callable[..., Awaitable[Any]],
+    _admit: _Admit | None,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> Any:  # noqa: ANN401
+    """Call the target the chain was handed.
+
+    The innermost layer of the chain `Stack.run` builds once. It takes
+    the target as an argument rather than closing over it, so the chain
+    above it is the same for every call and outlives none of them.
+
+    It is a coroutine function, which is what every pattern above reads
+    to pick its wrapper, so a callable object whose `__call__` is async
+    needs no adapting here.
+
+    The admitter travels the same way, down to here, because the rate
+    limiter layer that spends it sits above the layers this one is
+    reached through. It is spent by the time the call arrives.
+    """
+    return await target(*args, **kwargs)
+
+
+_GENERATOR_FLAGS = CO_ASYNC_GENERATOR | CO_GENERATOR
+"""Code flags of a function whose body runs while it is iterated."""
+
+
 def _is_generator(fn: object) -> bool:
-    """Return whether calling `fn` builds a generator instead of running."""
+    """Return whether calling `fn` builds a generator instead of running.
+
+    A plain function answers from its own code flags, which is the
+    check `Stack.run` pays on every call.
+    """
+    if type(fn) is FunctionType:
+        return bool(fn.__code__.co_flags & _GENERATOR_FLAGS)
     if isasyncgenfunction(fn) or isgeneratorfunction(fn):
         return True
     call = getattr(type(fn), "__call__", None)  # noqa: B004
@@ -308,7 +351,7 @@ class Stack:
     docs.
     """
 
-    __slots__ = ("_binding", "_guard", "_members", "_name")
+    __slots__ = ("_binding", "_chain", "_guard", "_members", "_name")
 
     def __init__(
         self,
@@ -381,6 +424,14 @@ class Stack:
             _CIRCUIT_BREAKER in members
             and (_RATE_LIMITER in members or _BULKHEAD in members),
             _CIRCUIT_BREAKER in members and _RETRY in members,
+        )
+        guard_refusal = self._guard[0]
+        binding = self._binding
+        self._chain: _AsyncCall = self._compose(
+            _invoke,
+            None
+            if binding is None
+            else lambda inner: _chain_limiter_layer(inner, guard=guard_refusal),
         )
 
     @property
@@ -485,7 +536,9 @@ class Stack:
             )
             msg = f"Stack.run only calls async functions, got {fn!r}. {advice}"
             raise TypeError(msg)
-        return await self._build_async(fn)(*args, **kwargs)
+        binding = self._binding
+        admit = binding._admitter(fn) if binding is not None else None  # noqa: SLF001
+        return await self._chain(fn, admit, args, kwargs)
 
     def _async_only(self) -> list[str]:
         """Return the patterns in this stack that refuse a sync function."""
@@ -495,22 +548,42 @@ class Stack:
         self, fn: Callable[P, Awaitable[R]]
     ) -> Callable[P, Awaitable[R]]:
         """Wrap `fn` in every pattern, innermost first."""
+        guard_refusal = self._guard[0]
+        binding = self._binding
+        return self._compose(
+            _as_coroutine_function(fn),
+            None
+            if binding is None
+            else lambda inner: _limiter_layer(
+                binding._admitter(fn),  # noqa: SLF001
+                inner,
+                guard=guard_refusal,
+            ),
+        )
+
+    def _compose(
+        self,
+        call: _AsyncCall,
+        limiter: Callable[[_AsyncCall], _AsyncCall] | None,
+    ) -> _AsyncCall:
+        """Wrap `call` in every pattern, innermost first.
+
+        The order lives here, for the chain `run` builds once and for
+        the one the decorator builds around a function. `limiter`
+        builds the rate limiter layer, the only layer whose shape
+        depends on how the target reaches it, and is `None` when the
+        stack meters nothing.
+        """
         guard_refusal, guard_breaker = self._guard
         members = self._members
-        call = _as_coroutine_function(fn)
         timeout = members.get(_TIMEOUT)
         if isinstance(timeout, Timeout):
             call = timeout._wrap(call)  # noqa: SLF001
         bulkhead = members.get(_BULKHEAD)
         if isinstance(bulkhead, Bulkhead):
             call = _bulkhead_layer(bulkhead, call, guard=guard_refusal)
-        binding = self._binding
-        if binding is not None:
-            call = _limiter_layer(
-                binding._admitter(fn),  # noqa: SLF001
-                call,
-                guard=guard_refusal,
-            )
+        if limiter is not None:
+            call = limiter(call)
         breaker = members.get(_CIRCUIT_BREAKER)
         if isinstance(breaker, CircuitBreaker):
             call = _breaker_layer(
@@ -592,6 +665,35 @@ def _limiter_layer[**P, R](
                 raise
             raise _Control(error) from None
         return await inner(*args, **kwargs)
+
+    return layer
+
+
+def _chain_limiter_layer(
+    inner: _AsyncCall,
+    *,
+    guard: bool,
+) -> _AsyncCall:
+    """Consume tokens with the admitter the call brought.
+
+    The layer `_limiter_layer` builds closes over one target's
+    admitter. This one takes it per call, because the chain it belongs
+    to is built once and meters whichever target `Stack.run` is given.
+    """
+
+    async def layer(
+        target: Callable[..., Awaitable[Any]],
+        admit: _Admit,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:  # noqa: ANN401
+        try:
+            await admit(args, kwargs)
+        except Exception as error:
+            if not guard:
+                raise
+            raise _Control(error) from None
+        return await inner(target, admit, args, kwargs)
 
     return layer
 

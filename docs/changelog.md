@@ -149,6 +149,7 @@
 
 ### Performance
 
+* ⚡ `Stack.run` builds nothing per call. It rebuilt the whole pattern chain on every invocation, and now travels one chain built with the stack, carrying the target as an argument. A two-pattern stack drops from about 6.3 to about 3.5 microseconds per call, and a six-pattern one from about 15.5 to about 11.2, which puts the imperative form within about a microsecond of the decorator. Measure it with `python benchmarks/stack_benchmark.py`. ([#792](https://github.com/grelinfo/grelmicro/issues/792))
 * ⚡ Ambient backend resolution costs about 2.7x less. A pattern that omits `backend=` ran three imports and two frames of lookup on every operation, and now runs one function and one dict lookup. `Lock` drops from ~270 ns to ~100 ns per resolution, and `TTLCache`, `RateLimiter`, and `CircuitBreaker` drop about the same. See [Performance](performance.md). ([#780](https://github.com/grelinfo/grelmicro/pull/780))
 
 ## 0.40.0 - 2026-08-18
