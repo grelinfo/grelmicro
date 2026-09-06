@@ -1234,9 +1234,8 @@ class CachedResponses:
             Mapping[str, float] | None,
             Doc(
                 "Path patterns and the seconds each is cached for, for "
-                "a route that declares none. The word and the matching "
-                "every grelmicro middleware takes, carrying the "
-                'lifetime this one needs: `{"/products/*": 60}`.'
+                "a route that declares none. Exact match unless the "
+                'pattern ends with `*`, as `{"/products/*": 60}`.'
             ),
         ] = None,
         exclude: Annotated[

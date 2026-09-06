@@ -357,8 +357,8 @@ def CachedResponse(  # noqa: N802
     that answers anything else, naming the path.
 
     Starlette and Litestar resolve no dependencies to hang this on, so
-    they name their paths in `CachedResponses(paths=...)` instead, the way
-    `ConditionalRequests(include=...)` is named there.
+    they name their paths in `CachedResponses(include=...)` instead,
+    with the seconds each is kept for.
 
     Read more in the [Response Cache](../http/cache.md) docs.
     """

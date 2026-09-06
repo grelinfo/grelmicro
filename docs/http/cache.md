@@ -171,7 +171,7 @@ to its handler rather than refused: a write under it is simply not cached.
 Declared on one route, the same thing is a mistake, and it is refused where
 it is written. The nearest declaration decides, so a route beats the router
 it sits in, an inner router beats the one that includes it, and a route that
-declared one is not overridden by a `paths` pattern naming it.
+declared one is not overridden by an `include` pattern naming it.
 
 Starlette and Litestar resolve no dependencies to hang it on, and a router you
 did not write cannot be changed either, so name the URLs and how long each is
