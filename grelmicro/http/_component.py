@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
@@ -27,7 +27,13 @@ from grelmicro.http._problem import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, MutableMapping
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Iterable,
+        Mapping,
+        MutableMapping,
+    )
     from types import TracebackType
 
     Message = MutableMapping[str, Any]
@@ -82,11 +88,25 @@ def merge_headers(
     beside our `cache-control` and emit two contradictory directives.
     """
     merged = dict(rendered.headers)
-    merged.update(
-        {name.lower(): value for name, value in (theirs or {}).items()}
-    )
+    merged.update({name.lower(): value for name, value in _pairs(theirs)})
     merged.update(SAFETY_HEADERS)
     return merged
+
+
+def _pairs(
+    theirs: Mapping[str, str] | None,
+) -> list[tuple[str, str]]:
+    """Return what an exception carried as name and value pairs.
+
+    A mapping is the documented form, and a sequence of pairs is what an
+    ASGI-minded caller reaches for, so both are read rather than one of
+    them turning a refusal into a `500`.
+    """
+    if not theirs:
+        return []
+    if hasattr(theirs, "items"):
+        return list(theirs.items())
+    return list(cast("Iterable[tuple[str, str]]", theirs))
 
 
 async def send_error(

@@ -297,6 +297,12 @@
     "ProblemDetail": {
       "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
     },
+    "RateLimitMiddleware": {
+      "()": "(app, *, limiters, trusted=None, key=None, cost=1, max_wait=0.0, exclude=(), legacy_headers=False) -> 'None'"
+    },
+    "RateLimitedRequests": {
+      "()": "(*limiters, trusted=None, key=None, cost=1, max_wait=0.0, exclude=(), legacy_headers=False, name='default') -> 'None'"
+    },
     "RenderedError": {
       "()": "(status, media_type, headers, body) -> None"
     },
@@ -363,6 +369,9 @@
     },
     "HealthzResponse": {
       "()": "(*, status, checks) -> None"
+    },
+    "RateLimited": {
+      "()": "(*limiters, cost=1, max_wait=0.0, key=None, trusted=None, legacy_headers=False) -> Any"
     },
     "document_conditional_requests": {
       "()": "(app) -> None"

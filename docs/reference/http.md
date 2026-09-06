@@ -20,6 +20,10 @@ Register `CachedResponses()`, declare `CachedResponse(ttl=...)` on a route, and
 a repeated read is answered from the cache instead of the handler. Read
 [Response Cache](../http/cache.md).
 
+Register `RateLimitedRequests(limiter, trusted=...)` and a caller over its
+budget is answered `429` at the edge, with the quota it has left. Read [Rate
+Limit](../http/rate-limit.md).
+
 Register `OpsServer()` on a process that serves no HTTP, and the health probes
 and the Prometheus endpoint answer on a port of their own.
 
@@ -37,6 +41,8 @@ and the Prometheus endpoint answer on a port of their own.
         - ConditionalRequestsMiddleware
         - CachedResponses
         - CachedResponsesMiddleware
+        - RateLimitedRequests
+        - RateLimitMiddleware
         - check_precondition
         - etag_of
         - PreconditionError

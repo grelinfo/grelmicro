@@ -51,6 +51,10 @@ from grelmicro.http._problem import (
     PROBLEM_MEDIA_TYPE,
     ProblemDetail,
 )
+from grelmicro.http._ratelimit import (
+    RateLimitedRequests,
+    RateLimitMiddleware,
+)
 from grelmicro.http._response_cache import (
     CachedResponses,
     CachedResponsesMiddleware,
@@ -81,6 +85,8 @@ __all__ = [
     "PreconditionFailedError",
     "PreconditionRequiredError",
     "ProblemDetail",
+    "RateLimitMiddleware",
+    "RateLimitedRequests",
     "RenderedError",
     "StoredResponse",
     "TMFError",

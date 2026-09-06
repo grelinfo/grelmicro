@@ -16,6 +16,7 @@ and the health router.
         - is_bound
         - error_response
         - CachedResponse
+        - RateLimited
         - Conditional
         - ConditionalRequest
         - document_conditional_requests

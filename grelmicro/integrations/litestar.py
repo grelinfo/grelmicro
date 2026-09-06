@@ -338,7 +338,7 @@ def _answer_for(app: Litestar, component: object) -> None:
             content=rendered.body,
             status_code=rendered.status,
             media_type=rendered.media_type,
-            headers=rendered.headers,
+            headers=merge_headers(rendered, getattr(exc, "headers", None)),
         )
 
     for klass in handled():
@@ -395,7 +395,7 @@ def install_error_responses(
             content=rendered.body,
             status_code=rendered.status,
             media_type=rendered.media_type,
-            headers=rendered.headers,
+            headers=merge_headers(rendered, getattr(exc, "headers", None)),
         )
 
     def http_error(request: Request, exc: Exception) -> Response:
