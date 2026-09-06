@@ -225,6 +225,10 @@ async def _invoke(
     It is a coroutine function, which is what every pattern above reads
     to pick its wrapper, so a callable object whose `__call__` is async
     needs no adapting here.
+
+    The admitter travels the same way, down to here, because the rate
+    limiter layer that spends it sits above the layers this one is
+    reached through. It is spent by the time the call arrives.
     """
     return await target(*args, **kwargs)
 
