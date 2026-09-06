@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from logging import getLogger
 from math import ceil, inf
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    NamedTuple,
+    Self,
+)
 
 from typing_extensions import Doc
 
@@ -39,9 +46,6 @@ if TYPE_CHECKING:
 __all__ = ["RateLimitMiddleware", "RateLimitedRequests"]
 
 logger = getLogger("grelmicro.http.ratelimit")
-
-_reported_degraded = False
-"""Whether the trusted set has already been reported as not describing it."""
 
 _STATED = "grelmicro_rate_limit_stated"
 """Where a route leaves what it metered, for the middleware to state."""
@@ -116,14 +120,36 @@ async def spend_one(
     """Take one call's tokens, and return what the limiter decided.
 
     A budget that runs out is a refusal like any other, so the result
-    says so rather than the wait raising it past the middleware that has
-    to answer for it. What the limiter knew is kept: the quota from its
-    own configuration, and the delay it named.
+    says so rather than the wait raising it past the middleware that
+    has to answer for it. What the limiter knew is kept: the quota from
+    its own configuration, and the delay it named.
+
+    A quota reconfigured below the cost this spends is a setting to
+    fix, so the request is served and the reason said once.
     """
-    if not max_wait:
-        return await limiter.acquire(key=key, cost=cost)
     try:
+        if not max_wait:
+            return await limiter.acquire(key=key, cost=cost)
         return await limiter.wait(key=key, cost=cost, max_wait=max_wait)
+    except ValueError:
+        # The quota was reconfigured under the cost this spends. It is
+        # a setting to fix, and refusing every caller for it would take
+        # the service down for a number that changed.
+        logger.warning(
+            "rate limiter %r cannot serve a cost of %d any more, "
+            "letting requests through: its quota was reconfigured "
+            "below it",
+            limiter.name,
+            cost,
+            exc_info=True,
+        )
+        return RateLimitResult(
+            allowed=True,
+            limit=_config_limit(limiter._state.config),  # noqa: SLF001
+            remaining=0,
+            retry_after=0.0,
+            reset_after=0.0,
+        )
     except RateLimitExceededError as refusal:
         return RateLimitResult(
             allowed=False,
@@ -377,25 +403,32 @@ class RateLimitMiddleware:
     def _key_of(self, scope: Scope) -> str | None:
         """Return the bucket this request is metered under."""
         bucket = bucket_of(scope, key=self._key, trusted=self._trusted)
-        if bucket is None and self._key is None:
-            self._report_no_caller()
-        return bucket
+        if bucket.key is None and self._key is None:
+            self._report_no_caller(degraded=bucket.degraded)
+        return bucket.key
 
-    def _report_no_caller(self) -> None:
-        """Say once that there is nobody to meter.
+    def _report_no_caller(self, *, degraded: bool) -> None:
+        """Say once that there is nobody to meter, and which nobody.
 
-        A peer that cannot be read is the transport's, not the caller's,
-        so it does not change from one request to the next and saying so
-        on each of them would only fill the log.
+        Neither cause changes from one request to the next, so saying
+        it on each of them would only fill the log.
         """
         if self._reported:
             logger.debug("rate limiter found no caller to meter")
             return
         self._reported = True
+        if degraded:
+            logger.warning(
+                "rate limiter found only one of your own proxies to "
+                "meter, letting requests through: trusted= names a "
+                "proxy that forwarded no caller, so every caller "
+                "behind it would share one budget"
+            )
+            return
         logger.warning(
             "rate limiter found no caller to meter, letting the request "
-            "through: no proxy vouched for one and the transport peer is "
-            "absent or unreadable"
+            "through: no proxy vouched for one and the transport peer "
+            "is absent or unreadable"
         )
 
     async def _refuse(
@@ -500,7 +533,8 @@ def _has_less_left(
 
     Only the superseded fields need this. They are single integers, so
     one of the two meters has to answer for both, and the one a caller
-    will be refused by first is the honest one.
+    will be refused by first is the honest one. A count that cannot be
+    read is not one, so the other answers whatever it says.
     """
     theirs = _remaining(
         next(
@@ -513,7 +547,11 @@ def _has_less_left(
         )
     )
     mine = _remaining(ours.get(_REMAINING_HEADER))
-    if theirs is None or mine is None:
+    if theirs is None and mine is None:
+        return True
+    if theirs is None:
+        return False
+    if mine is None:
         return True
     return theirs <= mine
 
@@ -544,8 +582,8 @@ def bucket_of(
         TrustedProxies | None,
         Doc("The proxies whose forwarded entries may be believed."),
     ],
-) -> str | None:
-    """Return the bucket this request is metered under, or `None` for none.
+) -> _Bucket:
+    """Return the bucket this request is metered under, and why not.
 
     The address a middleware already resolved is reused, and one this
     resolves is left where the next reader looks, so the forwarded header
@@ -553,10 +591,12 @@ def bucket_of(
 
     An address the walk could only take as far as one of your own
     proxies is nobody's bucket: metering every caller behind it as
-    one would let any of them spend the budget of all of them.
+    one would let any of them spend the budget of all of them. It is
+    said so rather than logged here, because what to say about it
+    belongs to whoever asked, and each of them says it once.
     """
     if key is not None:
-        return key(scope)
+        return _Bucket(key(scope), degraded=False)
     state = scope.setdefault("state", {})
     resolved = state.get("client_address")
     if resolved is None and trusted is not None:
@@ -564,30 +604,20 @@ def bucket_of(
         if resolved is not None:
             state["client_address"] = resolved
     if resolved is None:
-        return None
+        return _Bucket(None, degraded=False)
     if resolved.degraded:
-        _report_degraded()
-        return None
-    return resolved.key
+        return _Bucket(None, degraded=True)
+    return _Bucket(resolved.key, degraded=False)
 
 
-def _report_degraded() -> None:
-    """Say once that the trusted set does not describe this deployment.
+class _Bucket(NamedTuple):
+    """The bucket a request is metered under, and why there is none."""
 
-    The walk reached one of your own proxies and stopped, so the only
-    address left is that proxy's. It is a configuration to fix rather
-    than a caller to meter, and it does not change per request.
-    """
-    global _reported_degraded  # noqa: PLW0603
-    if _reported_degraded:
-        return
-    _reported_degraded = True
-    logger.warning(
-        "rate limiter found only one of your own proxies to meter, "
-        "letting requests through: trusted= names a proxy that "
-        "forwarded no caller, so every caller behind it would share "
-        "one budget"
-    )
+    key: str | None
+    """What to meter under, or `None` when there is nobody to meter."""
+
+    degraded: bool
+    """Whether the only address left was one of your own proxies."""
 
 
 def state_on(

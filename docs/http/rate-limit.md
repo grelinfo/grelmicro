@@ -89,6 +89,11 @@ from grelmicro.integrations.fastapi import RateLimited
 async def do_search(query: str) -> list[Hit]: ...
 ```
 
+A route that returns a `Response` of its own needs the component registered
+for those fields to reach the wire, because a framework merges what a
+dependency states into the response it builds itself and not into one a
+handler already built. The tokens are spent either way.
+
 Both budgets are spent, and both are stated in the answer: the standard
 fields are lists, so the route's policy and the app's join into one, and two
 declarations on one route join the same way. One limiter metered twice is one
@@ -140,6 +145,13 @@ So is one whose caller the walk could only take as far as your own proxy.
 That means `trusted=` does not describe this deployment, and metering every
 caller behind that proxy as one would let any of them spend the budget of all
 of them. It is logged once, as a configuration to fix.
+
+## When a setting stops describing the deployment
+
+Two of them are read again on every request, and both are answered by serving
+the caller and saying so once, because a number that changed must not take
+the service down with it: a quota reconfigured below the `cost` a request
+spends, and a `trusted=` set that resolves nothing but your own proxy.
 
 ## When the backend is down
 

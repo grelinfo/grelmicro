@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import anyio
@@ -20,11 +21,14 @@ from grelmicro.http import (
     RateLimitedRequests,
     RateLimitMiddleware,
 )
-from grelmicro.http._ratelimit import _joined
+from grelmicro.http._ratelimit import _has_less_left, _joined
 from grelmicro.integrations.fastapi import RateLimited
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.resilience.ratelimiter.sliding_window import (
+    SlidingWindowConfig,
+)
 from grelmicro.security import ClientAddressMiddleware, TrustedProxies
 
 if TYPE_CHECKING:
@@ -1080,6 +1084,136 @@ def test_two_meters_on_one_route_are_two_policies() -> None:
     # Assert
     assert '"tenant"' in response.headers["ratelimit"]
     assert '"search"' in response.headers["ratelimit"]
+
+
+def test_a_degraded_bucket_is_reported_once_and_only_as_itself(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two contradictory diagnoses send an operator to the wrong setting."""
+    # Arrange
+    app = _app(_limiter("api", 1))
+    proxy = ("10.1.2.3", 5000)
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.http.ratelimit"),
+        TestClient(app, client=proxy) as client,
+    ):
+        client.get("/read", headers={"X-Forwarded-For": "10.9.9.9"})
+
+    # Assert
+    assert len(caplog.records) == 1
+    assert "share" in caplog.text
+    assert "transport peer" not in caplog.text
+
+
+def test_two_apps_each_report_their_own_misconfiguration(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """One process holds two of these, and the second is not the first."""
+    # Arrange
+    first = _app(_limiter("first", 1))
+    second = _app(_limiter("second", 1))
+    proxy = ("10.1.2.3", 5000)
+    forwarded = {"X-Forwarded-For": "10.9.9.9"}
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="grelmicro.http.ratelimit"):
+        with TestClient(first, client=proxy) as client:
+            client.get("/read", headers=forwarded)
+        with TestClient(second, client=proxy) as client:
+            client.get("/read", headers=forwarded)
+
+    # Assert
+    assert len(caplog.records) == TWO_METERS
+
+
+def test_the_count_that_can_be_read_answers_for_the_pair() -> None:
+    """A word where a number was expected is not a budget to state."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter("api", 10),
+                trusted=TrustedProxies(list(PROXIES)),
+                legacy_headers=True,
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get("/read")
+    async def read() -> Response:
+        return JSONResponse(
+            {"read": 1}, headers={"X-RateLimit-Remaining": "unlimited"}
+        )
+
+    # Act
+    with TestClient(app, client=CALLER) as client:
+        response = client.get("/read")
+
+    # Assert
+    assert response.headers["x-ratelimit-remaining"] == "9"
+
+
+@pytest.mark.parametrize(
+    ("already", "ours", "wins"),
+    [
+        ([(b"x-ratelimit-remaining", b"3")], {}, True),
+        ([], {b"x-ratelimit-remaining": b"3"}, False),
+        ([(b"x-ratelimit-remaining", b"x")], {}, True),
+    ],
+    ids=["only theirs", "only ours", "neither reads"],
+)
+def test_the_side_that_can_be_read_answers(
+    already: list[tuple[bytes, bytes]],
+    ours: dict[bytes, bytes],
+    wins: bool,  # noqa: FBT001
+) -> None:
+    """One number has to answer for both, and it has to be a number."""
+    # Act / Assert
+    assert _has_less_left(already, ours) is wins
+
+
+def test_a_quota_reconfigured_under_the_cost_lets_the_caller_through(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A number that changed must not take the service down with it."""
+    # Arrange
+    limiter = _limiter("api", 10)
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                limiter, trusted=TrustedProxies(list(PROXIES)), cost=5
+            ),
+        ]
+    )
+    app = FastAPI()
+    micro.install(app)
+
+    @app.get("/read")
+    async def read() -> dict[str, int]:
+        return {"read": 1}
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="grelmicro.http.ratelimit"),
+        TestClient(app, client=CALLER) as client,
+    ):
+        client.get("/read")
+        # The quota shrinks under the cost, after the middleware was built
+        # with a cost its limiter could serve.
+        limiter._state = replace(
+            limiter._state, config=SlidingWindowConfig(limit=1, window=WINDOW)
+        )
+        response = client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert "reconfigured" in caplog.text
 
 
 # --- What the component exposes ---

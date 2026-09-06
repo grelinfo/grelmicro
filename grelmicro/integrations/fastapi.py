@@ -50,7 +50,12 @@ from grelmicro.http._conditional import _check_sent_precondition
 from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
-from grelmicro.http._ratelimit import bucket_of, check_route_limiters
+from grelmicro.http._ratelimit import (
+    bucket_of,
+    check_route_limiters,
+    spend,
+    state_on,
+)
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -423,13 +428,19 @@ def RateLimited(  # noqa: N802
     from grelmicro.integrations.fastapi import RateLimited
 
 
-    @app.post("/search", dependencies=[RateLimited(search, cost=5)])
+    @app.post("/search", dependencies=[RateLimited(searches, cost=5)])
     async def search(query: str) -> list[Hit]: ...
     ```
 
     Allowed or refused, the response states what the caller has left in
     the `RateLimit` and `RateLimit-Policy` fields, and a refusal answers
     `429` through the same path every other rejection takes.
+
+    A route that returns a `Response` of its own needs a registered
+    `RateLimitedRequests(...)` for those fields to reach the wire: a
+    framework merges what a dependency states into the response it
+    builds itself, and not into one a handler already built. The tokens
+    are spent either way.
 
     The caller is the address a middleware already resolved, or the one
     `trusted` resolves here. Without either, and without `key`, the call
@@ -454,28 +465,26 @@ def RateLimited(  # noqa: N802
 
     async def metered(request: _Request, response: _Response) -> None:
         """Spend this call's tokens, and state what is left."""
-        from grelmicro.http._ratelimit import (  # noqa: PLC0415
-            spend,
-            state_on,
-        )
-
         scope = request.scope
         bucket = bucket_of(scope, key=key, trusted=trusted)
-        if bucket is None:
+        if bucket.key is None:
             if not reported:
                 reported.append(True)
                 _logger.warning(
                     "RateLimited() found no caller to meter on %s, so this "
-                    "route is metered not at all: nothing resolved a "
-                    "client address, and neither trusted= nor key= names "
-                    "another bucket",
+                    "route is metered not at all: %s",
                     scope.get("path", "the route"),
+                    "trusted= names a proxy that forwarded no caller, so "
+                    "every caller behind it would share one budget"
+                    if bucket.degraded
+                    else "nothing resolved a client address, and neither "
+                    "trusted= nor key= names another bucket",
                 )
             return
         try:
             stated = await spend(
                 limiters,
-                bucket,
+                bucket.key,
                 cost=cost,
                 max_wait=max_wait,
                 legacy_headers=legacy_headers,
