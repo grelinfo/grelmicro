@@ -476,3 +476,19 @@ def test_a_document_applied_last_wins_over_configure(
     logging.getLogger("myapp").info("the document decided")
 
     assert json.loads(capsys.readouterr().out)["msg"] == "the document decided"
+
+
+@pytest.mark.usefixtures("_restore_logging", "_no_queue", "reset_backend")
+def test_the_access_handler_follows_even_with_the_takeover_off() -> None:
+    """The opt-out must not strand a handler grelmicro put there itself."""
+    _apply(dict_config_with(LogConfig(queue_enabled=True)))
+    retired = get_writer()
+
+    configure(queue_enabled=True, uvicorn_enabled=False, otel_enabled=False)
+
+    access = cast(
+        "logging.StreamHandler[Any]",
+        logging.getLogger(_UVICORN_ACCESS).handlers[0],
+    )
+    assert access.stream is get_writer()
+    assert access.stream is not retired

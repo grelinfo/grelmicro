@@ -46,7 +46,12 @@ def apply(config: LogConfig) -> None:
 
 
 def _configure_backend(config: LogConfig) -> None:
-    """Configure the selected backend, then uvicorn's own loggers."""
+    """Configure the selected backend, then uvicorn's own loggers.
+
+    A handler on the writer being retired follows to the new one whether
+    or not uvicorn's loggers are taken over, so no handler is left writing
+    to a queue that has stopped.
+    """
     if config.backend == LogBackendType.STRUCTLOG:
         from grelmicro.log._structlog import (  # noqa: PLC0415
             configure as _configure,
@@ -62,9 +67,18 @@ def _configure_backend(config: LogConfig) -> None:
 
     _configure(config)
 
-    if config.uvicorn_enabled:
-        from grelmicro.log.uvicorn import (  # noqa: PLC0415
-            apply as _apply_uvicorn,
-        )
+    from grelmicro.log.uvicorn import (  # noqa: PLC0415
+        apply as _apply_uvicorn,
+    )
+    from grelmicro.log.uvicorn import (  # noqa: PLC0415
+        rebind_streams as _rebind_uvicorn_streams,
+    )
 
+    # Unconditional, because it repairs rather than takes over. A handler
+    # left on the writer this call is retiring writes inline to a stream
+    # nothing else uses, and `dict_config()` puts one of grelmicro's own
+    # handlers on `uvicorn.access`, so the opt-out must not strand it.
+    _rebind_uvicorn_streams()
+
+    if config.uvicorn_enabled:
         _apply_uvicorn(config)

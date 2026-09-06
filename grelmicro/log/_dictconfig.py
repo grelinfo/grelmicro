@@ -143,6 +143,11 @@ def dict_config(
     as a warning on this path rather than as a log record, because nothing
     has configured the logger the record would be written to.
 
+    The document is applied by a process with the same packages installed.
+    `otel_enabled` defaults to whether OpenTelemetry is importable, and a
+    document carrying it as true refuses to apply where it is not, the
+    same as `configure(otel_enabled=True)` does.
+
     An application that also writes through loguru or structlog calls
     [`configure()`][grelmicro.log.configure] as well, which adds the
     backend. Each pass replaces the root handler rather than adding one,
