@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
@@ -49,7 +50,7 @@ from grelmicro.errors import (
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+    from collections.abc import AsyncIterator, Iterable, Mapping
     from types import TracebackType
 
     from grelmicro._describe import AppReport, CheckReport

@@ -14,13 +14,12 @@ passes it without building a dict per emit.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from grelmicro.metrics import _hub
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from opentelemetry.metrics import Counter, Histogram, UpDownCounter
 
 type Attributes = Mapping[str, Any] | None

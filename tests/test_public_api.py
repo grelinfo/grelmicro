@@ -48,14 +48,17 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import pkgutil
 import re
 import typing
 from asyncio import Lock
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAliasType
 
 import pytest
 from syrupy.extensions.json import JSONSnapshotExtension
+
+import grelmicro
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -628,3 +631,41 @@ def test_adapter_family_export_parity(
         assert getattr(module, symbol, None) is not None, (
             f"{package}.{symbol} is listed in __all__ but does not resolve"
         )
+
+
+def test_every_type_alias_evaluates() -> None:
+    """No `type X = ...` alias names something imported only for a checker.
+
+    A PEP 695 alias is evaluated lazily, so a name it takes from a
+    `TYPE_CHECKING` block passes every import and every type checker, then
+    raises `NameError` the first time anything reads `__value__`. Pydantic,
+    `typing.get_type_hints` and `fast_depends` all read it, so the failure
+    surfaces at the call site of whoever introspects the signature rather
+    than here.
+
+    The sweep is over the whole package, not the aliases one PR touched,
+    because the mistake is invisible until something evaluates it.
+    """
+    broken: list[str] = []
+    checked = 0
+    for module_info in pkgutil.walk_packages(
+        grelmicro.__path__, f"{grelmicro.__name__}."
+    ):
+        try:
+            module = importlib.import_module(module_info.name)
+        except Exception:  # noqa: BLE001, S112 - a missing optional extra is not this test's business
+            continue
+        for name, obj in vars(module).items():
+            if not isinstance(obj, TypeAliasType):
+                continue
+            checked += 1
+            try:
+                _ = obj.__value__
+            except NameError as error:
+                broken.append(f"{module_info.name}.{name}: {error}")
+
+    assert checked, "the sweep found no type alias, so it proves nothing"
+    assert not broken, (
+        "type aliases that cannot be evaluated, because they name something "
+        "imported only under TYPE_CHECKING:\n" + "\n".join(sorted(broken))
+    )
