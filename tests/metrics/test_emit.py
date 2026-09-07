@@ -20,23 +20,25 @@ def test_emit_noop_when_off() -> None:
 
 def test_record_duration(metrics_reader: MetricsHarness) -> None:
     """`record_duration` writes a histogram value with attributes."""
-    _emit.record_duration("svc.duration", 0.25, outcome="success")
+    _emit.record_duration(
+        "svc.duration", 0.25, {"grelmicro.outcome": "success"}
+    )
     points = metrics_reader.points("svc.duration")
     assert len(points) == 1
     value, attrs = points[0]
     assert value == 0.25  # noqa: PLR2004
-    assert attrs == {"outcome": "success"}
+    assert attrs == {"grelmicro.outcome": "success"}
 
 
 def test_incr_default_and_custom(metrics_reader: MetricsHarness) -> None:
     """`incr` adds to a counter, default amount 1 and custom amounts."""
-    _emit.incr("svc.calls", outcome="success")
-    _emit.incr("svc.calls", 4, outcome="success")
+    _emit.incr("svc.calls", {"grelmicro.outcome": "success"})
+    _emit.incr("svc.calls", {"grelmicro.outcome": "success"}, amount=4)
     points = metrics_reader.points("svc.calls")
     assert len(points) == 1
     value, attrs = points[0]
     assert value == 5  # noqa: PLR2004
-    assert attrs == {"outcome": "success"}
+    assert attrs == {"grelmicro.outcome": "success"}
 
 
 def test_add_up_down_accumulates(metrics_reader: MetricsHarness) -> None:

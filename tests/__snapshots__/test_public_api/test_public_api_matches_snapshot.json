@@ -82,8 +82,8 @@
       "()": "(model) -> 'None'"
     },
     "TTLCache": {
-      "()": "(maxsize=0, ttl=60, *, backend=None, serializer=None) -> 'None'",
-      ".from_config": "(config, *, backend=None, serializer=None) -> 'Self'"
+      "()": "(maxsize=0, ttl=60, *, name='default', backend=None, serializer=None) -> 'None'",
+      ".from_config": "(config, *, name='default', backend=None, serializer=None) -> 'Self'"
     },
     "TTLCacheConfig": {
       "()": "(*, maxsize=0, ttl=60) -> None"

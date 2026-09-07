@@ -118,6 +118,7 @@ class Timeout(Reconfigurable[TimeoutConfig]):
     def _setup(self, name: str, config: TimeoutConfig) -> None:
         """Wire the validated config and runtime state onto the instance."""
         self._name = name
+        self._metric_attrs: dict[str, Any] = {"grelmicro.timeout.name": name}
         self._config = config
         self._state = _State(config=config)
         self._reconfigure_lock = asyncio.Lock()
@@ -190,7 +191,8 @@ class Timeout(Reconfigurable[TimeoutConfig]):
             if scope.expired():
                 _emit.incr(
                     "grelmicro.timeout.exceeded",
-                    **{"timeout.name": self._name},
+                    self._metric_attrs,
+                    unit="{call}",
                 )
         return None
 

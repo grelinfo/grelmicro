@@ -177,6 +177,13 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         static.
         """
         self._name = name
+        self._call_attrs: dict[str, dict[str, Any]] = {
+            outcome: {
+                "grelmicro.rate_limiter.name": name,
+                "grelmicro.outcome": outcome,
+            }
+            for outcome in ("admitted", "rejected")
+        }
         self._backend: RateLimiterBackend | None = (
             backend if not isinstance(backend, str) else None
         )
@@ -471,11 +478,9 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
                 return _build_fallback(config)
             raise
         _emit.incr(
-            "grelmicro.rate_limiter.decisions",
-            **{
-                "rate_limiter.name": self._name,
-                "decision": "allowed" if result.allowed else "limited",
-            },
+            "grelmicro.rate_limiter.calls",
+            self._call_attrs["admitted" if result.allowed else "rejected"],
+            unit="{call}",
         )
         return result
 

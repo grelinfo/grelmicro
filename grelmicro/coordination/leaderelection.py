@@ -24,6 +24,11 @@ from grelmicro.coordination._base import (
     assert_worker_unchanged,
     jittered_interval,
 )
+from grelmicro.coordination._metrics import (
+    ACQUIRED,
+    ERROR,
+    UNAVAILABLE,
+)
 from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
     LeaderRecord,
@@ -32,6 +37,7 @@ from grelmicro.coordination._protocol import (
 )
 from grelmicro.coordination._tokens import resolve_worker
 from grelmicro.errors import OutOfContextError, WouldBlockError
+from grelmicro.metrics import _emit
 from grelmicro.task._protocol import Task
 
 logger = getLogger("grelmicro.leader_election")
@@ -380,6 +386,16 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         self._record: LeaderRecord | None = None
         self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
+        self._metric_attrs: dict[str, Any] = {
+            "grelmicro.leader_election.name": name
+        }
+        self._attempt_attrs: dict[str, dict[str, Any]] = {
+            outcome: {
+                "grelmicro.leader_election.name": name,
+                "grelmicro.outcome": outcome,
+            }
+            for outcome in (ACQUIRED, UNAVAILABLE, ERROR)
+        }
         self._backend: LeaderElectionBackend | None = (
             backend if not isinstance(backend, str) else None
         )
@@ -706,12 +722,35 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                     is_leader=False,
                     reason_if_no_more_leader="renew deadline reached",
                 )
+            # Emitted last, so the iteration that drops leadership
+            # publishes the leadership it ends with, not the one it
+            # started under.
+            self._emit_attempt(ERROR)
         else:
             self._record = record
             await self._update_state(
                 is_leader=record.holder == resolve_worker(config.worker),
                 reason_if_no_more_leader="lock not acquired",
             )
+            self._emit_attempt(ACQUIRED if self._is_leader else UNAVAILABLE)
+
+    def _emit_attempt(self, outcome: str) -> None:
+        """Count one acquire-or-renew call and report the leadership gauge.
+
+        The gauge is written on every loop iteration rather than on a
+        change, so `sum(grelmicro_leader_election_leading)` reads 1 for a
+        healthy fleet and a split brain shows as 2.
+        """
+        _emit.incr(
+            "grelmicro.leader_election.attempts",
+            self._attempt_attrs[outcome],
+            unit="{attempt}",
+        )
+        _emit.observe(
+            "grelmicro.leader_election.leading",
+            1 if self._is_leader else 0,
+            self._metric_attrs,
+        )
 
     def _seconds_before_expiration_deadline(
         self, config: LeaderElectionConfig
@@ -769,6 +808,17 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         except Exception:
             logger.exception(
                 "Leader Election failed to release lock: %s", self.name
+            )
+        finally:
+            # Leadership is given up whether or not the backend answered,
+            # so the gauge reads 0 from here. A stopped election that kept
+            # reporting 1 makes a handover look like a split brain to the
+            # alert that watches the sum.
+            await self._update_state(
+                is_leader=False, reason_if_no_more_leader="released"
+            )
+            _emit.observe(
+                "grelmicro.leader_election.leading", 0, self._metric_attrs
             )
 
 

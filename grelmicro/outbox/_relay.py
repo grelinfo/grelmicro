@@ -239,9 +239,13 @@ class Relay:
             _emit.record_duration(
                 "grelmicro.outbox.handler_duration",
                 time.monotonic() - started,
-                topic=record.topic,
+                {"grelmicro.outbox.topic": record.topic},
             )
-            _emit.incr("grelmicro.outbox.delivered", topic=record.topic)
+            _emit.incr(
+                "grelmicro.outbox.delivered",
+                {"grelmicro.outbox.topic": record.topic},
+                unit="{message}",
+            )
             await self._settle(
                 self._backend.complete(
                     message_id=record.id,
@@ -276,7 +280,11 @@ class Relay:
             backoff,
             error,
         )
-        _emit.incr("grelmicro.outbox.retried", topic=record.topic)
+        _emit.incr(
+            "grelmicro.outbox.retried",
+            {"grelmicro.outbox.topic": record.topic},
+            unit="{message}",
+        )
         await self._settle(
             self._backend.reschedule(
                 message_id=record.id,
@@ -291,7 +299,11 @@ class Relay:
 
     async def _settle_dead(self, record: OutboxRecord, error: str) -> None:
         """Move a message to the dead state."""
-        _emit.incr("grelmicro.outbox.dead_lettered", topic=record.topic)
+        _emit.incr(
+            "grelmicro.outbox.dead_lettered",
+            {"grelmicro.outbox.topic": record.topic},
+            unit="{message}",
+        )
         await self._settle(
             self._backend.reschedule(
                 message_id=record.id,

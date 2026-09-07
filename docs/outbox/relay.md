@@ -102,7 +102,7 @@ With the [metrics](../metrics.md) component configured, the relay emits:
 | `grelmicro.outbox.dead_lettered` | counter | messages moved to the dead state |
 | `grelmicro.outbox.handler_duration` | histogram | handler run time in seconds |
 
-Each carries a `topic` attribute. Both integrations are no-ops when the components are absent, so there is no cost when you do not use them.
+Each carries a `grelmicro.outbox.topic` attribute. Both integrations are no-ops when the components are absent, so there is no cost when you do not use them.
 
 The relay also logs each retry at warning level and each dead-letter at error level, with the message id, topic, attempt count, and last error. Alert on the dead-lettered count and on any message entering the dead state.
 

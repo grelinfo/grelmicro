@@ -1463,8 +1463,10 @@ async def test_from_thread_extend_lost_lease(
     # rejects the renewal as a lost lease.
     def sync() -> None:
         lock.from_thread.acquire()
+        # The renewal goes to the backend through `_backend_acquire`, which
+        # counts a renewal rather than a fresh acquire.
         mocker.patch.object(
-            lock, "do_acquire", mocker.AsyncMock(return_value=None)
+            lock, "_backend_acquire", mocker.AsyncMock(return_value=None)
         )
         with pytest.raises(LockNotOwnedError):
             lock.from_thread.extend()

@@ -155,10 +155,11 @@ class _Block(Generic[T]):
         if replay is not _SENTINEL:
             _emit.incr(
                 "grelmicro.idempotency.operations",
-                **{
-                    "idempotency.name": self._idempotency._name,  # noqa: SLF001
-                    "result": "replay",
+                {
+                    "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                    "grelmicro.outcome": "replay",
                 },
+                unit="{operation}",
             )
             self._operation = Operation(replayed=True, response=replay)
             return self._operation
@@ -177,10 +178,11 @@ class _Block(Generic[T]):
                         self._local_lock = None
                         _emit.incr(
                             "grelmicro.idempotency.operations",
-                            **{
-                                "idempotency.name": self._idempotency._name,  # noqa: SLF001
-                                "result": "replay",
+                            {
+                                "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                                "grelmicro.outcome": "replay",
                             },
+                            unit="{operation}",
                         )
                         self._operation = Operation(
                             replayed=True, response=replay
@@ -205,10 +207,11 @@ class _Block(Generic[T]):
                             await self._release()
                             _emit.incr(
                                 "grelmicro.idempotency.operations",
-                                **{
-                                    "idempotency.name": self._idempotency._name,  # noqa: SLF001
-                                    "result": "replay",
+                                {
+                                    "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                                    "grelmicro.outcome": "replay",
                                 },
+                                unit="{operation}",
                             )
                             self._operation = Operation(
                                 replayed=True, response=replay
@@ -228,10 +231,11 @@ class _Block(Generic[T]):
 
         _emit.incr(
             "grelmicro.idempotency.operations",
-            **{
-                "idempotency.name": self._idempotency._name,  # noqa: SLF001
-                "result": "execute",
+            {
+                "grelmicro.idempotency.name": self._idempotency._name,  # noqa: SLF001
+                "grelmicro.outcome": "execute",
             },
+            unit="{operation}",
         )
         self._operation = Operation(replayed=False, response=None)
         return self._operation
@@ -507,7 +511,11 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             serializer = JsonSerializer()
         cache = cast(
             "TTLCache[T]",
-            TTLCache(ttl=self._config.ttl, serializer=serializer),
+            TTLCache(
+                ttl=self._config.ttl,
+                name=self._name,
+                serializer=serializer,
+            ),
         )
         self._cache = cache
         return cache

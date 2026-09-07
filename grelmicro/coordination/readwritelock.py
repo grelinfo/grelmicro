@@ -26,6 +26,14 @@ from grelmicro.coordination._base import (
     jittered_interval,
 )
 from grelmicro.coordination._guards import ReadGuard, WriteGuard
+from grelmicro.coordination._metrics import (
+    ACQUIRED,
+    ERROR,
+    LOST,
+    SUCCESS,
+    UNAVAILABLE,
+    LockMetrics,
+)
 from grelmicro.coordination._tokens import (
     HolderIdentity,
     current_thread_identity,
@@ -255,6 +263,8 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
+        self._read_metrics = LockMetrics(name, "read")
+        self._write_metrics = LockMetrics(name, "write")
         self._backend: ReadWriteLockBackend | None = (
             backend if not isinstance(backend, str) else None
         )
@@ -563,6 +573,7 @@ class ReadMode(_Mode):
             )
         except Exception as exc:
             raise LockReleaseError(name=self.name) from exc
+        self._lock._read_metrics.hold(-1)  # noqa: SLF001
         guard._invalidate()  # noqa: SLF001
         return released
 
@@ -587,6 +598,28 @@ class ReadMode(_Mode):
         Raises:
             LockAcquireError: The backend call failed.
         """
+        metrics = self._lock._read_metrics  # noqa: SLF001
+        try:
+            generation = await self._backend_acquire(token, duration)
+        except LockAcquireError:
+            metrics.attempt(ERROR)
+            raise
+        if generation is None:
+            metrics.attempt(UNAVAILABLE)
+        else:
+            metrics.attempt(ACQUIRED)
+            metrics.hold(1)
+        return generation
+
+    async def _backend_acquire(self, token: str, duration: float) -> int | None:
+        """Ask the backend for a read lease, without counting the outcome.
+
+        Acquiring and renewing both land here and emit nothing, because
+        each caller counts its own outcome.
+
+        Raises:
+            LockAcquireError: The backend call failed.
+        """
         backend = self.backend
         try:
             return await backend.acquire_read(
@@ -605,10 +638,17 @@ class ReadMode(_Mode):
             LockAcquireError: The backend call failed.
         """
         duration = self._lock._config.lease_duration  # noqa: SLF001
-        generation = await self.do_acquire(guard.token, duration=duration)
+        metrics = self._lock._read_metrics  # noqa: SLF001
+        try:
+            generation = await self._backend_acquire(guard.token, duration)
+        except LockAcquireError:
+            metrics.renewal(ERROR)
+            raise
         if generation is None:
+            metrics.renewal(LOST)
             guard._invalidate()  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
+        metrics.renewal(SUCCESS)
         guard._renewed(monotonic() + duration)  # noqa: SLF001
 
     def _adopt(self, guard: ReadGuard, holder: asyncio.Task[object]) -> None:
@@ -906,6 +946,7 @@ class WriteMode(_Mode):
             )
         except Exception as exc:
             raise LockReleaseError(name=self.name) from exc
+        self._lock._write_metrics.hold(-1)  # noqa: SLF001
         guard._invalidate()  # noqa: SLF001
         return released
 
@@ -913,6 +954,32 @@ class WriteMode(_Mode):
         self, token: str, *, duration: float, intent: bool
     ) -> WriteGrant | None:
         """Ask the backend for a write lease.
+
+        Raises:
+            LockAcquireError: The backend call failed.
+        """
+        metrics = self._lock._write_metrics  # noqa: SLF001
+        try:
+            grant = await self._backend_acquire(
+                token, duration=duration, intent=intent
+            )
+        except LockAcquireError:
+            metrics.attempt(ERROR)
+            raise
+        if grant is None:
+            metrics.attempt(UNAVAILABLE)
+        else:
+            metrics.attempt(ACQUIRED)
+            metrics.hold(1)
+        return grant
+
+    async def _backend_acquire(
+        self, token: str, *, duration: float, intent: bool
+    ) -> WriteGrant | None:
+        """Ask the backend for a write lease, without counting the outcome.
+
+        Acquiring and renewing both land here and emit nothing, because
+        each caller counts its own outcome.
 
         Raises:
             LockAcquireError: The backend call failed.
@@ -940,12 +1007,19 @@ class WriteMode(_Mode):
             LockAcquireError: The backend call failed.
         """
         duration = self._lock._config.lease_duration  # noqa: SLF001
-        grant = await self.do_acquire(
-            guard.token, duration=duration, intent=False
-        )
+        metrics = self._lock._write_metrics  # noqa: SLF001
+        try:
+            grant = await self._backend_acquire(
+                guard.token, duration=duration, intent=False
+            )
+        except LockAcquireError:
+            metrics.renewal(ERROR)
+            raise
         if grant is None:
+            metrics.renewal(LOST)
             guard._invalidate()  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
+        metrics.renewal(SUCCESS)
         guard._renewed(monotonic() + duration)  # noqa: SLF001
         if grant.fencing_token != guard._fencing_token:  # noqa: SLF001
             guard._fencing_token = grant.fencing_token  # noqa: SLF001
@@ -969,16 +1043,22 @@ class WriteMode(_Mode):
             )
         except Exception as exc:
             raise LockAcquireError(name=self.name) from exc
+        # The write lease is given up either way, so the holder it was
+        # counted as goes with it. Only a granted downgrade takes one on
+        # the read side.
         if generation is None:
             guard._invalidate()  # noqa: SLF001
             self._task_guards.pop(task, None)
+            self._lock._write_metrics.hold(-1)  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
         guard._invalidate()  # noqa: SLF001
         self._task_guards.pop(task, None)
+        self._lock._write_metrics.hold(-1)  # noqa: SLF001
         read_guard = self._lock.read._new_guard(  # noqa: SLF001
             guard.token, generation, duration
         )
         self._lock.read._adopt(read_guard, task)  # noqa: SLF001
+        self._lock._read_metrics.hold(1)  # noqa: SLF001
         return read_guard
 
     async def do_thread_acquire(

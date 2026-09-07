@@ -2344,7 +2344,7 @@ class TestEarlyRefreshFailureIsObservable:
 
         # Act
         with caplog.at_level(logging.WARNING, logger="grelmicro.cache.cached"):
-            cached_mod._report_refresh_failure("k", task)
+            cached_mod._report_refresh_failure(TTLCache(), "k", task)
 
         # Assert
         assert not caplog.records

@@ -28,6 +28,14 @@ from grelmicro.coordination._base import (
     jittered_interval,
 )
 from grelmicro.coordination._handle import LockHandle
+from grelmicro.coordination._metrics import (
+    ACQUIRED,
+    ERROR,
+    LOST,
+    SUCCESS,
+    UNAVAILABLE,
+    LockMetrics,
+)
 from grelmicro.coordination._protocol import LockBackend, Seconds
 from grelmicro.coordination._tokens import (
     HolderIdentity,
@@ -328,6 +336,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
+        self._metrics = LockMetrics(name, "exclusive")
         self._backend: LockBackend | None = (
             backend if not isinstance(backend, str) else None
         )
@@ -475,6 +484,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 token=token, duration=duration
             )
         self._held_by_tasks.add(task)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -499,11 +509,17 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         if task not in self._held_by_tasks:
             raise LockNotOwnedError(name=self._name)
         token = generate_task_token(config.worker)
-        fencing_token = await self.do_acquire(
-            token=token, duration=config.lease_duration
-        )
+        try:
+            fencing_token = await self._backend_acquire(
+                token, config.lease_duration
+            )
+        except LockAcquireError:
+            self._metrics.renewal(ERROR)
+            raise
         if fencing_token is None:
+            self._metrics.renewal(LOST)
             raise LockNotOwnedError(name=self._name)
+        self._metrics.renewal(SUCCESS)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -531,6 +547,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
         self._held_by_tasks.add(task)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -549,7 +566,10 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         # can retry release. A "not owned" answer still clears it
         # because the distributed truth is authoritative.
         released = await self.do_release(token)
-        self._held_by_tasks.discard(self._running_task())
+        task = self._running_task()
+        if task in self._held_by_tasks:
+            self._held_by_tasks.discard(task)
+            self._metrics.hold(-1)
         if not released:
             raise LockNotOwnedError(name=self._name)
 
@@ -589,6 +609,28 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         Returns:
             int | None: The fencing token if the lock was acquired, None if
                 the lock was not acquired.
+
+        Raises:
+            LockAcquireError: If the lock cannot be acquired due to an error on the backend.
+        """
+        try:
+            fencing_token = await self._backend_acquire(token, duration)
+        except LockAcquireError:
+            self._metrics.attempt(ERROR)
+            raise
+        self._metrics.attempt(
+            UNAVAILABLE if fencing_token is None else ACQUIRED
+        )
+        return fencing_token
+
+    async def _backend_acquire(
+        self, token: str, duration: Seconds
+    ) -> int | None:
+        """Ask the backend for the lease, without counting the outcome.
+
+        Acquiring and renewing both land here and emit nothing, because
+        each caller counts its own outcome: a lease lost on renewal is a
+        different event from a lock another worker holds.
 
         Raises:
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
@@ -681,6 +723,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 token=token, duration=duration
             )
         self._held_by_threads.add(owner)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -699,11 +742,17 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         if owner not in self._held_by_threads:
             raise LockNotOwnedError(name=self._name)
         token = generate_thread_token(config.worker, identity=owner)
-        fencing_token = await self.do_acquire(
-            token=token, duration=config.lease_duration
-        )
+        try:
+            fencing_token = await self._backend_acquire(
+                token, config.lease_duration
+            )
+        except LockAcquireError:
+            self._metrics.renewal(ERROR)
+            raise
         if fencing_token is None:
+            self._metrics.renewal(LOST)
             raise LockNotOwnedError(name=self._name)
+        self._metrics.renewal(SUCCESS)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -732,6 +781,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
         self._held_by_threads.add(owner)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -748,7 +798,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         token = generate_thread_token(self._config.worker, identity=owner)
         released = await self.do_release(token)
-        self._held_by_threads.discard(owner)
+        if owner in self._held_by_threads:
+            self._held_by_threads.discard(owner)
+            self._metrics.hold(-1)
         if not released:
             raise LockNotOwnedError(name=self._name)
 

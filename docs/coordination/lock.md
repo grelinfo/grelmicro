@@ -173,3 +173,22 @@ strictly monotonic against its master.
 !!! tip "Want to understand how worker identity and lock tokens work internally?"
     See [Coordination Internals](../architecture/coordination.md) for details on
     UUID generation, token scoping, and design guarantees.
+
+## Watching a lock in production
+
+With the [metrics](../metrics.md) component registered, every lock reports
+what happened to it, so the three ways a lock can stop the work under it
+are told apart.
+
+| Signal | What it means |
+|---|---|
+| `grelmicro.lock.attempts` with `grelmicro.outcome="error"` | the backend is unreachable, so nothing is running anywhere |
+| the same counter with `unavailable` | another worker holds it, which is contention rather than failure |
+| `grelmicro.lock.renewals` with `lost` | the lease expired while the work was still running, so a second worker may already hold it |
+| `grelmicro.lock.holders` | how many holders this worker has, which is 0 when it holds nothing and more than 1 only for a read lease |
+
+`grelmicro.lock.mode` separates an exclusive lock, a task lock, and a read
+or write lease, so one dashboard covers every lock in the app.
+
+Page on `lost`. It is the signal that the at-most-once guarantee no longer
+holds, and the fix is a `lease_duration` longer than the work really takes.

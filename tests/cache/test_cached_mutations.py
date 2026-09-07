@@ -713,3 +713,32 @@ class TestSyncRefreshMetaAndStale:
             if reserve == 2:  # noqa: PLR2004
                 break
         assert reserve == 2  # noqa: PLR2004
+
+
+async def test_a_reused_decorator_gives_each_function_its_own_cache() -> None:
+    """One `cached(ttl=...)` decorator applied twice builds two caches.
+
+    Each function gets its own `maxsize` budget, and `cache_clear()`
+    answers for that function alone.
+    """
+    calls = {"first": 0, "second": 0}
+    decorator = cached(ttl=60, key="{value}")
+
+    @decorator
+    async def first(value: int) -> str:
+        calls["first"] += 1
+        return f"first:{value}"
+
+    @decorator
+    async def second(value: int) -> str:
+        calls["second"] += 1
+        return f"second:{value}"
+
+    await first(1)
+    await second(1)
+    await first.cache_clear()
+    await first(1)
+    await second(1)
+
+    # One shared cache would have dropped the second function's entry too.
+    assert calls == {"first": 2, "second": 1}

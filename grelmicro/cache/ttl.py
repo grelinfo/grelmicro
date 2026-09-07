@@ -146,6 +146,17 @@ class TTLCache(Generic[T]):
             ),
         ] = 60,
         *,
+        name: Annotated[
+            str,
+            Doc(
+                """
+                The cache name, carried by every metric this cache emits.
+
+                Name each cache an app builds, so a hit rate can be read
+                per cache rather than for the process as a whole.
+                """,
+            ),
+        ] = "default",
         backend: Annotated[
             CacheBackend | None,
             Doc(
@@ -187,6 +198,17 @@ class TTLCache(Generic[T]):
         # walking through `self._config.<field>`.
         self._maxsize = self._config.maxsize
         self._ttl = self._config.ttl
+        self._name = name
+        self._metric_attrs: dict[str, Any] = {"grelmicro.cache.name": name}
+        # One mapping per outcome, bound once, so a hit or a miss emits
+        # without building a dict on the read path.
+        self._op_attrs: dict[str, dict[str, Any]] = {
+            outcome: {
+                "grelmicro.cache.name": name,
+                "grelmicro.outcome": outcome,
+            }
+            for outcome in ("hit", "miss")
+        }
         self._backend = backend
         if serializer is not None:
             self._serializer: CacheSerializer[T] | None = _resolve_serializer(
@@ -215,6 +237,10 @@ class TTLCache(Generic[T]):
             Doc("The pre-built cache configuration."),
         ],
         *,
+        name: Annotated[
+            str,
+            Doc("The cache name, carried by every metric this cache emits."),
+        ] = "default",
         backend: Annotated[
             CacheBackend | None,
             Doc("The cache storage backend."),
@@ -232,9 +258,15 @@ class TTLCache(Generic[T]):
         return cls(
             config.maxsize,
             config.ttl,
+            name=name,
             backend=backend,
             serializer=serializer,
         )
+
+    @property
+    def name(self) -> str:
+        """Return the cache name carried by its metrics."""
+        return self._name
 
     @property
     def config(self) -> TTLCacheConfig:
@@ -326,10 +358,18 @@ class TTLCache(Generic[T]):
         raw = await self._get_backend().get(key=f"{_CACHE_PREFIX}:{key}")
         if raw is None:
             self._misses += 1
-            _emit.incr("grelmicro.cache.operations", result="miss")
+            _emit.incr(
+                "grelmicro.cache.operations",
+                self._op_attrs["miss"],
+                unit="{operation}",
+            )
             return default
         self._hits += 1
-        _emit.incr("grelmicro.cache.operations", result="hit")
+        _emit.incr(
+            "grelmicro.cache.operations",
+            self._op_attrs["hit"],
+            unit="{operation}",
+        )
         if self._maxsize > 0:
             self._promote(key)
         return self._deserialize(raw)
@@ -516,7 +556,11 @@ class TTLCache(Generic[T]):
         except Exception:  # serve stale on any recompute failure
             stale = await self._read_stale(key, _SENTINEL)
             if stale is not _SENTINEL:
-                _emit.incr("grelmicro.cache.stale_serves")
+                _emit.incr(
+                    "grelmicro.cache.stale_serves",
+                    self._metric_attrs,
+                    unit="{serve}",
+                )
                 return cast("T", stale)
             raise
 
@@ -541,10 +585,18 @@ class TTLCache(Generic[T]):
         for key in keys:
             if key not in found:
                 self._misses += 1
-                _emit.incr("grelmicro.cache.operations", result="miss")
+                _emit.incr(
+                    "grelmicro.cache.operations",
+                    self._op_attrs["miss"],
+                    unit="{operation}",
+                )
                 continue
             self._hits += 1
-            _emit.incr("grelmicro.cache.operations", result="hit")
+            _emit.incr(
+                "grelmicro.cache.operations",
+                self._op_attrs["hit"],
+                unit="{operation}",
+            )
             if self._maxsize > 0:
                 self._promote(key)
             result[key] = self._deserialize(found[key])

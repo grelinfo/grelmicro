@@ -264,6 +264,16 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
     ) -> None:
         """Wire the validated config and runtime state onto the instance."""
         self._name = name
+        self._metric_attrs: dict[str, Any] = {"grelmicro.bulkhead.name": name}
+        # One mapping per outcome, bound once, so an admitted or refused
+        # call emits without building a dict.
+        self._call_attrs: dict[str, dict[str, Any]] = {
+            outcome: {
+                "grelmicro.bulkhead.name": name,
+                "grelmicro.outcome": outcome,
+            }
+            for outcome in ("admitted", "rejected")
+        }
         self._config = config
         self._state = _State(config=config, semaphore=_build_semaphore(config))
         self._reconfigure_lock = asyncio.Lock()
@@ -332,8 +342,9 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                     await semaphore.acquire()
             except TimeoutError:
                 _emit.incr(
-                    "grelmicro.bulkhead.rejections",
-                    **{"bulkhead.name": self._name},
+                    "grelmicro.bulkhead.calls",
+                    self._call_attrs["rejected"],
+                    unit="{call}",
                 )
                 # A semaphore exists only when `max_concurrent` is set,
                 # so the value is never `None` on this branch.
@@ -375,8 +386,13 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
             self._scopes[task] = [scope]
         else:
             stack.append(scope)
+        _emit.incr(
+            "grelmicro.bulkhead.calls",
+            self._call_attrs["admitted"],
+            unit="{call}",
+        )
         _emit.add_up_down(
-            "grelmicro.bulkhead.active", 1, **{"bulkhead.name": self._name}
+            "grelmicro.bulkhead.active", 1, self._metric_attrs, unit="{call}"
         )
         return self
 
@@ -397,7 +413,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         if semaphore is not None:
             semaphore.release()
         _emit.add_up_down(
-            "grelmicro.bulkhead.active", -1, **{"bulkhead.name": self._name}
+            "grelmicro.bulkhead.active", -1, self._metric_attrs, unit="{call}"
         )
         return None
 

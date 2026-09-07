@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Awaitable, Callable
 from inspect import (
     CO_ASYNC_GENERATOR,
     CO_GENERATOR,
@@ -27,7 +28,7 @@ from grelmicro.resilience.retry import Retry
 from grelmicro.resilience.timeout import Timeout
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable
+    from collections.abc import Iterable
 
 __all__ = ["Pattern", "Stack"]
 

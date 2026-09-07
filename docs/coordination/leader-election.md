@@ -116,3 +116,20 @@ Build `LeaderElection` with keyword arguments. The lease timing fields
 `reconfigure(new_config)` swaps the timing for the next renew loop iteration. The
 `worker` identity cannot change, since the lease is held under that token. See
 [Live reconfiguration](../architecture/reconfigure.md).
+
+## Watching the election
+
+With the [metrics](../metrics.md) component registered,
+`grelmicro.leader_election.leading` reads 1 on the leader and 0 on every
+standby. A healthy fleet sums to exactly one:
+
+```promql
+sum by (grelmicro_leader_election_name) (grelmicro_leader_election_leading) != 1
+```
+
+Two means a split brain and zero means nobody is running the leader-gated
+work, which is the failure that otherwise shows up as nothing happening.
+
+`grelmicro.leader_election.attempts` counts each acquire-or-renew call:
+`acquired` on the leader, `unavailable` on a standby, and `error` when the
+backend could not be reached.

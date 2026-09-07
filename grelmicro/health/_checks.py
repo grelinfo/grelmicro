@@ -594,14 +594,17 @@ async def _run_check(entry: _Entry) -> CheckResult:
     _emit.observe(
         "grelmicro.health.check.up",
         1 if healthy else 0,
-        **{"check.name": entry.name, "critical": entry.critical},
+        {
+            "grelmicro.health.check.name": entry.name,
+            "grelmicro.health.check.critical": entry.critical,
+        },
     )
     _emit.record_duration(
         "grelmicro.health.check.duration",
         elapsed,
-        **{
-            "check.name": entry.name,
-            "outcome": "success" if healthy else "error",
+        {
+            "grelmicro.health.check.name": entry.name,
+            "grelmicro.outcome": "success" if healthy else "error",
         },
     )
     return result

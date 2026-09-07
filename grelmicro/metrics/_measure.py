@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 P = ParamSpec("P")
 R = TypeVar("R")
 
+_SUCCESS: dict[str, Any] = {"grelmicro.outcome": "success"}
+"""Attributes for a call that returned, bound once for the hot path."""
+
 
 def _default_name(fn: Callable[..., Any]) -> str:
     """Derive a metric base name from a function's module and qualname.
@@ -47,26 +50,34 @@ class _Instruments:
     def enter(self) -> float:
         """Mark a call start, raise the in-flight gauge, return the clock."""
         if self.in_flight:
-            _emit.add_up_down(self.active, 1)
+            _emit.add_up_down(self.active, 1, unit="{call}")
         return time.perf_counter()
 
-    def success(self) -> None:
-        """Record a success-outcome call."""
-        _emit.incr(self.calls, outcome="success")
+    def success(self) -> dict[str, Any]:
+        """Record a call that returned, and return its attributes."""
+        _emit.incr(self.calls, _SUCCESS, unit="{call}")
+        return _SUCCESS
 
-    def error(self, exc: BaseException) -> None:
-        """Record an error-outcome call carrying the exception type."""
-        _emit.incr(
-            self.calls,
-            outcome="error",
-            **{"error.type": type(exc).__name__},
+    def error(self, exc: BaseException) -> dict[str, Any]:
+        """Record a call that raised, and return its attributes."""
+        attributes = {
+            "grelmicro.outcome": "error",
+            "error.type": type(exc).__name__,
+        }
+        _emit.incr(self.calls, attributes, unit="{call}")
+        return attributes
+
+    def exit(self, start: float, attributes: dict[str, Any]) -> None:
+        """Record the duration and lower the in-flight gauge.
+
+        The duration carries the same attributes as the call it timed, so
+        one histogram answers both throughput and error latency.
+        """
+        _emit.record_duration(
+            self.duration, time.perf_counter() - start, attributes
         )
-
-    def exit(self, start: float) -> None:
-        """Record the duration and lower the in-flight gauge."""
-        _emit.record_duration(self.duration, time.perf_counter() - start)
         if self.in_flight:
-            _emit.add_up_down(self.active, -1)
+            _emit.add_up_down(self.active, -1, unit="{call}")
 
 
 @overload
@@ -117,9 +128,9 @@ def measure[**P, R](
     Emits three metrics, all no-ops when no `Metrics` component is active:
 
     - `<name>.duration`: a histogram of wall-clock seconds.
-    - `<name>.calls`: a counter with an `outcome` attribute (`success`
-      or `error`). On failure an `error.type` attribute carries the
-      exception class name.
+    - `<name>.calls`: a counter with a `grelmicro.outcome` attribute
+      (`success` or `error`). On failure an `error.type` attribute
+      carries the exception class name.
     - `<name>.active`: an up_down_counter present only when
       `record_in_flight=True`. Rises on entry, falls on exit.
 
@@ -142,32 +153,34 @@ def measure[**P, R](
             @functools.wraps(fn)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
                 start = m.enter()
+                attributes = _SUCCESS
                 try:
                     result = await fn(*args, **kwargs)
                 except BaseException as exc:
-                    m.error(exc)
+                    attributes = m.error(exc)
                     raise
                 else:
-                    m.success()
+                    attributes = m.success()
                     return result
                 finally:
-                    m.exit(start)
+                    m.exit(start, attributes)
 
             return async_wrapper  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
 
         @functools.wraps(fn)
         def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             start = m.enter()
+            attributes = _SUCCESS
             try:
                 result = fn(*args, **kwargs)
             except BaseException as exc:
-                m.error(exc)
+                attributes = m.error(exc)
                 raise
             else:
-                m.success()
+                attributes = m.success()
                 return result
             finally:
-                m.exit(start)
+                m.exit(start, attributes)
 
         return sync_wrapper
 

@@ -84,6 +84,9 @@ class IntervalTask(Task):
 
         self._last_fire: FireInfo | None = None
         self._last_loop_start: float | None = None
+        # Bound once: the task name never changes, so every emit that
+        # carries only the name reuses this mapping instead of building one.
+        self._metric_attrs: dict[str, Any] = {"grelmicro.task.name": self._name}
         # Whether the body started on the current iteration. A failure
         # raised after it started is already counted by `_run_with_sync`.
         self._body_started = False
@@ -200,10 +203,34 @@ class IntervalTask(Task):
                 # stop so in-flight work is never interrupted; otherwise
                 # sleep until the next interval (waking early on stop).
                 self._last_loop_start = time.monotonic()
+                _emit.observe(
+                    "grelmicro.task.next_run",
+                    time.time() + self._seconds,
+                    self._metric_attrs,
+                    unit="s",
+                )
                 if await sleep_or_stop(self._seconds, stop):
                     break
         finally:
             logger.info("Task stopped: %s", self.name)
+
+    def _record_schedule_delay(self) -> None:
+        """Record how late the body started against its planned instant.
+
+        The interval is measured from the end of the previous iteration,
+        so the planned instant is that moment plus `seconds`. It rises
+        when a worker is saturated or when acquiring the lock takes
+        longer than the interval it guards. Nothing was planned before
+        the first iteration, which records no point.
+        """
+        planned = self._last_loop_start
+        if planned is None:
+            return
+        _emit.record_duration(
+            "grelmicro.task.schedule.delay",
+            max(time.monotonic() - (planned + self._seconds), 0.0),
+            self._metric_attrs,
+        )
 
     async def _run_with_sync(
         self, primitives: list[LockPrimitive], index: int = 0
@@ -216,28 +243,27 @@ class IntervalTask(Task):
         if index >= len(primitives):
             self._body_started = True
             _emit.add_up_down(
-                "grelmicro.task.active", 1, **{"task.name": self.name}
+                "grelmicro.task.active", 1, self._metric_attrs, unit="{run}"
             )
             started_at = datetime.now(UTC)
+            self._record_schedule_delay()
             start_monotonic = time.perf_counter()
             outcome = FireOutcome.ERROR
+            # Assumes failure until the body returns, so a fire cancelled
+            # mid-body records its duration as the error it was.
+            attributes: dict[str, Any] = {
+                "grelmicro.task.name": self._name,
+                "grelmicro.outcome": FireOutcome.ERROR,
+            }
             try:
                 await self._async_function()
                 outcome = FireOutcome.SUCCESS
-                _emit.incr(
-                    "grelmicro.task.runs",
-                    **{"task.name": self.name, "outcome": FireOutcome.SUCCESS},
-                )
+                attributes["grelmicro.outcome"] = FireOutcome.SUCCESS
+                _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
             except Exception as exc:
                 logger.exception("Task execution error: %s", self.name)
-                _emit.incr(
-                    "grelmicro.task.runs",
-                    **{
-                        "task.name": self.name,
-                        "outcome": FireOutcome.ERROR,
-                        "error.type": type(exc).__name__,
-                    },
-                )
+                attributes["error.type"] = type(exc).__name__
+                _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
             finally:
                 duration = time.perf_counter() - start_monotonic
                 self._last_fire = FireInfo(
@@ -246,12 +272,13 @@ class IntervalTask(Task):
                     duration=duration,
                 )
                 _emit.record_duration(
-                    "grelmicro.task.duration",
-                    duration,
-                    **{"task.name": self.name},
+                    "grelmicro.task.duration", duration, attributes
                 )
                 _emit.add_up_down(
-                    "grelmicro.task.active", -1, **{"task.name": self.name}
+                    "grelmicro.task.active",
+                    -1,
+                    self._metric_attrs,
+                    unit="{run}",
                 )
             return
 

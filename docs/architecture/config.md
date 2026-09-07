@@ -49,8 +49,10 @@ to grelmicro. A missing required connection value fails at construction.
 that fills no field, such as `GREL_ENV_LOAD` itself, is read ungated.
 
 **R3 Address.** The environment addresses identity: `GREL_{KIND}_{NAME}_{FIELD}`,
-with the name segment dropped for the `default` instance. No name means no
-address, which is why `TTLCache` reads nothing and has no live reload.
+with the name segment dropped for the `default` instance. A kind is what makes
+an address, so an object with no kind segment reads nothing, which is why
+`TTLCache` reads nothing and has no live reload. It carries a `name`, and that
+name is the label on its metrics rather than an address.
 
 **R4 Segment.** A component's segment is its kind string uppercased (`health`
 gives `HEALTH`). A pattern's segment is its class name uppercased, separators
@@ -167,7 +169,7 @@ not.
 
 | Decision | Assumption it rests on | Reopen when |
 |---|---|---|
-| `TTLCache` reads no environment | The environment addresses identity, and a nameless object has no address (R3) | `TTLCache` gains a name |
+| `TTLCache` reads no environment | A TTL is a code decision made per call site, and a cache has no kind segment to address (R3) | Someone needs to tune a cache's TTL per deployment |
 | The environment tunes an algorithm's fields, never selects the algorithm | Code owns structure, the environment owns values (R6) | A config becomes genuinely selectable from outside code |
 | The merge is per field, not all-or-nothing | A mounted file already patches per key at runtime, so an all-or-nothing rule at construction would delay the surprise rather than remove it | Live reload stops patching per key |
 | The kind address is a broadcast and stays silent | A fleet legitimately runs both algorithms and tunes one of them kind-wide | Kind-wide tuning stops being a real deployment shape |
