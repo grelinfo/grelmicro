@@ -11,6 +11,7 @@ from typing_extensions import Doc
 
 from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics import _emit
+from grelmicro.metrics._naming import callable_name, unwrap_callable
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,12 +27,14 @@ def _default_name(fn: Callable[..., Any]) -> str:
     """Derive a metric base name from a function's module and qualname.
 
     Lowercased and dotted, e.g. `myapp.service.charge`. Inner-function
-    markers (`<locals>`) are dropped so nested helpers stay readable.
+    markers (`<locals>`) are dropped so nested helpers stay readable. A
+    `functools.partial` is unwrapped, because it reports `functools` as
+    its module and its `repr` carries a memory address, which would open
+    a new metric on every restart.
     """
-    module = getattr(fn, "__module__", "") or ""
-    qualname = getattr(fn, "__qualname__", getattr(fn, "__name__", str(fn)))
-    qualname = qualname.replace(".<locals>", "")
-    parts = [p for p in (module, qualname) if p]
+    target = unwrap_callable(fn)
+    module = getattr(target, "__module__", "") or ""
+    parts = [p for p in (module, callable_name(target)) if p]
     return ".".join(parts).lower()
 
 

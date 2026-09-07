@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING
 
 import pytest
@@ -125,3 +126,36 @@ def test_measure_default_name(metrics_reader: MetricsHarness) -> None:
     labeled()
     names = metrics_reader.collect().keys()
     assert any(n.endswith("labeled.duration") for n in names)
+
+
+def test_a_partial_is_named_after_the_function_it_wraps() -> None:
+    """A metric name never carries a memory address.
+
+    A `functools.partial` has no name of its own and reports `functools`
+    as its module, so the old fallback put its `repr` in the metric name.
+    That repr carries the address of the wrapped function, which is a new
+    metric on every restart of the process.
+    """
+    bound = functools.partial(_sample, "p")
+
+    name = _default_name(bound)
+
+    assert name == _default_name(_sample)
+    assert "0x" not in name
+
+
+def test_a_callable_object_is_named_after_its_type() -> None:
+    """A callable with no `__qualname__` falls back to a stable name."""
+
+    class Fetcher:
+        async def __call__(self) -> None: ...
+
+    name = _default_name(Fetcher())
+
+    assert name.endswith("fetcher")
+    assert "0x" not in name
+
+
+async def _sample(prefix: str, value: int) -> str:
+    """Module-level sample for the naming tests."""
+    return f"{prefix}{value}"
