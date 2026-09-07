@@ -34,6 +34,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._paths import (
+    _PREFIX,
     BARE_STRING_MESSAGE,
     FieldNames,
     PathPatterns,
@@ -273,7 +274,7 @@ class _Policies:
     when the app starts, so a route added after `install` counts too.
     """
 
-    __slots__ = ("_app", "_include", "_routes")
+    __slots__ = ("_app", "_include", "_refused", "_routes")
 
     def __init__(
         self,
@@ -316,7 +317,17 @@ class _Policies:
             )
         )
         self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
+        self._refused: tuple[Pattern[str], ...] = ()
         self._app: Any = None
+
+    def _is_refused(self, path: str) -> bool:
+        """Return whether the app refuses to have this path cached.
+
+        A write, and a read behind a security scheme. A hit is answered
+        before the app is routed, so caching either one answers over the
+        gate or hands back what was never a read.
+        """
+        return any(regex.fullmatch(path) for regex in self._refused)
 
     def read(
         self,
@@ -328,9 +339,11 @@ class _Policies:
             TypeError: If a marked route answers a method other than `GET`.
         """
         self._app = app
-        self._routes = tuple(
-            _marked_routes(app, tuple(pattern for pattern, _ in self._include))
+        found, refused = _marked_routes(
+            app, tuple(pattern for pattern, _ in self._include)
         )
+        self._routes = tuple(found)
+        self._refused = tuple(refused)
 
     def reread(self) -> None:
         """Read the app again, for the routes added since install."""
@@ -347,7 +360,15 @@ class _Policies:
         The patterns only. A route's own declaration is read off the
         route, which a report walking the app has in hand and a request
         does not.
+
+        A path the app refuses to have cached is answered `None` before
+        any pattern is read. The refusal is checked where the answer is
+        given rather than only where a pattern is written, because a
+        pattern names a URL and a route stands for many, so no reading
+        of the patterns alone can be trusted to have seen them all.
         """
+        if self._is_refused(path):
+            return None
         for pattern, ttl in self._include:
             if matches(path, (pattern,)):
                 return default if ttl is None else ttl
@@ -363,6 +384,8 @@ class _Policies:
         A route that declared one says more than a pattern naming it, so
         `include=` fills in for the routes that declared none.
         """
+        if self._is_refused(path):
+            return None
         for regex, marked in self._routes:
             if regex.fullmatch(path):
                 return default if marked is None else marked
@@ -411,8 +434,12 @@ def declared_ttl(
 def _marked_routes(
     app: Any,  # noqa: ANN401
     named: tuple[str, ...] = (),
-) -> list[tuple[Pattern[str], float | None]]:
-    """Return the compiled path of every route that declared a TTL.
+) -> tuple[list[tuple[Pattern[str], float | None]], list[Pattern[str]]]:
+    """Return the routes that declared a TTL, and the ones refused.
+
+    The second list is every route a cache must not answer for, whether
+    a pattern named it or not, so the answer at request time does not
+    depend on how the path was written.
 
     Walks what the app declares, mounts and included routers alike, and
     compiles each full path with the framework's own compiler, off the
@@ -429,36 +456,155 @@ def _marked_routes(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
+    refused: list[Pattern[str]] = []
+    answered: list[tuple[str, Pattern[str], frozenset[str]]] = []
     for prefix, route, contexts in walk_routes(app):
         above = _declaring_above(contexts)
         ttl = _declared_ttl(route, above)
         on_the_route = ttl is not _UNMARKED
-        for context in reversed(contexts):
-            if ttl is not _UNMARKED:
-                break
-            ttl = _inherited_ttl(context)
+        ttl = _inherited(ttl, contexts)
         declared = f"{prefix}{route.path}"
         compiled, _, _ = compile_path(declared)
+        # Against the URL as well as the template. A route declared
+        # `/users/{uid}` answers `/users/me`, so a pattern naming that
+        # URL matches no template at all, and reading the template alone
+        # would let it put a gated read in the cache.
+        is_named, named_exactly = _named_by(named, declared, compiled)
+        refusal = _unreadable(route, contexts, declared)
+        if _gated_read(route, contexts):
+            # Kept whether a pattern named it or not, so the answer at
+            # request time does not depend on how it was named. Only a
+            # gated read: a write is already passed through by the
+            # method guard, and one route's method must not speak for
+            # another declared on the same path.
+            refused.append(compiled)
+        if named_exactly:
+            answered.append((declared, compiled, _methods_of(route)))
         if ttl is _UNMARKED:
-            # Against the URL as well as the template. A route declared
-            # `/users/{uid}` answers `/users/me`, so a pattern naming
-            # that URL puts a gated read in the cache while matching no
-            # template at all, and the hit would answer over the gate.
-            if any(
-                names_route(pattern, declared, compiled) for pattern in named
-            ):
+            if is_named:
                 _refuse_named_gate(route, contexts, declared)
             continue
-        refusal = _unreadable(route, contexts, declared)
         if refusal is not None:
             if on_the_route:
                 raise TypeError(refusal)
-            # A router declares it for what it holds, and holds more than
-            # reads. What cannot be answered from a cache is left to its
-            # handler rather than refused.
+            if is_named:
+                # A router declares it for what it holds and holds more
+                # than reads, so an inherited declaration is left alone.
+                # A pattern naming this route is not inherited: somebody
+                # wrote this path, and this path cannot be cached.
+                _refuse_named_gate(route, contexts, declared)
+            # What cannot be answered from a cache is left to its handler
+            # rather than refused.
             continue
         found.append((compiled, cast("float | None", ttl)))
+    _refuse_named_write(named, answered)
+    return found, refused
+
+
+def _inherited(ttl: object, contexts: tuple[Any, ...]) -> object:
+    """Return the route's own declaration, or the nearest one above it.
+
+    The nearest wins, so a router beats the one that includes it.
+    """
+    if ttl is not _UNMARKED:
+        return ttl
+    for context in reversed(contexts):
+        found = _inherited_ttl(context)
+        if found is not _UNMARKED:
+            return found
+    return _UNMARKED
+
+
+def _named_by(
+    named: tuple[str, ...],
+    declared: str,
+    compiled: Pattern[str],
+) -> tuple[bool, bool]:
+    """Return whether a pattern names this route, and whether one is exact.
+
+    Exact means written for this path rather than a prefix that happens
+    to cover it. A prefix names a router, and a router holds more than
+    reads, so what it cannot cache is left to its handler. A path
+    written out is somebody saying they want this one cached.
+    """
+    hits = [
+        pattern for pattern in named if names_route(pattern, declared, compiled)
+    ]
+    return bool(hits), any(not pattern.endswith(_PREFIX) for pattern in hits)
+
+
+def _gated_read(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+) -> bool:
+    """Return whether this route is a read the caller has to be let past.
+
+    A hit answers before the app is routed, so the gate would not run
+    and one caller's response would go to whoever asks next. A write is
+    not one of these: the method guard passes it through already, and a
+    route is one of several a path may declare, so refusing the path for
+    a write would take the read declared beside it with it.
+    """
+    methods = {
+        method.upper() for method in (getattr(route, "methods", None) or ())
+    }
+    if "GET" not in methods:
+        return False
+    return bool(_gating_schemes(route, contexts))
+
+
+def _methods_of(route: Any) -> frozenset[str]:  # noqa: ANN401
+    """Return the methods this route answers, upper case."""
+    return frozenset(
+        method.upper() for method in (getattr(route, "methods", None) or ())
+    )
+
+
+def _answered_by(
+    pattern: str,
+    answered: list[tuple[str, Pattern[str], frozenset[str]]],
+) -> set[str]:
+    """Return every method the routes this pattern names answer.
+
+    The union across the path, because a path declares several routes
+    and a write beside a read says nothing about the read.
+    """
+    found: set[str] = set()
+    for declared, compiled, answers in answered:
+        if names_route(pattern, declared, compiled):
+            found |= answers
     return found
+
+
+def _refuse_named_write(
+    named: tuple[str, ...],
+    answered: list[tuple[str, Pattern[str], frozenset[str]]],
+) -> None:
+    """Refuse a pattern written for a path that answers no read.
+
+    Asked of the path rather than of one route, because a path declares
+    several and a write beside a read says nothing about the read. Only
+    a path written out, never a prefix: a prefix names a router, and a
+    router holds writes beside its reads, which are simply left to their
+    handlers. A path written out that answers no read is a typo, and it
+    would otherwise cache nothing while reading as though it did.
+
+    Raises:
+        TypeError: If a pattern names only routes that answer no `GET`.
+    """
+    for pattern in named:
+        if pattern.endswith(_PREFIX):
+            continue
+        methods = _answered_by(pattern, answered)
+        if not methods or "GET" in methods:
+            continue
+        listed = ", ".join(sorted(methods))
+        msg = (
+            f"include= names {pattern!r}, which answers {listed} and no "
+            f"GET. Only a read is cached, so this pattern would cache "
+            f"nothing. Name a path that answers a GET, or leave it out."
+        )
+        raise TypeError(msg)
 
 
 def _refuse_named_gate(

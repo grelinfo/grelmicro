@@ -174,8 +174,16 @@ other key in the same file still applies.
 And a file never changes what the app is made of. It cannot register a
 component, choose a cache store, add a rate limiter, or supply a `key=`
 function. So a cache pattern arriving from a ConfigMap is checked against
-the same rules `micro.install(app)` checks: one naming a write, or a read
-behind a security scheme, is refused and the running configuration is kept.
+the same rules `micro.install(app)` checks: one naming a read behind a
+security scheme is refused and the running configuration is kept, and one
+written for a path that answers no `GET` is refused as the typo it is. A
+prefix is not, because a router holds writes beside its reads and those are
+simply left to their handlers.
+
+The store refuses too, not only the check. A pattern names a URL and a route
+template stands for many, so no reading of the patterns alone can be trusted
+to have seen every way a gated read might be named. A path the app refuses to
+have cached is answered from its handler however it was named.
 
 ## Where the budget lives
 

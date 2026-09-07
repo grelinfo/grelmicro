@@ -50,6 +50,7 @@ from grelmicro.http import (
     RateLimitedRequests,
     RateLimitedRequestsConfig,
 )
+from grelmicro.http._response_cache import _Policies
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import (
     CachedResponse,
@@ -1780,3 +1781,117 @@ def test_the_cache_row_reads_like_every_other(
 
     # Assert
     assert applies == expected
+
+
+def test_a_gated_read_under_a_marked_router_is_refused_by_a_pattern() -> None:
+    """A router's declaration does not make a pattern safe.
+
+    An inherited `CachedResponse()` is left alone where the cache cannot
+    answer, so the route is kept out. A pattern naming that same path is
+    not inherited: somebody wrote it, and it cannot be cached, so the
+    refusal has to reach this branch too. It did not, and an anonymous
+    request was answered `200` with the previous caller's response.
+    """
+    # Arrange
+    gate = APIKeyHeader(name="X-API-Key")
+    router = APIRouter(dependencies=[CachedResponse(ttl=60)])
+
+    @router.get("/products/secret")
+    async def secret(
+        key: Annotated[str, Security(gate)],
+    ) -> dict[str, str]:
+        return {"caller": key}
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.include_router(router)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            CachedResponses(include=("/products/*",)),
+        ]
+    )
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+        micro.install(app)
+
+
+def test_what_the_app_refuses_is_never_cached_however_it_is_asked() -> None:
+    """The refusal is checked where the answer is given.
+
+    Not only where a pattern is written. A pattern names a URL and a
+    route stands for many, so no reading of the patterns alone can be
+    trusted to have seen every way a gated read might be named. The
+    store is asked, and it says no.
+    """
+    # Arrange
+    gate = APIKeyHeader(name="X-API-Key")
+    router = APIRouter()
+
+    @router.get("/products/secret")
+    async def secret(
+        key: Annotated[str, Security(gate)],
+    ) -> dict[str, str]:
+        return {"caller": key}
+
+    @router.get("/products/open")
+    async def open_read() -> dict[str, str]:
+        return {}
+
+    # A write on the same path as a read, because refusing by path
+    # alone would take the read declared beside it down too.
+    @router.post("/products/open")
+    async def write() -> dict[str, str]:
+        return {}
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.include_router(router)
+    policies = _Policies({"/products/open": DEFAULT_TTL})
+
+    # Act
+    policies.read(app)
+
+    # Assert: asked directly, with no pattern naming either of them.
+    assert policies.pattern_ttl("/products/open", DEFAULT_TTL) == DEFAULT_TTL
+    assert policies.pattern_ttl("/products/secret", DEFAULT_TTL) is None
+    assert policies.ttl_for("/products/secret", DEFAULT_TTL) is None
+
+
+def test_a_pattern_written_for_a_write_is_refused() -> None:
+    """It would cache nothing while reading as though it did.
+
+    Only a path written out. A prefix names a router, and a router holds
+    writes beside its reads, which are left to their handlers.
+    """
+
+    # Arrange
+    def build(include: tuple[str, ...]) -> None:
+        app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+        micro = Grelmicro(
+            uses=[
+                Cache(MemoryCacheAdapter()),
+                ErrorResponses(),
+                CachedResponses(include=include),
+            ]
+        )
+
+        @app.post("/payments")
+        async def pay() -> dict[str, str]:
+            return {}
+
+        @app.post("/refunds")
+        async def refund() -> dict[str, str]:
+            return {}
+
+        @app.get("/payments/list")
+        async def listed() -> dict[str, str]:
+            return {}
+
+        micro.install(app)
+
+    # Act / Assert: two named paths, so the methods of one are not read
+    # into the other.
+    with pytest.raises(TypeError, match=r"'/payments'.*answers POST"):
+        build(("/payments", "/refunds"))
+    build(("/payments/*",))
