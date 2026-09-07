@@ -258,7 +258,7 @@
   },
   "grelmicro.http": {
     "CachedResponses": {
-      "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=None, key=None, skip=None, max_body_size=None, cache=None, namespace='http', name='default', env_prefix=None, env_load=None) -> 'None'",
+      "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', name='default', env_prefix=None, env_load=None) -> 'None'",
       ".from_config": "(config, *, name='default', namespace='http', cache=None, key=None, skip=None) -> 'CachedResponses'"
     },
     "CachedResponsesConfig": {

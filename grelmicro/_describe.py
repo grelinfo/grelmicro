@@ -370,14 +370,20 @@ def _reach(
     template answers a pattern written the way the route was, and the
     regex answers one written as a URL the route serves, which is what
     the middleware matches against.
+
+    What `include` reaches is settled first, because `exclude` only
+    narrows that. Reading `exclude` first would report a rule as
+    reaching part of a route that `include` never named at all.
     """
+    if not include or matches(endpoint.path, include):
+        reach = ""
+    elif _under(endpoint, include):
+        reach = SOME_PATHS
+    else:
+        return None
     if matches(endpoint.path, exclude):
         return None
-    if _under(endpoint, exclude):
-        return SOME_PATHS
-    if not include or matches(endpoint.path, include):
-        return ""
-    return SOME_PATHS if _under(endpoint, include) else None
+    return SOME_PATHS if _under(endpoint, exclude) else reach
 
 
 def _under(endpoint: _Endpoint, patterns: tuple[str, ...]) -> bool:

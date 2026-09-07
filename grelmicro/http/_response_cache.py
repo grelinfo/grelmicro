@@ -239,6 +239,30 @@ def declare_cached(
     return cached_response
 
 
+class _Unset:
+    """Stands for an argument the caller did not pass.
+
+    `None` cannot: it is what `vary_by_query` means by "key on the whole
+    query string", so a caller writing it has said something, and
+    `resolve_config` reads a `None` keyword as one nobody passed. Without
+    a sentinel the environment would answer over an argument the code
+    wrote, which is the one thing the resolution order never allows.
+    """
+
+    def __repr__(self) -> str:
+        """Return the name it is published under.
+
+        The default appears in the signature the API reference renders
+        and an editor completes from, and an object's address there says
+        nothing and changes every run.
+        """
+        return "UNSET"
+
+
+UNSET = _Unset()
+"""The one instance of `_Unset`, so a caller can be told apart from a default."""
+
+
 class _Policies:
     """The paths a middleware caches, and for how long.
 
@@ -745,10 +769,11 @@ class CachedResponsesMiddleware:
             Doc("Seconds a response is kept when its route names none."),
         ] = _DEFAULT_TTL,
         include: Annotated[
-            Mapping[str, float] | None,
+            Mapping[str, float] | tuple[str, ...] | None,
             Doc(
-                "Path patterns and the seconds each is cached for. Exact "
-                'match unless the pattern ends with `*`, as `"/products/*"`.'
+                "The paths cached. A tuple keeps each for `ttl`, and a "
+                "mapping gives each its own seconds. Exact match unless "
+                "the pattern ends with `*`."
             ),
         ] = None,
         exclude: Annotated[
@@ -1516,12 +1541,13 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             ),
         ] = None,
         vary_by_query: Annotated[
-            tuple[str, ...] | None,
+            tuple[str, ...] | _Unset | None,
             Doc(
                 "Query parameters that are part of the key. `None` (the "
-                "default) keys on the whole query string."
+                "default) keys on the whole query string, and passing it "
+                "says so over any variable."
             ),
-        ] = None,
+        ] = UNSET,
         key: Annotated[
             Callable[[Scope], str | None] | None,
             Doc(
@@ -1589,13 +1615,20 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
                 "include": include,
                 "exclude": exclude,
                 "vary_by_headers": vary_by_headers,
-                "vary_by_query": vary_by_query,
+                "vary_by_query": (
+                    None if isinstance(vary_by_query, _Unset) else vary_by_query
+                ),
                 "max_body_size": max_body_size,
             },
             env_prefix=resolved_env_prefix,
             kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
+        if vary_by_query is None:
+            # Written by the caller rather than left out, and a `None`
+            # keyword reads as absent to `resolve_config`, so it is put
+            # back over whatever a variable said.
+            config = config.model_copy(update={"vary_by_query": None})
         self._setup(
             config,
             name=name,

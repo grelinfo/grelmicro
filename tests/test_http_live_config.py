@@ -29,13 +29,16 @@ from grelmicro._describe import (
     _Endpoint,
     _reach,
 )
-from grelmicro.cache import Cache
+from grelmicro._paths import selects
+from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.config import ExternalConfig
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
     CachedResponses,
     CachedResponsesConfig,
+    CachedResponsesMiddleware,
     ConditionalRequests,
     ConditionalRequestsConfig,
     ConditionalRequestsMiddleware,
@@ -1611,3 +1614,77 @@ def test_no_compiler_leaves_every_template_standing_for_itself() -> None:
     # Arrange
     # Act / Assert
     assert _compiled(None, "/orders") is None
+
+
+def test_exclude_only_narrows_what_include_already_reaches() -> None:
+    """A rule include never named is not reached in part by excluding one.
+
+    Reading `exclude` first reported a component as touching some of an
+    endpoint that `include` had already ruled out entirely, so the table
+    said the opposite of what runs.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[AccessLog(include=("/api/*",), exclude=("/health/live",))]
+    )
+
+    @app.get("/health/{probe}")
+    async def probe(probe: str) -> dict[str, str]:
+        return {"probe": probe}
+
+    @app.get("/api/{thing}")
+    async def thing(thing: str) -> dict[str, str]:
+        return {"thing": thing}
+
+    micro.install(app)
+
+    # Act
+    rows = {
+        (row.method, row.path): row.applies
+        for row in micro.describe(app).endpoints
+    }
+
+    # Assert: what the middleware answers, endpoint by endpoint.
+    assert rows[("GET", "/health/{probe}")] == ()
+    assert rows[("GET", "/api/{thing}")] == ("access-log",)
+    assert not selects(
+        "/health/ready", include=("/api/*",), exclude=("/health/live",)
+    )
+
+
+def test_the_whole_query_string_can_be_asked_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`None` is what this field means, so writing it has to say something.
+
+    A keyword argument wins over a variable, and `resolve_config` reads a
+    `None` keyword as one nobody passed, so this is the one field that
+    needs a sentinel to tell the two apart.
+    """
+    # Arrange
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_CACHED_RESPONSES_VARY_BY_QUERY", '["q"]')
+
+    # Act / Assert
+    assert CachedResponses(vary_by_query=None).config.vary_by_query is None
+    assert CachedResponses().config.vary_by_query == ("q",)
+    assert CachedResponses(vary_by_query=("page",)).config.vary_by_query == (
+        "page",
+    )
+
+
+def test_the_hand_wired_cache_takes_the_tuple_form_too() -> None:
+    """The shared vocabulary reaches the door the docs call hand-wired."""
+    # Arrange
+    cache = TTLCache(ttl=DEFAULT_TTL, serializer=JsonSerializer())
+
+    # Act
+    middleware = CachedResponsesMiddleware(
+        _nothing, cache=cache, include=("/products/*",)
+    )
+
+    # Assert
+    policies = middleware._live.state.policies
+    assert policies.ttl_for("/products/list", DEFAULT_TTL) == DEFAULT_TTL
+    assert policies.ttl_for("/orders", DEFAULT_TTL) is None
