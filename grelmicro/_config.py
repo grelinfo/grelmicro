@@ -647,7 +647,7 @@ class Live[StateT]:
     An ASGI middleware is built once and handed to the framework, which
     holds it for the life of the process, so a live reconfigure cannot
     rebuild it. It reads its snapshot through this cell instead: one
-    plain attribute read on the request path, and a reconfigure
+    plain attribute read off a slotted cell, and a reconfigure
     publishes a new snapshot with a single assignment.
 
     The slot holds the whole snapshot rather than a field each, so a

@@ -95,8 +95,9 @@ the only trace it leaves.
 
 ## Changing it without a restart
 
-Every field on this page is a value, so a mounted ConfigMap retunes it while
-the service runs:
+A mounted ConfigMap tunes the response cache, the rate limiter and the
+access log while the service runs. What the other two do is settled at
+startup, and the next section says why:
 
 ```yaml
 grel:
