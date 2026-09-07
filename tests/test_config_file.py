@@ -32,7 +32,15 @@ async def test_json_nested_mapping_flattens(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
     path.write_text('{"grel": {"lock": {"cart": {"lease_duration": 30}}}}')
     adapter = FileConfigAdapter(path)
-    assert await adapter.load() == {"GREL_LOCK_CART_LEASE_DURATION": "30"}
+    # Every reading a field could want. Walking the mapping names the
+    # scalars, and each level names itself as JSON for a field that takes
+    # a mapping. A key naming no field matches nothing and is ignored.
+    assert await adapter.load() == {
+        "GREL": '{"lock":{"cart":{"lease_duration":30}}}',
+        "GREL_LOCK": '{"cart":{"lease_duration":30}}',
+        "GREL_LOCK_CART": '{"lease_duration":30}',
+        "GREL_LOCK_CART_LEASE_DURATION": "30",
+    }
 
 
 async def test_yaml_nested_mapping_flattens(tmp_path: Path) -> None:
@@ -49,7 +57,15 @@ async def test_yaml_nested_mapping_flattens(tmp_path: Path) -> None:
     )
     adapter = FileConfigAdapter(path)
     assert await adapter.load() == {
+        "GREL": (
+            '{"lock":{"cart":{"lease_duration":30}},'
+            '"ratelimiter":{"api":{"enabled":false}}}'
+        ),
+        "GREL_LOCK": '{"cart":{"lease_duration":30}}',
+        "GREL_LOCK_CART": '{"lease_duration":30}',
         "GREL_LOCK_CART_LEASE_DURATION": "30",
+        "GREL_RATELIMITER": '{"api":{"enabled":false}}',
+        "GREL_RATELIMITER_API": '{"enabled":false}',
         "GREL_RATELIMITER_API_ENABLED": "false",
     }
 
@@ -74,11 +90,12 @@ async def test_toml_nested_mapping_flattens(tmp_path: Path) -> None:
         "enabled = true\n"
     )
     adapter = FileConfigAdapter(path)
-    assert await adapter.load() == {
-        "GREL_LOCK_CART_LEASE_DURATION": "30",
-        "GREL_RATELIMITER_API_LIMIT": "200",
-        "GREL_RATELIMITER_API_ENABLED": "true",
-    }
+    loaded = await adapter.load()
+    assert loaded is not None
+    assert loaded["GREL_LOCK_CART_LEASE_DURATION"] == "30"
+    assert loaded["GREL_RATELIMITER_API_LIMIT"] == "200"
+    assert loaded["GREL_RATELIMITER_API_ENABLED"] == "true"
+    assert loaded["GREL_RATELIMITER_API"] == ('{"limit":200,"enabled":true}')
 
 
 async def test_toml_flat_mapping(tmp_path: Path) -> None:
@@ -137,3 +154,139 @@ async def test_adapter_context_manager(tmp_path: Path) -> None:
     path.write_text('{"GREL_LOCK_X": 1}')
     async with FileConfigAdapter(path) as adapter:
         assert await adapter.load() == {"GREL_LOCK_X": "1"}
+
+
+async def test_an_instance_name_reaches_the_prefix_it_reads(
+    tmp_path: Path,
+) -> None:
+    """A name is normalised into a segment, in the document as in code.
+
+    `Lock("cart.v2")` reads `GREL_LOCK_CART_V2_*`, so a document that
+    writes the name as it was given has to arrive there. Deciding by the
+    shape of the key instead would make the dot end the nesting and take
+    every sibling down with it.
+    """
+    # Arrange
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "grel:\n"
+        "  lock:\n"
+        "    lease_duration: 30\n"
+        "    cart.v2:\n"
+        "      lease_duration: 60\n"
+    )
+    adapter = FileConfigAdapter(path)
+
+    # Act
+    loaded = await adapter.load()
+
+    # Assert
+    assert loaded is not None
+    assert loaded["GREL_LOCK_LEASE_DURATION"] == "30"
+    assert loaded["GREL_LOCK_CART_V2_LEASE_DURATION"] == "60"
+
+
+async def test_a_field_holding_a_mapping_reads_it_whole(
+    tmp_path: Path,
+) -> None:
+    """A mapping is a value here and a level of nesting there.
+
+    `headers` is one field's value and its keys look like segments.
+    `include` is one field's value and its keys cannot be segments at
+    all. Both readings are written, so whichever names the field is the
+    one that fills it.
+    """
+    # Arrange
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "grel:\n"
+        "  metrics:\n"
+        '    headers: {"authorization": "Bearer x"}\n'
+        "  cached_responses:\n"
+        '    include: {"/products/*": 60}\n'
+    )
+    adapter = FileConfigAdapter(path)
+
+    # Act
+    loaded = await adapter.load()
+
+    # Assert
+    assert loaded is not None
+    assert loaded["GREL_METRICS_HEADERS"] == '{"authorization":"Bearer x"}'
+    assert loaded["GREL_CACHED_RESPONSES_INCLUDE"] == '{"/products/*":60}'
+
+
+async def test_a_key_no_variable_can_be_named_from_is_skipped(
+    tmp_path: Path,
+) -> None:
+    """A key no segment can be built from ends the walk under it.
+
+    Nothing below it is reachable by name, so writing those names would
+    only add keys that match nothing. The mapping above already wrote
+    itself as JSON, which is the reading a field holding it takes.
+    """
+    # Arrange
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "grel:\n"
+        "  cached_responses:\n"
+        "    include:\n"
+        '      "***":\n'
+        "        nested: 1\n"
+    )
+    adapter = FileConfigAdapter(path)
+
+    # Act
+    loaded = await adapter.load()
+
+    # Assert
+    assert loaded is not None
+    assert loaded["GREL_CACHED_RESPONSES_INCLUDE"] == '{"***":{"nested":1}}'
+    assert not any("NESTED" in key for key in loaded)
+
+
+async def test_a_value_json_has_no_form_for_is_still_walked(
+    tmp_path: Path,
+) -> None:
+    """One reading being unavailable does not cost the document the other.
+
+    A YAML document holds a binary scalar, and JSON has no form for one,
+    so that mapping is not offered as a value. Its scalars still reach
+    the names they were written under.
+    """
+    # Arrange
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "grel:\n  outbox:\n    seed: !!binary aGk=\n    batch_size: 10\n"
+    )
+    adapter = FileConfigAdapter(path)
+
+    # Act
+    loaded = await adapter.load()
+
+    # Assert
+    assert loaded is not None
+    assert loaded["GREL_OUTBOX_BATCH_SIZE"] == "10"
+    assert "GREL_OUTBOX" not in loaded
+
+
+async def test_a_list_json_has_no_form_for_is_still_written(
+    tmp_path: Path,
+) -> None:
+    """A key nothing may even read must not take the document down.
+
+    Raising here would fail every poll over one value, and
+    `ExternalConfig` would log it and keep the last good config, so the
+    whole mounted file would go quiet.
+    """
+    # Arrange
+    path = tmp_path / "config.yaml"
+    path.write_text("GREL_OUTBOX_SEEDS:\n  - !!binary aGk=\n")
+    adapter = FileConfigAdapter(path)
+
+    # Act
+    loaded = await adapter.load()
+
+    # Assert
+    assert loaded is not None
+    assert "GREL_OUTBOX_SEEDS" in loaded

@@ -24,15 +24,26 @@ import logging
 import os
 import re
 import warnings
-from collections import deque
 
 # Imported at runtime, not under `TYPE_CHECKING`: both appear in the
 # annotations of `resolve_config` and `defer_report`, which
 # `typing.get_type_hints` has to resolve from module globals.
+from collections import abc, deque
 from collections.abc import Callable, Mapping  # noqa: TC003
 from copy import copy
 from functools import lru_cache
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, TypeVar
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Final,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 from weakref import WeakSet
 
 from pydantic import AliasChoices, BaseModel, ValidationError
@@ -56,17 +67,19 @@ _REPEATED_UNDERSCORES = re.compile(r"_+")
 
 
 def parse_csv_or_json(value: Any) -> Any:  # noqa: ANN401
-    """Coerce a string into a list, accepting CSV or JSON-array form.
+    """Coerce a string into a list or mapping, accepting CSV or JSON form.
 
-    Pass-through for any non-string value. Strings starting with `[`
-    are parsed as JSON arrays. Otherwise the string is split on commas
-    and each item is stripped. Empty items are dropped.
+    Pass-through for any non-string value. A string starting with `[` or
+    `{` is parsed as JSON, so a field holding a mapping of path patterns
+    reads the same from a variable as from a file. Otherwise the string
+    is split on commas and each item is stripped, which is what an
+    operator writes into a ConfigMap by hand. Empty items are dropped.
     """
     if isinstance(value, str):
-        s = value.strip()
-        if s.startswith("["):
-            return json_loads(s)
-        return [item.strip() for item in s.split(",") if item.strip()]
+        text = value.strip()
+        if text.startswith(("[", "{")):
+            return json_loads(text)
+        return [item.strip() for item in text.split(",") if item.strip()]
     return value
 
 
@@ -361,8 +374,11 @@ def resolve_config[C: BaseModel](
         # A complex field (a dict or a list) is JSON-decoded by
         # pydantic-settings in the source stage, before validation runs, so a
         # malformed `GREL_METRICS_HEADERS` never reaches `ValidationError`.
-        # The field name is in the message, the value is not.
-        raise SettingsValidationError(str(error)) from None
+        # The field name is in the message, the value is not. The hint is
+        # added because the message alone does not say what shape was
+        # expected, and JSON is not the first guess for an env var.
+        message = f"{error}. A field holding many values is written as JSON."
+        raise SettingsValidationError(message) from None
 
 
 _warned_ignored_env: set[str] = set()
@@ -607,6 +623,50 @@ def _build_settings_cls[C: BaseModel](
     )
 
 
+def build_config[C: BaseModel](config_cls: type[C], /, **fields: object) -> C:
+    """Build a config, raising the one error a bad value raises.
+
+    The door a hand-wired ASGI middleware builds its settings through.
+    Constructing the model directly would let pydantic's own error out,
+    and that one carries `input_value`, so a rejected value would be
+    echoed by a layer that never echoes one. It would also name a config
+    class the caller never mentioned.
+
+    Raises:
+        SettingsValidationError: If a value fails validation.
+    """
+    try:
+        return config_cls(**fields)
+    except ValidationError as error:
+        raise SettingsValidationError(error) from None
+
+
+class Live[StateT]:
+    """One slot a middleware reads its snapshot from.
+
+    An ASGI middleware is built once and handed to the framework, which
+    holds it for the life of the process, so a live reconfigure cannot
+    rebuild it. It reads its snapshot through this cell instead: one
+    plain attribute read off a slotted cell, and a reconfigure
+    publishes a new snapshot with a single assignment.
+
+    The slot holds the whole snapshot rather than a field each, so a
+    reader can never see one field from the new configuration beside
+    another from the old. The read and the write are single attribute
+    operations on a plain object, which stay atomic on free-threaded
+    builds, so neither side takes a lock.
+
+    A middleware built by hand owns a cell of its own holding the one
+    snapshot it was constructed with, so both doors read the same way.
+    """
+
+    __slots__ = ("state",)
+
+    def __init__(self, state: StateT) -> None:
+        """Hold the first snapshot."""
+        self.state = state
+
+
 class Reconfigurable[ConfigT: BaseModel]:
     """Mixin that adds atomic live reconfiguration to a component.
 
@@ -637,7 +697,7 @@ class Reconfigurable[ConfigT: BaseModel]:
         return self._config
 
     def _track_reconfigure(self, env_prefix: str) -> None:
-        """Record the env prefix and register for external reload.
+        """Record the env prefixes and register for external reload.
 
         Called from a component's constructor under its derived
         name-as-namespace `env_prefix`. The recorded prefix lets
@@ -647,6 +707,12 @@ class Reconfigurable[ConfigT: BaseModel]:
         environment at construction. Instances built from a pre-built
         config (the declarative `from_config` path) skip this and stay
         static.
+
+        Only the instance prefix. The kind prefix is a fallback at
+        construction, where a keyword argument still wins over it, and a
+        reload has no record of what was passed in code. Reading it here
+        would let one broadcast key overwrite a value the code pinned,
+        which is the one thing the resolution order never allows.
         """
         self._env_prefix = env_prefix
         _reconfigurables.add(self)
@@ -754,7 +820,14 @@ def resolve_config_from_mapping[C: BaseModel](
             continue
         field = key[prefix_len:].lower()
         if field in immutable_fields:
-            _warn_immutable_skipped(current, env_prefix, field, value)
+            _warn_immutable_skipped(
+                current,
+                env_prefix,
+                field,
+                _decode_external(fields[field].annotation, value)
+                if field in fields
+                else value,
+            )
             continue
         if field in fields:
             overrides[field] = value
@@ -772,7 +845,90 @@ def resolve_config_from_mapping[C: BaseModel](
         )
     if not overrides:
         return current
-    return cls.model_validate({**current.model_dump(), **overrides})
+    decoded = {
+        field: _decode_external(fields[field].annotation, value)
+        for field, value in overrides.items()
+    }
+    return cls.model_validate({**current.model_dump(), **decoded})
+
+
+_CONTAINER_ORIGINS: Final = (
+    tuple,
+    list,
+    set,
+    frozenset,
+    dict,
+    abc.Mapping,
+    abc.MutableMapping,
+    abc.Sequence,
+    abc.Collection,
+    abc.Set,
+)
+"""Field origins whose value arrives as one string and holds many.
+
+The abstract ones as well as the concrete, because a field annotated
+`Sequence[str]` reads from a mounted source exactly as `tuple[str, ...]`
+does.
+"""
+
+
+def _is_container(annotation: object) -> bool:
+    """Return whether this annotation holds many values in one field.
+
+    The same question pydantic-settings asks of a field before it
+    JSON-decodes one from the environment, so the mounted door and the
+    environment door read a document the same way. A nested `BaseModel`
+    counts: a discriminated backoff arrives as one JSON object.
+
+    Walks a union, so `tuple[str, ...] | None` counts as one, and unwraps
+    `Annotated`, which pydantic keeps inside a union because the metadata
+    on one arm cannot be lifted out of it. A scalar is left alone,
+    because pydantic already builds one from a string.
+    """
+    if get_origin(annotation) is Annotated:
+        return _is_container(get_args(annotation)[0])
+    origin = get_origin(annotation)
+    if origin in {Union, UnionType}:
+        return any(
+            _is_container(argument)
+            for argument in get_args(annotation)
+            if argument is not type(None)
+        )
+    if origin in _CONTAINER_ORIGINS:
+        return True
+    return isinstance(annotation, type) and issubclass(annotation, BaseModel)
+
+
+def _decode_external(annotation: object, value: str) -> object:
+    """Decode one mounted value the way the environment source decodes it.
+
+    A mounted source carries strings, and a field holding many values has
+    to say all of them in one. pydantic-settings JSON-decodes a complex
+    field before validation runs, so this does the same and the two
+    external doors answer alike: the same ConfigMap says the same thing
+    whether it is mounted as a volume or read through `envFrom`.
+
+    Only JSON, for that reason. A field that also reads a comma-separated
+    list says so with a validator of its own, which then sees the string
+    on both doors rather than on one.
+
+    A scalar field is passed through untouched: pydantic builds an `int`,
+    a `float` or a `bool` from its string already, and decoding first
+    would turn a `str` field holding `60` into an integer it then refuses.
+
+    Malformed JSON is left as it arrived, so the model reports the field
+    rather than this helper reporting the syntax, and the value stays out
+    of the message either way.
+    """
+    if not _is_container(annotation):
+        return value
+    text = value.strip()
+    if not text.startswith(("[", "{")):
+        return value
+    try:
+        return json_loads(text)
+    except ValueError:
+        return value
 
 
 _warned_immutable_skipped: set[str] = set()
@@ -787,7 +943,7 @@ def _warn_immutable_skipped(
     current: BaseModel,
     env_prefix: str,
     field: str,
-    value: str,
+    value: object,
 ) -> None:
     """Report an attempt to live-change a field that only applies at startup.
 

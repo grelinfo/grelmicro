@@ -12,15 +12,17 @@ binding in `Grelmicro.check_ambient_binding`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from typing_extensions import Doc
 
 from grelmicro._environment import unmet_requirements
+from grelmicro._paths import matches, names_route, walk_routes
 from grelmicro._redact import redact_url
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from re import Pattern
 
     from grelmicro._app import Grelmicro
     from grelmicro._component import Component
@@ -31,6 +33,7 @@ __all__ = [
     "AppReport",
     "CheckReport",
     "ComponentReport",
+    "EndpointReport",
     "ProviderReport",
 ]
 
@@ -127,6 +130,28 @@ class CheckReport:
 
 
 @dataclass(frozen=True)
+class EndpointReport:
+    """One endpoint, and what every registered component does to it.
+
+    Answers "what happens to `GET /products`" in one line, read from the
+    routes the app declares and the components registered beside them.
+    It is a view, never a second place to configure: what it says is
+    computed from the one source of truth, so it cannot drift from it.
+    """
+
+    method: Annotated[str, Doc('The HTTP method, such as `"GET"`.')]
+    path: Annotated[str, Doc("The path the route is declared under.")]
+    applies: Annotated[
+        tuple[str, ...],
+        Doc(
+            "What each component does to this endpoint, one entry per "
+            'component, such as `"cache 60s"` or `"idempotent POST"`. '
+            "Empty when nothing acts on it."
+        ),
+    ] = ()
+
+
+@dataclass(frozen=True)
 class AppReport:
     """What a `Grelmicro` app is wired with.
 
@@ -149,6 +174,14 @@ class AppReport:
     checks: Annotated[
         tuple[CheckReport, ...],
         Doc("Startup checks, in the order they are reported."),
+    ] = ()
+    endpoints: Annotated[
+        tuple[EndpointReport, ...],
+        Doc(
+            "What each registered component does to each endpoint. Empty "
+            "unless `describe(app)` was given the application, since the "
+            "routes are read off it."
+        ),
     ] = ()
 
     @property
@@ -306,7 +339,383 @@ def _scope_checks(
     ]
 
 
-def build_report(micro: Grelmicro) -> AppReport:
+@dataclass(frozen=True, slots=True)
+class _Endpoint:
+    """One route the app declares, as the readers need to see it."""
+
+    method: str
+    path: str
+    route: Any
+    contexts: tuple[Any, ...]
+    regex: Any = None
+
+
+SOME_PATHS = " (some paths)"
+"""What a rule reaching part of one route reads as.
+
+A pattern is matched against the URL a request asks for, and a route
+template stands for many. `"/users/me"` selects one of the requests
+`GET /users/{uid}` answers and not the others, so saying the rule
+applies to the endpoint would overstate it and saying it does not would
+be wrong. It applies to some of it.
+"""
+
+
+def _reach(
+    endpoint: _Endpoint, include: tuple[str, ...], exclude: tuple[str, ...]
+) -> str | None:
+    """Return how far a component reaches into this endpoint.
+
+    `""` for all of it, `SOME_PATHS` for part, `None` for none. The
+    template answers a pattern written the way the route was, and the
+    regex answers one written as a URL the route serves, which is what
+    the middleware matches against.
+
+    What `include` reaches is settled first, because `exclude` only
+    narrows that. Reading `exclude` first would report a rule as
+    reaching part of a route that `include` never named at all.
+    """
+    if not include or matches(endpoint.path, include):
+        reach = ""
+    elif _under(endpoint, include):
+        reach = SOME_PATHS
+    else:
+        return None
+    if matches(endpoint.path, exclude):
+        return None
+    return SOME_PATHS if _under(endpoint, exclude) else reach
+
+
+def _under(endpoint: _Endpoint, patterns: tuple[str, ...]) -> bool:
+    """Return whether a pattern names one concrete path of this route.
+
+    One URL the route serves, not the route itself, which is what makes
+    the reach partial rather than whole.
+    """
+    return any(
+        pattern != endpoint.path
+        and names_route(pattern, endpoint.path, endpoint.regex)
+        for pattern in patterns
+    )
+
+
+def _endpoint_rules(
+    components: Sequence[Any],
+) -> list[tuple[str, Callable[[_Endpoint], str | None]]]:
+    """Return what each registered component says about one endpoint.
+
+    Each entry is the component's label and a reader that answers for one
+    `(method, path)`, or `None` when the component leaves it alone. Built
+    once per report rather than per route.
+    """
+    rules: list[tuple[str, Callable[[_Endpoint], str | None]]] = []
+    for component in components:
+        kind = getattr(component, "kind", None)
+        reader = _ENDPOINT_READERS.get(kind or "")
+        if reader is None:
+            continue
+        # The default instance is the only one of its kind an app usually
+        # holds, so it says what it does and stops there. A second one
+        # says which it is, or two rows would read the same and mean
+        # different things.
+        name = component.name
+        rules.append(
+            ("" if name == "default" else f" ({name})", reader(component))
+        )
+    return rules
+
+
+def _selected(config: Any, endpoint: _Endpoint) -> str | None:  # noqa: ANN401
+    """Return how far a component acting on paths reaches this endpoint."""
+    return _reach(endpoint, tuple(config.include), tuple(config.exclude))
+
+
+def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
+    """Return what a `CachedResponses` does to one endpoint.
+
+    The route's own declaration is read off the route, not matched
+    against its path. A declared path is a pattern rather than a URL, so
+    matching `/products/{pid:int}` against the regex compiled from it
+    answers `no` and the endpoint would be reported as uncached.
+    """
+    from grelmicro.http._response_cache import declared_ttl  # noqa: PLC0415
+
+    def read(endpoint: _Endpoint) -> str | None:
+        state = component._live.state  # noqa: SLF001
+        config = state.config
+        if endpoint.method not in {"GET", "HEAD"}:
+            return None
+        declared, ttl = declared_ttl(
+            endpoint.route, endpoint.contexts, endpoint.path
+        )
+        if declared:
+            # The route said so itself, so it holds for every URL the
+            # route answers, and only `exclude` can take part of it back.
+            seconds = config.ttl if ttl is None else ttl
+            reach = _reach(endpoint, (), tuple(config.exclude))
+        else:
+            # A pattern, which may name the template or one URL under it.
+            patterns = tuple(config.include)
+            reach = _reach(endpoint, patterns, tuple(config.exclude))
+            seconds = _pattern_seconds(state, config, endpoint, patterns)
+        if reach is None or seconds is None:
+            return None
+        return f"cache {seconds:g}s{reach}"
+
+    return read
+
+
+def _pattern_seconds(
+    state: Any,  # noqa: ANN401
+    config: Any,  # noqa: ANN401
+    endpoint: _Endpoint,
+    patterns: tuple[str, ...],
+) -> float | None:
+    """Return the seconds a pattern keeps this route for, or `None`.
+
+    The template first, which is the pattern written the way the route
+    was. Then the URLs it serves, because a pattern may name one of
+    those and the middleware matches against the request.
+    """
+    seconds = state.policies.pattern_ttl(endpoint.path, config.ttl)
+    if seconds is not None:
+        return seconds
+    for pattern in patterns:
+        if names_route(pattern, endpoint.path, endpoint.regex):
+            return state.policies.pattern_ttl(pattern, config.ttl)
+    return None
+
+
+def _reads_conditional(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
+    """Return what a `ConditionalRequests` does to one endpoint."""
+
+    def read(endpoint: _Endpoint) -> str | None:
+        config = component.config
+        reach = _selected(config, endpoint)
+        if reach is None:
+            return None
+        required = {name.upper() for name in config.require_precondition}
+        applied = (
+            "conditional required"
+            if endpoint.method in required
+            else "conditional"
+        )
+        return f"{applied}{reach}"
+
+    return read
+
+
+def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
+    """Return what an `IdempotentRequests` does to one endpoint."""
+
+    def read(endpoint: _Endpoint) -> str | None:
+        config = component.config
+        methods = {name.upper() for name in config.methods}
+        reach = _selected(config, endpoint)
+        if endpoint.method not in methods or reach is None:
+            return None
+        window = component.idempotency.config.ttl
+        return f"idempotent {window:g}s{reach}"
+
+    return read
+
+
+def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
+    """Return what a `RateLimitedRequests` does to one endpoint."""
+
+    def read(endpoint: _Endpoint) -> str | None:
+        config = component.config
+        reach = _selected(config, endpoint)
+        if reach is None:
+            return None
+        named = ", ".join(limiter.name for limiter in component.limiters)
+        return f"rate-limit {named}{reach}"
+
+    return read
+
+
+def _reads_access_log(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
+    """Return what an `AccessLog` does to one endpoint."""
+
+    def read(endpoint: _Endpoint) -> str | None:
+        config = component.config
+        reach = _selected(config, endpoint)
+        if reach is None:
+            return None
+        quiet = matches(endpoint.path, tuple(config.quiet))
+        applied = "access-log quiet" if quiet else "access-log"
+        return f"{applied}{reach}"
+
+    return read
+
+
+_ENDPOINT_READERS: Mapping[
+    str, Callable[[Any], Callable[[_Endpoint], str | None]]
+] = {
+    "cached_responses": _reads_cache,
+    "conditional_requests": _reads_conditional,
+    "idempotent_requests": _reads_idempotent,
+    "rate_limited_requests": _reads_rate_limited,
+    "access_log": _reads_access_log,
+}
+"""Which components answer for an endpoint, and how to read each.
+
+A component absent from here does nothing per endpoint, so it is left out
+of the view rather than reported as doing nothing.
+"""
+
+
+def _describe_endpoints(
+    micro: Grelmicro,
+    app: object,
+) -> tuple[EndpointReport, ...]:
+    """Return one row per endpoint the app declares, in path order.
+
+    Reads the routes off the application the same way the response cache
+    reads them, so a mounted app and an included router are walked too.
+    """
+    rules = _endpoint_rules(list(micro.components))
+    if not rules:
+        return ()
+    compiled = dict(_declared_paths(app))
+    found: list[EndpointReport] = []
+    for prefix, route, contexts in walk_routes(app):
+        path = f"{prefix}{getattr(route, 'path', '')}"
+        for method in sorted(getattr(route, "methods", ()) or ()):
+            if method == "HEAD":
+                continue
+            endpoint = _Endpoint(
+                method=method,
+                path=path,
+                route=route,
+                contexts=contexts,
+                regex=compiled.get(path),
+            )
+            found.append(
+                EndpointReport(
+                    method=method,
+                    path=path,
+                    applies=tuple(
+                        f"{applied}{label}"
+                        for label, read in rules
+                        if (applied := read(endpoint)) is not None
+                    ),
+                )
+            )
+    return tuple(sorted(found, key=lambda row: (row.path, row.method)))
+
+
+def _declared_paths(app: object) -> list[tuple[str, Pattern[str] | None]]:
+    """Return every route the app declares, as its template and its regex.
+
+    The template answers a pattern written the way the route was, and
+    the regex answers one written as a URL the route serves.
+
+    A template no compiler here understands contributes its template and
+    no regex. Starlette owns the compiler and is not a dependency of
+    grelmicro, and a framework that is not Starlette spells a converter
+    its own way, so a report on a Litestar app must come back with what
+    it could read rather than not come back at all.
+    """
+    try:
+        from starlette.routing import compile_path  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - starlette is in the test env
+        compile_path = None  # type: ignore[assignment]
+    found: list[tuple[str, Pattern[str] | None]] = []
+    for prefix, route, _ in walk_routes(app):
+        template = f"{prefix}{getattr(route, 'path', '')}"
+        found.append((template, _compiled(compile_path, template)))
+    return found
+
+
+def _compiled(
+    compile_path: Any,  # noqa: ANN401
+    template: str,
+) -> Pattern[str] | None:
+    """Return the regex this template matches with, or `None` for neither.
+
+    Every failure is the same answer: the template stands for itself and
+    nothing is read into it. A converter another framework declares is
+    an `AssertionError` here rather than an exception of its own, which
+    is why this catches broadly.
+    """
+    if compile_path is None:
+        return None
+    try:
+        regex, _, _ = compile_path(template)
+    except Exception:  # noqa: BLE001
+        return None
+    return cast("Pattern[str]", regex)
+
+
+def _names_any(
+    pattern: str, declared: list[tuple[str, Pattern[str] | None]]
+) -> bool:
+    """Return whether any declared route could be selected by `pattern`.
+
+    One question, one answer: the same `names_route` the response cache
+    refuses a gated read with, so the check and the refusal can never
+    read a pattern differently.
+    """
+    return any(
+        names_route(pattern, template, regex) for template, regex in declared
+    )
+
+
+def _pattern_checks(
+    micro: Grelmicro,
+    app: object,
+) -> list[CheckReport]:
+    """Report a path pattern that names none of the app's routes.
+
+    A pattern is a string, and a mistyped one turns a rule off without
+    saying so: nothing matches, so nothing happens, and the endpoint
+    table shows no row for it because rows come from routes. This is
+    where it becomes visible.
+
+    A pattern naming a concrete path under a parameterized route counts
+    as matched, because at runtime it is matched against the URL and not
+    against the template: `"/users/me"` does select the request that
+    `GET /users/{uid}` answers. Every route is read, including the ones
+    that declare no method and so have no row in the table.
+
+    A warning rather than a failure. A router mounted after `install` is
+    legitimate, and so is a pattern written for a path another service
+    behind the same prefix serves.
+    """
+    declared = _declared_paths(app)
+    if not declared:
+        return []
+    found: list[CheckReport] = []
+    for entry in micro.components:
+        if getattr(entry, "kind", "") not in _ENDPOINT_READERS:
+            continue
+        component: Any = entry
+        config = component.config
+        # `include` only. An `exclude` that matches nothing is usually
+        # deliberate: the probe paths a service names are served by
+        # `OpsServer` on a port of its own, and a router may be mounted
+        # after this ran. A pattern that turns a rule *on* and matches
+        # nothing is the one that silently does nothing.
+        patterns = tuple(config.include)
+        missing = sorted(
+            pattern for pattern in patterns if not _names_any(pattern, declared)
+        )
+        if missing:
+            found.append(
+                CheckReport(
+                    name="path-patterns",
+                    status="warn",
+                    detail=(
+                        f"{component.kind}/{component.name} names "
+                        f"{', '.join(missing)}, which no route matches"
+                    ),
+                )
+            )
+    return found
+
+
+def build_report(micro: Grelmicro, app: object = None) -> AppReport:
     """Build the full report for `micro`.
 
     Reads only what is already registered, so it is safe before the app is
@@ -319,11 +728,15 @@ def build_report(micro: Grelmicro) -> AppReport:
         describe_provider(provider) for provider in micro.providers
     )
     checks = _scope_checks(list(micro.components), micro.environment)
+    endpoints = () if app is None else _describe_endpoints(micro, app)
+    if app is not None:
+        checks += _pattern_checks(micro, app)
     return AppReport(
         environment=micro.environment,
         components=components,
         providers=providers,
         checks=tuple(checks),
+        endpoints=endpoints,
     )
 
 
@@ -359,12 +772,27 @@ def _render_providers(report: AppReport) -> list[str]:
     return lines
 
 
+def _render_endpoints(report: AppReport) -> list[str]:
+    """Return the Endpoints block, aligned on the longest route."""
+    if not report.endpoints:
+        return []
+    labels = [f"{row.method:<6} {row.path}" for row in report.endpoints]
+    width = max(len(text) for text in labels)
+    lines = ["Endpoints"]
+    for text, row in zip(labels, report.endpoints, strict=True):
+        applied = "  ".join(row.applies) or "-"
+        lines.append(f"  {text.ljust(width)}  {applied}")
+    lines.append("")
+    return lines
+
+
 def _render(report: AppReport) -> str:
     """Render the whole report as plain text."""
     environment = report.environment or "undeclared"
     lines = [f"Environment: {environment}", ""]
     lines += _render_components(report)
     lines += _render_providers(report)
+    lines += _render_endpoints(report)
     lines.append("Checks")
     for check in report.checks:
         marker = {"ok": "ok  ", "warn": "warn", "fail": "FAIL"}[check.status]

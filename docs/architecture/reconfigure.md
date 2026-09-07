@@ -102,6 +102,14 @@ class RateLimiter(Reconfigurable[RateLimiterConfig]):
 
 Publish the new snapshot in one assignment. `RateLimiter` and `CircuitBreaker` clear the cached strategy and rebind it lazily on the next call, so a reconfigure never needs the backend to be resolvable from the reconfiguring task.
 
+## A middleware cannot be rebuilt
+
+An ASGI middleware is built once and handed to the framework, which holds it
+for the life of the process, so the snapshot cannot be swapped by rebuilding
+it. The HTTP components publish into a `Live` cell the middleware reads
+instead, one plain attribute read per request. See [HTTP component
+internals](http.md) for the cell and what it holds.
+
 ## Out of scope
 
 The `ExternalConfig` component covers the common loop: poll a mounted ConfigMap, Secret, or file, and reapply changed values to the live components. See [Reconfigure from a ConfigMap](../configuration/reconfigure-from-configmap.md). Anything beyond that (a SIGHUP handler, an admin endpoint, a custom informer) is application-level work that calls `reconfigure` or `ExternalConfig.reload()` directly.
@@ -112,3 +120,4 @@ Hot-swapping the backend from the new config is also out of scope. `_apply_recon
 
 - [Configuration](../config.md): the three paths and the resolution order that produce a config in the first place.
 - [Configuration internals](config.md): the engineering side of `resolve_config` and the `Config` contract.
+- [HTTP component internals](http.md): how a middleware that cannot be rebuilt still reads a live config.

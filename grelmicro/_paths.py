@@ -8,12 +8,148 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any
 
+from pydantic import BeforeValidator
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
+    from re import Pattern
 
-__all__ = ["as_patterns", "matches", "route_path", "selects", "walk_routes"]
+__all__ = [
+    "BARE_METHOD_MESSAGE",
+    "BARE_NAME_MESSAGE",
+    "BARE_STRING_MESSAGE",
+    "MALFORMED_JSON_MESSAGE",
+    "FieldNames",
+    "MethodNames",
+    "PathPatterns",
+    "as_patterns",
+    "matches",
+    "names_route",
+    "refuse_bare_method",
+    "refuse_bare_name",
+    "refuse_bare_string",
+    "route_path",
+    "selects",
+    "walk_routes",
+]
+
+_WHY_NOT_A_STRING = (
+    "and this is a string. A string is a sequence of characters, so it "
+    "would be walked one character at a time. Write it as a tuple with a "
+    "trailing comma, or as a JSON list."
+)
+"""What a set of anything and a bare string have in common."""
+
+BARE_STRING_MESSAGE = (
+    f"a set of path patterns is expected, {_WHY_NOT_A_STRING} One "
+    "pattern ending in `*` would otherwise match every path."
+)
+"""Why a bare string is refused where a set of patterns is expected.
+
+Carries no example path. `SettingsValidationError` removes the rejected
+value from the message it renders, so an example that happened to equal
+what the caller passed would be taken out of the very sentence offering
+it.
+"""
+
+BARE_METHOD_MESSAGE = f"a set of HTTP methods is expected, {_WHY_NOT_A_STRING}"
+"""Why a bare string is refused where a set of methods is expected.
+
+`methods="POST"` reads as `("P", "O", "S", "T")`, none of which is a
+method, so the middleware would act on nothing at all.
+"""
+
+BARE_NAME_MESSAGE = f"a set of names is expected, {_WHY_NOT_A_STRING}"
+"""Why a bare string is refused where a set of names is expected.
+
+`vary_by_headers="accept-language"` reads one character at a time, and
+nothing about a path describes it: there is no prefix to match and no
+`*` to warn about.
+"""
+
+
+MALFORMED_JSON_MESSAGE = (
+    "this looks like JSON and does not parse. A field holding many "
+    "values is written as a JSON list, so check the brackets and the "
+    "quotes."
+)
+"""Why a bracketed string was refused.
+
+Told apart from a bare string on purpose. An operator who wrote
+`["/livez"` did write a list, and answering that one is expected would
+send them looking for the mistake they did not make.
+"""
+
+
+def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of them is expected.
+
+    A string that opens a JSON list or object is reported as malformed
+    JSON rather than as a missing comma, because that is what it is.
+
+    Raises:
+        ValueError: If the value is a string. A validator raises
+            `ValueError` and never `TypeError`, because pydantic converts
+            only the first into a validation error, so a `TypeError` here
+            would escape `except SettingsValidationError` and the reload
+            loop alike.
+    """
+    if isinstance(value, str):
+        if value.strip().startswith(("[", "{")):
+            raise ValueError(MALFORMED_JSON_MESSAGE)
+        raise ValueError(message)  # noqa: TRY004
+    return value
+
+
+def refuse_bare_string(value: Any) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of path patterns is expected.
+
+    Raises:
+        ValueError: If the value is a string.
+    """
+    return _refuse(value, BARE_STRING_MESSAGE)
+
+
+def refuse_bare_method(value: Any) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of HTTP methods is expected.
+
+    Raises:
+        ValueError: If the value is a string.
+    """
+    return _refuse(value, BARE_METHOD_MESSAGE)
+
+
+def refuse_bare_name(value: Any) -> Any:  # noqa: ANN401
+    """Refuse a string where a set of names is expected.
+
+    Raises:
+        ValueError: If the value is a string.
+    """
+    return _refuse(value, BARE_NAME_MESSAGE)
+
+
+PathPatterns = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_string)]
+"""A set of path patterns on a config, with the bare string refused.
+
+Every HTTP component declares its `include` and `exclude` with this, so
+one missing comma is refused the same way wherever it is written.
+"""
+
+MethodNames = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_method)]
+"""A set of HTTP methods on a config, with the bare string refused.
+
+The same mistake as `PathPatterns` refuses, said in the words of the
+field it happened on, because `methods="POST"` is not a path.
+"""
+
+FieldNames = Annotated[tuple[str, ...], BeforeValidator(refuse_bare_name)]
+"""A set of header or query names, with the bare string refused.
+
+`vary_by_headers="accept-language"` is the same missing comma, and
+nothing about a path pattern describes it: there is no prefix to match
+and no `*` to warn about.
+"""
 
 _PREFIX = "*"
 """What turns a pattern into a prefix match, at the end of it."""
@@ -157,6 +293,69 @@ def _matches_one(path: str, pattern: str) -> bool:
         return path == pattern
     prefix = pattern[: -len(_PREFIX)]
     return path.startswith(prefix) or path == prefix.rstrip("/")
+
+
+def names_route(
+    pattern: Annotated[str, Doc("A pattern a component was given.")],
+    template: Annotated[str, Doc("The path a route is declared under.")],
+    regex: Annotated[
+        Pattern[str] | None,
+        Doc("What the router compiled that path into, if anything."),
+    ],
+) -> bool:
+    """Return whether this pattern can select a request this route answers.
+
+    A pattern is matched against the URL a request asks for, and a route
+    is declared as a template that stands for many. So `"/users/me"`
+    names `GET /users/{uid}`, and asking the template alone answers no.
+
+    Every place that reasons about a pattern and a route has to agree on
+    this. The response cache refuses a pattern naming a read behind a
+    security scheme, and a refusal that asked the template alone would
+    let the URL through and answer over the gate.
+
+    A route the router could not compile carries no regex, and is
+    answered by its template alone, which is all there is to compare.
+    """
+    if pattern.endswith(_PREFIX):
+        return _prefix_names(pattern[: -len(_PREFIX)], template)
+    if template == pattern:
+        return True
+    return regex is not None and bool(regex.fullmatch(pattern))
+
+
+def _prefix_names(under: str, template: str) -> bool:
+    """Return whether any URL under `under` is one this template answers.
+
+    Compared segment by segment rather than by asking the compiled regex
+    about a made-up URL. A prefix names a set of URLs, and no single
+    string stands for that set: one built by appending a character
+    answers only for a remainder one segment long, and one built from
+    the prefix alone answers only for the shortest member.
+
+    A parameter stands for whatever the prefix put in its place, so
+    `/users/me/*` names `/users/{uid}/settings`. The last segment of the
+    prefix may cut into a segment of the template, because a prefix is
+    matched against the URL rather than against a boundary, so
+    `/products/co*` names `/products/cold`.
+    """
+    parts = under.rstrip("/").split("/")
+    declared = template.split("/")
+    if len(parts) > len(declared):
+        # Only a converter that spans separators reaches past the
+        # segments the template declares, `{rest:path}` and nothing else.
+        return declared[-1].startswith("{") and ":path}" in declared[-1]
+    for index, part in enumerate(parts):
+        against = declared[index]
+        if against.startswith("{"):
+            continue
+        if index == len(parts) - 1:
+            # The prefix may stop inside this one.
+            if not against.startswith(part):
+                return False
+        elif against != part:
+            return False
+    return True
 
 
 def selects(

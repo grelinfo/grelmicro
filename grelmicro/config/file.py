@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
 from typing_extensions import Doc
 
-from grelmicro._json import json_loads
+from grelmicro._config import env_segment
+from grelmicro._json import json_dumps_str, json_loads
+from grelmicro.errors import SettingsValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from os import PathLike
     from types import TracebackType
+
+    from grelmicro._json import JSONEncodable
 
 
 class FileConfigAdapter:
@@ -31,7 +35,15 @@ class FileConfigAdapter:
       Either a flat mapping of `GREL_...` keys to scalar values, or a
       nested mapping whose segments join with `_` and uppercase, so
       `grel: {lock: {cart: {lease_duration: 30}}}` reads as
-      `GREL_LOCK_CART_LEASE_DURATION=30`.
+      `GREL_LOCK_CART_LEASE_DURATION=30`. A name is normalised the way it
+      is on its way into a prefix, so `cart.v2` reads as `CART_V2`.
+
+      A nested mapping is written both ways, because the document does
+      not say which it is: as JSON under its own name, for a field that
+      takes a mapping such as `include: {"/products/*": 60}` or
+      `headers: {authorization: ...}`, and walked as a level as well.
+      Whichever name reaches a field is the one that fills it, and the
+      other matches nothing. A list is written as JSON.
     - Any other file: `KEY=VALUE` lines, blank lines and `#` comments
       ignored, matching a `.env` file.
 
@@ -146,19 +158,96 @@ def _flatten_document(data: object, path: Path) -> dict[str, str]:
 def _flatten_into(
     result: dict[str, str], data: dict[Any, Any], *, prefix: str
 ) -> None:
-    """Walk a mapping, recursing into nested mappings, writing leaf scalars."""
+    """Walk a mapping, writing every reading of it a field could want.
+
+    A nested mapping is two things at once and the document does not say
+    which: `lock: {cart: {lease_duration: 30}}` is a level of nesting,
+    while `include: {"/products/*": 60}` is one field's value. Deciding
+    by the shape of the keys guesses wrong both ways. `cart.v2` is a
+    valid instance name and not a variable segment, and an OTel header
+    name looks exactly like one.
+
+    So both readings are written. The mapping is written as JSON under
+    its own name, and walked as a level as well. The two never take the
+    same name, because walking always adds a segment. Whichever one names
+    a field fills it, and the other matches nothing and is ignored, which
+    is what an unmatched key already gets. A walked reading of a value
+    mapping is therefore expected, not a mistake: `include` names the
+    field, and `include_products` under it names nothing.
+
+    Two sibling keys can still normalise to one segment, `a-b` and `a_b`
+    both to `A_B`, and the last read wins. Two instances named that way
+    already share one address at construction, so the collision is the
+    one [the configuration contract](../architecture/config.md)
+    describes rather than a new one.
+    """
     for key, value in data.items():
-        name = f"{prefix}_{key}" if prefix else str(key)
+        segment = _segment(key)
+        if segment is None:
+            # No variable name can be built from it, so the level below
+            # is unreachable. The mapping above still wrote itself as
+            # JSON, which is the reading that names a field here.
+            continue
+        name = f"{prefix}_{segment}" if prefix else segment
         if isinstance(value, dict):
+            encoded = _encoded(value)
+            if encoded is not None:
+                result[name] = encoded
             _flatten_into(result, value, prefix=name)
         else:
-            result[name.upper()] = _stringify(value)
+            result[name] = _stringify(value)
+
+
+def _segment(key: object) -> str | None:
+    """Return the variable-name segment this key writes to.
+
+    The same normalisation an instance name goes through on its way into
+    a prefix, so a `Lock("cart.v2")` reading `GREL_LOCK_CART_V2_*` is
+    filled by a document that writes `cart.v2` as it was named.
+
+    `None` only for a key no segment survives, one of punctuation alone
+    or one starting with a digit. A path pattern is not one of those:
+    `/products/*` normalises to `PRODUCTS`, so a mapping of patterns is
+    walked as well as written whole, and the walked names simply match
+    no field.
+    """
+    try:
+        return env_segment(str(key))
+    except SettingsValidationError:
+        return None
+
+
+def _encoded(value: object) -> str | None:
+    """Return the mapping as JSON, or `None` when it does not encode.
+
+    A document may hold a value JSON has no form for, a date above all.
+    That reading is simply not offered, and walking the mapping as a
+    level still is.
+    """
+    try:
+        return json_dumps_str(cast("JSONEncodable", value))
+    except TypeError:
+        return None
 
 
 def _stringify(value: object) -> str:
-    """Stringify a scalar, rendering bool as lowercase `true`/`false`."""
+    """Stringify a value the way the field reading it parses.
+
+    A scalar is written as it reads, with bool lowercased. A sequence or
+    a mapping is written as JSON, which is what pydantic-settings parses
+    a complex field from. `str()` would render a list as `['/a']`, whose
+    quotes are not JSON, so the field it fills would refuse it.
+
+    A value JSON has no form for, a date inside a list above all, falls
+    back to `str()`. Raising here would take the whole document down,
+    every poll, over one key nothing may even read.
+    """
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, (list, tuple, dict)):
+        encoded = _encoded(value)
+        if encoded is not None:
+            return encoded
     return str(value)
 
 

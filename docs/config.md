@@ -172,8 +172,33 @@ deployment set it.
 | `HealthChecks()` | `GREL_HEALTH_` | it is the pattern default |
 | `log.configure()` | `GREL_LOG_` | it is the pattern default |
 | `Tasks()` | `GREL_TASK_` | it is the pattern default |
+| `CachedResponses()` | `GREL_CACHED_RESPONSES_` | it is the pattern default |
+| `ConditionalRequests()` | `GREL_CONDITIONAL_REQUESTS_` | it is the pattern default |
+| `IdempotentRequests()` | `GREL_IDEMPOTENT_REQUESTS_` | it is the pattern default |
+| `RateLimitedRequests()` | `GREL_RATE_LIMITED_REQUESTS_` | it is the pattern default |
+| `AccessLog()` | `GREL_ACCESS_LOG_` | it is the pattern default |
 
 Each pattern page lists its own fields and the exact variable names.
+
+A field holding many values is written as JSON, because that is what a
+variable can carry and still say where one value ends:
+
+```bash
+export GREL_ACCESS_LOG_EXCLUDE='["/livez", "/readyz"]'
+export GREL_CACHED_RESPONSES_INCLUDE='{"/products/*": 60}'
+```
+
+The same in a mounted file, which is easier to read because the document has
+lists of its own:
+
+```yaml
+grel:
+  access_log:
+    exclude: ["/livez", "/readyz"]
+  cached_responses:
+    include:
+      "/products/*": 60
+```
 
 ### One timezone for the whole service
 

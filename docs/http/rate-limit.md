@@ -131,6 +131,12 @@ order is wrapping order, and a cache hit or an idempotent replay answers
 without reaching what sits inside it: put the limiter outside, or a caller
 spends no tokens on the requests it repeats.
 
+## Which endpoints it applies to
+
+`include` names the paths metered and `exclude` names the ones left alone,
+the same two words every grelmicro middleware takes. [Where a rule
+applies](where.md) covers the matching and what wins.
+
 ## What is never metered
 
 `exclude=` names the paths that pass through, and takes the same patterns
@@ -161,6 +167,21 @@ say a budget nobody counted. A limiter built without it raises, and the app
 answers as it does for any dependency failure. One setting, on the limiter,
 wherever it is used.
 
+## In the schema
+
+A registered `RateLimitedRequests` documents the `429`, and the `RateLimit`,
+`RateLimit-Policy` and `Retry-After` fields it carries, on every operation in
+the OpenAPI schema. So a generated client has a branch for it.
+
+Every operation, not the metered ones. Which paths are metered is tuned while
+the service runs, and the schema is built once when the app starts, so naming
+the current set would publish a document that stops being true the first time
+an operator narrows it. A `429` says only what a client may be answered with,
+never what it must send, so stating it everywhere stays true whichever paths
+are metered.
+
+Pass `openapi=False` to leave the schema alone.
+
 ## Options
 
 Every option of `RateLimitMiddleware` is taken by `RateLimitedRequests` and
@@ -174,6 +195,8 @@ same.
 | `key` | builds the bucket key itself |
 | `cost` | tokens one request spends of each |
 | `max_wait` | seconds a throttled request waits before it is refused |
-| `exclude` | paths never metered |
+| `include` | paths metered, empty means every path |
+| `exclude` | paths never metered, whatever `include` says |
 | `legacy_headers` | also send the superseded `X-RateLimit-*` fields |
+| `openapi` | describe the `429` on every operation in the schema |
 | `name` | keep two sets of rules apart on one app |

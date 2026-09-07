@@ -20,6 +20,7 @@ from starlette.routing import Mount, Route
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
     CachedResponses,
     CachedResponsesMiddleware,
@@ -1127,7 +1128,9 @@ def test_the_vary_warning_stops_remembering_what_it_warned_about() -> None:
 
     # Act
     for index in range(_WARNED_LIMIT + 2):
-        middleware._storable(headers, path=f"/p{index}")
+        middleware._storable(
+            headers, state=middleware._live.state, path=f"/p{index}"
+        )
 
     # Assert
     assert len(middleware._warned) <= _WARNED_LIMIT
@@ -1250,10 +1253,12 @@ def test_a_lifetime_a_response_cannot_be_kept_for_is_refused(
 ) -> None:
     """Zero is how a reader writes "not this one", and it is not that."""
     # Act / Assert
-    with pytest.raises(ValueError, match="number of seconds"):
+    with pytest.raises(SettingsValidationError, match="number of seconds"):
         CachedResponses(include={"/reads": ttl})
-    with pytest.raises(ValueError, match="number of seconds"):
+    with pytest.raises(SettingsValidationError, match="number of seconds"):
         CachedResponses(ttl=ttl)
+    # The route dependency is not a settings field, so it refuses the way
+    # a wrong argument does and names what it was given.
     with pytest.raises(ValueError, match="number of seconds"):
         CachedResponse(ttl=ttl)
 
@@ -1403,12 +1408,15 @@ def test_a_vary_the_handler_set_is_kept_beside_it() -> None:
 def test_a_bare_string_is_a_missing_comma() -> None:
     """A string is a sequence of characters, and it fails silently."""
     # Act / Assert
-    with pytest.raises(TypeError, match="is a string"):
+    with pytest.raises(SettingsValidationError, match="is a string"):
         CachedResponses(vary_by_headers="accept-language")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    with pytest.raises(TypeError, match="is a string"):
+    with pytest.raises(SettingsValidationError, match="is a string"):
         CachedResponses(vary_by_query="page")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    with pytest.raises(TypeError, match="is a string"):
+    with pytest.raises(SettingsValidationError, match="is a string"):
         CachedResponses(include="/reads")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    # Hand-wired ASGI refuses the same mistake as a wrong argument type.
+    with pytest.raises(TypeError, match="is a string"):
+        CachedResponsesMiddleware(_nothing, cache=_cache(), include="/reads")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_two_services_behind_one_gateway_are_two_resources() -> None:
@@ -1422,8 +1430,8 @@ def test_two_services_behind_one_gateway_are_two_resources() -> None:
 
     # Act
     keys = {
-        middleware._built(orders, "/reads"),
-        middleware._built(billing, "/reads"),
+        middleware._built(middleware._live.state, orders, "/reads"),
+        middleware._built(middleware._live.state, billing, "/reads"),
     }
 
     # Assert
@@ -1845,6 +1853,7 @@ def test_the_smallest_shared_lifetime_wins() -> None:
             (b"cache-control", b"s-maxage=100"),
             (b"cache-control", b"s-maxage=50"),
         ],
+        state=middleware._live.state,
         path="/reads",
     )
 
@@ -1982,7 +1991,9 @@ def test_the_freshness_a_response_names_caps_how_long_it_is_kept(
 
     # Act
     seconds = middleware._storable(
-        [(b"cache-control", directive.encode())], path="/reads"
+        [(b"cache-control", directive.encode())],
+        state=middleware._live.state,
+        path="/reads",
     )
 
     # Assert
@@ -2025,7 +2036,9 @@ def test_a_freshness_that_is_not_a_number_is_passed_over() -> None:
 
     # Act
     seconds = middleware._storable(
-        [(b"cache-control", b"max-age=soon")], path="/reads"
+        [(b"cache-control", b"max-age=soon")],
+        state=middleware._live.state,
+        path="/reads",
     )
 
     # Assert

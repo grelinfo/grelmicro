@@ -6,7 +6,7 @@ the OpenAPI schema and the health router.
 """
 
 import logging
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
 try:
     # The dependency declares its headers, so these are needed where the
@@ -51,6 +51,7 @@ from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
 from grelmicro.http._openapi import add_error_schema, referenced
 from grelmicro.http._problem import PROBLEM_MEDIA_TYPE
 from grelmicro.http._ratelimit import (
+    RateLimitMiddleware,
     bucket_of,
     check_route_limiters,
     spend,
@@ -94,6 +95,7 @@ __all__ = [
     "RateLimited",
     "document_conditional_requests",
     "document_idempotency",
+    "document_rate_limited_requests",
     "error_response",
     "health_router",
     "install",
@@ -699,6 +701,121 @@ def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
     return found
 
 
+def document_rate_limited_requests(
+    app: Annotated[
+        "FastAPI",
+        Doc("The app carrying a `RateLimitMiddleware` to document."),
+    ],
+) -> None:
+    """Describe the refusal a metered app can answer with, on every operation.
+
+    A middleware runs outside the routing layer, so nothing it does reaches
+    the generated schema, and a client built from it has no `429` branch to
+    handle. This adds one to every operation, with the `RateLimit` fields
+    the answer carries.
+
+    Every operation, not the metered ones. What is metered is tuned while
+    the service runs, and the schema is built once, so annotating the
+    current set would publish a document that stops being true the first
+    time an operator narrows it. `429` says only what a client may be
+    answered with and never what it must send, so stating it everywhere
+    stays true whichever paths are metered.
+
+    ```python
+    from grelmicro.integrations.fastapi import document_rate_limited_requests
+
+    app.add_middleware(RateLimitMiddleware, limiters=[burst], trusted=...)
+    document_rate_limited_requests(app)
+    ```
+
+    Registering `RateLimitedRequests(...)` calls this for you, so a direct
+    call is for a middleware added by hand. Pass `openapi=False` to the
+    component to leave the schema alone.
+
+    Raises:
+        DependencyNotFoundError: If `fastapi` is not installed.
+        TypeError: If `app` is not a `FastAPI` app, or carries no
+            `RateLimitMiddleware`.
+    """
+    _require_fastapi(app, "document_rate_limited_requests")
+    _middleware_options(
+        app,
+        RateLimitMiddleware,
+        "document_rate_limited_requests() found no RateLimitMiddleware on "
+        "the app. Add it with app.add_middleware(RateLimitMiddleware) "
+        "first.",
+    )
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        errors = getattr(app.state, "grelmicro_error_responses", None)
+        schema = original()
+        _annotate_rate_limited(
+            schema,
+            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
+            ProblemDetail if errors is None else errors.model,
+        )
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.openapi_schema = None
+
+
+_RATE_LIMIT_HEADERS: Final = {
+    "RateLimit": (
+        "What the caller has left of each policy, as the RateLimit header "
+        "fields specify."
+    ),
+    "RateLimit-Policy": "The policies this request was metered against.",
+}
+"""Fields every metered answer carries, refused or not."""
+
+_TOO_MANY_REQUESTS: Final = "429"
+"""Status a caller over its budget is answered with."""
+
+
+def _annotate_rate_limited(
+    schema: dict[str, Any],
+    media_type: str,
+    model: type[BaseModel],
+) -> None:
+    """Add the `429` and the `RateLimit` fields to every operation."""
+    ref = add_error_schema(schema, model)
+    for operations in schema.get("paths", {}).values():
+        for operation in operations.values():
+            if not isinstance(operation, dict):
+                continue
+            responses = operation.setdefault("responses", {})
+            headers = {
+                name: {"schema": {"type": "string"}, "description": text}
+                for name, text in _RATE_LIMIT_HEADERS.items()
+            }
+            # Every metered answer carries them, refused or not, so the
+            # answers the operation already declares say so too. A client
+            # reads its remaining budget off a `200`, which is the whole
+            # point of stating it before the refusal arrives.
+            for status, response in responses.items():
+                if status.startswith("2") and isinstance(response, dict):
+                    response.setdefault("headers", {}).update(headers)
+            responses.setdefault(
+                _TOO_MANY_REQUESTS,
+                {
+                    "description": (
+                        "The caller is over its budget. Retry after the "
+                        "delay in `Retry-After`."
+                    ),
+                    "headers": {
+                        **headers,
+                        "Retry-After": {
+                            "schema": {"type": "integer"},
+                            "description": "Seconds to wait before retrying.",
+                        },
+                    },
+                    "content": {media_type: {"schema": {"$ref": ref}}},
+                },
+            )
+
+
 def _annotate_conditional(
     schema: dict[str, Any],
     options: dict[str, Any],
@@ -918,10 +1035,31 @@ def _every_middleware_options(
             options = _bound_options(own, entry.kwargs)
             for name, value in _bound_options(base, entry.kwargs).items():
                 options.setdefault(name, value)
-            found.append(options)
+            found.append(_with_live(options))
     if not found:
         raise TypeError(missing)
     return found
+
+
+def _with_live(options: dict[str, Any]) -> dict[str, Any]:
+    """Fill the options from the snapshot cell, where one was passed.
+
+    A registered component hands its middleware the cell rather than the
+    values, so the signature's own defaults are not what the wire
+    carries. The configuration inside the cell is, and its field names
+    are the middleware's parameter names, so it fills them directly.
+
+    Read once, when the schema is documented. The schema is a published
+    contract rather than a tuning knob, so it describes the app as it was
+    installed and a mounted file never rewrites it. Nothing it publishes
+    is live either, so it cannot fall out of step with what the
+    middleware enforces.
+    """
+    live = options.get("live")
+    if live is None:
+        return options
+    options.update(live.state.config.model_dump())
+    return options
 
 
 def _bound_options(

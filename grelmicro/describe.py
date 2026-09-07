@@ -24,6 +24,7 @@ from grelmicro._describe import (
     CheckReport,
     CheckStatus,
     ComponentReport,
+    EndpointReport,
     ProviderReport,
 )
 
@@ -32,5 +33,6 @@ __all__ = [
     "CheckReport",
     "CheckStatus",
     "ComponentReport",
+    "EndpointReport",
     "ProviderReport",
 ]

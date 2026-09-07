@@ -84,9 +84,21 @@ def test_the_bare_form_stores_under_the_http_namespace() -> None:
 
     # Assert
     assert options["idempotency"].name == "http"
-    assert options["key_header"] == HEADER
-    assert options["replay_header"] == REPLAY_HEADER
-    assert options["methods"] == ("POST",)
+    config = options["live"].state.config
+    assert config.key_header == HEADER
+    assert config.replay_header == REPLAY_HEADER
+    assert config.methods == ("POST",)
+
+
+def _header_of(middleware: Any) -> str:  # noqa: ANN401
+    """Return the key header one installed middleware answers for.
+
+    A registered component hands its middleware the snapshot cell rather
+    than the values, so what it reads is in there. The binding
+    middleware carries neither and is named as itself.
+    """
+    live = middleware.kwargs.get("live")
+    return "binding" if live is None else live.state.config.key_header
 
 
 def test_the_component_forwards_every_middleware_option() -> None:
@@ -115,14 +127,18 @@ def test_the_component_forwards_every_middleware_option() -> None:
     # Assert
     assert middleware is IdempotencyMiddleware
     assert options["idempotency"].name == "payments"
-    assert options["key_header"] == "X-Idempotency-Key"
-    assert options["replay_header"] == "X-Idempotent-Replayed"
-    assert options["methods"] == ("POST", "PATCH")
     assert options["skip"] is skip
-    assert options["require_key"] is True
-    assert options["fingerprint_body"] is True
-    assert options["max_body_size"] == MAX_BODY_SIZE
-    assert options["wait_timeout"] == 1.0
+    # The values reach the middleware through the snapshot cell, so a
+    # live reconfigure changes what it answers with without the
+    # middleware stack being rebuilt.
+    config = options["live"].state.config
+    assert config.key_header == "X-Idempotency-Key"
+    assert config.replay_header == "X-Idempotent-Replayed"
+    assert config.methods == ("POST", "PATCH")
+    assert config.require_key is True
+    assert config.fingerprint_body is True
+    assert config.max_body_size == MAX_BODY_SIZE
+    assert config.wait_timeout == 1.0
 
 
 def test_a_custom_replay_header_marks_the_replay() -> None:
@@ -311,10 +327,7 @@ def test_registration_order_is_wrapping_order() -> None:
     app.build_middleware_stack()
 
     # Assert
-    added = [
-        middleware.kwargs.get("key_header", "binding")
-        for middleware in app.user_middleware
-    ]
+    added = [_header_of(middleware) for middleware in app.user_middleware]
     assert added == ["binding", "X-Outer", "X-Inner"]
 
 

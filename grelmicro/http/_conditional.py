@@ -10,6 +10,7 @@ Read more in the [Conditional Requests](../http/conditional.md) docs.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -27,10 +28,25 @@ from typing import (
 )
 from uuid import UUID
 
+from pydantic import BaseModel, PositiveInt
 from typing_extensions import Doc
 
+from grelmicro._config import (
+    Live,
+    Reconfigurable,
+    build_config,
+    env_prefixes,
+    resolve_config,
+)
 from grelmicro._guards import is_instance, type_name
-from grelmicro._paths import as_patterns, route_path, selects
+from grelmicro._paths import (
+    BARE_METHOD_MESSAGE,
+    MethodNames,
+    PathPatterns,
+    as_patterns,
+    route_path,
+    selects,
+)
 from grelmicro.errors import OutOfContextError
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -588,6 +604,62 @@ _OUT_OF_CONTEXT_HINT = (
 )
 
 
+class ConditionalRequestsConfig(BaseModel, frozen=True, extra="forbid"):
+    """Conditional Requests Config."""
+
+    etag_responses: Annotated[
+        bool,
+        Doc(
+            "Add an `ETag` to a `2xx` response that carries a complete "
+            "body and none of its own."
+        ),
+    ] = True
+    require_precondition: Annotated[
+        MethodNames,
+        Doc(
+            "Methods answered `428` when they carry no precondition. "
+            "Empty leaves the decision to `check_precondition()` per route."
+        ),
+    ] = ()
+    include: Annotated[
+        PathPatterns,
+        Doc(
+            "Paths this middleware acts on. Empty means every path. Exact "
+            "match unless the pattern ends with `*`."
+        ),
+    ] = ()
+    exclude: Annotated[
+        PathPatterns,
+        Doc("Paths this middleware leaves alone, whatever `include` says."),
+    ] = ()
+    max_body_size: Annotated[
+        PositiveInt,
+        Doc("Largest response body held in memory to hash, in bytes."),
+    ] = 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class _State:
+    """What the middleware answers one request from."""
+
+    config: ConditionalRequestsConfig
+    require_precondition: frozenset[str]
+
+
+def _state_of(config: ConditionalRequestsConfig) -> _State:
+    """Derive what the request path needs from a configuration.
+
+    The methods are folded to upper case once here, because a scope
+    carries them upper case and a caller may not have.
+    """
+    return _State(
+        config=config,
+        require_precondition=frozenset(
+            method.upper() for method in config.require_precondition
+        ),
+    )
+
+
 class ConditionalRequestsMiddleware:
     """Bind each request's preconditions and put an `ETag` on the response.
 
@@ -680,23 +752,55 @@ class ConditionalRequestsMiddleware:
                 "A larger one is forwarded untouched."
             ),
         ] = 1024 * 1024,
+        live: Annotated[
+            Live[_State] | None,
+            Doc(
+                "The cell a registered `ConditionalRequests` publishes its "
+                "snapshot into, filled by `micro.install(app)`. Passing it "
+                "makes the other options the component's to decide."
+            ),
+        ] = None,
     ) -> None:
-        """Initialize the middleware with its entity tag policy."""
+        """Initialize the middleware with its entity tag policy.
+
+        Raises:
+            TypeError: If `require_precondition` is given as a string.
+                `tuple("PUT")` is three one-letter methods, none of which
+                a request carries, so it would enforce nothing at all.
+        """
+        if isinstance(require_precondition, str):
+            raise TypeError(BARE_METHOD_MESSAGE)
         self.app = app
-        self._etag_responses = etag_responses
-        self._require_precondition = frozenset(
-            method.upper() for method in require_precondition
+        # A middleware built by hand owns its cell and never sees a new
+        # snapshot, so the two doors read exactly the same way.
+        self._live = (
+            live
+            if live is not None
+            else Live(
+                _state_of(
+                    build_config(
+                        ConditionalRequestsConfig,
+                        etag_responses=etag_responses,
+                        require_precondition=tuple(require_precondition),
+                        include=as_patterns(include, name="include"),
+                        exclude=as_patterns(exclude, name="exclude"),
+                        max_body_size=max_body_size,
+                    )
+                )
+            )
         )
-        self._include = as_patterns(include, name="include")
-        self._exclude = as_patterns(exclude, name="exclude")
-        self._max_body_size = max_body_size
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Bind the preconditions, then shape the response around them."""
+        # One read, at the top, for the whole request.
+        state = self._live.state
+        config = state.config
         if scope["type"] != "http" or not selects(
-            route_path(scope), include=self._include, exclude=self._exclude
+            route_path(scope),
+            include=config.include,
+            exclude=config.exclude,
         ):
             await self.app(scope, receive, send)
             return
@@ -706,7 +810,7 @@ class ConditionalRequestsMiddleware:
             if_match=_tags(headers, b"if-match"),
             if_none_match=_tags(headers, b"if-none-match"),
         )
-        if scope["method"] in self._require_precondition and (
+        if scope["method"] in state.require_precondition and (
             preconditions.if_match is None
             and preconditions.if_none_match is None
         ):
@@ -719,9 +823,9 @@ class ConditionalRequestsMiddleware:
             shaper = _ResponseShaper(
                 send,
                 conditional=conditional,
-                max_body_size=self._max_body_size,
+                max_body_size=config.max_body_size,
                 readable=scope["method"] in _SAFE_METHODS,
-                hash_body=self._etag_responses,
+                hash_body=config.etag_responses,
             )
             await self.app(scope, receive, shaper)
             await shaper.flush()
@@ -997,7 +1101,7 @@ async def _refuse(send: Send, scope: Scope, kind: Kind) -> None:
     await send_error(send, rendered)
 
 
-class ConditionalRequests:
+class ConditionalRequests(Reconfigurable[ConditionalRequestsConfig]):
     """Answer conditional requests, wired by `micro.install(app)`.
 
     Register it and `install` adds `ConditionalRequestsMiddleware`, so
@@ -1026,44 +1130,71 @@ class ConditionalRequests:
 
     kind: ClassVar[str] = "conditional_requests"
 
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        ConditionalRequestsConfig.model_fields
+    )
+    """Every field, because every one of them protects a write.
+
+    Live reload tunes what a request costs, never what it is protected
+    by. Narrowing the reach lets an unconditional write through, turning
+    `etag_responses` off leaves a client with no tag to send, and
+    lowering `max_body_size` stops large responses carrying one. Each of
+    those removes the protection against a lost update without telling
+    anybody, so this component is configured at startup and changed by a
+    deploy, where it is reviewed.
+
+    Read off the config rather than listed, so a field added later is
+    covered by this decision instead of becoming live by omission.
+    """
+
     def __init__(
         self,
         *,
         etag_responses: Annotated[
-            bool,
+            bool | None,
             Doc(
                 "Add an `ETag` to a `2xx` response that carries a complete "
                 "body and none of its own."
             ),
-        ] = True,
+        ] = None,
         require_precondition: Annotated[
-            Sequence[str],
+            Sequence[str] | None,
             Doc(
-                "Methods answered `428` when they carry no precondition. "
-                '`("PUT", "PATCH", "DELETE")` refuses every unconditional '
-                "write in the app. Empty by default, which leaves the "
-                "decision to `check_precondition()` per route."
+                """
+                Methods answered `428` when they carry no precondition.
+
+                `("PUT", "PATCH", "DELETE")` refuses every unconditional
+                write in the app. `POST` is left out of that set on
+                purpose: a create has nothing to match against yet.
+
+                Empty by default, which leaves the decision to
+                `check_precondition()` per route.
+                """
             ),
-        ] = (),
+        ] = None,
         include: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths this middleware acts on. Empty means every path. "
-                "Name the prefix of a router to select it, as "
-                '`"/payments/*"`.'
+                "Exact match unless the pattern ends with `*`, which "
+                "matches as a prefix, so a router mounted under "
+                '`/payments` is `"/payments/*"`.'
             ),
-        ] = (),
+        ] = None,
         exclude: Annotated[
-            tuple[str, ...],
+            tuple[str, ...] | None,
             Doc(
                 "Paths this middleware leaves alone, whatever `include` "
                 "says. Same matching."
             ),
-        ] = (),
+        ] = None,
         max_body_size: Annotated[
-            int,
-            Doc("Largest response body held in memory to hash, in bytes."),
-        ] = 1024 * 1024,
+            int | None,
+            Doc(
+                "Largest response body held in memory to hash, in bytes. "
+                "A larger one is forwarded untouched."
+            ),
+        ] = None,
         openapi: Annotated[
             bool,
             Doc(
@@ -1071,24 +1202,96 @@ class ConditionalRequests:
                 "they lead to in the OpenAPI schema, so a client built "
                 "from it sends the headers and Swagger offers the fields. "
                 "Only FastAPI builds one, and every other framework "
-                "ignores this."
+                "ignores this. Read once when the schema is built, so it "
+                "is not live."
             ),
         ] = True,
         name: Annotated[
             str,
             Doc("Registration name, for a second set of rules on one app."),
         ] = "default",
+        env_prefix: Annotated[
+            str | None,
+            Doc(
+                "Override the derived prefix, `GREL_CONDITIONAL_REQUESTS_` "
+                "for the default instance."
+            ),
+        ] = None,
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the "
+                "process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> None:
         """Answer conditional requests through the registered middleware."""
+        resolved_env_prefix, kind_prefix = env_prefixes(
+            "CONDITIONAL_REQUESTS", name, env_prefix
+        )
+        config = resolve_config(
+            ConditionalRequestsConfig,
+            explicit=None,
+            kwargs={
+                "etag_responses": etag_responses,
+                "require_precondition": require_precondition,
+                "include": include,
+                "exclude": exclude,
+                "max_body_size": max_body_size,
+            },
+            env_prefix=resolved_env_prefix,
+            kind_env_prefix=kind_prefix,
+            env_load=env_load,
+        )
+        self._setup(config, name=name, openapi=openapi)
+        self._track_reconfigure(resolved_env_prefix)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            ConditionalRequestsConfig,
+            Doc("The pre-built conditional requests configuration."),
+        ],
+        *,
+        name: Annotated[
+            str,
+            Doc("Registration name, for a second set of rules on one app."),
+        ] = "default",
+        openapi: Annotated[
+            bool,
+            Doc("Describe the headers in the OpenAPI schema."),
+        ] = True,
+    ) -> ConditionalRequests:
+        """Build the component from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no
+        environment variable is read, and the instance is not registered
+        for live reload.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(config, name=name, openapi=openapi)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self,
+        config: ConditionalRequestsConfig,
+        *,
+        name: str,
+        openapi: bool,
+    ) -> None:
+        """Hold the configuration and the cell the middleware reads."""
         self._name = name
         self._openapi = openapi
-        self._options: dict[str, Any] = {
-            "etag_responses": etag_responses,
-            "require_precondition": require_precondition,
-            "include": as_patterns(include, name="include"),
-            "exclude": as_patterns(exclude, name="exclude"),
-            "max_body_size": max_body_size,
-        }
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
+        self._live: Live[_State] = Live(_state_of(config))
+
+    async def _apply_reconfigure(
+        self, new_config: ConditionalRequestsConfig
+    ) -> None:
+        """Publish the snapshot the next request reads."""
+        self._live.state = _state_of(new_config)
 
     @property
     def name(self) -> str:
@@ -1096,8 +1299,13 @@ class ConditionalRequests:
         return self._name
 
     def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
-        """Return the middleware class and the arguments to build it with."""
-        return ConditionalRequestsMiddleware, dict(self._options)
+        """Return the middleware class and the arguments to build it with.
+
+        The middleware is handed the cell rather than the values, so a
+        live reconfigure reaches it without the stack being rebuilt,
+        which a framework will not do once it is serving.
+        """
+        return ConditionalRequestsMiddleware, {"live": self._live}
 
     def document_openapi(
         self,

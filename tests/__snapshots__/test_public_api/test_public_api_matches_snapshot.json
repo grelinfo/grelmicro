@@ -216,7 +216,7 @@
   },
   "grelmicro.describe": {
     "AppReport": {
-      "()": "(environment=None, components=(), providers=(), checks=()) -> None"
+      "()": "(environment=None, components=(), providers=(), checks=(), endpoints=()) -> None"
     },
     "CheckReport": {
       "()": "(name, status, detail) -> None"
@@ -226,6 +226,9 @@
     },
     "ComponentReport": {
       "()": "(kind, name, component, backends=(), provider=None, config=<factory>) -> None"
+    },
+    "EndpointReport": {
+      "()": "(method, path, applies=()) -> None"
     },
     "ProviderReport": {
       "()": "(short_name, provider, url=None, env_prefix=None, serves=(), declines=()) -> None"
@@ -255,16 +258,24 @@
   },
   "grelmicro.http": {
     "CachedResponses": {
-      "()": "(*, ttl=60.0, include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, cache=None, namespace='http', name='default') -> 'None'"
+      "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', namespace='http', cache=None, key=None, skip=None) -> 'CachedResponses'"
+    },
+    "CachedResponsesConfig": {
+      "()": "(*, ttl=60.0, include=(), exclude=(), vary_by_headers=(), vary_by_query=None, max_body_size=1048576) -> None"
     },
     "CachedResponsesMiddleware": {
-      "()": "(app, *, cache, policies=None, ttl=60.0, include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default') -> 'None'"
+      "()": "(app, *, cache, policies=None, ttl=60.0, include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', live=None) -> 'None'"
     },
     "ConditionalRequests": {
-      "()": "(*, etag_responses=True, require_precondition=(), include=(), exclude=(), max_body_size=1048576, openapi=True, name='default') -> 'None'"
+      "()": "(*, etag_responses=None, require_precondition=None, include=None, exclude=None, max_body_size=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', openapi=True) -> 'ConditionalRequests'"
+    },
+    "ConditionalRequestsConfig": {
+      "()": "(*, etag_responses=True, require_precondition=(), include=(), exclude=(), max_body_size=1048576) -> None"
     },
     "ConditionalRequestsMiddleware": {
-      "()": "(app, *, etag_responses=True, require_precondition=(), include=(), exclude=(), max_body_size=1048576) -> 'None'"
+      "()": "(app, *, etag_responses=True, require_precondition=(), include=(), exclude=(), max_body_size=1048576, live=None) -> 'None'"
     },
     "ERROR_DOCS_BASE": null,
     "ErrorResponses": {
@@ -273,10 +284,14 @@
       ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/errors/', name='default') -> 'Self'"
     },
     "IdempotencyMiddleware": {
-      "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422) -> 'None'"
+      "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
     },
     "IdempotentRequests": {
-      "()": "(*, ttl=None, namespace='http', cache=None, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, openapi=True, name='default') -> 'None'"
+      "()": "(*, ttl=None, namespace='http', cache=None, key_header=None, replay_header=None, methods=None, key_maker=None, skip=None, require_key=None, fingerprint_body=None, max_body_size=None, wait_timeout=None, include=None, exclude=None, reused_status=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', namespace='http', ttl=None, cache=None, key_maker=None, skip=None, openapi=True) -> 'IdempotentRequests'"
+    },
+    "IdempotentRequestsConfig": {
+      "()": "(*, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422) -> None"
     },
     "OpsServer": {
       "()": "(*, port=None, host=None, show_details=None, request_timeout=None, shutdown_timeout=None, max_connections=None, name='default', env_prefix=None, env_load=None) -> 'None'",
@@ -298,10 +313,14 @@
       "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
     },
     "RateLimitMiddleware": {
-      "()": "(app, *, limiters, trusted=None, key=None, cost=1, max_wait=0.0, exclude=(), legacy_headers=False) -> 'None'"
+      "()": "(app, *, limiters, trusted=None, key=None, cost=1, max_wait=0.0, include=(), exclude=(), legacy_headers=False, live=None) -> 'None'"
     },
     "RateLimitedRequests": {
-      "()": "(*limiters, trusted=None, key=None, cost=1, max_wait=0.0, exclude=(), legacy_headers=False, name='default') -> 'None'"
+      "()": "(*limiters, trusted=None, key=None, cost=None, max_wait=None, include=None, exclude=None, legacy_headers=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *limiters, name='default', trusted=None, key=None, openapi=True) -> 'RateLimitedRequests'"
+    },
+    "RateLimitedRequestsConfig": {
+      "()": "(*, cost=1, max_wait=0.0, include=(), exclude=(), legacy_headers=False) -> None"
     },
     "RenderedError": {
       "()": "(status, media_type, headers, body) -> None"
@@ -379,6 +398,9 @@
     "document_idempotency": {
       "()": "(app, *, idempotency=None) -> None"
     },
+    "document_rate_limited_requests": {
+      "()": "(app) -> None"
+    },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
@@ -442,10 +464,14 @@
   },
   "grelmicro.log": {
     "AccessLog": {
-      "()": "(*, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True, name='default') -> 'None'"
+      "()": "(*, include=None, exclude=None, quiet=None, query=None, user_agent=None, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default') -> 'AccessLog'"
+    },
+    "AccessLogConfig": {
+      "()": "(*, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True) -> None"
     },
     "AccessLogMiddleware": {
-      "()": "(app, *, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True) -> 'None'"
+      "()": "(app, *, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True, live=None) -> 'None'"
     },
     "DuplicateFilter": {
       "()": "(*, allowed_repetitions=None, cache_size=None, key_mode=None, ttl=None, key=None, env_name='default', env_prefix=None, env_load=None) -> None",
