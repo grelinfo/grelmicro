@@ -24,7 +24,7 @@ def unwrap_callable(func: Any) -> Any:  # noqa: ANN401
     return target
 
 
-def callable_name(func: Any) -> Any:  # noqa: ANN401
+def callable_name(func: Any) -> str:  # noqa: ANN401
     """Return a stable, bounded name for `func`.
 
     Falls back to the type name rather than `repr()` for a callable

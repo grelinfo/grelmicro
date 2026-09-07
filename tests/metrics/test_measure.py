@@ -159,3 +159,22 @@ def test_a_callable_object_is_named_after_its_type() -> None:
 async def _sample(prefix: str, value: int) -> str:
     """Module-level sample for the naming tests."""
     return f"{prefix}{value}"
+
+
+def test_a_callable_object_keeps_the_module_of_its_class() -> None:
+    """A callable instance is namespaced, so two of them cannot collide.
+
+    An instance carries no `__module__` of its own, but attribute lookup
+    falls back to its class, which does. The module is part of the name
+    for a callable object exactly as it is for a function.
+    """
+    name = _default_name(_Fetcher())
+
+    assert name == f"{__name__}._fetcher".lower()
+
+
+class _Fetcher:
+    """Callable sample for the naming tests."""
+
+    async def __call__(self) -> None:
+        """Do nothing."""
