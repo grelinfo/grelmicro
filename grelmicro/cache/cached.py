@@ -295,32 +295,41 @@ class _PrivateMemoryCacheAdapter(MemoryCacheAdapter):
         return await super().get(key=key)
 
 
-def _resolve_cache(
-    cache: TTLCache | None, ttl: float | None, maxsize: int
-) -> TTLCache:
-    """Return the cache to use, building a private one for `ttl=`.
+def _check_cache_choice(cache: TTLCache | None, ttl: float | None) -> None:
+    """Refuse both a cache and a `ttl=`, or neither.
 
-    Passing both `cache` and `ttl`, or neither, raises `TypeError`.
+    Raises:
+        TypeError: If both or neither were passed.
     """
-    if cache is not None:
-        if ttl is not None:
-            msg = (
-                "cached() takes either a cache or ttl=, not both. Pass a "
-                "TTLCache to share a store, or ttl= for a private "
-                "process-local cache."
-            )
-            raise TypeError(msg)
-        return cache
-    if ttl is None:
+    if cache is not None and ttl is not None:
+        msg = (
+            "cached() takes either a cache or ttl=, not both. Pass a "
+            "TTLCache to share a store, or ttl= for a private "
+            "process-local cache."
+        )
+        raise TypeError(msg)
+    if cache is None and ttl is None:
         msg = (
             "cached() needs a cache or a ttl=. Pass a TTLCache, or "
             "ttl= for a private process-local cache (e.g. "
             "@cached(ttl=30))."
         )
         raise TypeError(msg)
+
+
+def _private_cache(
+    func: Callable[..., Any], ttl: float, maxsize: int
+) -> TTLCache:
+    """Build the process-local cache `ttl=` asks for.
+
+    It is named after the function it serves, so one decorated function's
+    hit rate is readable next to another's.
+    """
+    qualname = getattr(func, "__qualname__", None) or repr(func)
     return TTLCache(
         maxsize=maxsize,
         ttl=ttl,
+        name=qualname.replace(".<locals>", ""),
         backend=_PrivateMemoryCacheAdapter(),
         serializer=PickleSerializer(),
     )
@@ -538,7 +547,7 @@ def cached(  # noqa: PLR0913, C901
         )
         raise TypeError(msg)
     is_private_cache = cache is None
-    cache = _resolve_cache(cache, ttl, maxsize)
+    _check_cache_choice(cache, ttl)
     if lock not in (True, False, "local"):
         msg = "lock= must be True, False, or 'local'"
         raise SettingsValidationError(msg)
@@ -553,6 +562,13 @@ def cached(  # noqa: PLR0913, C901
         func: Callable[P, R],
     ) -> Any:  # noqa: ANN401
         refuse_registered(func, "@cached")
+        resolved_cache = (
+            # `ttl` is set whenever no cache was passed, which
+            # `_check_cache_choice` has already refused otherwise.
+            _private_cache(func, ttl or 0.0, maxsize)
+            if cache is None
+            else cache
+        )
         if inspect.isgeneratorfunction(func):
             name = getattr(func, "__qualname__", repr(func))
             msg = (
@@ -609,7 +625,7 @@ def cached(  # noqa: PLR0913, C901
         if is_async_gen_func:
             wrapper = _build_async_gen_wrapper(
                 func,
-                cache,
+                resolved_cache,
                 resolved_key_maker,
                 skip,
                 typed=typed,
@@ -622,7 +638,7 @@ def cached(  # noqa: PLR0913, C901
         elif is_async_func:
             wrapper = _build_async_wrapper(
                 func,
-                cache,
+                resolved_cache,
                 resolved_key_maker,
                 skip,
                 typed=typed,
@@ -635,7 +651,7 @@ def cached(  # noqa: PLR0913, C901
         else:
             wrapper = _build_sync_wrapper(
                 func,
-                cache,
+                resolved_cache,
                 resolved_key_maker,
                 skip,
                 typed=typed,
@@ -645,8 +661,8 @@ def cached(  # noqa: PLR0913, C901
                 stale_ttl=stale_ttl,
                 tag_spec=tag_spec,
             )
-        wrapper.cache_info = cache.cache_info
-        wrapper.cache_clear = cache.clear
+        wrapper.cache_info = resolved_cache.cache_info
+        wrapper.cache_clear = resolved_cache.clear
         return wrapper
 
     return decorator

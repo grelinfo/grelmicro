@@ -1904,7 +1904,9 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         self._cache: TTLCache[Any] = (
             cache
             if cache is not None
-            else TTLCache(ttl=config.ttl, serializer=JsonSerializer())
+            else TTLCache(
+                ttl=config.ttl, name=name, serializer=JsonSerializer()
+            )
         )
         self._tag = f"grelmicro:{namespace}:{name}"
         self._policies = _Policies(config.include, config.exclude)

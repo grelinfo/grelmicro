@@ -446,12 +446,12 @@ filter it:
 rate(grelmicro_task_runs_total[5m])
 
 # After
-rate(grelmicro_task_runs_total{outcome="success"}[5m])
+rate(grelmicro_task_runs_total{grelmicro_outcome="success"}[5m])
 ```
 
-Nothing else changes. `outcome="success"` and `outcome="error"` keep the
-meanings they had, so an alert already filtering on either is correct as
-it stands.
+The values keep the meanings they had. The label itself was renamed from
+`outcome` to `grelmicro_outcome` in a later release, and the query above
+already carries the new spelling.
 
 ## 0.32.2, not breaking but worth knowing {#0-32-2-circuit-breaker-state}
 

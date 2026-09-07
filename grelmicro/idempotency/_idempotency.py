@@ -511,7 +511,11 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             serializer = JsonSerializer()
         cache = cast(
             "TTLCache[T]",
-            TTLCache(ttl=self._config.ttl, serializer=serializer),
+            TTLCache(
+                ttl=self._config.ttl,
+                name=self._name,
+                serializer=serializer,
+            ),
         )
         self._cache = cache
         return cache

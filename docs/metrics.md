@@ -261,6 +261,11 @@ sessions = micro.cache.ttl(name="sessions", ttl=60)
 reference = micro.cache.ttl(name="reference", ttl=3600)
 ```
 
+The caches grelmicro builds for you are named too, so they never land
+in the same series as yours: `Idempotency` and `CachedResponses` report
+under their own registration name, and a private `@cached(ttl=...)` cache
+reports under the function it serves.
+
 The name is a metric label, not a configuration address: a `TTLCache`
 reads no environment variable, whatever it is called.
 

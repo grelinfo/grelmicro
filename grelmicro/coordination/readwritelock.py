@@ -1043,16 +1043,22 @@ class WriteMode(_Mode):
             )
         except Exception as exc:
             raise LockAcquireError(name=self.name) from exc
+        # The write lease is given up either way, so the holder it was
+        # counted as goes with it. Only a granted downgrade takes one on
+        # the read side.
         if generation is None:
             guard._invalidate()  # noqa: SLF001
             self._task_guards.pop(task, None)
+            self._lock._write_metrics.hold(-1)  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
         guard._invalidate()  # noqa: SLF001
         self._task_guards.pop(task, None)
+        self._lock._write_metrics.hold(-1)  # noqa: SLF001
         read_guard = self._lock.read._new_guard(  # noqa: SLF001
             guard.token, generation, duration
         )
         self._lock.read._adopt(read_guard, task)  # noqa: SLF001
+        self._lock._read_metrics.hold(1)  # noqa: SLF001
         return read_guard
 
     async def do_thread_acquire(

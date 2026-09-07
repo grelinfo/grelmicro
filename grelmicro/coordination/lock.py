@@ -484,6 +484,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 token=token, duration=duration
             )
         self._held_by_tasks.add(task)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -546,6 +547,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
         self._held_by_tasks.add(task)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -564,7 +566,10 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         # can retry release. A "not owned" answer still clears it
         # because the distributed truth is authoritative.
         released = await self.do_release(token)
-        self._held_by_tasks.discard(self._running_task())
+        task = self._running_task()
+        if task in self._held_by_tasks:
+            self._held_by_tasks.discard(task)
+            self._metrics.hold(-1)
         if not released:
             raise LockNotOwnedError(name=self._name)
 
@@ -613,11 +618,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         except LockAcquireError:
             self._metrics.attempt(ERROR)
             raise
-        if fencing_token is None:
-            self._metrics.attempt(UNAVAILABLE)
-        else:
-            self._metrics.attempt(ACQUIRED)
-            self._metrics.hold(1)
+        self._metrics.attempt(
+            UNAVAILABLE if fencing_token is None else ACQUIRED
+        )
         return fencing_token
 
     async def _backend_acquire(
@@ -655,11 +658,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         backend = self.backend
         try:
-            released = await backend.release(name=self._lock_name, token=token)
+            return await backend.release(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockReleaseError(name=self._name) from exc
-        self._metrics.hold(-1)
-        return released
 
     async def do_owned(self, token: str) -> bool:
         """Check if the lock is owned by the current token.
@@ -722,6 +723,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 token=token, duration=duration
             )
         self._held_by_threads.add(owner)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -740,11 +742,17 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         if owner not in self._held_by_threads:
             raise LockNotOwnedError(name=self._name)
         token = generate_thread_token(config.worker, identity=owner)
-        fencing_token = await self.do_acquire(
-            token=token, duration=config.lease_duration
-        )
+        try:
+            fencing_token = await self._backend_acquire(
+                token, config.lease_duration
+            )
+        except LockAcquireError:
+            self._metrics.renewal(ERROR)
+            raise
         if fencing_token is None:
+            self._metrics.renewal(LOST)
             raise LockNotOwnedError(name=self._name)
+        self._metrics.renewal(SUCCESS)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -773,6 +781,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             msg = f"Lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
         self._held_by_threads.add(owner)
+        self._metrics.hold(1)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -789,7 +798,9 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         token = generate_thread_token(self._config.worker, identity=owner)
         released = await self.do_release(token)
-        self._held_by_threads.discard(owner)
+        if owner in self._held_by_threads:
+            self._held_by_threads.discard(owner)
+            self._metrics.hold(-1)
         if not released:
             raise LockNotOwnedError(name=self._name)
 

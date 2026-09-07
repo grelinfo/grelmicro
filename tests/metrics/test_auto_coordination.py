@@ -7,6 +7,7 @@ unreachable, and a lease lost before the work under it finished.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
@@ -26,7 +27,6 @@ from grelmicro.coordination.readwritelock import ReadWriteLock
 from grelmicro.coordination.tasklock import TaskLock
 
 if TYPE_CHECKING:
-    import asyncio
     from types import TracebackType
 
     from tests.metrics.conftest import MetricsHarness
@@ -403,3 +403,128 @@ async def test_leader_election_counts_a_backend_error(
     attempts = metrics_reader.points("grelmicro.leader_election.attempts")
     assert attempts[0][1]["grelmicro.outcome"] == "error"
     assert metrics_reader.points("grelmicro.leader_election.leading")[0][0] == 0
+
+
+def _holders(metrics_reader: MetricsHarness, mode: str) -> float:
+    """Return the holder count recorded for `mode`."""
+    return next(
+        value
+        for value, attrs in metrics_reader.points("grelmicro.lock.holders")
+        if attrs["grelmicro.lock.mode"] == mode
+    )
+
+
+async def test_a_thread_renewal_is_a_renewal_not_an_acquire(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A keepalive loop on a worker thread must not inflate the holders.
+
+    The thread-side extend renews the lease it already holds. Counting it
+    as a fresh acquire would drive the holder count up on every renewal
+    and leave the `lost` signal, which is the one to page on, unemitted.
+    """
+    renewals = 3
+
+    async with MemoryLockAdapter() as backend:
+        lock = Lock("orders", backend=backend, lease_duration=LEASE)
+
+        def sync() -> None:
+            lock.from_thread.acquire()
+            for _ in range(renewals):
+                lock.from_thread.extend()
+            lock.from_thread.release()
+
+        await asyncio.to_thread(sync)
+
+    assert _holders(metrics_reader, "exclusive") == 0
+    assert _outcomes(metrics_reader, "grelmicro.lock.renewals") == {
+        ("exclusive", "success")
+    }
+    acquired = [
+        value
+        for value, attrs in metrics_reader.points("grelmicro.lock.attempts")
+        if attrs["grelmicro.outcome"] == "acquired"
+    ]
+    assert acquired == [1]
+
+
+async def test_a_release_that_owns_nothing_leaves_the_holders_alone(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """Releasing twice must not drive the holder count below zero."""
+    async with MemoryLockAdapter() as backend:
+        lock = Lock("orders", backend=backend, lease_duration=LEASE)
+        await lock.acquire()
+        await lock.release()
+        with pytest.raises(LockNotOwnedError):
+            await lock.release()
+
+    assert _holders(metrics_reader, "exclusive") == 0
+
+
+async def test_a_downgrade_moves_the_holder_from_write_to_read(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A downgrade gives up the write lease and takes a read one.
+
+    Counting neither leaves the write side stranded above zero forever
+    and drives the read side negative when the read lease is released.
+    """
+    async with MemoryReadWriteLockAdapter() as backend:
+        lock = ReadWriteLock("catalog", backend=backend, lease_duration=LEASE)
+        async with lock.write as guard:
+            await guard.downgrade()
+            assert _holders(metrics_reader, "write") == 0
+            assert _holders(metrics_reader, "read") == 1
+
+    assert _holders(metrics_reader, "write") == 0
+    assert _holders(metrics_reader, "read") == 0
+
+
+async def test_a_released_election_stops_reporting_itself_as_leader(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A stopped election reads 0, so a handover is not a split brain.
+
+    The gauge is what the split-brain alert sums, and the process keeps
+    serving `/metrics` after the election task stops.
+    """
+    async with MemoryLeaderElectionAdapter() as backend:
+        election = LeaderElection("orders", backend=backend, worker="a")
+        await election._try_acquire_or_renew(election._config)
+        assert (
+            metrics_reader.points("grelmicro.leader_election.leading")[0][0]
+            == 1
+        )
+        await election._release()
+
+    assert metrics_reader.points("grelmicro.leader_election.leading")[0][0] == 0
+    assert not election.is_leader()
+
+
+async def test_a_thread_renewal_the_backend_refused_is_counted(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A thread-side renewal that never reached the backend is an error."""
+    async with MemoryLockAdapter() as backend:
+        lock = Lock("orders", backend=backend, lease_duration=LEASE)
+
+        async def boom(**kwargs: object) -> int | None:
+            raise RuntimeError(kwargs)
+
+        def sync() -> None:
+            lock.from_thread.acquire()
+            # Swap the call rather than the backend, so the adapter keeps
+            # the event loop it was opened on.
+            original = backend.acquire
+            backend.acquire = boom  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            with pytest.raises(LockAcquireError):
+                lock.from_thread.extend()
+            backend.acquire = original  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            lock.from_thread.release()
+
+        await asyncio.to_thread(sync)
+
+    assert ("exclusive", "error") in _outcomes(
+        metrics_reader, "grelmicro.lock.renewals"
+    )

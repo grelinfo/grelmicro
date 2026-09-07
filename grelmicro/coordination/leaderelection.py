@@ -713,7 +713,6 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                     metadata=self._metadata,
                 )
         except Exception:
-            self._emit_attempt(ERROR)
             if self._check_error_interval(config):
                 logger.exception(
                     "Leader Election failed to acquire lock: %s", self.name
@@ -723,6 +722,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
                     is_leader=False,
                     reason_if_no_more_leader="renew deadline reached",
                 )
+            # Emitted last, so the iteration that drops leadership
+            # publishes the leadership it ends with, not the one it
+            # started under.
+            self._emit_attempt(ERROR)
         else:
             self._record = record
             await self._update_state(
@@ -805,6 +808,17 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         except Exception:
             logger.exception(
                 "Leader Election failed to release lock: %s", self.name
+            )
+        finally:
+            # Leadership is given up whether or not the backend answered,
+            # so the gauge reads 0 from here. A stopped election that kept
+            # reporting 1 makes a handover look like a split brain to the
+            # alert that watches the sum.
+            await self._update_state(
+                is_leader=False, reason_if_no_more_leader="released"
+            )
+            _emit.observe(
+                "grelmicro.leader_election.leading", 0, self._metric_attrs
             )
 
 
