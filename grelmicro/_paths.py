@@ -13,6 +13,7 @@ from typing_extensions import Doc
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
+    from re import Pattern
 
 __all__ = [
     "BARE_METHOD_MESSAGE",
@@ -24,6 +25,7 @@ __all__ = [
     "PathPatterns",
     "as_patterns",
     "matches",
+    "names_route",
     "refuse_bare_method",
     "refuse_bare_name",
     "refuse_bare_string",
@@ -291,6 +293,36 @@ def _matches_one(path: str, pattern: str) -> bool:
         return path == pattern
     prefix = pattern[: -len(_PREFIX)]
     return path.startswith(prefix) or path == prefix.rstrip("/")
+
+
+def names_route(
+    pattern: Annotated[str, Doc("A pattern a component was given.")],
+    template: Annotated[str, Doc("The path a route is declared under.")],
+    regex: Annotated[
+        Pattern[str] | None,
+        Doc("What the router compiled that path into, if anything."),
+    ],
+) -> bool:
+    """Return whether this pattern can select a request this route answers.
+
+    A pattern is matched against the URL a request asks for, and a route
+    is declared as a template that stands for many. So `"/users/me"`
+    names `GET /users/{uid}`, and asking the template alone answers no.
+
+    Every place that reasons about a pattern and a route has to agree on
+    this. The response cache refuses a pattern naming a read behind a
+    security scheme, and a refusal that asked the template alone would
+    let the URL through and answer over the gate.
+
+    A route the router could not compile carries no regex, and is
+    answered by its template alone, which is all there is to compare.
+    """
+    if pattern.endswith(_PREFIX):
+        under = pattern[: -len(_PREFIX)]
+        return template.startswith(under) or template == under.rstrip("/")
+    if template == pattern:
+        return True
+    return regex is not None and bool(regex.fullmatch(pattern))
 
 
 def selects(

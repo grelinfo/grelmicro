@@ -10,7 +10,7 @@ nothing a file says can start caching what the static path would refuse.
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Security, WebSocket
@@ -879,17 +879,17 @@ async def test_a_mounted_sequence_applies_beside_its_neighbours(
 
 
 @pytest.mark.parametrize(
-    ("component", "field"),
+    ("build", "field"),
     [
         pytest.param(
-            ConditionalRequests(), "require_precondition", id="precondition"
+            ConditionalRequests, "require_precondition", id="precondition"
         ),
-        pytest.param(IdempotentRequests(), "require_key", id="require-key"),
-        pytest.param(IdempotentRequests(), "key_header", id="key-header"),
+        pytest.param(IdempotentRequests, "require_key", id="require-key"),
+        pytest.param(IdempotentRequests, "key_header", id="key-header"),
     ],
 )
 async def test_what_the_schema_states_is_not_live(
-    component: Any,  # noqa: ANN401
+    build: Callable[[], Any],
     field: str,
     tmp_path: Path,
 ) -> None:
@@ -900,6 +900,9 @@ async def test_what_the_schema_states_is_not_live(
     and every other key in the same file still applies.
     """
     # Arrange
+    # Built here, not at collection: a component made once for the whole
+    # module stays registered for live reload all session.
+    component = build()
     prefix = f"GREL_{component.kind.upper()}_"
     cache = CachedResponses()
     path = tmp_path / "config.env"
@@ -917,19 +920,19 @@ async def test_what_the_schema_states_is_not_live(
 
 
 @pytest.mark.parametrize(
-    ("component", "field", "value"),
+    ("build", "field", "value"),
     [
         pytest.param(
-            ConditionalRequests(), "exclude", '["/legacy"]', id="conditional"
+            ConditionalRequests, "exclude", '["/legacy"]', id="conditional"
         ),
         pytest.param(
-            IdempotentRequests(), "exclude", '["/pay"]', id="idempotent"
+            IdempotentRequests, "exclude", '["/pay"]', id="idempotent"
         ),
-        pytest.param(IdempotentRequests(), "methods", '["PUT"]', id="methods"),
+        pytest.param(IdempotentRequests, "methods", '["PUT"]', id="methods"),
     ],
 )
 async def test_what_protects_a_client_is_wired_in_code(
-    component: Any,  # noqa: ANN401
+    build: Callable[[], Any],
     field: str,
     value: str,
     tmp_path: Path,
@@ -942,6 +945,9 @@ async def test_what_protects_a_client_is_wired_in_code(
     deploy, where they are reviewed.
     """
     # Arrange
+    # Built here, not at collection: a component made once for the whole
+    # module stays registered for live reload all session.
+    component = build()
     prefix = f"GREL_{component.kind.upper()}_"
     cache = CachedResponses()
     path = tmp_path / "config.env"
@@ -1688,3 +1694,89 @@ def test_the_hand_wired_cache_takes_the_tuple_form_too() -> None:
     policies = middleware._live.state.policies
     assert policies.ttl_for("/products/list", DEFAULT_TTL) == DEFAULT_TTL
     assert policies.ttl_for("/orders", DEFAULT_TTL) is None
+
+
+def test_a_pattern_naming_a_gated_url_is_refused() -> None:
+    """A pattern names a URL, and a route template stands for many.
+
+    `include={"/users/me": 30}` names no template on an app declaring
+    `GET /users/{uid}`, so a refusal that asked the template alone let
+    the URL through, cached a gated read, and answered over the gate:
+    the second caller was handed the first caller's response, and a
+    request carrying no key at all was answered `200` with it.
+    """
+    # Arrange
+    gate = APIKeyHeader(name="X-API-Key")
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            CachedResponses(include={"/users/me": 30}),
+        ]
+    )
+
+    @app.get("/users/{uid}")
+    async def user(
+        uid: str, key: Annotated[str, Security(gate)]
+    ) -> dict[str, str]:
+        return {"caller": key, "uid": uid}
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+        micro.install(app)
+
+
+@pytest.mark.parametrize(
+    ("build", "expected", "marked"),
+    [
+        pytest.param(
+            lambda: CachedResponses(include={"/users/me": 30}),
+            ("cache 30s (some paths)",),
+            False,
+            id="include-names-a-url",
+        ),
+        pytest.param(
+            lambda: CachedResponses(exclude=("/users/me",)),
+            ("cache 45s (some paths)",),
+            True,
+            id="exclude-names-a-url",
+        ),
+        pytest.param(
+            CachedResponses, ("cache 45s",), True, id="the-whole-route"
+        ),
+    ],
+)
+def test_the_cache_row_reads_like_every_other(
+    build: Callable[[], CachedResponses],
+    expected: tuple[str, ...],
+    *,
+    marked: bool,
+) -> None:
+    """The one component hardest to reason about by hand says the same.
+
+    It was the only reader not going through the shared reach, so it
+    both omitted caching a pattern had turned on and overstated caching
+    an exclude had taken part of away.
+    """
+    # Arrange
+    # Built here, not at collection: a component made once for the whole
+    # module is registered for live reload, so any other test running
+    # `ExternalConfig` would reconfigure it out from under this one.
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), ErrorResponses(), build()]
+    )
+    declared = [CachedResponse(ttl=45)] if marked else []
+
+    @app.get("/users/{uid}", dependencies=declared)
+    async def user(uid: str) -> dict[str, str]:
+        return {"uid": uid}
+
+    micro.install(app)
+
+    # Act
+    applies = micro.describe(app).endpoints[0].applies
+
+    # Assert
+    assert applies == expected

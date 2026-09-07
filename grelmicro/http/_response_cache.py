@@ -39,6 +39,7 @@ from grelmicro._paths import (
     PathPatterns,
     as_patterns,
     matches,
+    names_route,
     route_path,
     walk_routes,
 )
@@ -437,8 +438,15 @@ def _marked_routes(
                 break
             ttl = _inherited_ttl(context)
         declared = f"{prefix}{route.path}"
+        compiled, _, _ = compile_path(declared)
         if ttl is _UNMARKED:
-            if matches(declared, named):
+            # Against the URL as well as the template. A route declared
+            # `/users/{uid}` answers `/users/me`, so a pattern naming
+            # that URL puts a gated read in the cache while matching no
+            # template at all, and the hit would answer over the gate.
+            if any(
+                names_route(pattern, declared, compiled) for pattern in named
+            ):
                 _refuse_named_gate(route, contexts, declared)
             continue
         refusal = _unreadable(route, contexts, declared)
@@ -449,8 +457,7 @@ def _marked_routes(
             # reads. What cannot be answered from a cache is left to its
             # handler rather than refused.
             continue
-        regex, _, _ = compile_path(declared)
-        found.append((regex, cast("float | None", ttl)))
+        found.append((compiled, cast("float | None", ttl)))
     return found
 
 

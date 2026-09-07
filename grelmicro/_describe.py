@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from typing_extensions import Doc
 
 from grelmicro._environment import unmet_requirements
-from grelmicro._paths import matches, walk_routes
+from grelmicro._paths import matches, names_route, walk_routes
 from grelmicro._redact import redact_url
 
 if TYPE_CHECKING:
@@ -387,12 +387,14 @@ def _reach(
 
 
 def _under(endpoint: _Endpoint, patterns: tuple[str, ...]) -> bool:
-    """Return whether a pattern names one concrete path of this route."""
-    regex = endpoint.regex
-    if regex is None:
-        return False
+    """Return whether a pattern names one concrete path of this route.
+
+    One URL the route serves, not the route itself, which is what makes
+    the reach partial rather than whole.
+    """
     return any(
-        not pattern.endswith("*") and regex.fullmatch(pattern)
+        pattern != endpoint.path
+        and names_route(pattern, endpoint.path, endpoint.regex)
         for pattern in patterns
     )
 
@@ -441,21 +443,47 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
     def read(endpoint: _Endpoint) -> str | None:
         state = component._live.state  # noqa: SLF001
         config = state.config
-        if endpoint.method not in {"GET", "HEAD"} or matches(
-            endpoint.path, config.exclude
-        ):
+        if endpoint.method not in {"GET", "HEAD"}:
             return None
         declared, ttl = declared_ttl(
             endpoint.route, endpoint.contexts, endpoint.path
         )
-        seconds = (
-            (config.ttl if ttl is None else ttl)
-            if declared
-            else state.policies.pattern_ttl(endpoint.path, config.ttl)
-        )
-        return None if seconds is None else f"cache {seconds:g}s"
+        if declared:
+            # The route said so itself, so it holds for every URL the
+            # route answers, and only `exclude` can take part of it back.
+            seconds = config.ttl if ttl is None else ttl
+            reach = _reach(endpoint, (), tuple(config.exclude))
+        else:
+            # A pattern, which may name the template or one URL under it.
+            patterns = tuple(config.include)
+            reach = _reach(endpoint, patterns, tuple(config.exclude))
+            seconds = _pattern_seconds(state, config, endpoint, patterns)
+        if reach is None or seconds is None:
+            return None
+        return f"cache {seconds:g}s{reach}"
 
     return read
+
+
+def _pattern_seconds(
+    state: Any,  # noqa: ANN401
+    config: Any,  # noqa: ANN401
+    endpoint: _Endpoint,
+    patterns: tuple[str, ...],
+) -> float | None:
+    """Return the seconds a pattern keeps this route for, or `None`.
+
+    The template first, which is the pattern written the way the route
+    was. Then the URLs it serves, because a pattern may name one of
+    those and the middleware matches against the request.
+    """
+    seconds = state.policies.pattern_ttl(endpoint.path, config.ttl)
+    if seconds is not None:
+        return seconds
+    for pattern in patterns:
+        if names_route(pattern, endpoint.path, endpoint.regex):
+            return state.policies.pattern_ttl(pattern, config.ttl)
+    return None
 
 
 def _reads_conditional(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
