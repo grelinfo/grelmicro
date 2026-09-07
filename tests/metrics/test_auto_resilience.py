@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 async def test_retry_emits_success(metrics_reader: MetricsHarness) -> None:
-    """A run that succeeds emits attempts(outcome=success) and duration."""
+    """A run that succeeds counts its attempts and records a duration."""
     policy = Retry("flaky", when=ValueError, attempts=3)
 
     @policy
@@ -37,9 +37,13 @@ async def test_retry_emits_success(metrics_reader: MetricsHarness) -> None:
 
     assert await ok() == "ok"
     attempts = metrics_reader.points("grelmicro.retry.attempts")
-    assert attempts[0][1] == {"retry.name": "flaky", "outcome": "success"}
+    assert attempts[0][1] == {
+        "grelmicro.retry.name": "flaky",
+        "grelmicro.outcome": "success",
+    }
     assert metrics_reader.points("grelmicro.retry.duration")[0][1] == {
-        "retry.name": "flaky"
+        "grelmicro.retry.name": "flaky",
+        "grelmicro.outcome": "success",
     }
 
 
@@ -63,7 +67,7 @@ async def test_retry_emits_error_on_exhaustion(
     with pytest.raises(ValueError):  # noqa: PT011
         await boom()
     attempts = metrics_reader.points("grelmicro.retry.attempts")
-    assert attempts[0][1]["outcome"] == "error"
+    assert attempts[0][1]["grelmicro.outcome"] == "error"
 
 
 def test_retry_sync_emits(metrics_reader: MetricsHarness) -> None:
@@ -76,7 +80,9 @@ def test_retry_sync_emits(metrics_reader: MetricsHarness) -> None:
 
     assert ok() == 1
     assert (
-        metrics_reader.points("grelmicro.retry.attempts")[0][1]["outcome"]
+        metrics_reader.points("grelmicro.retry.attempts")[0][1][
+            "grelmicro.outcome"
+        ]
         == "success"
     )
 
@@ -84,7 +90,7 @@ def test_retry_sync_emits(metrics_reader: MetricsHarness) -> None:
 async def test_circuit_breaker_emits_calls_and_state(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """A success call emits calls(result=success) and a state gauge."""
+    """A success call emits calls(outcome=success) and a state gauge."""
     cb = CircuitBreaker.consecutive_count(
         "payments", error_threshold=2, backend=MemoryCircuitBreakerAdapter()
     )
@@ -92,11 +98,11 @@ async def test_circuit_breaker_emits_calls_and_state(
         pass
     calls = metrics_reader.points("grelmicro.circuit_breaker.calls")
     assert calls[0][1] == {
-        "circuit_breaker.name": "payments",
-        "result": "success",
+        "grelmicro.circuit_breaker.name": "payments",
+        "grelmicro.outcome": "success",
     }
     state = metrics_reader.points("grelmicro.circuit_breaker.state")
-    assert state[0][1] == {"circuit_breaker.name": "payments"}
+    assert state[0][1] == {"grelmicro.circuit_breaker.name": "payments"}
 
 
 async def test_circuit_breaker_emits_transition_and_rejected(
@@ -110,35 +116,41 @@ async def test_circuit_breaker_emits_transition_and_rejected(
         async with cb:
             raise RuntimeError
     transitions = metrics_reader.points("grelmicro.circuit_breaker.transitions")
-    assert transitions[0][1]["from"] == str(CircuitBreakerState.CLOSED)
-    assert transitions[0][1]["to"] == str(CircuitBreakerState.OPEN)
+    assert transitions[0][1]["grelmicro.circuit_breaker.previous_state"] == str(
+        CircuitBreakerState.CLOSED
+    )
+    assert transitions[0][1]["grelmicro.circuit_breaker.state"] == str(
+        CircuitBreakerState.OPEN
+    )
 
     with pytest.raises(CircuitBreakerError):
         async with cb:
             pass
     calls = metrics_reader.points("grelmicro.circuit_breaker.calls")
-    assert any(attrs["result"] == "rejected" for _, attrs in calls)
+    assert any(attrs["grelmicro.outcome"] == "rejected" for _, attrs in calls)
 
 
-async def test_rate_limiter_emits_decisions(
+async def test_rate_limiter_emits_calls(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """Each acquire emits a decision (allowed or limited)."""
+    """Each acquire emits one call, admitted or rejected."""
     rl = RateLimiter.sliding_window(
         "api", limit=1, window=60, backend=MemoryRateLimiterAdapter()
     )
     await rl.acquire(key="user-1")
     await rl.acquire(key="user-1")
-    decisions = metrics_reader.points("grelmicro.rate_limiter.decisions")
-    seen = {attrs["decision"] for _, attrs in decisions}
-    assert "allowed" in seen
-    assert all(attrs["rate_limiter.name"] == "api" for _, attrs in decisions)
+    calls = metrics_reader.points("grelmicro.rate_limiter.calls")
+    seen = {attrs["grelmicro.outcome"] for _, attrs in calls}
+    assert seen == {"admitted", "rejected"}
+    assert all(
+        attrs["grelmicro.rate_limiter.name"] == "api" for _, attrs in calls
+    )
 
 
-async def test_bulkhead_emits_active_and_rejections(
+async def test_bulkhead_emits_active_and_calls(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """Admission moves the active gauge and a full bulkhead emits rejections."""
+    """Admission moves the active gauge and a full bulkhead counts a refusal."""
     bulkhead = Bulkhead("db", max_concurrent=1, max_wait=0)
     async with bulkhead:
         # A nested acquire on the only permit is rejected immediately.
@@ -147,8 +159,10 @@ async def test_bulkhead_emits_active_and_rejections(
                 pass
     active = metrics_reader.points("grelmicro.bulkhead.active")
     assert active[0][0] == 0  # net zero after exit
-    rejections = metrics_reader.points("grelmicro.bulkhead.rejections")
-    assert rejections[0][1] == {"bulkhead.name": "db"}
+    calls = metrics_reader.points("grelmicro.bulkhead.calls")
+    seen = {attrs["grelmicro.outcome"] for _, attrs in calls}
+    assert seen == {"admitted", "rejected"}
+    assert all(attrs["grelmicro.bulkhead.name"] == "db" for _, attrs in calls)
 
 
 async def test_timeout_emits_exceeded(
@@ -162,7 +176,7 @@ async def test_timeout_emits_exceeded(
         async with timeout:
             await asyncio.sleep(0.2)
     exceeded = metrics_reader.points("grelmicro.timeout.exceeded")
-    assert exceeded[0][1] == {"timeout.name": "slow"}
+    assert exceeded[0][1] == {"grelmicro.timeout.name": "slow"}
 
 
 async def test_timeout_no_emit_when_within_deadline(
@@ -205,7 +219,9 @@ async def test_shield_cache_write_emits_both_outcomes(
         await asyncio.sleep(0)
 
     points = metrics_reader.points("grelmicro.shield.cache_writes")
-    outcomes = {attrs["outcome"] for _, attrs in points}
+    outcomes = {attrs["grelmicro.outcome"] for _, attrs in points}
     assert outcomes == {"success", "error"}
-    errors = [attrs for _, attrs in points if attrs["outcome"] == "error"]
+    errors = [
+        attrs for _, attrs in points if attrs["grelmicro.outcome"] == "error"
+    ]
     assert errors[0]["error.type"] == "RuntimeError"

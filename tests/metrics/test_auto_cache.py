@@ -24,7 +24,7 @@ async def test_cache_emits_hit_and_miss(
     assert await cache.get("k") == b"v"  # hit
 
     ops = metrics_reader.points("grelmicro.cache.operations")
-    results = {attrs["result"] for _, attrs in ops}
+    results = {attrs["grelmicro.outcome"] for _, attrs in ops}
     assert results == {"hit", "miss"}
 
 
@@ -77,7 +77,9 @@ async def test_early_refresh_emits_both_outcomes(
         await asyncio.sleep(0.05)
 
     points = metrics_reader.points("grelmicro.cache.early_refreshes")
-    outcomes = {attrs["outcome"] for _, attrs in points}
+    outcomes = {attrs["grelmicro.outcome"] for _, attrs in points}
     assert outcomes == {"success", "error"}
-    errors = [attrs for _, attrs in points if attrs["outcome"] == "error"]
+    errors = [
+        attrs for _, attrs in points if attrs["grelmicro.outcome"] == "error"
+    ]
     assert errors[0]["error.type"] == "RuntimeError"

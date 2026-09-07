@@ -69,8 +69,8 @@ async def checkout(cart_id: str) -> None:
 
 `@measure` emits three metrics, named from the function or the `name` you pass:
 
-- `<name>.duration`: a histogram of seconds.
-- `<name>.calls`: a counter with an `outcome` attribute set to `success` or `error`. On failure an `error.type` attribute carries the exception class name.
+- `<name>.duration`: a histogram of seconds, carrying the same attributes as the call it timed.
+- `<name>.calls`: a counter with a `grelmicro.outcome` attribute set to `success` or `error`. On failure an `error.type` attribute carries the exception class name.
 - `<name>.active`: an up_down_counter that rises while the function runs and falls when it returns. Only when `record_in_flight=True`.
 
 Every metric is a no-op when no `Metrics` component is active, so a decorated function is safe to ship even when metrics are off.
@@ -122,39 +122,181 @@ probes:
 micro = Grelmicro(uses=[Metrics(exporter="prometheus"), OpsServer(port=8080)])
 ```
 
+## How every metric is named
+
+Two rules cover the whole library, so a name is predictable before you look
+it up.
+
+**A metric is `grelmicro.{component}.{what}`.** Where an OpenTelemetry
+semantic convention already covers the measurement, the convention wins
+instead: HTTP server metrics are `http.server.*`, not names of our own.
+
+**Every attribute grelmicro sets starts with `grelmicro.`**, except the
+ones the conventions already own, such as `error.type`. Two attributes
+appear everywhere:
+
+| Attribute | Meaning |
+|---|---|
+| `grelmicro.outcome` | What happened. One word, the same word on every metric, so one filter reads across all of them. |
+| `grelmicro.{namespace}.name` | Which instance. The namespace is the metric's own, so `grelmicro.task.runs` carries `grelmicro.task.name` and `grelmicro.health.check.up` carries `grelmicro.health.check.name`. |
+
+`grelmicro.outcome` sits at the root rather than under each component on
+purpose. It means the same thing everywhere, so a single query answers
+"what is failing anywhere in grelmicro":
+
+```promql
+sum by (__name__) (
+  rate({__name__=~"grelmicro_.+_total", grelmicro_outcome="error"}[5m])
+)
+```
+
+Anything else is `grelmicro.{namespace}.{key}`, such as
+`grelmicro.lock.mode` or `grelmicro.outbox.topic`.
+
+Prometheus renders the dots as underscores, so `grelmicro.task.name`
+becomes the label `grelmicro_task_name`.
+
 ## Built-in metrics
 
-When a `Metrics` component is active, grelmicro emits these metrics from its own components. All durations are histograms in seconds. All attributes are bounded: component names are fixed at construction, never per-call keys or ids.
+When a `Metrics` component is active, grelmicro emits these metrics from its
+own components. All durations are histograms in seconds. All attributes are
+bounded: component names are fixed at construction, never per-call keys or
+ids. Every metric below also carries `error.type` when it reports a failure
+that carried an exception, and never carries it on a success.
 
-| Metric                                  | Type            | Unit | Attributes                              |
-| --------------------------------------- | --------------- | ---- | --------------------------------------- |
-| `grelmicro.health.check.up`             | gauge           | 1    | `check.name`, `critical`                |
-| `grelmicro.health.check.duration`       | histogram       | s    | `check.name`, `outcome`                 |
-| `grelmicro.circuit_breaker.calls`       | counter         | 1    | `circuit_breaker.name`, `result`        |
-| `grelmicro.circuit_breaker.transitions` | counter         | 1    | `circuit_breaker.name`, `from`, `to`    |
-| `grelmicro.circuit_breaker.state`       | gauge           | 1    | `circuit_breaker.name`                  |
-| `grelmicro.retry.attempts`              | counter         | 1    | `retry.name`, `outcome`                 |
-| `grelmicro.retry.duration`              | histogram       | s    | `retry.name`                            |
-| `grelmicro.rate_limiter.decisions`      | counter         | 1    | `rate_limiter.name`, `decision`         |
-| `grelmicro.bulkhead.active`             | up_down_counter | 1    | `bulkhead.name`                         |
-| `grelmicro.bulkhead.rejections`         | counter         | 1    | `bulkhead.name`                         |
-| `grelmicro.timeout.exceeded`            | counter         | 1    | `timeout.name`                          |
-| `grelmicro.cache.operations`            | counter         | 1    | `result` (`hit` or `miss`)              |
-| `grelmicro.cache.stale_serves`          | counter         | 1    | none                                    |
-| `grelmicro.cache.early_refreshes`       | counter         | 1    | `outcome`, `error.type`                 |
-| `grelmicro.shield.cache_writes`         | counter         | 1    | `outcome`, `error.type`                 |
-| `grelmicro.task.runs`                   | counter         | 1    | `task.name`, `outcome`, `error.type`    |
-| `grelmicro.task.duration`               | histogram       | s    | `task.name`                             |
-| `grelmicro.task.active`                 | up_down_counter | 1    | `task.name`                             |
+### Tasks
 
-The `grelmicro.circuit_breaker.state` gauge maps states to codes: `CLOSED` is 0, `OPEN` is 1, `HALF_OPEN` is 2, `FORCED_OPEN` is 3, `FORCED_CLOSED` is 4.
+| Metric | Type | Attributes |
+|---|---|---|
+| `grelmicro.task.runs` | counter | `grelmicro.task.name`, `grelmicro.outcome` |
+| `grelmicro.task.duration` | histogram | `grelmicro.task.name`, `grelmicro.outcome` |
+| `grelmicro.task.active` | up_down_counter | `grelmicro.task.name` |
+| `grelmicro.task.schedule.delay` | histogram | `grelmicro.task.name` |
+| `grelmicro.task.next_run` | gauge | `grelmicro.task.name` |
+
+### Coordination
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `grelmicro.lock.attempts` | counter | `grelmicro.lock.name`, `grelmicro.lock.mode`, `grelmicro.outcome` |
+| `grelmicro.lock.renewals` | counter | `grelmicro.lock.name`, `grelmicro.lock.mode`, `grelmicro.outcome` |
+| `grelmicro.lock.holders` | up_down_counter | `grelmicro.lock.name`, `grelmicro.lock.mode` |
+| `grelmicro.leader_election.attempts` | counter | `grelmicro.leader_election.name`, `grelmicro.outcome` |
+| `grelmicro.leader_election.leading` | gauge | `grelmicro.leader_election.name` |
+
+### Resilience
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `grelmicro.circuit_breaker.calls` | counter | `grelmicro.circuit_breaker.name`, `grelmicro.outcome` |
+| `grelmicro.circuit_breaker.transitions` | counter | `grelmicro.circuit_breaker.name`, `grelmicro.circuit_breaker.previous_state`, `grelmicro.circuit_breaker.state` |
+| `grelmicro.circuit_breaker.state` | gauge | `grelmicro.circuit_breaker.name` |
+| `grelmicro.retry.attempts` | counter | `grelmicro.retry.name`, `grelmicro.outcome` |
+| `grelmicro.retry.duration` | histogram | `grelmicro.retry.name`, `grelmicro.outcome` |
+| `grelmicro.rate_limiter.calls` | counter | `grelmicro.rate_limiter.name`, `grelmicro.outcome` |
+| `grelmicro.bulkhead.calls` | counter | `grelmicro.bulkhead.name`, `grelmicro.outcome` |
+| `grelmicro.bulkhead.active` | up_down_counter | `grelmicro.bulkhead.name` |
+| `grelmicro.timeout.exceeded` | counter | `grelmicro.timeout.name` |
+| `grelmicro.shield.cache_writes` | counter | `grelmicro.shield.name`, `grelmicro.outcome` |
+
+### Cache, idempotency and outbox
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `grelmicro.cache.operations` | counter | `grelmicro.cache.name`, `grelmicro.outcome` |
+| `grelmicro.cache.stale_serves` | counter | `grelmicro.cache.name` |
+| `grelmicro.cache.early_refreshes` | counter | `grelmicro.cache.name`, `grelmicro.outcome` |
+| `grelmicro.idempotency.operations` | counter | `grelmicro.idempotency.name`, `grelmicro.outcome` |
+| `grelmicro.outbox.published` | counter | `grelmicro.outbox.topic` |
+| `grelmicro.outbox.delivered` | counter | `grelmicro.outbox.topic` |
+| `grelmicro.outbox.retried` | counter | `grelmicro.outbox.topic` |
+| `grelmicro.outbox.dead_lettered` | counter | `grelmicro.outbox.topic` |
+| `grelmicro.outbox.handler_duration` | histogram | `grelmicro.outbox.topic` |
+
+### Health
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `grelmicro.health.check.up` | gauge | `grelmicro.health.check.name`, `grelmicro.health.check.critical` |
+| `grelmicro.health.check.duration` | histogram | `grelmicro.health.check.name`, `grelmicro.outcome` |
+
+The `grelmicro.circuit_breaker.state` gauge maps states to codes: `CLOSED` is
+0, `OPEN` is 1, `HALF_OPEN` is 2, `FORCED_OPEN` is 3, `FORCED_CLOSED` is 4.
+
+### What `grelmicro.outcome` says
+
+The values are drawn from one vocabulary, so a word means the same thing
+wherever it appears.
+
+| Value | Where it appears | What it means |
+|---|---|---|
+| `success` | every metric that runs something | the work ran and returned |
+| `error` | every metric that runs something | the work raised, and `error.type` names the exception |
+| `admitted` | rate limiter, bulkhead | the call was let through |
+| `rejected` | rate limiter, bulkhead, circuit breaker | the call was refused before it ran |
+| `hit` / `miss` | cache | the read found an entry, or did not |
+| `execute` / `replay` | idempotency | the request ran, or the stored response was served |
+| `acquired` | locks, leader election | this worker took it |
+| `unavailable` | locks, leader election | another worker holds it, which is not an error |
+| `lost` | lock renewals | the lease was gone before the work finished |
+| `skipped` / `missed` / `coordination_error` | tasks | see the fire table below |
+
+Every admission primitive answers the same query, so the refusal rate of a
+rate limiter, a bulkhead and a circuit breaker are all read the same way:
+
+```promql
+sum by (__name__) (
+  rate({__name__=~"grelmicro_.+_total", grelmicro_outcome="rejected"}[5m])
+)
+```
+
+## Name your caches
+
+`TTLCache` carries a `name`, and it is what separates one cache's hit rate
+from another's. A cache built through the component inherits the
+component's name, so name each cache when an app builds more than one:
+
+```python
+sessions = micro.cache.ttl(name="sessions", ttl=60)
+reference = micro.cache.ttl(name="reference", ttl=3600)
+```
+
+The name is a metric label, not a configuration address: a `TTLCache`
+reads no environment variable, whatever it is called.
+
+## Watching a scheduled task
+
+Three metrics answer the three questions a scheduled task raises.
+
+**Is it running at all?** `grelmicro.task.next_run` is the instant of the
+next fire, as a Unix timestamp, so subtracting now gives the time left. A
+task whose next run has been in the past for longer than its period is a
+task that stopped:
+
+```promql
+time() - grelmicro_task_next_run_seconds > 300
+```
+
+**Is it running on time?** `grelmicro.task.schedule.delay` is the distance
+from the instant a fire was due to the instant the body started. It rises
+when a worker is saturated, and it is the whole replay age on a fire that
+came back after a restart.
+
+**Is it running everywhere it should?**
+`grelmicro.leader_election.leading` reads 1 on the leader and 0 on every
+standby, so a healthy fleet sums to exactly one. Two is a split brain and
+zero means nobody is running the leader-gated work:
+
+```promql
+sum by (grelmicro_leader_election_name) (grelmicro_leader_election_leading) != 1
+```
 
 ### Every fire lands on `grelmicro.task.runs`
 
 Every fire a worker evaluates is counted once, whatever happens to it.
-The `outcome` attribute says what:
+The `grelmicro.outcome` attribute says what:
 
-| `outcome` | What happened |
+| `grelmicro.outcome` | What happened |
 |---|---|
 | `success` | the body ran and returned |
 | `error` | the body raised, `error.type` names the exception |
@@ -169,7 +311,8 @@ own error rate stays at zero because the body never ran.
 Watch `missed` too. A fire dropped past its grace budget ran on no worker
 at all, which a `skipped` series cannot tell you.
 
-Filter on `outcome="success"` for "how often does my task actually run".
+Filter on `grelmicro.outcome="success"` for "how often does my task
+actually run".
 The bare total counts every fire each worker saw, so on a fleet of N
 workers sharing a lock it is roughly N times the number of fires.
 
@@ -177,6 +320,23 @@ The startup catch-up tick is silent when it finds nothing to replay, and
 so is the first sight of a schedule, which records a baseline once so
 that later fires can be told apart from fires that never happened.
 Neither is a fire the worker had to act on.
+
+## Watching a distributed lock
+
+A lock that stops working stops the work under it, quietly. Three signals
+tell the three failures apart.
+
+`grelmicro.lock.attempts` with `grelmicro.outcome="error"` means the
+backend is unreachable. Nothing is running anywhere, and the task's own
+error rate stays at zero because no body ever ran.
+
+The same counter with `unavailable` is contention, not failure. A blocking
+acquire polls, so one point per poll is the normal shape of a busy lock.
+
+`grelmicro.lock.renewals` with `lost` is the one to page on. The lease
+expired while the work under it was still running, so a second worker may
+already hold the lock and the at-most-once guarantee is gone. Raise
+`lease_duration` above the work's real duration.
 
 ## Background work always reports its failure
 
@@ -197,7 +357,7 @@ two counters above exist precisely for the cases with no caller to tell.
 schedules, not the `refresh()` method and not a cold-miss recompute, which
 both have a caller to raise into.
 
-Both counters carry `outcome` and, on a failure, `error.type`, so an
+Both counters carry `grelmicro.outcome` and, on a failure, `error.type`, so an
 error **rate** is derivable rather than only an absolute count. That
 follows the same shape as `grelmicro.task.runs`, and it is why success and
 failure share one counter instead of having their own.
@@ -208,7 +368,8 @@ coordination failure counts as `coordination_error` and a dropped fire as
 because its backend is down is never mistaken for a task with nothing to
 do.
 
-Watch the `outcome="error"` series on `grelmicro.cache.early_refreshes` and
+Watch the `grelmicro.outcome="error"` series on
+`grelmicro.cache.early_refreshes` and
 `grelmicro.shield.cache_writes`. Neither failure shows up in your latency
 or error rate, because neither has a caller to fail:
 

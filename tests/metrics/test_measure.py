@@ -44,7 +44,7 @@ def test_measure_sync_success(metrics_reader: MetricsHarness) -> None:
 
     assert work() == "done"
     calls = metrics_reader.points("task.calls")
-    assert calls[0][1] == {"outcome": "success"}
+    assert calls[0][1] == {"grelmicro.outcome": "success"}
     assert len(metrics_reader.points("task.duration")) == 1
 
 
@@ -58,7 +58,10 @@ def test_measure_sync_error(metrics_reader: MetricsHarness) -> None:
     with pytest.raises(ValueError):  # noqa: PT011
         boom()
     calls = metrics_reader.points("task.calls")
-    assert calls[0][1] == {"outcome": "error", "error.type": "ValueError"}
+    assert calls[0][1] == {
+        "grelmicro.outcome": "error",
+        "error.type": "ValueError",
+    }
     assert len(metrics_reader.points("task.duration")) == 1
 
 
@@ -70,7 +73,9 @@ async def test_measure_async_success(metrics_reader: MetricsHarness) -> None:
         return "ok"
 
     assert await work() == "ok"
-    assert metrics_reader.points("atask.calls")[0][1] == {"outcome": "success"}
+    assert metrics_reader.points("atask.calls")[0][1] == {
+        "grelmicro.outcome": "success"
+    }
     assert len(metrics_reader.points("atask.duration")) == 1
 
 
@@ -84,7 +89,7 @@ async def test_measure_async_error(metrics_reader: MetricsHarness) -> None:
     with pytest.raises(KeyError):
         await boom()
     assert metrics_reader.points("atask.calls")[0][1] == {
-        "outcome": "error",
+        "grelmicro.outcome": "error",
         "error.type": "KeyError",
     }
 

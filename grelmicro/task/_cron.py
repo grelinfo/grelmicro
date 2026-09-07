@@ -83,10 +83,13 @@ def _report_unrun_fire(
     `FireInfo` together, so the counter and `last_fire` cannot disagree
     about a fire. The caller assigns the return value to `_last_fire`.
     """
-    attributes: dict[str, Any] = {"task.name": name, "outcome": outcome}
+    attributes: dict[str, Any] = {
+        "grelmicro.task.name": name,
+        "grelmicro.outcome": outcome,
+    }
     if error is not None:
         attributes["error.type"] = type(error).__name__
-    _emit.incr("grelmicro.task.runs", **attributes)
+    _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
     return FireInfo(started_at=started_at, outcome=outcome, duration=0.0)
 
 
@@ -411,6 +414,9 @@ class CronTask(Task):
 
         self._next_fire_time: datetime | None = None
         self._last_fire: FireInfo | None = None
+        # Bound once: the task name never changes, so every emit that
+        # carries only the name reuses this mapping instead of building one.
+        self._metric_attrs: dict[str, Any] = {"grelmicro.task.name": self._name}
         # Whether the body started on the current tick. A failure raised
         # after it started is already counted by `_run_body`.
         self._body_started = False
@@ -533,6 +539,12 @@ class CronTask(Task):
                 now = _now(self._tz)
                 next_fire = self._expr.next_after(now)
                 self._next_fire_time = next_fire
+                _emit.observe(
+                    "grelmicro.task.next_run",
+                    next_fire.timestamp(),
+                    self._metric_attrs,
+                    unit="s",
+                )
                 delay = next_fire.timestamp() - now.timestamp()
                 if delay <= 0:
                     # The next match resolved to an instant already gone by,
@@ -606,7 +618,7 @@ class CronTask(Task):
             # Local mode: no durable state, so a past fire cannot be replayed.
             # Skip the startup catch-up and run the body for scheduled fires.
             if not catchup:
-                await self._run()
+                await self._run(due)
             return
 
         last = await backend.last_fired(self.name)
@@ -663,7 +675,7 @@ class CronTask(Task):
             )
             return
         try:
-            await self._run()
+            await self._run(due)
         except WouldBlockError:
             # The claim advanced the baseline, so no peer replays this
             # fire. A `sync` primitive that refuses to admit the body
@@ -675,40 +687,49 @@ class CronTask(Task):
                 self.name, now, FireOutcome.MISSED
             )
 
-    async def _run(self) -> None:
+    async def _run(self, due: float) -> None:
         """Run the body, optionally under the resource sync lock, with metrics."""
         if self._sync is not None:
             async with self._sync:
-                await self._run_body()
+                await self._run_body(due)
         else:
-            await self._run_body()
+            await self._run_body(due)
 
-    async def _run_body(self) -> None:
-        """Run the task body and emit metrics."""
+    async def _run_body(self, due: float) -> None:
+        """Run the task body and emit metrics.
+
+        `due` is the scheduled instant of this fire, as a Unix timestamp.
+        The distance from it to the moment the body starts is the schedule
+        delay, which is seconds of queueing on a healthy worker and the
+        full replay age on a fire that came back after a restart.
+        """
         self._body_started = True
         _emit.add_up_down(
-            "grelmicro.task.active", 1, **{"task.name": self.name}
+            "grelmicro.task.active", 1, self._metric_attrs, unit="{run}"
         )
         started_at = _now(self._tz)
+        _emit.record_duration(
+            "grelmicro.task.schedule.delay",
+            max(started_at.timestamp() - due, 0.0),
+            self._metric_attrs,
+        )
         start_monotonic = time.perf_counter()
         outcome = FireOutcome.ERROR
+        # Assumes failure until the body returns, so a fire cancelled
+        # mid-body records its duration as the error it was.
+        attributes: dict[str, Any] = {
+            "grelmicro.task.name": self._name,
+            "grelmicro.outcome": FireOutcome.ERROR,
+        }
         try:
             await self._async_function()
             outcome = FireOutcome.SUCCESS
-            _emit.incr(
-                "grelmicro.task.runs",
-                **{"task.name": self.name, "outcome": FireOutcome.SUCCESS},
-            )
+            attributes["grelmicro.outcome"] = FireOutcome.SUCCESS
+            _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
         except Exception as exc:
             logger.exception("Task execution error: %s", self.name)
-            _emit.incr(
-                "grelmicro.task.runs",
-                **{
-                    "task.name": self.name,
-                    "outcome": FireOutcome.ERROR,
-                    "error.type": type(exc).__name__,
-                },
-            )
+            attributes["error.type"] = type(exc).__name__
+            _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
         finally:
             duration = time.perf_counter() - start_monotonic
             self._last_fire = FireInfo(
@@ -717,12 +738,10 @@ class CronTask(Task):
                 duration=duration,
             )
             _emit.record_duration(
-                "grelmicro.task.duration",
-                duration,
-                **{"task.name": self.name},
+                "grelmicro.task.duration", duration, attributes
             )
             _emit.add_up_down(
-                "grelmicro.task.active", -1, **{"task.name": self.name}
+                "grelmicro.task.active", -1, self._metric_attrs, unit="{run}"
             )
 
     def _prepare_async_function(

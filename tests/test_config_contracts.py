@@ -66,18 +66,23 @@ def _resolve(module_name: str, class_name: str) -> Any:  # noqa: ANN401
     return getattr(importlib.import_module(module_name), class_name)
 
 
-def test_a_nameless_object_is_not_reconfigurable() -> None:
-    """R3: no name means no address, so nothing to reload against.
+def test_a_kindless_object_is_not_reconfigurable() -> None:
+    """R3: no kind segment means no address, so nothing to reload against.
 
     `TTLCache` is the example the rule is written around. It reads no
-    variable and has no live reload precisely because it has no name, and
-    the Settled table says to reopen the decision only if it gains one.
+    variable and has no live reload. Its `name` is the label on its
+    metrics, not an address: a cache is built per call site with a TTL the
+    code chose, so no `GREL_*` variable names it.
     """
     assert not issubclass(TTLCache, Reconfigurable), (
-        "TTLCache became Reconfigurable without gaining a name, so the "
-        "environment has no address for it (R3)"
+        "TTLCache became Reconfigurable without gaining a kind segment, so "
+        "the environment has no address for it (R3)"
     )
-    assert "name" not in inspect.signature(TTLCache.__init__).parameters
+    signature = inspect.signature(TTLCache.__init__).parameters
+    assert "env_load" not in signature, (
+        "TTLCache started reading the environment, which R3 says it has no "
+        "address for"
+    )
 
 
 def _declared_configs(cls: Any) -> list[Any]:  # noqa: ANN401

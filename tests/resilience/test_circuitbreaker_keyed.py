@@ -172,7 +172,9 @@ async def test_emitted_metrics_are_attributed_to_the_breaker(
     emitted: list[dict[str, object]] = []
     monkeypatch.setattr(
         "grelmicro.resilience.circuitbreaker._emit.incr",
-        lambda _name, **attributes: emitted.append(attributes),
+        lambda _name, attributes=None, **_kwargs: emitted.append(
+            attributes or {}
+        ),
     )
     cb = CircuitBreaker.consecutive_count("upstream")
 
@@ -180,7 +182,9 @@ async def test_emitted_metrics_are_attributed_to_the_breaker(
         pass
 
     assert emitted
-    assert all(a["circuit_breaker.name"] == "upstream" for a in emitted)
+    assert all(
+        a["grelmicro.circuit_breaker.name"] == "upstream" for a in emitted
+    )
 
 
 async def test_keyed_async_decorator() -> None:

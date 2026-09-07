@@ -465,6 +465,18 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         # Metrics are attributed to the breaker, never to a per-key
         # circuit, so a dynamic key set cannot multiply time series.
         self._metric_name = name
+        self._metric_attrs: dict[str, Any] = {
+            "grelmicro.circuit_breaker.name": name
+        }
+        # One mapping per outcome, bound once, so an admitted or refused
+        # call emits without building a dict.
+        self._call_attrs: dict[str, dict[str, Any]] = {
+            outcome: {
+                "grelmicro.circuit_breaker.name": name,
+                "grelmicro.outcome": outcome,
+            }
+            for outcome in ("success", "error", "rejected")
+        }
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         # Per-key circuits, most recently used last.
@@ -699,10 +711,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         if not await strategy.try_acquire():
             _emit.incr(
                 "grelmicro.circuit_breaker.calls",
-                **{
-                    "circuit_breaker.name": self._metric_name,
-                    "result": "rejected",
-                },
+                self._call_attrs["rejected"],
+                unit="{call}",
             )
             snapshot = await strategy.get_snapshot()
             self._apply_snapshot(snapshot)
@@ -749,7 +759,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             return None
         _emit.incr(
             "grelmicro.circuit_breaker.calls",
-            **{"circuit_breaker.name": self._metric_name, "result": result},
+            self._call_attrs[result],
+            unit="{call}",
         )
         self._apply_snapshot(snapshot)
         return None
@@ -764,16 +775,17 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         _emit.observe(
             "grelmicro.circuit_breaker.state",
             _STATE_CODE.get(new, -1),
-            **{"circuit_breaker.name": self._metric_name},
+            self._metric_attrs,
         )
         if previous != new:
             _emit.incr(
                 "grelmicro.circuit_breaker.transitions",
-                **{
-                    "circuit_breaker.name": self._metric_name,
-                    "from": str(previous),
-                    "to": str(new),
+                {
+                    "grelmicro.circuit_breaker.name": self._metric_name,
+                    "grelmicro.circuit_breaker.previous_state": str(previous),
+                    "grelmicro.circuit_breaker.state": str(new),
                 },
+                unit="{transition}",
             )
             self._log_transition(new, _derive_cause(previous, new))
 
@@ -944,6 +956,8 @@ class _KeyedCircuitBreaker(CircuitBreaker):
         # never multiplies time series. Logs carry `_name` instead and
         # keep the full identity.
         self._metric_name = breaker._metric_name  # noqa: SLF001
+        self._metric_attrs = breaker._metric_attrs  # noqa: SLF001
+        self._call_attrs = breaker._call_attrs  # noqa: SLF001
         self._config = breaker._config  # noqa: SLF001
         self._reconfigure_lock = breaker._reconfigure_lock  # noqa: SLF001
         self._backend = breaker._backend  # noqa: SLF001

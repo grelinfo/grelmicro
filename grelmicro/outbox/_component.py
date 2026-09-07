@@ -363,7 +363,11 @@ class Outbox:
         )
         staged = await self._backend.enqueue(handle, record)
         if staged:
-            _emit.incr("grelmicro.outbox.published", topic=topic)
+            _emit.incr(
+                "grelmicro.outbox.published",
+                {"grelmicro.outbox.topic": topic},
+                unit="{message}",
+            )
         return staged
 
     async def redrive(self, *, topic: str | None = None) -> int:

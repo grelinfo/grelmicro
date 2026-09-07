@@ -30,6 +30,14 @@ from grelmicro.coordination._base import (
     BaseLockConfig,
     assert_worker_unchanged,
 )
+from grelmicro.coordination._metrics import (
+    ACQUIRED,
+    ERROR,
+    LOST,
+    SUCCESS,
+    UNAVAILABLE,
+    LockMetrics,
+)
 from grelmicro.coordination._protocol import LockBackend, LockPrimitive, Seconds
 from grelmicro.coordination._tokens import (
     generate_task_token,
@@ -289,6 +297,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._lock_name = f"{self._LOCK_PREFIX}:{name}"
+        self._metrics = LockMetrics(name, "task")
         self._backend: LockBackend | None = (
             backend if not isinstance(backend, str) else None
         )
@@ -437,10 +446,15 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 duration=duration,
             )
         except Exception as exc:
+            self._metrics.attempt(ERROR)
             raise LockAcquireError(name=self._name) from exc
         acquired = fencing_token is not None
         if acquired:
             self._acquired_at = monotonic()
+            self._metrics.attempt(ACQUIRED)
+            self._metrics.hold(1)
+        else:
+            self._metrics.attempt(UNAVAILABLE)
         return acquired
 
     async def do_release(self, token: str) -> bool:
@@ -475,7 +489,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         try:
             # TaskLock does not surface the fencing token. A non-None result
             # means the lock was re-acquired.
-            return (
+            renewed = (
                 await backend.acquire(
                     name=self._lock_name,
                     token=token,
@@ -483,7 +497,10 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 )
             ) is not None
         except Exception as exc:
+            self._metrics.renewal(ERROR)
             raise LockReleaseError(name=self._name) from exc
+        self._metrics.renewal(SUCCESS if renewed else LOST)
+        return renewed
 
     async def do_thread_enter(self) -> None:
         """Acquire the lock from a worker thread.
@@ -540,6 +557,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         elapsed = monotonic() - self._acquired_at
         self._acquired_at = None
         self._token_nonce = generate_token_nonce()
+        self._metrics.hold(-1)
 
         if elapsed >= min_hold_duration:
             # Task took longer than min_hold_duration, release immediately

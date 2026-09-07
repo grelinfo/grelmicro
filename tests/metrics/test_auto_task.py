@@ -9,9 +9,12 @@ suppression that issue #605 removed.
 from __future__ import annotations
 
 import asyncio
+import time
 from asyncio import sleep
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Self
+
+import pytest
 
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
@@ -24,7 +27,6 @@ from tests.task.samples import BadLock, WouldBlockLock
 if TYPE_CHECKING:
     from types import TracebackType
 
-    import pytest
     from pytest_mock import MockFixture
 
     from tests.metrics.conftest import MetricsHarness
@@ -106,7 +108,7 @@ class _LosingSchedule(MemoryScheduleAdapter):
 def _outcomes(harness: MetricsHarness) -> dict[str, dict[str, Any]]:
     """Return the `grelmicro.task.runs` attributes keyed by outcome."""
     return {
-        attributes["outcome"]: attributes
+        attributes["grelmicro.outcome"]: attributes
         for _, attributes in harness.points("grelmicro.task.runs")
     }
 
@@ -122,9 +124,13 @@ async def test_task_emits_success(metrics_reader: MetricsHarness) -> None:
     await task._run_with_sync([])
 
     runs = metrics_reader.points("grelmicro.task.runs")
-    assert runs[0][1] == {"task.name": "cleanup", "outcome": "success"}
+    assert runs[0][1] == {
+        "grelmicro.task.name": "cleanup",
+        "grelmicro.outcome": "success",
+    }
     assert metrics_reader.points("grelmicro.task.duration")[0][1] == {
-        "task.name": "cleanup"
+        "grelmicro.task.name": "cleanup",
+        "grelmicro.outcome": "success",
     }
     assert metrics_reader.points("grelmicro.task.active")[0][0] == 0
 
@@ -136,8 +142,8 @@ async def test_task_emits_error(metrics_reader: MetricsHarness) -> None:
 
     runs = metrics_reader.points("grelmicro.task.runs")
     assert runs[0][1] == {
-        "task.name": "boom",
-        "outcome": "error",
+        "grelmicro.task.name": "boom",
+        "grelmicro.outcome": "error",
         "error.type": "ValueError",
     }
     assert metrics_reader.points("grelmicro.task.active")[0][0] == 0
@@ -167,8 +173,8 @@ async def test_interval_task_emits_coordination_error(
         cancel_group(tg)
 
     assert _outcomes(metrics_reader)["coordination_error"] == {
-        "task.name": "sync",
-        "outcome": "coordination_error",
+        "grelmicro.task.name": "sync",
+        "grelmicro.outcome": "coordination_error",
         "error.type": "ValueError",
     }
     assert task.last_fire is not None
@@ -189,8 +195,8 @@ async def test_interval_task_emits_skipped(
         cancel_group(tg)
 
     assert _outcomes(metrics_reader)["skipped"] == {
-        "task.name": "peer",
-        "outcome": "skipped",
+        "grelmicro.task.name": "peer",
+        "grelmicro.outcome": "skipped",
     }
 
 
@@ -246,8 +252,8 @@ async def test_cron_task_emits_coordination_error(
     await task._tick_guarded(catchup=False)
 
     assert _outcomes(metrics_reader)["coordination_error"] == {
-        "task.name": "down",
-        "outcome": "coordination_error",
+        "grelmicro.task.name": "down",
+        "grelmicro.outcome": "coordination_error",
         "error.type": "ConnectionError",
     }
     assert task.last_fire is not None
@@ -273,8 +279,8 @@ async def test_cron_task_emits_skipped_when_peer_claimed_first(
     await task._tick_guarded(catchup=False)
 
     assert _outcomes(metrics_reader)["skipped"] == {
-        "task.name": "late-read",
-        "outcome": "skipped",
+        "grelmicro.task.name": "late-read",
+        "grelmicro.outcome": "skipped",
     }
     assert task.last_fire is not None
     assert task.last_fire.outcome == "skipped"
@@ -299,8 +305,8 @@ async def test_cron_task_emits_skipped_when_peer_holds_the_lock(
     await task._tick_guarded(catchup=False)
 
     assert _outcomes(metrics_reader)["skipped"] == {
-        "task.name": "held",
-        "outcome": "skipped",
+        "grelmicro.task.name": "held",
+        "grelmicro.outcome": "skipped",
     }
     assert task.last_fire is not None
     assert task.last_fire.outcome == "skipped"
@@ -331,8 +337,8 @@ async def test_cron_task_emits_missed_when_claimed_but_not_admitted(
     await task._tick_guarded(catchup=False)
 
     assert _outcomes(metrics_reader)["missed"] == {
-        "task.name": "unadmitted",
-        "outcome": "missed",
+        "grelmicro.task.name": "unadmitted",
+        "grelmicro.outcome": "missed",
     }
     assert any(
         "claimed but not admitted" in record.message
@@ -355,8 +361,8 @@ async def test_cron_task_emits_skipped_when_claim_lost(
     await task._tick_guarded(catchup=False)
 
     assert _outcomes(metrics_reader)["skipped"] == {
-        "task.name": "lost",
-        "outcome": "skipped",
+        "grelmicro.task.name": "lost",
+        "grelmicro.outcome": "skipped",
     }
 
 
@@ -403,8 +409,8 @@ async def test_cron_task_emits_missed_when_too_late_to_replay(
     await task._tick_guarded(catchup=False)
 
     assert _outcomes(metrics_reader)["missed"] == {
-        "task.name": "dropped",
-        "outcome": "missed",
+        "grelmicro.task.name": "dropped",
+        "grelmicro.outcome": "missed",
     }
     assert task.last_fire is not None
     assert task.last_fire.outcome == "missed"
@@ -483,8 +489,95 @@ async def test_cron_task_missed_fire_counted_once_across_workers(
         await worker._tick_guarded(catchup=False)
 
     points = {
-        attributes["outcome"]: value
+        attributes["grelmicro.outcome"]: value
         for value, attributes in metrics_reader.points("grelmicro.task.runs")
     }
     assert points["missed"] == 1
     assert points["skipped"] == WORKERS - 1
+
+
+async def test_cron_task_records_the_schedule_delay(
+    metrics_reader: MetricsHarness, mocker: MockFixture
+) -> None:
+    """A fire that ran 30 seconds after it was due records those seconds.
+
+    The clock is pinned 30 seconds past the minute, so the fire due at
+    the whole minute starts 30 seconds late. That number is what tells a
+    saturated worker apart from a healthy one.
+    """
+    _pin_clock(mocker)
+    task = CronTask(expr=EVERY_MINUTE, function=_work, name="report")
+
+    await task._tick_guarded(catchup=False)
+
+    points = metrics_reader.points("grelmicro.task.schedule.delay")
+    value, attributes = points[0]
+    assert attributes == {"grelmicro.task.name": "report"}
+    assert value == pytest.approx(30, abs=1)
+
+
+async def test_cron_task_reports_the_next_run(
+    metrics_reader: MetricsHarness, mocker: MockFixture
+) -> None:
+    """The loop publishes the instant of the next fire, as a Unix timestamp.
+
+    A timestamp stays true between fires, so `next_run - now` is the time
+    left wherever it is read from.
+    """
+    _pin_clock(mocker)
+    task = CronTask(expr=EVERY_MINUTE, function=_work, name="report")
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        cancel_group(tg)
+
+    points = metrics_reader.points("grelmicro.task.next_run")
+    value, attributes = points[0]
+    assert attributes == {"grelmicro.task.name": "report"}
+    next_fire = task.next_fire_time
+    assert next_fire is not None
+    assert value == next_fire.timestamp()
+
+
+async def test_interval_task_records_no_delay_on_the_first_fire(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """Nothing was planned before the first iteration, so nothing is recorded."""
+    task = IntervalTask(seconds=1, function=_work, name="cleanup")
+
+    await task._run_with_sync([])
+
+    assert metrics_reader.points("grelmicro.task.schedule.delay") == []
+
+
+async def test_interval_task_records_the_delay_after_the_first_fire(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A second fire measures how far past the interval the body started."""
+    task = IntervalTask(seconds=0.01, function=_work, name="cleanup")
+    task._last_loop_start = time.monotonic() - 0.05
+
+    await task._run_with_sync([])
+
+    points = metrics_reader.points("grelmicro.task.schedule.delay")
+    value, attributes = points[0]
+    assert attributes == {"grelmicro.task.name": "cleanup"}
+    assert value == pytest.approx(0.04, abs=0.02)
+
+
+async def test_interval_task_reports_the_next_run(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """The loop publishes the instant of the next fire once one is planned."""
+    task = IntervalTask(seconds=60, function=_work, name="cleanup")
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        cancel_group(tg)
+
+    points = metrics_reader.points("grelmicro.task.next_run")
+    value, attributes = points[0]
+    assert attributes == {"grelmicro.task.name": "cleanup"}
+    assert value == pytest.approx(time.time() + 60, abs=5)

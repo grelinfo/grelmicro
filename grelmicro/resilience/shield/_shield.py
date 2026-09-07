@@ -280,6 +280,7 @@ async def _safe_cache_set(
     key: str,
     value: Any,  # noqa: ANN401
     report: Callable[[str, str], None],
+    attributes: dict[str, dict[str, Any]],
 ) -> None:
     """Write `value` to `cache` under `key`.
 
@@ -295,12 +296,16 @@ async def _safe_cache_set(
     except Exception as error:  # noqa: BLE001 - reported, never propagated
         _emit.incr(
             "grelmicro.shield.cache_writes",
-            outcome="error",
-            **{"error.type": type(error).__name__},
+            {**attributes["error"], "error.type": type(error).__name__},
+            unit="{write}",
         )
         report(key, type(error).__name__)
     else:
-        _emit.incr("grelmicro.shield.cache_writes", outcome="success")
+        _emit.incr(
+            "grelmicro.shield.cache_writes",
+            attributes["success"],
+            unit="{write}",
+        )
 
 
 class Shield(Reconfigurable[_BaseShieldConfig]):
@@ -424,6 +429,15 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         `from_config` path passes `register=False` and stays static.
         """
         self._name = name
+        # One mapping per outcome, bound once, so the cache write that
+        # rides along with every call emits without building a dict.
+        self._write_attrs: dict[str, dict[str, Any]] = {
+            outcome: {
+                "grelmicro.shield.name": name,
+                "grelmicro.outcome": outcome,
+            }
+            for outcome in ("success", "error")
+        }
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         if register:
@@ -765,7 +779,13 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             return
         key = self._compute_key(state, args, kwargs)
         task = asyncio.create_task(
-            _safe_cache_set(cache, key, value, self._report_cache_error)
+            _safe_cache_set(
+                cache,
+                key,
+                value,
+                self._report_cache_error,
+                self._write_attrs,
+            )
         )
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)

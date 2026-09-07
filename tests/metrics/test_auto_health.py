@@ -25,11 +25,14 @@ async def test_health_emits_up_and_duration(
 
     up = metrics_reader.points("grelmicro.health.check.up")
     assert up[0][0] == 1
-    assert up[0][1] == {"check.name": "redis", "critical": True}
+    assert up[0][1] == {
+        "grelmicro.health.check.name": "redis",
+        "grelmicro.health.check.critical": True,
+    }
 
     duration = metrics_reader.points("grelmicro.health.check.duration")
-    assert duration[0][1]["check.name"] == "redis"
-    assert duration[0][1]["outcome"] == "success"
+    assert duration[0][1]["grelmicro.health.check.name"] == "redis"
+    assert duration[0][1]["grelmicro.outcome"] == "success"
 
 
 async def test_health_emits_down_on_failure(
@@ -46,9 +49,12 @@ async def test_health_emits_down_on_failure(
 
     up = metrics_reader.points("grelmicro.health.check.up")
     assert up[0][0] == 0
-    assert up[0][1] == {"check.name": "db", "critical": False}
+    assert up[0][1] == {
+        "grelmicro.health.check.name": "db",
+        "grelmicro.health.check.critical": False,
+    }
     duration = metrics_reader.points("grelmicro.health.check.duration")
-    assert duration[0][1]["outcome"] == "error"
+    assert duration[0][1]["grelmicro.outcome"] == "error"
 
 
 async def test_health_metrics_noop_when_off() -> None:

@@ -707,6 +707,19 @@ def _due_for_early_refresh(
     return _xfetch_should_refresh(remaining, delta)
 
 
+def _refresh_attrs(
+    cache: TTLCache, error: BaseException | None
+) -> dict[str, Any]:
+    """Build the attributes for one `grelmicro.cache.early_refreshes` point."""
+    attributes: dict[str, Any] = {
+        "grelmicro.cache.name": cache.name,
+        "grelmicro.outcome": "success" if error is None else "error",
+    }
+    if error is not None:
+        attributes["error.type"] = type(error).__name__
+    return attributes
+
+
 # --- Stale-on-error helpers ---
 
 
@@ -718,7 +731,11 @@ async def _serve_stale_async(cache: TTLCache, key: str) -> tuple[bool, Any]:
     stale = await cache._read_stale(key, _SENTINEL)  # noqa: SLF001
     if stale is _SENTINEL:
         return False, None
-    _emit.incr("grelmicro.cache.stale_serves")
+    _emit.incr(
+        "grelmicro.cache.stale_serves",
+        cache._metric_attrs,  # noqa: SLF001
+        unit="{serve}",
+    )
     return True, stale
 
 
@@ -727,7 +744,11 @@ def _serve_stale_sync(cache: TTLCache, key: str, loop: Any) -> tuple[bool, Any]:
     stale = _run(cache._read_stale(key, _SENTINEL), loop)  # noqa: SLF001
     if stale is _SENTINEL:
         return False, None
-    _emit.incr("grelmicro.cache.stale_serves")
+    _emit.incr(
+        "grelmicro.cache.stale_serves",
+        cache._metric_attrs,  # noqa: SLF001
+        unit="{serve}",
+    )
     return True, stale
 
 
@@ -895,10 +916,14 @@ async def _maybe_refresh_async(  # noqa: PLR0913, PLR0917
     task = asyncio.create_task(refresh())
     refresh_tasks.add(task)
     task.add_done_callback(refresh_tasks.discard)
-    task.add_done_callback(functools.partial(_report_refresh_failure, key))
+    task.add_done_callback(
+        functools.partial(_report_refresh_failure, cache, key)
+    )
 
 
-def _report_refresh_failure(key: str, task: asyncio.Task[None]) -> None:
+def _report_refresh_failure(
+    cache: TTLCache, key: str, task: asyncio.Task[None]
+) -> None:
     """Surface a failed background refresh instead of discarding it.
 
     An early refresh runs with no caller to raise into. Left silent, a
@@ -909,12 +934,16 @@ def _report_refresh_failure(key: str, task: asyncio.Task[None]) -> None:
         return
     error = task.exception()
     if error is None:
-        _emit.incr("grelmicro.cache.early_refreshes", outcome="success")
+        _emit.incr(
+            "grelmicro.cache.early_refreshes",
+            _refresh_attrs(cache, None),
+            unit="{refresh}",
+        )
         return
     _emit.incr(
         "grelmicro.cache.early_refreshes",
-        outcome="error",
-        **{"error.type": type(error).__name__},
+        _refresh_attrs(cache, error),
+        unit="{refresh}",
     )
     logger.warning(
         "Cache early refresh failed for key %r, the entry will expire "
@@ -1369,8 +1398,8 @@ def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
         except Exception as error:
             _emit.incr(
                 "grelmicro.cache.early_refreshes",
-                outcome="error",
-                **{"error.type": type(error).__name__},
+                _refresh_attrs(cache, error),
+                unit="{refresh}",
             )
             logger.warning(
                 "Cache early refresh failed for key %r, the entry will "
@@ -1379,7 +1408,11 @@ def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
                 exc_info=True,
             )
         else:
-            _emit.incr("grelmicro.cache.early_refreshes", outcome="success")
+            _emit.incr(
+                "grelmicro.cache.early_refreshes",
+                _refresh_attrs(cache, None),
+                unit="{refresh}",
+            )
         finally:
             the_lock.release()
 

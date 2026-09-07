@@ -60,7 +60,7 @@ async def test_delivery_emits_metrics(metrics_reader: MetricsHarness) -> None:
     delivered = metrics_reader.points("grelmicro.outbox.delivered")
     duration = metrics_reader.points("grelmicro.outbox.handler_duration")
     assert published
-    assert published[0][1]["topic"] == "job"
+    assert published[0][1]["grelmicro.outbox.topic"] == "job"
     assert delivered
     assert delivered[0][0] == 1.0
     assert duration

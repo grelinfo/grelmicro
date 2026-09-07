@@ -432,22 +432,40 @@ def _sync_iter(
         delay_before = strategy.delay(number)
 
 
-def _emit_retry(name: str, *, started_at: float, outcome: str) -> None:
+def _emit_retry(
+    name: str,
+    *,
+    started_at: float,
+    outcome: str,
+    attempts: int,
+    error: BaseException | None = None,
+) -> None:
     """Emit retry attempts and duration metrics for one run.
 
-    `grelmicro.retry.attempts` counts each run with a bounded ``outcome``
-    (``success`` or ``error``) and the policy ``retry.name``.
-    `grelmicro.retry.duration` records the total run time in seconds. Both
-    are no-ops when no `Metrics` component is active.
+    `grelmicro.retry.attempts` counts every attempt the run made, so
+    dividing it by the run count gives the retry amplification.
+    `grelmicro.retry.duration` records the total run time in seconds, and
+    its count is the number of runs. Both carry the policy name, the
+    run's ``grelmicro.outcome`` (``success`` or ``error``), and
+    ``error.type`` when the run ended on an exception. Both are no-ops
+    when no `Metrics` component is active.
     """
+    attributes: dict[str, Any] = {
+        "grelmicro.retry.name": name,
+        "grelmicro.outcome": outcome,
+    }
+    if error is not None:
+        attributes["error.type"] = type(error).__name__
     _emit.incr(
         "grelmicro.retry.attempts",
-        **{"retry.name": name, "outcome": outcome},
+        attributes,
+        amount=attempts,
+        unit="{attempt}",
     )
     _emit.record_duration(
         "grelmicro.retry.duration",
         clock_monotonic() - started_at,
-        **{"retry.name": name},
+        attributes,
     )
 
 
@@ -491,19 +509,35 @@ async def _run_async(
                         f"after {number} attempt(s) in {elapsed:.2f}s "
                         f"({backoff_name} backoff)"
                     )
-                _emit_retry(name, started_at=started_at, outcome="error")
+                _emit_retry(
+                    name,
+                    started_at=started_at,
+                    outcome="error",
+                    attempts=number,
+                    error=exc,
+                )
                 raise
             delay = strategy.delay(number)
             continue
         if not matcher(Outcome.from_result(result)):
-            _emit_retry(name, started_at=started_at, outcome="success")
+            _emit_retry(
+                name,
+                started_at=started_at,
+                outcome="success",
+                attempts=number,
+            )
             return result
         last_result = result
         if number >= config.attempts or (
             config.max_seconds is not None
             and clock_monotonic() - started_at >= config.max_seconds
         ):
-            _emit_retry(name, started_at=started_at, outcome="error")
+            _emit_retry(
+                name,
+                started_at=started_at,
+                outcome="error",
+                attempts=number,
+            )
             return last_result
         delay = strategy.delay(number)
     return last_result  # pragma: no cover  # unreachable
@@ -549,19 +583,35 @@ def _run_sync(
                         f"after {number} attempt(s) in {elapsed:.2f}s "
                         f"({backoff_name} backoff)"
                     )
-                _emit_retry(name, started_at=started_at, outcome="error")
+                _emit_retry(
+                    name,
+                    started_at=started_at,
+                    outcome="error",
+                    attempts=number,
+                    error=exc,
+                )
                 raise
             delay = strategy.delay(number)
             continue
         if not matcher(Outcome.from_result(result)):
-            _emit_retry(name, started_at=started_at, outcome="success")
+            _emit_retry(
+                name,
+                started_at=started_at,
+                outcome="success",
+                attempts=number,
+            )
             return result
         last_result = result
         if number >= config.attempts or (
             config.max_seconds is not None
             and clock_monotonic() - started_at >= config.max_seconds
         ):
-            _emit_retry(name, started_at=started_at, outcome="error")
+            _emit_retry(
+                name,
+                started_at=started_at,
+                outcome="error",
+                attempts=number,
+            )
             return last_result
         delay = strategy.delay(number)
     return last_result  # pragma: no cover  # unreachable

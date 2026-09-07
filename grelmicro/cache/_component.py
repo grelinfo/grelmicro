@@ -128,6 +128,7 @@ class Cache:
         *,
         ttl: float = 60,
         maxsize: int = 0,
+        name: str | None = None,
         serializer: CacheSerializer[T] | type[T] | None = None,
     ) -> TTLCache[T]:
         """Construct a `TTLCache` bound to this component's backend.
@@ -138,12 +139,17 @@ class Cache:
         Args:
             ttl: Default TTL in seconds for cached entries.
             maxsize: Maximum local cache entries (`0` means unlimited).
+            name: The cache name, carried by every metric it emits.
+                Defaults to this component's registration name. Name each
+                cache when an app builds more than one, so a hit rate can
+                be read per cache.
             serializer: Serialization strategy, or a type to serialize with
                 `PydanticSerializer`. Defaults to raw bytes.
         """
         return TTLCache(
             maxsize=maxsize,
             ttl=ttl,
+            name=name if name is not None else self._name,
             backend=self._backend,
             serializer=serializer,
         )
