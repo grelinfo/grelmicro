@@ -318,18 +318,44 @@ def names_route(
     answered by its template alone, which is all there is to compare.
     """
     if pattern.endswith(_PREFIX):
-        under = pattern[: -len(_PREFIX)]
-        if template.startswith(under) or template == under.rstrip("/"):
-            return True
-        # The prefix may cut into a segment a parameter stands for:
-        # `/products/ho*` selects `/products/hot`, which the template
-        # `/products/{pid}` answers and does not itself start with. The
-        # regex is asked with one character standing in for the rest,
-        # because a prefix names URLs rather than one URL.
-        return regex is not None and bool(regex.fullmatch(f"{under}x"))
+        return _prefix_names(pattern[: -len(_PREFIX)], template)
     if template == pattern:
         return True
     return regex is not None and bool(regex.fullmatch(pattern))
+
+
+def _prefix_names(under: str, template: str) -> bool:
+    """Return whether any URL under `under` is one this template answers.
+
+    Compared segment by segment rather than by asking the compiled regex
+    about a made-up URL. A prefix names a set of URLs, and no single
+    string stands for that set: one built by appending a character
+    answers only for a remainder one segment long, and one built from
+    the prefix alone answers only for the shortest member.
+
+    A parameter stands for whatever the prefix put in its place, so
+    `/users/me/*` names `/users/{uid}/settings`. The last segment of the
+    prefix may cut into a segment of the template, because a prefix is
+    matched against the URL rather than against a boundary, so
+    `/products/co*` names `/products/cold`.
+    """
+    parts = under.rstrip("/").split("/")
+    declared = template.split("/")
+    if len(parts) > len(declared):
+        # Only a converter that spans separators reaches past the
+        # segments the template declares, `{rest:path}` and nothing else.
+        return declared[-1].startswith("{") and ":path}" in declared[-1]
+    for index, part in enumerate(parts):
+        against = declared[index]
+        if against.startswith("{"):
+            continue
+        if index == len(parts) - 1:
+            # The prefix may stop inside this one.
+            if not against.startswith(part):
+                return False
+        elif against != part:
+            return False
+    return True
 
 
 def selects(

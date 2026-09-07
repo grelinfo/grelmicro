@@ -11,7 +11,9 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
+from starlette.routing import compile_path
 
+from grelmicro._paths import matches, names_route
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
     CachedResponses,
@@ -107,3 +109,94 @@ def test_a_tuple_of_patterns_is_taken_as_it_is() -> None:
     """The shape that was always meant still works, list or tuple."""
     assert AccessLog(exclude=("/internal/*",))
     assert AccessLogMiddleware(app, exclude=cast("Any", ["/internal/*"]))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "template", "url"),
+    [
+        pytest.param(
+            "/users/me/*",
+            "/users/{uid}/settings",
+            "/users/me/settings",
+            id="prefix-past-a-parameter",
+        ),
+        pytest.param(
+            "/users/me/*", "/users/{uid}", "/users/me", id="prefix-is-the-path"
+        ),
+        pytest.param(
+            "/products/ho*",
+            "/products/{pid}",
+            "/products/hot",
+            id="prefix-cuts-into-a-parameter",
+        ),
+        pytest.param(
+            "/products/co*",
+            "/products/cold",
+            "/products/cold",
+            id="prefix-cuts-into-a-literal",
+        ),
+        pytest.param(
+            "/products/*",
+            "/products/{pid}",
+            "/products/x",
+            id="prefix-names-the-router",
+        ),
+        pytest.param(
+            "/orders/*", "/users/{uid}", "/orders/1", id="another-router"
+        ),
+        pytest.param(
+            "/rest/*", "/rest/{rest:path}", "/rest/a/b", id="a-path-converter"
+        ),
+        pytest.param(
+            "/rest/a/b/*",
+            "/rest/{rest:path}",
+            "/rest/a/b/c",
+            id="past-a-path-converter",
+        ),
+        pytest.param(
+            "/users/*", "/products/{pid}", "/users/x", id="names-nothing"
+        ),
+        pytest.param(
+            # Diverges before the last segment, so the walk stops there
+            # rather than at the segment the prefix cuts into.
+            "/api/v2/x*",
+            "/api/v1/{pid}",
+            "/api/v2/xy",
+            id="diverges-early",
+        ),
+        pytest.param(
+            "/users/me", "/users/{uid}", "/users/me", id="exact-names-a-url"
+        ),
+        pytest.param(
+            "/products", "/products", "/products", id="exact-literal-route"
+        ),
+        pytest.param(
+            # Written as the route was declared, which selects only a
+            # request for that literal path. A client sends a URL, not a
+            # template, so this is a mistake the check should surface.
+            "/users/{uid}",
+            "/users/{uid}",
+            "/users/{uid}",
+            id="exact-is-the-template",
+        ),
+    ],
+)
+def test_names_route_agrees_with_what_runs(
+    pattern: str, template: str, url: str
+) -> None:
+    """Every spelling, because a guard written for one leaves the rest open.
+
+    `names_route` decides whether the response cache refuses a pattern
+    naming a gated read, and whether the endpoint table reports one, so
+    it has to answer exactly what the middleware answers at request
+    time: does this pattern select a request this route serves.
+    """
+    # Arrange
+    regex, _, _ = compile_path(template)
+
+    # Act
+    named = names_route(pattern, template, regex)
+    runs = matches(url, (pattern,)) and bool(regex.fullmatch(url))
+
+    # Assert
+    assert named is runs
