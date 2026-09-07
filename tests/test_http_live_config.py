@@ -7,6 +7,7 @@ being rebuilt, a request answers from one configuration throughout, and
 nothing a file says can start caching what the static path would refuse.
 """
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -22,6 +23,12 @@ from starlette.testclient import TestClient
 
 from grelmicro import Grelmicro
 from grelmicro._config import _is_container
+from grelmicro._describe import (
+    _compiled,
+    _declared_paths,
+    _Endpoint,
+    _reach,
+)
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.config import ExternalConfig
@@ -99,6 +106,19 @@ grel:
     http:
       ttl: 3600
 """
+
+
+class _Capture(logging.Handler):
+    """Keep every record written, for a test asserting one was not."""
+
+    def __init__(self) -> None:
+        """Start with nothing captured."""
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Keep the record rather than writing it anywhere."""
+        self.records.append(record)
 
 
 async def _nothing(scope: object, receive: object, send: object) -> None:
@@ -1463,3 +1483,131 @@ def test_a_route_with_no_method_still_counts_as_declared() -> None:
     # Assert
     assert not [c for c in report.checks if c.name == "path-patterns"]
     assert report.endpoints == ()
+
+
+def test_a_rule_reaching_part_of_a_route_says_so() -> None:
+    """A route template stands for many URLs, and a pattern may name one.
+
+    `"/users/me"` selects one of the requests `GET /users/{uid}` answers
+    and not the others. Saying the rule applies to the endpoint would
+    overstate it, and saying it does not would be wrong, so the row says
+    it reaches some of it. The pattern check reads the same way, or one
+    report would say two contradictory things.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            ErrorResponses(),
+            AccessLog(exclude=("/users/me",)),
+            IdempotentRequests(include=("/users/me/pay",)),
+        ]
+    )
+
+    @app.post("/users/{uid}/pay")
+    async def pay(uid: str) -> dict[str, str]:
+        return {"uid": uid}
+
+    @app.get("/users/{uid}")
+    async def user(uid: str) -> dict[str, str]:
+        return {"uid": uid}
+
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+    rows = {(row.method, row.path): row.applies for row in report.endpoints}
+
+    # Assert
+    assert rows[("GET", "/users/{uid}")] == ("access-log (some paths)",)
+    assert rows[("POST", "/users/{uid}/pay")] == (
+        "access-log",
+        "idempotent 86400s (some paths)",
+    )
+    assert not [c for c in report.checks if c.name == "path-patterns"]
+
+
+def test_describe_reads_a_route_no_compiler_here_understands() -> None:
+    """A report answers questions, so it comes back with what it could read.
+
+    Starlette owns the path compiler and is not a dependency of
+    grelmicro, and another framework spells a converter its own way. A
+    template neither can read stands for itself.
+    """
+
+    # Arrange
+    class Route:
+        path = "/orders/{placed:date}"
+
+    class App:
+        routes = (Route(),)
+
+    # Act
+    declared = _declared_paths(App())
+
+    # Assert
+    assert declared == [("/orders/{placed:date}", None)]
+
+
+async def test_a_steady_config_map_does_not_warn_every_poll(
+    tmp_path: Path,
+) -> None:
+    """A file that mirrors what startup set has changed nothing.
+
+    The warning names a field an operator is trying to move. Judging the
+    string before decoding it made every container field look changed,
+    and every field of this component is one an operator cannot move, so
+    a quiet deployment would have said so on every poll.
+    """
+    # Arrange
+    # Its own name, so no other instance of the kind shares the prefix
+    # and legitimately differs from what this file says.
+    component = IdempotentRequests(name="steady", exclude=("/livez",))
+    path = tmp_path / "config.env"
+    path.write_text('GREL_IDEMPOTENT_REQUESTS_STEADY_EXCLUDE=["/livez"]\n')
+    logger = logging.getLogger("grelmicro")
+    handler = _Capture()
+
+    # Act
+    logger.addHandler(handler)
+    try:
+        async with ExternalConfig(str(path), reload_interval=60):
+            pass
+    finally:
+        logger.removeHandler(handler)
+    records = handler.records
+
+    # Assert
+    assert component.config.exclude == ("/livez",)
+    assert not [
+        r for r in records if "only applies at startup" in r.getMessage()
+    ]
+
+
+def test_a_route_with_no_regex_reaches_no_pattern() -> None:
+    """A template no compiler read stands for itself and nothing more.
+
+    Without a regex there is no way to ask whether a pattern names one
+    of the URLs it serves, so it does not, and the row says only what
+    the template itself answers.
+    """
+    # Arrange
+    endpoint = _Endpoint(
+        method="GET",
+        path="/orders/{placed:date}",
+        route=None,
+        contexts=(),
+        regex=None,
+    )
+
+    # Act / Assert
+    assert _reach(endpoint, ("/orders/2026-01-01",), ()) is None
+    assert _reach(endpoint, ("/orders/{placed:date}",), ()) == ""
+
+
+def test_no_compiler_leaves_every_template_standing_for_itself() -> None:
+    """Starlette owns the compiler and grelmicro does not depend on it."""
+    # Arrange
+    # Act / Assert
+    assert _compiled(None, "/orders") is None

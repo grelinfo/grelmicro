@@ -820,7 +820,14 @@ def resolve_config_from_mapping[C: BaseModel](
             continue
         field = key[prefix_len:].lower()
         if field in immutable_fields:
-            _warn_immutable_skipped(current, env_prefix, field, value)
+            _warn_immutable_skipped(
+                current,
+                env_prefix,
+                field,
+                _decode_external(fields[field].annotation, value)
+                if field in fields
+                else value,
+            )
             continue
         if field in fields:
             overrides[field] = value
@@ -936,7 +943,7 @@ def _warn_immutable_skipped(
     current: BaseModel,
     env_prefix: str,
     field: str,
-    value: str,
+    value: object,
 ) -> None:
     """Report an attempt to live-change a field that only applies at startup.
 

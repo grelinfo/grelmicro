@@ -86,6 +86,11 @@ Endpoints
 One line per endpoint, read from the routes the app declares and the
 components registered beside them. It is computed, so it cannot drift.
 
+A route template stands for many URLs, and a pattern may name one of them.
+`exclude=("/users/me",)` on an app declaring `GET /users/{uid}` reads as
+`access-log (some paths)`: it reaches that endpoint for one of the requests
+it answers and not the others.
+
 A pattern gets no row of its own, because rows come from routes. One that
 matches no route at all is reported beside the table instead, as a check: a
 mistyped pattern turns a rule off without saying so, and nothing matching is

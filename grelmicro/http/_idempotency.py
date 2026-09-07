@@ -279,8 +279,10 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
     """Idempotent Requests Config.
 
     The window a key replays for lives on the `Idempotency` this rides,
-    under `GREL_IDEMPOTENCY_TTL`, because that is the object that stores
-    the response.
+    because that is the object that stores the response. It is named
+    after the namespace, so the address is
+    `GREL_IDEMPOTENCY_{NAMESPACE}_TTL`, `GREL_IDEMPOTENCY_HTTP_TTL` by
+    default.
     """
 
     key_header: Annotated[
@@ -1154,9 +1156,10 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         ttl: Annotated[
             float | None,
             Doc(
-                "Seconds a stored response replays for. Defaults to a day. "
-                "Held by the `Idempotency` this rides, so it is tuned live "
-                "under `GREL_IDEMPOTENCY_TTL`."
+                "Seconds a stored response replays for. Defaults to a "
+                "day. Held by the `Idempotency` this rides, which is named "
+                "after the namespace, so it is tuned live under "
+                "`GREL_IDEMPOTENCY_HTTP_TTL`."
             ),
         ] = None,
         namespace: Annotated[

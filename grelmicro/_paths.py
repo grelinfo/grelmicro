@@ -52,11 +52,18 @@ it.
 """
 
 BARE_METHOD_MESSAGE = f"a set of HTTP methods is expected, {_WHY_NOT_A_STRING}"
-BARE_NAME_MESSAGE = f"a set of names is expected, {_WHY_NOT_A_STRING}"
 """Why a bare string is refused where a set of methods is expected.
 
 `methods="POST"` reads as `("P", "O", "S", "T")`, none of which is a
 method, so the middleware would act on nothing at all.
+"""
+
+BARE_NAME_MESSAGE = f"a set of names is expected, {_WHY_NOT_A_STRING}"
+"""Why a bare string is refused where a set of names is expected.
+
+`vary_by_headers="accept-language"` reads one character at a time, and
+nothing about a path describes it: there is no prefix to match and no
+`*` to warn about.
 """
 
 

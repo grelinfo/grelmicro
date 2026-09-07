@@ -12,12 +12,12 @@ binding in `Grelmicro.check_ambient_binding`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from typing_extensions import Doc
 
 from grelmicro._environment import unmet_requirements
-from grelmicro._paths import matches, selects, walk_routes
+from grelmicro._paths import matches, walk_routes
 from grelmicro._redact import redact_url
 
 if TYPE_CHECKING:
@@ -347,6 +347,48 @@ class _Endpoint:
     path: str
     route: Any
     contexts: tuple[Any, ...]
+    regex: Any = None
+
+
+SOME_PATHS = " (some paths)"
+"""What a rule reaching part of one route reads as.
+
+A pattern is matched against the URL a request asks for, and a route
+template stands for many. `"/users/me"` selects one of the requests
+`GET /users/{uid}` answers and not the others, so saying the rule
+applies to the endpoint would overstate it and saying it does not would
+be wrong. It applies to some of it.
+"""
+
+
+def _reach(
+    endpoint: _Endpoint, include: tuple[str, ...], exclude: tuple[str, ...]
+) -> str | None:
+    """Return how far a component reaches into this endpoint.
+
+    `""` for all of it, `SOME_PATHS` for part, `None` for none. The
+    template answers a pattern written the way the route was, and the
+    regex answers one written as a URL the route serves, which is what
+    the middleware matches against.
+    """
+    if matches(endpoint.path, exclude):
+        return None
+    if _under(endpoint, exclude):
+        return SOME_PATHS
+    if not include or matches(endpoint.path, include):
+        return ""
+    return SOME_PATHS if _under(endpoint, include) else None
+
+
+def _under(endpoint: _Endpoint, patterns: tuple[str, ...]) -> bool:
+    """Return whether a pattern names one concrete path of this route."""
+    regex = endpoint.regex
+    if regex is None:
+        return False
+    return any(
+        not pattern.endswith("*") and regex.fullmatch(pattern)
+        for pattern in patterns
+    )
 
 
 def _endpoint_rules(
@@ -375,11 +417,9 @@ def _endpoint_rules(
     return rules
 
 
-def _selected(config: Any, path: str) -> bool:  # noqa: ANN401
-    """Return whether a component acting on paths acts on this one."""
-    return selects(
-        path, include=tuple(config.include), exclude=tuple(config.exclude)
-    )
+def _selected(config: Any, endpoint: _Endpoint) -> str | None:  # noqa: ANN401
+    """Return how far a component acting on paths reaches this endpoint."""
+    return _reach(endpoint, tuple(config.include), tuple(config.exclude))
 
 
 def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
@@ -417,14 +457,16 @@ def _reads_conditional(component: Any) -> Callable[[_Endpoint], str | None]:  # 
 
     def read(endpoint: _Endpoint) -> str | None:
         config = component.config
-        if not _selected(config, endpoint.path):
+        reach = _selected(config, endpoint)
+        if reach is None:
             return None
         required = {name.upper() for name in config.require_precondition}
-        return (
+        applied = (
             "conditional required"
             if endpoint.method in required
             else "conditional"
         )
+        return f"{applied}{reach}"
 
     return read
 
@@ -435,11 +477,11 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
     def read(endpoint: _Endpoint) -> str | None:
         config = component.config
         methods = {name.upper() for name in config.methods}
-        if endpoint.method not in methods or not _selected(
-            config, endpoint.path
-        ):
+        reach = _selected(config, endpoint)
+        if endpoint.method not in methods or reach is None:
             return None
-        return f"idempotent {component.idempotency.config.ttl:g}s"
+        window = component.idempotency.config.ttl
+        return f"idempotent {window:g}s{reach}"
 
     return read
 
@@ -449,10 +491,11 @@ def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  #
 
     def read(endpoint: _Endpoint) -> str | None:
         config = component.config
-        if not _selected(config, endpoint.path):
+        reach = _selected(config, endpoint)
+        if reach is None:
             return None
         named = ", ".join(limiter.name for limiter in component.limiters)
-        return f"rate-limit {named}"
+        return f"rate-limit {named}{reach}"
 
     return read
 
@@ -462,10 +505,12 @@ def _reads_access_log(component: Any) -> Callable[[_Endpoint], str | None]:  # n
 
     def read(endpoint: _Endpoint) -> str | None:
         config = component.config
-        if not _selected(config, endpoint.path):
+        reach = _selected(config, endpoint)
+        if reach is None:
             return None
         quiet = matches(endpoint.path, tuple(config.quiet))
-        return "access-log quiet" if quiet else "access-log"
+        applied = "access-log quiet" if quiet else "access-log"
+        return f"{applied}{reach}"
 
     return read
 
@@ -498,6 +543,7 @@ def _describe_endpoints(
     rules = _endpoint_rules(list(micro.components))
     if not rules:
         return ()
+    compiled = dict(_declared_paths(app))
     found: list[EndpointReport] = []
     for prefix, route, contexts in walk_routes(app):
         path = f"{prefix}{getattr(route, 'path', '')}"
@@ -505,7 +551,11 @@ def _describe_endpoints(
             if method == "HEAD":
                 continue
             endpoint = _Endpoint(
-                method=method, path=path, route=route, contexts=contexts
+                method=method,
+                path=path,
+                route=route,
+                contexts=contexts,
+                regex=compiled.get(path),
             )
             found.append(
                 EndpointReport(
@@ -521,24 +571,51 @@ def _describe_endpoints(
     return tuple(sorted(found, key=lambda row: (row.path, row.method)))
 
 
-def _declared_paths(app: object) -> list[tuple[str, Pattern[str]]]:
+def _declared_paths(app: object) -> list[tuple[str, Pattern[str] | None]]:
     """Return every route the app declares, as its template and its regex.
 
     The template answers a pattern written the way the route was, and
     the regex answers one written as a URL the route serves.
-    """
-    from starlette.routing import compile_path  # noqa: PLC0415
 
-    found: list[tuple[str, Pattern[str]]] = []
+    A template no compiler here understands contributes its template and
+    no regex. Starlette owns the compiler and is not a dependency of
+    grelmicro, and a framework that is not Starlette spells a converter
+    its own way, so a report on a Litestar app must come back with what
+    it could read rather than not come back at all.
+    """
+    try:
+        from starlette.routing import compile_path  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - starlette is in the test env
+        compile_path = None  # type: ignore[assignment]
+    found: list[tuple[str, Pattern[str] | None]] = []
     for prefix, route, _ in walk_routes(app):
         template = f"{prefix}{getattr(route, 'path', '')}"
-        regex, _, _ = compile_path(template)
-        found.append((template, regex))
+        found.append((template, _compiled(compile_path, template)))
     return found
 
 
+def _compiled(
+    compile_path: Any,  # noqa: ANN401
+    template: str,
+) -> Pattern[str] | None:
+    """Return the regex this template matches with, or `None` for neither.
+
+    Every failure is the same answer: the template stands for itself and
+    nothing is read into it. A converter another framework declares is
+    an `AssertionError` here rather than an exception of its own, which
+    is why this catches broadly.
+    """
+    if compile_path is None:
+        return None
+    try:
+        regex, _, _ = compile_path(template)
+    except Exception:  # noqa: BLE001
+        return None
+    return cast("Pattern[str]", regex)
+
+
 def _names_a_route(
-    pattern: str, declared: list[tuple[str, Pattern[str]]]
+    pattern: str, declared: list[tuple[str, Pattern[str] | None]]
 ) -> bool:
     """Return whether any declared route could be selected by `pattern`.
 
@@ -554,7 +631,7 @@ def _names_a_route(
             for template, _ in declared
         )
     return any(
-        template == pattern or regex.fullmatch(pattern)
+        template == pattern or (regex is not None and regex.fullmatch(pattern))
         for template, regex in declared
     )
 
