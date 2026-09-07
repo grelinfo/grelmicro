@@ -11,6 +11,8 @@ from grelmicro.metrics import measure
 from grelmicro.metrics._measure import _default_name
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from tests.metrics.conftest import MetricsHarness
 
 
@@ -162,11 +164,12 @@ async def _sample(prefix: str, value: int) -> str:
 
 
 def test_a_callable_object_keeps_the_module_of_its_class() -> None:
-    """A callable instance is namespaced, so two of them cannot collide.
+    """A callable instance keeps the module of its class.
 
     An instance carries no `__module__` of its own, but attribute lookup
     falls back to its class, which does. The module is part of the name
-    for a callable object exactly as it is for a function.
+    for a callable object exactly as it is for a function, so two types
+    of the same name in different modules stay apart.
     """
     name = _default_name(_Fetcher())
 
@@ -178,3 +181,19 @@ class _Fetcher:
 
     async def __call__(self) -> None:
         """Do nothing."""
+
+
+def test_two_nested_classes_of_one_name_stay_apart() -> None:
+    """The type's qualified name is what disambiguates them.
+
+    The module cannot: both are defined in this one. Taking the bare
+    `__name__` would merge their two metrics into one.
+    """
+
+    def factory() -> Callable[[], Awaitable[None]]:
+        class _Fetcher:
+            async def __call__(self) -> None: ...
+
+        return _Fetcher()
+
+    assert _default_name(factory()) != _default_name(_Fetcher())

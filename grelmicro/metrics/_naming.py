@@ -27,14 +27,15 @@ def unwrap_callable(func: Any) -> Any:  # noqa: ANN401
 def callable_name(func: Any) -> str:  # noqa: ANN401
     """Return a stable, bounded name for `func`.
 
-    Falls back to the type name rather than `repr()` for a callable
-    object, because a `repr` carries a memory address and every restart
-    would open a new time series.
+    Falls back to the type's qualified name rather than `repr()` for a
+    callable object, because a `repr` carries a memory address and every
+    restart would open a new time series. The type's *qualified* name,
+    so two classes of the same name in one module stay apart.
     """
     target = unwrap_callable(func)
     name = getattr(target, "__qualname__", None) or getattr(
         target, "__name__", None
     )
     if name is None:
-        name = type(target).__name__
+        name = type(target).__qualname__
     return name.replace(".<locals>", "")

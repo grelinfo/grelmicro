@@ -324,7 +324,9 @@ def _private_cache(
     """Build the process-local cache `ttl=` asks for.
 
     It is named after the function it serves, so one decorated function's
-    hit rate is readable next to another's.
+    hit rate is readable next to another's. Two partials of one function
+    are two caches under one name, because the name comes from the
+    function behind the partial. Pass a `TTLCache` to tell them apart.
     """
     return TTLCache(
         maxsize=maxsize,

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import functools
+from typing import Any
+
 import pytest
 
 from grelmicro.resilience import shield
+from grelmicro.resilience.shield._shield import Shield
 
 
 class _SignalError(Exception):
@@ -102,3 +106,32 @@ async def test_named_decorator_keeps_user_name() -> None:
         await fn()
     notes = exc_info.value.__notes__
     assert any("api profile" in note for note in notes)
+
+
+def test_a_partial_is_named_after_the_function_it_wraps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shield name is a metric attribute and an environment prefix.
+
+    A `repr` of a `functools.partial` carries a memory address, so the
+    name changed on every restart. That made the metric attribute
+    unbounded and the `GREL_SHIELD_*` prefix impossible to bind, since
+    an operator cannot write a variable whose name they cannot predict.
+    """
+    seen: list[str] = []
+    original = Shield.api
+
+    def spy(name: str, **kwargs: Any) -> Shield:  # noqa: ANN401
+        seen.append(name)
+        return original(name, **kwargs)
+
+    monkeypatch.setattr(Shield, "api", spy)
+
+    shield(functools.partial(_sample, "p"))
+
+    assert seen == ["_sample"]
+
+
+async def _sample(prefix: str, value: int) -> str:
+    """Module-level sample for the shield naming test."""
+    return f"{prefix}{value}"

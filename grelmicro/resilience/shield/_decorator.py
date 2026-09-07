@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
 from grelmicro._wrapping import refuse_registered
+from grelmicro.metrics._naming import callable_name
 from grelmicro.resilience.shield._shield import Shield
 
 if TYPE_CHECKING:
@@ -60,7 +61,7 @@ def _build_profile_decorator(
 
         def wrap(fn: _AsyncFn) -> _AsyncFn:
             refuse_registered(fn, f"@shield.{profile}")
-            shield_name = name or getattr(fn, "__qualname__", None) or repr(fn)
+            shield_name = name or callable_name(fn)
             factory_method = getattr(Shield, profile)
             instance: Shield = factory_method(
                 shield_name,
@@ -89,8 +90,7 @@ class _ShieldDecorator:
     def __call__(self, fn: _AsyncFn) -> _AsyncFn:
         """Wrap `fn` with the `api` profile and default `timeout_errors`."""
         refuse_registered(fn, "@shield")
-        name = getattr(fn, "__qualname__", None) or repr(fn)
-        instance = Shield.api(name)
+        instance = Shield.api(callable_name(fn))
         wrapped = instance(fn)
         return functools.wraps(fn)(wrapped)
 
