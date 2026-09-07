@@ -91,10 +91,11 @@ A route template stands for many URLs, and a pattern may name one of them.
 `access-log (some paths)`: it reaches that endpoint for one of the requests
 it answers and not the others.
 
-A pattern gets no row of its own, because rows come from routes. One that
-matches no route at all is reported beside the table instead, as a check: a
-mistyped pattern turns a rule off without saying so, and nothing matching is
-the only trace it leaves.
+A pattern gets no row of its own, because rows come from routes. An
+`include` pattern that matches no route at all is reported beside the table
+instead, as a check: a mistyped one turns a rule off without saying so, and
+nothing matching is the only trace it leaves. An `exclude` is not checked,
+because carving out a path this app does not serve is usually deliberate.
 
 `micro.describe(app).endpoints` returns the same thing as data.
 

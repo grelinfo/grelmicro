@@ -14,7 +14,7 @@ from typing import Annotated, Any, cast
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Security, WebSocket
-from fastapi.security import APIKeyHeader
+from fastapi.security import APIKeyHeader, HTTPBearer
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -1446,7 +1446,7 @@ def test_a_concrete_path_under_a_parameterized_route_is_not_dead() -> None:
         uses=[
             Cache(MemoryCacheAdapter()),
             ErrorResponses(),
-            AccessLog(exclude=("/users/me", "/typoo")),
+            AccessLog(include=("/users/me", "/typoo")),
             CachedResponses(include={"/products/hot": 300, "/nope/*": 60}),
         ]
     )
@@ -1473,6 +1473,31 @@ def test_a_concrete_path_under_a_parameterized_route_is_not_dead() -> None:
         "access_log/default names /typoo, which no route matches",
         "cached_responses/default names /nope/*, which no route matches",
     ]
+
+
+def test_an_exclude_naming_no_route_is_not_a_mistake() -> None:
+    """A path carved out that this app does not serve is usually deliberate.
+
+    The probe paths a service names are answered by `OpsServer` on a
+    port of its own, and a router may be mounted after this ran. The
+    pattern that silently does nothing is the one that turns a rule
+    *on*, so only `include` is checked.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(uses=[AccessLog(exclude=("/livez", "/readyz"))])
+
+    @app.get("/products")
+    async def products() -> list[str]:
+        return []
+
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+
+    # Assert
+    assert not [c for c in report.checks if c.name == "path-patterns"]
 
 
 def test_a_route_with_no_method_still_counts_as_declared() -> None:
@@ -1895,3 +1920,71 @@ def test_a_pattern_written_for_a_write_is_refused() -> None:
     with pytest.raises(TypeError, match=r"'/payments'.*answers POST"):
         build(("/payments", "/refunds"))
     build(("/payments/*",))
+
+
+def test_exclude_carves_a_gated_read_out_of_a_prefix() -> None:
+    """`exclude` wins over `include` here as it does everywhere else.
+
+    A prefix names a router, and a router may hold one gated read among
+    its open ones. Refusing the whole app for it, with no way to keep
+    the rest, would make the tuple form unusable on any authenticated
+    service.
+    """
+
+    # Arrange
+    def build(**kwargs: Any) -> _Policies:  # noqa: ANN401
+        app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+        micro = Grelmicro(
+            uses=[
+                Cache(MemoryCacheAdapter()),
+                ErrorResponses(),
+                CachedResponses(**kwargs),
+            ]
+        )
+
+        @app.get("/api/public")
+        async def public() -> dict[str, str]:
+            return {}
+
+        @app.get("/api/private", dependencies=[Depends(HTTPBearer())])
+        async def private() -> dict[str, str]:
+            return {}
+
+        micro.install(app)
+        return _cached_responses(micro)._live.state.policies
+
+    # Act
+    policies = build(include=("/api/*",), exclude=("/api/private",))
+
+    # Assert: the open read is kept, the gated one is not.
+    assert policies.pattern_ttl("/api/public", DEFAULT_TTL) == DEFAULT_TTL
+    assert policies.pattern_ttl("/api/private", DEFAULT_TTL) is None
+    # And without the carve-out it is still refused where it is written.
+    with pytest.raises(TypeError, match="gated by HTTPBearer"):
+        build(include=("/api/*",))
+
+
+def test_a_prefix_cutting_into_a_parameter_names_the_route() -> None:
+    """A prefix names URLs, and a template stands for the URLs it serves.
+
+    `/products/ho*` selects `/products/hot`, which `GET /products/{pid}`
+    answers and does not itself start with. Reading the template alone
+    called a working pattern dead and reported the endpoint as fully
+    reached when it is reached in part.
+    """
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(uses=[AccessLog(exclude=("/products/ho",))])
+
+    @app.get("/products/{pid}")
+    async def product(pid: str) -> dict[str, str]:
+        return {"pid": pid}
+
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+
+    # Assert
+    assert report.endpoints[0].applies == ("access-log (some paths)",)
+    assert not [c for c in report.checks if c.name == "path-patterns"]

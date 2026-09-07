@@ -648,25 +648,17 @@ def _compiled(
     return cast("Pattern[str]", regex)
 
 
-def _names_a_route(
+def _names_any(
     pattern: str, declared: list[tuple[str, Pattern[str] | None]]
 ) -> bool:
     """Return whether any declared route could be selected by `pattern`.
 
-    A prefix pattern needs a route sitting under it, which the template
-    answers. An exact one needs a route it names, which the template
-    answers when it was written the same way and the regex answers when
-    it was written as a URL.
+    One question, one answer: the same `names_route` the response cache
+    refuses a gated read with, so the check and the refusal can never
+    read a pattern differently.
     """
-    if pattern.endswith("*"):
-        under = pattern[:-1]
-        return any(
-            template.startswith(under) or template == under.rstrip("/")
-            for template, _ in declared
-        )
     return any(
-        template == pattern or (regex is not None and regex.fullmatch(pattern))
-        for template, regex in declared
+        names_route(pattern, template, regex) for template, regex in declared
     )
 
 
@@ -700,11 +692,14 @@ def _pattern_checks(
             continue
         component: Any = entry
         config = component.config
-        patterns = (*config.include, *config.exclude)
+        # `include` only. An `exclude` that matches nothing is usually
+        # deliberate: the probe paths a service names are served by
+        # `OpsServer` on a port of its own, and a router may be mounted
+        # after this ran. A pattern that turns a rule *on* and matches
+        # nothing is the one that silently does nothing.
+        patterns = tuple(config.include)
         missing = sorted(
-            pattern
-            for pattern in patterns
-            if not _names_a_route(pattern, declared)
+            pattern for pattern in patterns if not _names_any(pattern, declared)
         )
         if missing:
             found.append(

@@ -319,7 +319,14 @@ def names_route(
     """
     if pattern.endswith(_PREFIX):
         under = pattern[: -len(_PREFIX)]
-        return template.startswith(under) or template == under.rstrip("/")
+        if template.startswith(under) or template == under.rstrip("/"):
+            return True
+        # The prefix may cut into a segment a parameter stands for:
+        # `/products/ho*` selects `/products/hot`, which the template
+        # `/products/{pid}` answers and does not itself start with. The
+        # regex is asked with one character standing in for the rest,
+        # because a prefix names URLs rather than one URL.
+        return regex is not None and bool(regex.fullmatch(f"{under}x"))
     if template == pattern:
         return True
     return regex is not None and bool(regex.fullmatch(pattern))

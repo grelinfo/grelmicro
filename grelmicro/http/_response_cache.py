@@ -274,7 +274,14 @@ class _Policies:
     when the app starts, so a route added after `install` counts too.
     """
 
-    __slots__ = ("_app", "_include", "_refused", "_routes")
+    __slots__ = (
+        "_app",
+        "_exclude",
+        "_include",
+        "_refused",
+        "_refused_paths",
+        "_routes",
+    )
 
     def __init__(
         self,
@@ -285,6 +292,10 @@ class _Policies:
                 "component's own TTL, and a mapping gives each its own."
             ),
         ],
+        exclude: Annotated[
+            tuple[str, ...],
+            Doc("The paths carved out again, whatever `include` says."),
+        ] = (),
     ) -> None:
         """Hold the path rules, with no routes read yet.
 
@@ -316,8 +327,10 @@ class _Policies:
                 key=lambda item: (item[0].endswith("*"), -len(item[0])),
             )
         )
+        self._exclude = exclude
         self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
         self._refused: tuple[Pattern[str], ...] = ()
+        self._refused_paths: frozenset[str] = frozenset()
         self._app: Any = None
 
     def _is_refused(self, path: str) -> bool:
@@ -327,7 +340,9 @@ class _Policies:
         before the app is routed, so caching either one answers over the
         gate or hands back what was never a read.
         """
-        return any(regex.fullmatch(path) for regex in self._refused)
+        return path in self._refused_paths or any(
+            regex.fullmatch(path) for regex in self._refused
+        )
 
     def read(
         self,
@@ -340,10 +355,20 @@ class _Policies:
         """
         self._app = app
         found, refused = _marked_routes(
-            app, tuple(pattern for pattern, _ in self._include)
+            app,
+            tuple(pattern for pattern, _ in self._include),
+            self._exclude,
         )
         self._routes = tuple(found)
-        self._refused = tuple(refused)
+        # A route declared with no parameter answers one path, so it is
+        # a set lookup. Only a template standing for many needs its
+        # regex asked, and an app has few of those beside its literals.
+        self._refused_paths = frozenset(
+            template for template, _ in refused if "{" not in template
+        )
+        self._refused = tuple(
+            regex for template, regex in refused if "{" in template
+        )
 
     def reread(self) -> None:
         """Read the app again, for the routes added since install."""
@@ -361,17 +386,24 @@ class _Policies:
         route, which a report walking the app has in hand and a request
         does not.
 
-        A path the app refuses to have cached is answered `None` before
-        any pattern is read. The refusal is checked where the answer is
-        given rather than only where a pattern is written, because a
-        pattern names a URL and a route stands for many, so no reading
-        of the patterns alone can be trusted to have seen them all.
+        A path the app refuses to have cached is answered `None`. The
+        refusal is checked where the answer is given rather than only
+        where a pattern is written, because a pattern names a URL and a
+        route stands for many, so no reading of the patterns alone can
+        be trusted to have seen them all.
+
+        It is checked last, once a pattern would otherwise have said
+        yes. The refused set holds every gated read the app declares,
+        which on an authenticated API is most of them, and a request
+        that no pattern names is not about to be cached anyway.
         """
-        if self._is_refused(path):
-            return None
         for pattern, ttl in self._include:
             if matches(path, (pattern,)):
-                return default if ttl is None else ttl
+                return (
+                    None
+                    if self._is_refused(path)
+                    else (default if ttl is None else ttl)
+                )
         return None
 
     def ttl_for(
@@ -383,12 +415,17 @@ class _Policies:
 
         A route that declared one says more than a pattern naming it, so
         `include=` fills in for the routes that declared none.
+
+        The refusal is asked only once something would otherwise be
+        kept, so a request nothing names costs no scan of it.
         """
-        if self._is_refused(path):
-            return None
         for regex, marked in self._routes:
             if regex.fullmatch(path):
-                return default if marked is None else marked
+                return (
+                    None
+                    if self._is_refused(path)
+                    else (default if marked is None else marked)
+                )
         return self.pattern_ttl(path, default)
 
 
@@ -434,7 +471,10 @@ def declared_ttl(
 def _marked_routes(
     app: Any,  # noqa: ANN401
     named: tuple[str, ...] = (),
-) -> tuple[list[tuple[Pattern[str], float | None]], list[Pattern[str]]]:
+    excluded: tuple[str, ...] = (),
+) -> tuple[
+    list[tuple[Pattern[str], float | None]], list[tuple[str, Pattern[str]]]
+]:
     """Return the routes that declared a TTL, and the ones refused.
 
     The second list is every route a cache must not answer for, whether
@@ -456,7 +496,7 @@ def _marked_routes(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
-    refused: list[Pattern[str]] = []
+    refused: list[tuple[str, Pattern[str]]] = []
     answered: list[tuple[str, Pattern[str], frozenset[str]]] = []
     for prefix, route, contexts in walk_routes(app):
         above = _declaring_above(contexts)
@@ -470,6 +510,12 @@ def _marked_routes(
         # URL matches no template at all, and reading the template alone
         # would let it put a gated read in the cache.
         is_named, named_exactly = _named_by(named, declared, compiled)
+        if is_named and _named_by(excluded, declared, compiled)[0]:
+            # Carved out again, so no pattern is asking for this one.
+            # `exclude` wins over `include` everywhere else, and a
+            # refusal that ignored it would leave a prefix naming one
+            # gated read with no way to keep the rest.
+            is_named = named_exactly = False
         refusal = _unreadable(route, contexts, declared)
         if _gated_read(route, contexts):
             # Kept whether a pattern named it or not, so the answer at
@@ -477,7 +523,7 @@ def _marked_routes(
             # gated read: a write is already passed through by the
             # method guard, and one route's method must not speak for
             # another declared on the same path.
-            refused.append(compiled)
+            refused.append((declared, compiled))
         if named_exactly:
             answered.append((declared, compiled, _methods_of(route)))
         if ttl is _UNMARKED:
@@ -1024,7 +1070,9 @@ class CachedResponsesMiddleware:
                     ),
                     policies
                     if policies is not None
-                    else _Policies(include or {}),
+                    else _Policies(
+                        include or {}, as_patterns(exclude, name="exclude")
+                    ),
                 )
             )
         )
@@ -1859,7 +1907,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             else TTLCache(ttl=config.ttl, serializer=JsonSerializer())
         )
         self._tag = f"grelmicro:{namespace}:{name}"
-        self._policies = _Policies(config.include)
+        self._policies = _Policies(config.include, config.exclude)
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._live: Live[_State] = Live(_state_of(config, self._policies))
@@ -1875,7 +1923,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         has to be refused here too: a mounted file must not be able to
         start caching what the static path would not.
         """
-        policies = _Policies(new_config.include)
+        policies = _Policies(new_config.include, new_config.exclude)
         app = self._policies._app  # noqa: SLF001
         if app is not None:
             policies.read(app)
