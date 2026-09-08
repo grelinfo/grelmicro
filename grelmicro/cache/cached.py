@@ -56,6 +56,7 @@ from grelmicro.cache.ttl import (
 from grelmicro.coordination.lock import Lock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
+from grelmicro.metrics._naming import callable_name
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
 # ``decorator`` would inherit ``cached``'s type parameters instead
@@ -323,13 +324,14 @@ def _private_cache(
     """Build the process-local cache `ttl=` asks for.
 
     It is named after the function it serves, so one decorated function's
-    hit rate is readable next to another's.
+    hit rate is readable next to another's. Two partials of one function
+    are two caches under one name, because the name comes from the
+    function behind the partial. Pass a `TTLCache` to tell them apart.
     """
-    qualname = getattr(func, "__qualname__", None) or repr(func)
     return TTLCache(
         maxsize=maxsize,
         ttl=ttl,
-        name=qualname.replace(".<locals>", ""),
+        name=callable_name(func),
         backend=_PrivateMemoryCacheAdapter(),
         serializer=PickleSerializer(),
     )

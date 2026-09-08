@@ -12,6 +12,7 @@ mutants diverge.
 from __future__ import annotations
 
 import asyncio
+import functools
 import sys
 import threading
 from collections import OrderedDict
@@ -742,3 +743,24 @@ async def test_a_reused_decorator_gives_each_function_its_own_cache() -> None:
 
     # One shared cache would have dropped the second function's entry too.
     assert calls == {"first": 2, "second": 1}
+
+
+async def test_a_private_cache_is_never_named_after_an_address() -> None:
+    """The cache label a `@cached(ttl=...)` builds is stable across restarts.
+
+    A `functools.partial` carries no name, and its `repr` holds the
+    memory address of the function it wraps. Labelling a cache with it
+    would open a new time series every time the process restarts.
+    """
+    bound = functools.partial(_prefixed, "p")
+
+    wrapper = cached(ttl=30, key="{value}")(bound)
+
+    cache = _private_cache(wrapper)
+    assert cache.name == "_prefixed"
+    assert "0x" not in cache.name
+
+
+async def _prefixed(prefix: str, value: int) -> str:
+    """Module-level sample for the private-cache naming test."""
+    return f"{prefix}{value}"

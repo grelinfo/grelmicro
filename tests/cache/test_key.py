@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 
 from grelmicro.cache._key import make_cache_key
@@ -74,3 +75,22 @@ def test_typed_distinguishes_kwarg_value_types() -> None:
     as_int = make_cache_key(_func, (), {"n": 3}, typed=True)
     as_float = make_cache_key(_func, (), {"n": 3.0}, typed=True)
     assert as_int != as_float
+
+
+def test_a_partial_keys_on_the_function_it_wraps() -> None:
+    """A cache key never carries a memory address.
+
+    A `repr` of a `functools.partial` holds the address of the function
+    it wraps, so an entry written under it would be unreachable after a
+    restart and from every other replica: a permanent miss and a
+    keyspace that only grows.
+    """
+    key = make_cache_key(functools.partial(_sample, "p"), (1,), {})
+
+    assert "0x" not in key
+    assert key.startswith(f"{__name__}._sample:")
+
+
+async def _sample(prefix: str, value: int) -> str:
+    """Module-level sample for the key naming test."""
+    return f"{prefix}{value}"

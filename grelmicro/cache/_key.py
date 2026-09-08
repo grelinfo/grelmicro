@@ -6,6 +6,8 @@ from typing import Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro.metrics._naming import callable_name, unwrap_callable
+
 
 def make_cache_key(
     func: Annotated[
@@ -52,16 +54,17 @@ def make_cache_key(
     e.g. ``3`` and ``3.0`` produce different keys.
 
     Note:
-        Keys rely on ``repr()`` which is deterministic within a single
-        process but may vary across Python versions or for objects
-        whose ``__repr__`` includes memory addresses.
+        Keys never use ``repr()`` for the function they identify. A
+        ``repr`` carries the memory address of a callable that has no
+        name of its own, which would make every entry unreachable after
+        a restart and from every other replica.
 
     Returns:
         A deterministic cache key string.
     """
-    module = getattr(func, "__module__", "")
-    qualname = getattr(func, "__qualname__", repr(func))
-    prefix = f"{module}.{qualname}"
+    target = unwrap_callable(func)
+    module = getattr(target, "__module__", "")
+    prefix = f"{module}.{callable_name(target)}"
     raw = repr((args, sorted(kwargs.items())))
     if typed:
         arg_types = tuple(type(a) for a in args)
