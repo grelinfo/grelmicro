@@ -50,7 +50,7 @@ def _freeze_memory_datetime(
 ) -> None:
     """Pin `datetime.now(UTC)` inside the memory module to `now`."""
 
-    class _FixedDatetime(datetime):
+    class _FixedDatetime:
         @classmethod
         def now(cls, tz: object = None) -> datetime:  # noqa: ARG003
             return now
