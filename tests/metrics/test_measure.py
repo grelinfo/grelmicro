@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,10 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from tests.metrics.conftest import MetricsHarness
+
+
+SLEEP = 0.02
+"""Long enough that a timed body reads apart from an untimed one."""
 
 
 def test_default_name_drops_locals() -> None:
@@ -257,3 +262,35 @@ def test_an_explicit_name_the_sdk_refuses_does_not_raise(
 
     assert charge() == 1
     assert metrics_reader.points("orders/sec.calls")
+
+
+async def test_measuring_an_async_callable_object_times_the_body(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """The duration covers the body, and a failure reads as one.
+
+    The sync wrapper timed the construction of the coroutine, which is
+    immediate, and recorded `success` before the body had run. A body
+    that then raised was never counted as an error.
+    """
+
+    class Slow:
+        async def __call__(self) -> str:
+            await asyncio.sleep(SLEEP)
+            return "ok"
+
+    class Boom:
+        async def __call__(self) -> str:
+            msg = "boom"
+            raise ValueError(msg)
+
+    slow, boom = Slow(), Boom()
+    assert await measure(slow)() == "ok"
+    with pytest.raises(ValueError, match="boom"):
+        await measure(boom)()
+
+    duration = metrics_reader.points(f"{_default_name(slow)}.duration")
+    assert duration[0][0] >= SLEEP
+    calls = metrics_reader.points(f"{_default_name(boom)}.calls")
+    assert calls[0][1]["grelmicro.outcome"] == "error"
+    assert calls[0][1]["error.type"] == "ValueError"

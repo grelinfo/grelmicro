@@ -32,6 +32,7 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._async import (
+    is_async_callable,
     on_backend_loop,
     raise_backend_not_open,
     raise_event_loop_deadlock,
@@ -593,7 +594,7 @@ def cached(  # noqa: PLR0913, C901
             )
             raise TypeError(msg)
         is_async_gen_func = inspect.isasyncgenfunction(func)
-        is_async_func = inspect.iscoroutinefunction(func) or is_async_gen_func
+        is_async_func = is_async_callable(func) or is_async_gen_func
         if is_private_cache and not is_async_func:
             msg = (
                 "@cached(ttl=...) supports async functions only: the "

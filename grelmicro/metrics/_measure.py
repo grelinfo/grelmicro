@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import functools
-import inspect
 import time
 from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar, overload
 
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics import _emit
 from grelmicro.metrics._naming import (
@@ -162,7 +162,7 @@ def measure[**P, R](
         base = name or _default_name(fn)
         m = _Instruments(base, in_flight=record_in_flight)
 
-        if inspect.iscoroutinefunction(fn):
+        if is_async_callable(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:

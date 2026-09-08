@@ -11,7 +11,6 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from inspect import iscoroutinefunction
 from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Any, Self, overload
 
@@ -19,6 +18,7 @@ from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
 from grelmicro._async import (
+    is_async_callable,
     on_backend_loop,
     raise_backend_not_open,
     raise_event_loop_deadlock,
@@ -545,7 +545,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
 
     def _wrap(self, func: Callable[..., Any]) -> Callable[..., Any]:
         """Wrap `func` without the guard, for composing inside a `Stack`."""
-        if iscoroutinefunction(func):
+        if is_async_callable(func):
 
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
