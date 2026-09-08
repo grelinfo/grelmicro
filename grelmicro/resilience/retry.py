@@ -8,7 +8,6 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from importlib import import_module
-from inspect import iscoroutinefunction
 from logging import getLogger
 from typing import (
     TYPE_CHECKING,
@@ -33,6 +32,7 @@ from pydantic import (
 )
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
@@ -872,7 +872,7 @@ class Retry(Reconfigurable[RetryConfig]):
 
     def _wrap(self, fn: Callable[..., Any], /) -> Callable[..., Any]:
         """Wrap `fn` without the guard, for composing inside a `Stack`."""
-        if iscoroutinefunction(fn):
+        if is_async_callable(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -916,7 +916,7 @@ def _decorator(
 
     def wrap(fn: F) -> F:
         refuse_registered(fn, "@retry")
-        if iscoroutinefunction(fn):
+        if is_async_callable(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401

@@ -196,8 +196,10 @@ def _as_coroutine_function[**P, R](
 ) -> Callable[P, Awaitable[R]]:
     """Return `fn` as a coroutine function, adapting a callable object.
 
-    Every pattern below picks its wrapper with `iscoroutinefunction`,
-    which reads `False` for an object whose `__call__` is async.
+    A pattern wraps with `functools.wraps`, which copies no name from an
+    object that has none of its own, so the chain would report an
+    internal wrapper name to logs and metrics. Adapting the object into
+    a named coroutine function here is what keeps its own name on it.
     """
     if iscoroutinefunction(fn):
         return fn

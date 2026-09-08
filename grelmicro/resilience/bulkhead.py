@@ -6,7 +6,6 @@ import asyncio
 import functools
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from inspect import iscoroutinefunction
 from threading import Lock as ThreadLock
 from typing import TYPE_CHECKING, Annotated, Any, Self
 
@@ -28,6 +27,7 @@ from grelmicro._app import (
     _opening_lock,
     _order_providers_first,
 )
+from grelmicro._async import is_async_callable
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._config import (
     Reconfigurable,
@@ -820,7 +820,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
         """Wrap `fn` without the guard, for composing inside a `Stack`."""
-        if not iscoroutinefunction(fn):
+        if not is_async_callable(fn):
             msg = (
                 "Bulkhead only decorates async functions. Use "
                 f"`bulkhead.to_thread(...)` for blocking work, got {fn!r}."

@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import functools
 from dataclasses import dataclass
-from inspect import iscoroutinefunction
 from typing import TYPE_CHECKING, Annotated, Any, Self
 
 from pydantic import BaseModel, PositiveFloat
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
@@ -212,7 +212,7 @@ class Timeout(Reconfigurable[TimeoutConfig]):
         self, fn: Callable[P, Awaitable[R]], /
     ) -> Callable[P, Awaitable[R]]:
         """Wrap `fn` without the guard, for composing inside a `Stack`."""
-        if not iscoroutinefunction(fn):
+        if not is_async_callable(fn):
             msg = (
                 "Timeout only decorates async functions. asyncio cannot "
                 f"cancel sync code, got {fn!r}."
