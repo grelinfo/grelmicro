@@ -115,7 +115,7 @@ async def test_the_record_carries_the_request(
     assert record.getMessage() == "GET /orders/7 200"
     assert record.__dict__["http.request.method"] == "GET"
     assert record.__dict__["url.path"] == "/orders/7"
-    assert record.__dict__["url.query"] == "page=2"
+    assert record.__dict__["url.query"] == "page=***"
     assert record.__dict__["url.scheme"] == "http"
     assert record.__dict__["http.response.status_code"] == HTTP_OK
     assert record.__dict__["user_agent.original"] == "curl/8.4"
@@ -128,11 +128,18 @@ async def test_a_credential_in_the_query_is_redacted(
     capture: Callable[[], list[logging.LogRecord]],
 ) -> None:
     """A token in a query string never reaches the sink."""
-    await client.get("/orders/7?token=secret&page=2")
+    await client.get(
+        "/orders/7?refresh_token=secret"
+        "&id_token=secret"
+        "&X-Amz-Security-Token=secret"
+        "&page=2"
+    )
 
     (record,) = capture()
 
-    assert record.__dict__["url.query"] == "token=***&page=2"
+    assert record.__dict__["url.query"] == (
+        "refresh_token=***&id_token=***&X-Amz-Security-Token=***&page=***"
+    )
 
 
 async def test_the_query_can_be_left_out(

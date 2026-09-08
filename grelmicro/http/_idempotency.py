@@ -178,6 +178,10 @@ _KEY_SEPARATOR = "\x1f"
 """Separator joining the parts of a stored key."""
 
 
+_PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
+"""Headers proving that a response was computed for one caller."""
+
+
 def _field_name(value: str, argument: str, example: str) -> str:
     """Return `value`, or raise when it is not an HTTP field name.
 
@@ -417,11 +421,16 @@ class IdempotencyMiddleware:
     that raises an unhandled exception stores nothing, so the framework's
     `500` never replays.
 
-    Four kinds of response are not stored, and each one lets a retry
-    re-run the handler: one carrying `Set-Cookie`, one carrying
-    `Content-Encoding`, one declaring trailers, and one whose body is
-    over `max_body_size`. All four are logged. Pass `skip` to add a rule
-    of your own.
+    Without a custom `key_maker`, a request carrying `Authorization` or
+    `Cookie` bypasses idempotency and runs the app. Its response cannot be
+    stored under a key shared across callers, and a replay cannot skip
+    authentication inside the app. Configure an identity-aware `key_maker`
+    to make authenticated requests idempotent.
+
+    Four kinds of response are not stored, and each one lets a retry re-run
+    the handler: one carrying `Set-Cookie`, one carrying `Content-Encoding`,
+    one declaring trailers, and one whose body is over `max_body_size`. All
+    four are logged. Pass `skip` to add a rule of your own.
 
     Background tasks run after the response is sent, so a replay can be
     served while the original request's background work is still in
@@ -475,10 +484,10 @@ class IdempotencyMiddleware:
                 Build the stored key from the ASGI scope and the client key.
 
                 Defaults to the method, the path, the query string, and
-                the client key, so two routes never replay each other.
-                **Set this in any multi-tenant app**, folding in the
-                caller identity. Without it a client that learns another
-                client's key replays their response.
+                the client key, so two public routes never replay each
+                other. Requests carrying `Authorization` or `Cookie`
+                bypass that unscoped default. Set this to an identity-aware
+                key in a multi-tenant app that needs authenticated replay.
                 """
             ),
         ] = None,
@@ -624,6 +633,10 @@ class IdempotencyMiddleware:
         if (
             scope["type"] != "http"
             or scope["method"] not in state.methods
+            or (
+                self._key_maker is None
+                and _has_private_request_header(scope["headers"])
+            )
             or not selects(
                 route_path(scope),
                 include=config.include,
@@ -979,6 +992,15 @@ def _header_value(
         if raw_name.lower() == name:
             return raw_value.decode("latin-1").strip()
     return None
+
+
+def _has_private_request_header(
+    headers: Sequence[tuple[bytes, bytes]],
+) -> bool:
+    """Return whether the request carries credentials for one caller."""
+    return any(
+        name.lower() in _PRIVATE_REQUEST_HEADERS for name, _value in headers
+    )
 
 
 async def _buffer_request(

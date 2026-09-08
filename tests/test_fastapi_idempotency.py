@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI, Header, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.applications import Starlette
@@ -26,6 +26,7 @@ from starlette.status import (
     HTTP_201_CREATED,
     HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
     HTTP_409_CONFLICT,
     HTTP_413_CONTENT_TOO_LARGE,
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -215,6 +216,59 @@ def test_middleware_repeated_key_replays_stored_response(
     assert calls == {"count": 1}
     assert "idempotent-replayed" not in first.headers
     assert second.headers["idempotent-replayed"] == "true"
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        pytest.param({"Authorization": "Bearer secret"}, id="authorization"),
+        pytest.param({"Cookie": "session=secret"}, id="cookie"),
+    ],
+)
+def test_middleware_unscoped_key_bypasses_private_requests(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+    credentials: dict[str, str],
+) -> None:
+    """A private response is never stored under the shared default key."""
+    # Arrange
+    client, calls = client_factory()
+    headers = {**KEY, **credentials}
+    # Act
+    first = client.post("/charge", headers=headers)
+    second = client.post("/charge", headers=headers)
+    # Assert
+    assert first.json() == {"call": 1}
+    assert second.json() == {"call": 2}
+    assert calls == {"count": 2}
+    assert "idempotent-replayed" not in second.headers
+
+
+def test_middleware_replay_never_skips_route_authentication() -> None:
+    """A cached response cannot turn an unauthenticated retry into a success."""
+    # Arrange
+    app = build_app()
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("authorization") != "Bearer secret":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"secret": "sensitive"}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/private",
+            headers={**KEY, "Authorization": "Bearer secret"},
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert authorized.json() == {"secret": "sensitive"}
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
 
 
 def test_middleware_request_without_key_passes_through(

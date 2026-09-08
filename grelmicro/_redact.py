@@ -11,8 +11,10 @@ from pydantic_core import MultiHostUrl, Url
 MASK = "***"
 
 _USERINFO_RE = re.compile(r"(\A|://|,)([^@/?#]*:)([^@/?#]+)(@)")
-_CREDENTIAL_QUERY_KEYS = frozenset(
+_EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
     {
+        "authorization",
+        "code",
         "password",
         "passwd",
         "pwd",
@@ -21,6 +23,8 @@ _CREDENTIAL_QUERY_KEYS = frozenset(
         "auth",
         "secret",
         "client_secret",
+        "sig",
+        "signature",
         "api_key",
         "apikey",
         "key",
@@ -28,40 +32,53 @@ _CREDENTIAL_QUERY_KEYS = frozenset(
 )
 
 
-_CREDENTIAL_QUERY_PROBE = re.compile(
-    r"(?:\A|&)(?:" + "|".join(sorted(_CREDENTIAL_QUERY_KEYS)) + r")(?:=|&|\Z)",
+_CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
+    r"(?:^|[_-])(?:credential|secret|signature|token)(?:$|[_-])",
     re.IGNORECASE,
 )
-"""Whether a query string is worth parsing to redact.
 
-Parsing every query to find the ones that carry nothing costs more than
-reading them, and a query string is on the request path. The probe reads
-the raw text, so it only answers for text that means what it says: a query
-carrying a percent escape is parsed, because `%74oken=` decodes to a key
-this would not have seen.
-"""
+
+def _is_credential_query_key(key: str) -> bool:
+    """Return whether `key` conventionally names credential material."""
+    lowered = key.lower()
+    return (
+        lowered in _EXACT_CREDENTIAL_QUERY_KEYS
+        or _CREDENTIAL_QUERY_KEY_PATTERN.search(lowered) is not None
+    )
 
 
 def _redact_query(query: str | None) -> str | None:
     """Return `query` with credential-like values replaced by `***`.
 
-    Matches keys case-insensitively against `_CREDENTIAL_QUERY_KEYS`.
-    Returns the input unchanged when no key matches.
+    Matches exact credential names and separator-delimited credential
+    patterns case-insensitively. Returns the input unchanged when no key
+    matches.
     """
     if not query:
         return query
-    if "%" not in query and not _CREDENTIAL_QUERY_PROBE.search(query):
-        return query
     pairs = parse_qsl(query, keep_blank_values=True)
-    if not any(k.lower() in _CREDENTIAL_QUERY_KEYS for k, _ in pairs):
+    if not any(_is_credential_query_key(key) for key, _value in pairs):
         return query
     redacted_pairs = [
-        (k, MASK if k.lower() in _CREDENTIAL_QUERY_KEYS else v)
-        for k, v in pairs
+        (key, MASK if _is_credential_query_key(key) else value)
+        for key, value in pairs
     ]
     # `safe="*"` keeps the `***` marker readable; other values are
     # properly escaped by `urlencode`.
     return urlencode(redacted_pairs, safe="*")
+
+
+def _redact_query_values(query: str | None) -> str | None:
+    """Return a query with every value masked and parameter names retained."""
+    if not query:
+        return query
+    return urlencode(
+        [
+            (key, MASK)
+            for key, _value in parse_qsl(query, keep_blank_values=True)
+        ],
+        safe="*",
+    )
 
 
 def _redact_single_host(parsed: Url) -> str | None:

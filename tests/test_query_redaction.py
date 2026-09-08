@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from grelmicro._redact import _redact_query
+from grelmicro._redact import _redact_query, _redact_query_values
 
 
 @pytest.mark.parametrize(
@@ -20,6 +20,17 @@ from grelmicro._redact import _redact_query
         pytest.param("TOKEN=abc", "TOKEN=***", id="upper-case"),
         pytest.param("a=1&api_key=x", "a=1&api_key=***", id="not-first"),
         pytest.param("mytoken=x", "mytoken=x", id="not-a-credential-key"),
+        pytest.param(
+            "refresh_token=x&id_token=y",
+            "refresh_token=***&id_token=***",
+            id="token-suffixes",
+        ),
+        pytest.param(
+            "X-Amz-Credential=x&X-Amz-Signature=y&X-Amz-Security-Token=z",
+            "X-Amz-Credential=***&X-Amz-Signature=***&X-Amz-Security-Token=***",
+            id="aws-signed-url",
+        ),
+        pytest.param("code=x&sig=y", "code=***&sig=***", id="oauth-and-sas"),
         pytest.param("token", "token=***", id="no-value"),
         # A percent escape decodes to a key the raw text does not show, so
         # the fast path never answers for one.
@@ -38,3 +49,16 @@ def test_nothing_to_redact_is_returned_as_it_came() -> None:
     """An empty query is not worth reading at all."""
     assert _redact_query("") == ""
     assert _redact_query(None) is None
+    assert _redact_query_values("") == ""
+    assert _redact_query_values(None) is None
+
+
+def test_access_log_redaction_masks_every_query_value() -> None:
+    """Unknown bearer capabilities cannot pass an access-log denylist."""
+    query = (
+        "page=2&refresh_token=known&id_token=known&X-Amz-Security-Token=known"
+    )
+
+    assert _redact_query_values(query) == (
+        "page=***&refresh_token=***&id_token=***&X-Amz-Security-Token=***"
+    )

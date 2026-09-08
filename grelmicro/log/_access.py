@@ -33,7 +33,7 @@ from grelmicro._paths import (
     route_path,
     selects,
 )
-from grelmicro._redact import _redact_query
+from grelmicro._redact import _redact_query_values
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping
@@ -652,7 +652,7 @@ def _query(scope: Scope) -> str | None:
     raw = scope.get("query_string") or b""
     if not raw:
         return None
-    return _redact_query(raw.decode("latin-1"))
+    return _redact_query_values(raw.decode("latin-1"))
 
 
 def _header(scope: Scope, name: bytes) -> str | None:

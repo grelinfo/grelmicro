@@ -696,7 +696,7 @@ class _RequireToken:
 
 
 def test_a_replay_never_skips_the_app_authentication() -> None:
-    """The stored response is behind whatever the app put in front of it.
+    """A private request runs through authentication and the app every time.
 
     A middleware of ours that answers without calling the app must never be
     the reason a request skipped authentication. Registering the component
@@ -706,10 +706,13 @@ def test_a_replay_never_skips_the_app_authentication() -> None:
     # Arrange
     micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
     app = FastAPI()
+    calls = 0
 
     @app.post("/charge")
     async def charge() -> dict[str, int]:
-        return {"amount": 100}
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
 
     app.add_middleware(_RequireToken)
     micro.install(app)
@@ -732,6 +735,49 @@ def test_a_replay_never_skips_the_app_authentication() -> None:
     # on a first request, and never sees the stored body.
     assert stolen.status_code == HTTP_401_UNAUTHORIZED
     assert stolen.content == b""
+    assert replayed.json() == {"call": 2}
+    assert "idempotent-replayed" not in replayed.headers
+
+
+def test_an_identity_aware_key_makes_private_requests_idempotent() -> None:
+    """A custom key explicitly opts authenticated requests into replay."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            MemoryProvider(),
+            IdempotentRequests(
+                key_maker=lambda scope, key: (
+                    f"verified-user\x1f{scope['path']}\x1f{key}"
+                )
+            ),
+        ]
+    )
+    app = FastAPI()
+    app.add_middleware(_RequireToken)
+    calls = 0
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post(
+            "/charge",
+            headers={HEADER: "abc", "Authorization": "token"},
+        )
+        replayed = client.post(
+            "/charge",
+            headers={HEADER: "abc", "Authorization": "token"},
+        )
+
+    # Assert
+    assert first.json() == {"call": 1}
+    assert replayed.json() == {"call": 1}
     assert replayed.headers["idempotent-replayed"] == "true"
 
 

@@ -24,7 +24,7 @@ request writes a record like this:
   "span_id": "92495292bd9b0710",
   "http.request.method": "GET",
   "url.path": "/orders/7",
-  "url.query": "token=***&page=2",
+  "url.query": "token=***&page=***",
   "url.scheme": "http",
   "http.route": "/orders/{order_id}",
   "http.response.status_code": 200,
@@ -47,7 +47,7 @@ the log and the trace instead of a mapping between two, and `trace_id` and
 |---|---|
 | `http.request.method` | The method. |
 | `url.path` | The path the caller asked for, mount prefix and all. |
-| `url.query` | The query string, redacted. Turn it off with `query=False`. |
+| `url.query` | Query parameter names with every value redacted. Turn it off with `query=False`. |
 | `url.scheme` | `http` or `https`. |
 | `http.route` | The route template, when the framework records one. |
 | `http.response.status_code` | The status the caller got. |
@@ -59,10 +59,10 @@ the log and the trace instead of a mapping between two, and `trace_id` and
 
 The `User-Agent` is the only header on the record, and `user_agent=False`
 drops it. Nothing else a request carries is logged, so an `Authorization`
-header, an API key header and a cookie cannot leak through here. The query
-string is the one place a URL carries a credential, and it goes through the
-same redaction the rest of the library uses: `token=secret` reaches the sink
-as `token=***`.
+header, an API key header and a cookie cannot leak through here. A query
+parameter can carry a credential under any name, so the record keeps parameter
+names for diagnosis and masks every value: `token=secret&page=2` reaches the
+sink as `token=***&page=***`.
 
 ## The caller, not the proxy
 

@@ -220,8 +220,16 @@ Use it for a response that is technically replayable but should not be. The four
 
 The stored key combines the method, the path, the query string, and the header value. The same client key on `POST /charge` and `POST /refund` stores two entries, so one route never replays another one's response.
 
-!!! warning "Set `key_maker` in a multi-tenant app"
-    Without it, any client that learns another client's key replays their response, body included. Fold the caller identity into the key.
+Without a custom `key_maker`, a request carrying `Authorization` or `Cookie`
+bypasses idempotency and runs the handler every time. This safe default keeps
+private responses out of a shared entry and ensures authentication inside the
+application still runs. Public requests continue to use the route-scoped
+default key.
+
+!!! warning "Set `key_maker` for authenticated replay"
+    To make authenticated requests idempotent, fold the caller identity into
+    the key. Without that identity, any client that learns another client's
+    key could replay their response, body included.
 
     Fold in an **authenticated** identity. Anything the client sends is chosen by the client, so a key built from a raw header lets a caller name the tenant whose entry they read.
 
@@ -243,7 +251,7 @@ The stored key combines the method, the path, the query string, and the header v
 
     That last one is the general rule: **a key that is partly missing does not fail, it merges.** Callers whose key lost the same component land in one entry and replay each other, while the request still answers normally.
 
-    `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
+    `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. That ordering also ensures authentication runs before a replay is served. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
 
     ```python
     micro = Grelmicro(uses=[redis, IdempotentRequests(key_maker=tenant_key)])
@@ -352,7 +360,7 @@ A background task runs after the response is sent, so the response is stored and
 | `key_header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
 | `replay_header` | `"Idempotent-Replayed"` | Response header marking a replay. No standard names one, so pick what your clients read. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
-| `key_maker` | `None` | Build the stored key from the scope and the client key. Set it in any multi-tenant app. |
+| `key_maker` | `None` | Build the stored key from the scope and the client key. Required for authenticated replay and multi-tenant isolation. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |
 | `require_key` | `False` | Answer `400` when a matched method arrives without the header. |
 | `fingerprint_body` | `False` | Hash the request body and answer `422` on a reused key with a different body. |
