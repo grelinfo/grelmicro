@@ -23,6 +23,7 @@ from grelmicro._paths import _routing_app
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.http._idempotency import (
+    _authentication_prefixes,
     _checked_key,
     _contains_fastapi,
     _GatedRoutes,
@@ -876,6 +877,7 @@ def test_security_probe_handles_an_asgi_middleware_loop() -> None:
     # Act / Assert
     assert _routing_app(loop) is loop
     assert not _contains_fastapi(None)
+    assert not _authentication_prefixes(None)
 
 
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:

@@ -173,6 +173,12 @@ it is written. The nearest declaration decides, so a route beats the router
 it sits in, an inner router beats the one that includes it, and a route that
 declared one is not overridden by an `include` pattern naming it.
 
+A middleware around a mounted application is a cache boundary. A
+`CachedResponse()` declaration behind it is not consumed by a cache on the
+parent, because a parent hit would answer before the mounted middleware ran.
+Install `CachedResponses` inside that application when its own routes should
+be cached.
+
 Starlette and Litestar resolve no dependencies to hang it on, and a router you
 did not write cannot be changed either, so name the URLs and how long each is
 kept:

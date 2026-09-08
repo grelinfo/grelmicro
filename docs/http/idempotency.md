@@ -235,7 +235,10 @@ remain unchanged.
 An authenticated Starlette scope bypasses the default too, including when
 `AuthenticationMiddleware` reads a custom header. Put authentication outside
 idempotency so it establishes `scope["user"]` first. A directly wrapped
-Starlette `AuthenticationMiddleware` is also detected and bypassed, but an
+Starlette `AuthenticationMiddleware`, one configured lazily on the wrapped
+application, and one inside a mounted application are also detected and
+bypassed. Mounted detection follows the path, so authentication on one
+sub-application does not disable public idempotency on its siblings. An
 application-specific authentication middleware cannot be identified by class;
 keep it outside this middleware or configure an identity-aware `key_maker`.
 

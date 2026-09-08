@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, FastAPI, Response, Security
 from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
 from starlette.routing import Mount, Route
 
@@ -350,6 +351,46 @@ def test_a_mounted_route_is_read_with_its_prefix() -> None:
 
     # Assert
     assert calls == 1
+
+
+def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
+    """A parent cache cannot answer before a mounted middleware runs."""
+    # Arrange
+    calls = 0
+    inner = FastAPI()
+
+    @inner.get("/items", dependencies=[CachedResponse(ttl=TTL)])
+    async def items() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app = FastAPI()
+    app.mount(
+        "/shop",
+        CORSMiddleware(
+            inner,
+            allow_origins=["https://client.example"],
+        ),
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.get(
+            "/shop/items", headers={"Origin": "https://client.example"}
+        )
+        second = client.get(
+            "/shop/items", headers={"Origin": "https://client.example"}
+        )
+
+    # Assert
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
+    assert second.headers["access-control-allow-origin"] == (
+        "https://client.example"
+    )
 
 
 def test_a_route_with_other_dependencies_is_read_too() -> None:

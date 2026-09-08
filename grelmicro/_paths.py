@@ -207,6 +207,11 @@ def walk_routes(
         tuple[Any, ...],
         Doc("The include contexts above them, outermost first."),
     ] = (),
+    *,
+    unwrap_middleware: Annotated[
+        bool,
+        Doc("Whether to inspect routes behind mounted ASGI middleware."),
+    ] = False,
 ) -> list[tuple[str, Any, tuple[Any, ...]]]:
     """Return every route the app declares, with the path it sits under.
 
@@ -218,9 +223,12 @@ def walk_routes(
     An included router is a node of its own rather than the routes it
     holds, so what it was included under has to be carried down to them
     from here. A mount starts a new application boundary: the parent
-    router's dependencies do not apply inside it.
+    router's dependencies do not apply inside it. Middleware around a
+    mounted app is a boundary too unless the caller explicitly asks to
+    inspect through it.
     """
-    app = _routing_app(app)
+    if unwrap_middleware:
+        app = _routing_app(app)
     own = getattr(app, "router", None)
     if own is not None:
         contexts = (*contexts, own)
@@ -234,16 +242,18 @@ def walk_routes(
                     included,
                     f"{prefix}{getattr(context, 'prefix', '')}",
                     (*contexts, context, included),
+                    unwrap_middleware=unwrap_middleware,
                 )
             )
             continue
         inner = getattr(route, "routes", None)
-        if inner is not None:
+        if inner or (unwrap_middleware and inner is not None):
             found.extend(
                 walk_routes(
                     getattr(route, "app", route),
                     f"{prefix}{getattr(route, 'path', '')}",
                     (),
+                    unwrap_middleware=unwrap_middleware,
                 )
             )
             continue

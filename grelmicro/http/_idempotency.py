@@ -189,36 +189,51 @@ _PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
 
 
 class _GatedRoutes:
-    """FastAPI routes whose dependencies must run before replay."""
+    """Routes whose dependencies or authentication must run before replay."""
 
-    __slots__ = ("_apps", "_routes", "_wrapped")
+    __slots__ = ("_apps", "_authenticated", "_routes", "_wrapped")
 
     def __init__(self, app: Any = None) -> None:  # noqa: ANN401
         """Remember the wrapped app and defer route discovery to a request."""
         self._wrapped = app
         self._apps: tuple[Any, ...] = ()
+        self._authenticated: tuple[re.Pattern[str], ...] = ()
         self._routes: tuple[tuple[re.Pattern[str], frozenset[str]], ...] = ()
 
     def read(self, *apps: Any) -> None:  # noqa: ANN401
-        """Read dependency-bearing routes from every reachable FastAPI app."""
+        """Read dependency-bearing and authenticated routes from the apps."""
         self._apps = apps
         roots: list[Any] = []
         for app in apps:
             root = _routing_app(app)
-            if (
-                root is not None
-                and not any(root is seen for seen in roots)
-                and _contains_fastapi(root)
-            ):
+            if root is not None and not any(root is seen for seen in roots):
                 roots.append(root)
-        if not roots:
+        authenticated = {
+            prefix for app in apps for prefix in _authentication_prefixes(app)
+        }
+        fastapi_roots = [root for root in roots if _contains_fastapi(root)]
+        if not authenticated and not fastapi_roots:
+            self._authenticated = ()
             self._routes = ()
             return
         from starlette.routing import compile_path  # noqa: PLC0415
 
+        protected: list[re.Pattern[str]] = []
+        for prefix in sorted(authenticated):
+            exact, _, _ = compile_path(prefix or "/")
+            nested, _, _ = compile_path(
+                f"{prefix.rstrip('/')}/{{path:path}}"
+                if prefix
+                else "/{path:path}"
+            )
+            protected.extend((exact, nested))
+        self._authenticated = tuple(protected)
+
         found: list[tuple[re.Pattern[str], frozenset[str]]] = []
-        for root in roots:
-            for prefix, route, contexts in walk_routes(root):
+        for root in fastapi_roots:
+            for prefix, route, contexts in walk_routes(
+                root, unwrap_middleware=True
+            ):
                 if not _has_dependencies(route, contexts):
                     continue
                 compiled, _, _ = compile_path(f"{prefix}{route.path}")
@@ -230,7 +245,7 @@ class _GatedRoutes:
         self._routes = tuple(found)
 
     def matches(self, scope: Scope) -> bool:
-        """Return whether the request route has a FastAPI dependency."""
+        """Return whether authentication or a dependency guards the route."""
         apps = _unique_apps((self._wrapped, scope.get("app")))
         if len(apps) != len(self._apps) or any(
             app is not seen for app, seen in zip(apps, self._apps, strict=True)
@@ -239,6 +254,8 @@ class _GatedRoutes:
         method = scope["method"]
         path = route_path(scope)
         return any(
+            regex.fullmatch(path) for regex in self._authenticated
+        ) or any(
             method in methods and regex.fullmatch(path)
             for regex, methods in self._routes
         )
@@ -286,19 +303,62 @@ def _authenticated_scope(scope: Scope) -> bool:
     return bool(getattr(auth, "scopes", ()))
 
 
-def _has_downstream_authentication(app: Any) -> bool:  # noqa: ANN401
-    """Return whether Starlette authentication still sits inside this middleware."""
+def _is_authentication_middleware(value: Any) -> bool:  # noqa: ANN401
+    """Return whether a class or instance is Starlette authentication."""
+    classes = value.__mro__ if isinstance(value, type) else type(value).__mro__
+    return any(
+        klass.__module__ == "starlette.middleware.authentication"
+        and klass.__name__ == "AuthenticationMiddleware"
+        for klass in classes
+    )
+
+
+def _authentication_here(app: Any) -> bool:  # noqa: ANN401
+    """Return whether this application boundary authenticates requests."""
     seen: set[int] = set()
     while app is not None and id(app) not in seen:
         seen.add(id(app))
-        if any(
-            klass.__module__ == "starlette.middleware.authentication"
-            and klass.__name__ == "AuthenticationMiddleware"
-            for klass in type(app).__mro__
-        ):
+        if _is_authentication_middleware(app):
             return True
+        router = getattr(app, "router", None)
+        if hasattr(app, "routes") or hasattr(router, "routes"):
+            return any(
+                _is_authentication_middleware(
+                    getattr(middleware, "cls", middleware)
+                )
+                for middleware in getattr(app, "user_middleware", ())
+            )
         app = getattr(app, "app", None)
     return False
+
+
+def _authentication_prefixes(app: Any) -> set[str]:  # noqa: ANN401
+    """Return mounted path prefixes protected by Starlette authentication."""
+    found: set[str] = set()
+
+    def visit(current: Any, prefix: str, ancestors: frozenset[int]) -> None:  # noqa: ANN401
+        routed = _routing_app(current)
+        if routed is None or id(routed) in ancestors:
+            return
+        if _authentication_here(current):
+            found.add(prefix)
+            return
+        nested_ancestors = ancestors | {id(routed)}
+        router = getattr(routed, "router", None)
+        for route in getattr(router or routed, "routes", ()) or ():
+            if getattr(route, "original_router", None) is not None:
+                continue
+            if getattr(route, "routes", None) is None:
+                continue
+            nested = getattr(route, "app", None)
+            visit(
+                nested,
+                f"{prefix}{getattr(route, 'path', '')}",
+                nested_ancestors,
+            )
+
+    visit(app, "", frozenset())
+    return found
 
 
 def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
@@ -726,7 +786,6 @@ class IdempotencyMiddleware:
         self._key_maker = key_maker
         self._skip = skip
         self._gated_routes = _GatedRoutes(app)
-        self._downstream_authentication = _has_downstream_authentication(app)
         self._replay_collision_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
@@ -818,7 +877,6 @@ class IdempotencyMiddleware:
         return self._key_maker is None and (
             _has_private_request_header(scope["headers"])
             or _authenticated_scope(scope)
-            or self._downstream_authentication
             or self._gated_routes.matches(scope)
         )
 

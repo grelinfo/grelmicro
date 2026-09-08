@@ -22,6 +22,7 @@ from starlette.authentication import (
     SimpleUser,
 )
 from starlette.background import BackgroundTasks
+from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.base import (
     BaseHTTPMiddleware,
@@ -95,6 +96,13 @@ class _HeaderAuthentication(AuthenticationBackend):
         if identity is None:
             return None
         return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+
+async def _private_identity(request: Request) -> JSONResponse:
+    """Answer the authenticated identity or reject an anonymous request."""
+    if not request.user.is_authenticated:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+    return JSONResponse({"user": request.user.display_name})
 
 
 def _register_result_routes(app: FastAPI, calls: dict[str, int]) -> None:
@@ -474,6 +482,102 @@ def test_authenticated_asgi_scope_never_replays_across_callers(
     assert alice.json() == {"user": "alice"}
     assert bob.json() == {"user": "bob"}
     assert "idempotent-replayed" not in bob.headers
+
+
+@pytest.mark.parametrize("configuration", ["lazy", "instantiated"])
+def test_wrapped_application_authentication_runs_before_replay(
+    configuration: str,
+) -> None:
+    """Authentication configured inside the wrapper cannot be skipped."""
+    # Arrange
+    route = Route("/private", _private_identity, methods=["POST"])
+    app = (
+        Starlette(
+            routes=[route],
+            middleware=[
+                Middleware(
+                    AuthenticationMiddleware, backend=_HeaderAuthentication()
+                )
+            ],
+        )
+        if configuration == "lazy"
+        else AuthenticationMiddleware(
+            Starlette(routes=[route]), backend=_HeaderAuthentication()
+        )
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "lazy-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_mounted_authentication_is_path_specific() -> None:
+    """A protected mount bypasses replay without disabling a public sibling."""
+    # Arrange
+    private = Starlette(
+        routes=[Route("/value", _private_identity, methods=["POST"])],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    calls = 0
+
+    async def public(_request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"call": calls})
+
+    root = Starlette()
+    root.mount("/private", private)
+    root.mount(
+        "/public",
+        Starlette(routes=[Route("/value", public, methods=["POST"])]),
+    )
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "mounted-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(root) as client:
+        alice = client.post(
+            "/private/value", headers={**KEY, "X-API-Key": "alice"}
+        )
+        anonymous = client.post("/private/value", headers=KEY)
+        public_first = client.post("/public/value", headers=KEY)
+        public_replay = client.post("/public/value", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in anonymous.headers
+    assert public_first.json() == {"call": 1}
+    assert public_replay.json() == {"call": 1}
+    assert public_replay.headers["idempotent-replayed"] == "true"
 
 
 def test_middleware_replay_never_skips_api_key_security() -> None:
