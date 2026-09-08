@@ -27,15 +27,12 @@ from uuid import uuid4
 
 import pytest
 
-from tests._containers import (
-    CONTAINER_LOG_TIMEOUT,
-    CONTAINER_TEST_TIMEOUT,
-)
+from tests._containers import CONTAINER_LOG_TIMEOUT
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
-    pytest.mark.timeout(CONTAINER_TEST_TIMEOUT),
+    pytest.mark.timeout(120, func_only=True),
 ]
 
 testcontainers = pytest.importorskip("testcontainers.core.container")

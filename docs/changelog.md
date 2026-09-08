@@ -90,6 +90,7 @@
 * ✨ The queue is drained on shutdown, on reconfiguration, and across a fork. A forked child gets a worker of its own rather than inheriting a queue nothing reads, and a `multiprocessing` child drains before it exits, where `os._exit` skips the handler every other path relies on. Uvicorn's own handlers are pointed at the same queue, so its access lines go through it too. ([#743](https://github.com/grelinfo/grelmicro/issues/743))
 
 ### Fixed
+* 🐛 The sync `@cached` deadlock message names a callable object instead of raising `AttributeError` while building itself. Reading `__qualname__` off an object that has none lost the one line that says what to do about the deadlock. ([#821](https://github.com/grelinfo/grelmicro/pull/821))
 * 🐛 `@retry` engages on an object whose `__call__` is async. It reported itself as applied and did nothing: the wrapper took the coroutine the object returned as the result, so the body ran once and the caller saw the first failure, with no retry, no backoff and no budget. ([#820](https://github.com/grelinfo/grelmicro/pull/820))
 * 🐛 `@fallback` answers for an object whose `__call__` is async. Its `except` ran before the body did, so the failure reached the caller and the fallback never engaged. ([#820](https://github.com/grelinfo/grelmicro/pull/820))
 * 🐛 `@timeout`, `@bulkhead`, `@shield` and `@cached` accept an object whose `__call__` is async, instead of refusing it as sync code. A genuinely sync callable is still refused. ([#820](https://github.com/grelinfo/grelmicro/pull/820))

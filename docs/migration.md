@@ -40,8 +40,9 @@ that a client library used to accept.
 | `ValueError` where you caught `TypeError` from any `Match` argument error or a bad `when=` | 0.40 | [Catch `ValueError`](#0-40-match-value-error) |
 | `ImportError: cannot import name 'RedisProviderConfigError'` or `'PostgresProviderConfigError'` | 0.40 | [Catch the base error](#0-40-provider-errors) |
 | A `@retry` or `@fallback` on a callable object never engaged, or `@measure` recorded almost no time for it | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
-| `TypeError: ... only decorates async functions` from `@timeout`, `@bulkhead`, `@shield` or `@cached` on a callable object | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
-| `RuntimeError: CircuitBreaker '...' cannot be used from a worker thread` on a callable object, from the event loop | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `TypeError: ... only decorates async functions` from `@timeout`, `@bulkhead` or `@shield` on a callable object | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `TypeError: @cached(ttl=...) supports async functions only`, or `AttributeError: '...' object has no attribute '__qualname__'` from `@cached` | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 
 ## 0.40
 
@@ -457,17 +458,26 @@ above lists three rows:
   and `@instrument` timed the creation of the coroutine rather than the
   call, so a slow body recorded almost no time and a failing one recorded
   no error.
-- `@timeout`, `@bulkhead`, `@shield` and `@cached` refused the object at
-  decoration, with a `TypeError` saying they only decorate async
-  functions.
-- `CircuitBreaker` raised `RuntimeError: ... cannot be used from a worker
-  thread`, because the sync path it took is the one meant for a thread.
+- `@timeout`, `@bulkhead` and `@shield` refused the object at decoration,
+  with a `TypeError` saying they only decorate async functions.
+- `@cached(ttl=...)` refused it too, with its own wording: `supports
+  async functions only`. `@cached` on a `TTLCache` you passed did not
+  refuse, and raised `AttributeError: '...' object has no attribute
+  '__qualname__'` instead.
+- `CircuitBreaker` raised `EventLoopDeadlockError`, because the sync path
+  it took is the one meant for a worker thread and it saw the event loop
+  on the other side. That error is a `BaseException`, so an
+  `except Exception` around the call did not catch it.
 
 Nothing in your code has to change. A decorator applied to a plain
 async function, which is how nearly everyone writes this, was never
-affected. Check any place you decorate a callable object: the policy is
-engaging now where it silently was not, so a retry that never fired
-starts firing, and a call that was never bounded starts being bounded.
+affected.
+
+The behaviour of a running deployment changes only where the failure was
+silent, because the loud ones stopped the app from starting at all.
+So look at `@retry`, `@fallback`, `@measure` and `@instrument` on a
+callable object: a retry that never fired starts firing, and a call that
+recorded no time starts recording it.
 
 ## 0.34, not breaking but worth knowing {#0-34-task-run-outcomes}
 
