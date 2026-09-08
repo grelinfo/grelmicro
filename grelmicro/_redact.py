@@ -10,7 +10,7 @@ from pydantic_core import MultiHostUrl, Url
 
 MASK = "***"
 
-_USERINFO_RE = re.compile(r"(\A|://|//|,)([^@/?#]*:)([^@/?#]+)(@)")
+_USERINFO_RE = re.compile(r"(\A|://|//|,)([^:@/?#]*:)([^@/?#]+)(@)")
 _EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
     {
         "authorization",
@@ -87,15 +87,27 @@ def _redact_query_values(query: str | None) -> str | None:
     )
 
 
+def _redact_fragment(fragment: str | None) -> str | None:
+    """Redact credential-like parameters carried in a URL fragment."""
+    if not fragment:
+        return fragment
+    path, separator, parameters = fragment.partition("?")
+    if separator:
+        return f"{path}?{_redact_query(parameters)}"
+    return _redact_query(fragment)
+
+
 def _redact_unparsed_url(url: str) -> str:
     """Redact credentials without relying on the URL being structurally valid."""
     redacted = _USERINFO_RE.sub(rf"\1\2{MASK}\4", url)
-    before_query, separator, remainder = redacted.partition("?")
-    if not separator:
-        return redacted
-    query, fragment_separator, fragment = remainder.partition("#")
+    before_fragment, fragment_separator, fragment = redacted.partition("#")
+    before_query, query_separator, query = before_fragment.partition("?")
     safe_query = _redact_query(query)
-    return f"{before_query}?{safe_query}{fragment_separator}{fragment}"
+    safe_fragment = _redact_fragment(fragment)
+    return (
+        f"{before_query}{query_separator}{safe_query}"
+        f"{fragment_separator}{safe_fragment}"
+    )
 
 
 def _redact_single_host(parsed: Url) -> str | None:
@@ -105,7 +117,12 @@ def _redact_single_host(parsed: Url) -> str | None:
     can hand back the original string untouched.
     """
     redacted_query = _redact_query(parsed.query)
-    if parsed.password is None and redacted_query == parsed.query:
+    redacted_fragment = _redact_fragment(parsed.fragment)
+    if (
+        parsed.password is None
+        and redacted_query == parsed.query
+        and redacted_fragment == parsed.fragment
+    ):
         return None
     return Url.build(
         scheme=parsed.scheme,
@@ -115,7 +132,7 @@ def _redact_single_host(parsed: Url) -> str | None:
         port=parsed.port,
         path=parsed.path.lstrip("/") if parsed.path else None,
         query=redacted_query,
-        fragment=parsed.fragment,
+        fragment=redacted_fragment,
     ).unicode_string()
 
 
@@ -127,9 +144,11 @@ def _redact_multi_host(parsed: MultiHostUrl) -> str | None:
     """
     hosts = parsed.hosts()
     redacted_query = _redact_query(parsed.query)
+    redacted_fragment = _redact_fragment(parsed.fragment)
     if (
         not any(h.get("password") for h in hosts)
         and redacted_query == parsed.query
+        and redacted_fragment == parsed.fragment
     ):
         return None
     redacted_hosts: list[Any] = []
@@ -148,12 +167,12 @@ def _redact_multi_host(parsed: MultiHostUrl) -> str | None:
         hosts=redacted_hosts,
         path=parsed.path.lstrip("/") if parsed.path else None,
         query=redacted_query,
-        fragment=parsed.fragment,
+        fragment=redacted_fragment,
     ).unicode_string()
 
 
 def redact_url(url: str, *, multi_host: bool = False) -> str:
-    """Redact userinfo password and credential-like query values with `***`.
+    """Redact userinfo and credential-like query or fragment values with `***`.
 
     Tries structured parsing first, then sweeps with a conservative regex
     so a malformed URL, or one whose credential hides in a scheme-less

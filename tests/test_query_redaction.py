@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from grelmicro._redact import _redact_query, _redact_query_values
+from grelmicro._redact import _redact_query, _redact_query_values, redact_url
 
 
 @pytest.mark.parametrize(
@@ -81,4 +81,15 @@ def test_access_log_redaction_masks_every_query_value() -> None:
 
     assert _redact_query_values(query) == (
         "page=***&refresh_token=***&id_token=***&X-Amz-Security-Token=***"
+    )
+
+
+def test_multi_host_url_redacts_fragment_credential() -> None:
+    """Structured multi-host rebuilding masks an OAuth-style fragment."""
+    assert (
+        redact_url(
+            "postgresql://host/db#access_token=sensitive",
+            multi_host=True,
+        )
+        == "postgresql://host/db#access_token=***"
     )

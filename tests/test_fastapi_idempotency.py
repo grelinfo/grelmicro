@@ -16,12 +16,20 @@ from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.applications import Starlette
+from starlette.authentication import (
+    AuthCredentials,
+    AuthenticationBackend,
+    SimpleUser,
+)
 from starlette.background import BackgroundTasks
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.base import (
     BaseHTTPMiddleware,
     RequestResponseEndpoint,
 )
-from starlette.responses import StreamingResponse
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse, StreamingResponse
+from starlette.routing import Route
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -53,6 +61,8 @@ if TYPE_CHECKING:
         MutableMapping,
     )
 
+    from starlette.requests import HTTPConnection
+
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
     Receive = Callable[[], Awaitable[Message]]
@@ -72,6 +82,19 @@ class _Forking(BaseHTTPMiddleware):
     ) -> Response:
         """Pass the request through untouched."""
         return await call_next(request)
+
+
+class _HeaderAuthentication(AuthenticationBackend):
+    """Authenticate the caller named by a custom API-key header."""
+
+    async def authenticate(
+        self, conn: HTTPConnection
+    ) -> tuple[AuthCredentials, SimpleUser] | None:
+        """Return a standard Starlette identity when the header is present."""
+        identity = conn.headers.get("x-api-key")
+        if identity is None:
+            return None
+        return AuthCredentials(["authenticated"]), SimpleUser(identity)
 
 
 def _register_result_routes(app: FastAPI, calls: dict[str, int]) -> None:
@@ -369,6 +392,88 @@ def test_starlette_root_detects_mounted_fastapi_dependencies() -> None:
     assert authorized.status_code == HTTP_200_OK
     assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_middleware_wrapped_fastapi_mount_detects_dependencies() -> None:
+    """Middleware around a mounted FastAPI app cannot hide its dependencies."""
+    # Arrange
+    root = Starlette()
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    root.mount("/api", CORSMiddleware(app, allow_origins=["*"]))
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "wrapped-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(root) as client:
+        authorized = client.post(
+            "/api/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/api/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+@pytest.mark.parametrize("placement", ["outside", "inside"])
+def test_authenticated_asgi_scope_never_replays_across_callers(
+    placement: str,
+) -> None:
+    """Standard ASGI authentication bypasses an unscoped default key."""
+
+    # Arrange
+    async def private(request: Request) -> JSONResponse:
+        return JSONResponse({"user": request.user.display_name})
+
+    app = Starlette(routes=[Route("/private", private, methods=["POST"])])
+
+    def add_idempotency() -> None:
+        app.add_middleware(
+            IdempotencyMiddleware,
+            idempotency=Idempotency(
+                "asgi-authentication",
+                ttl=60,
+                cache=TTLCache(
+                    backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+                ),
+            ),
+        )
+
+    if placement == "outside":
+        add_idempotency()
+        app.add_middleware(
+            AuthenticationMiddleware, backend=_HeaderAuthentication()
+        )
+    else:
+        app.add_middleware(
+            AuthenticationMiddleware, backend=_HeaderAuthentication()
+        )
+        add_idempotency()
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert "idempotent-replayed" not in bob.headers
 
 
 def test_middleware_replay_never_skips_api_key_security() -> None:

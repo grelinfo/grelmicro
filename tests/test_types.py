@@ -204,6 +204,14 @@ class TestFailClosed:
         assert "hunter2" not in repr(model)
         assert str(model.text) == "user:***@collector:4317"
 
+    def test_scheme_less_password_with_colons_is_fully_redacted(self) -> None:
+        """Every segment after the first userinfo colon is password material."""
+        model = Model(text="user:PART1:PART2@collector:4317")
+
+        assert "PART1" not in repr(model)
+        assert "PART2" not in repr(model)
+        assert str(model.text) == "user:***@collector:4317"
+
     def test_scheme_less_endpoint_with_query_credential_is_redacted(
         self,
     ) -> None:
@@ -232,3 +240,18 @@ class TestFailClosed:
 
         assert "hunter2" not in repr(model)
         assert "sensitive" not in repr(model)
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "https://example.test/callback#access_token=TOKENVALUE",
+            "collector/path#accessToken=TOKENVALUE",
+            "collector/path#/callback?clientSecret=TOKENVALUE",
+        ],
+    )
+    def test_fragment_credential_is_redacted(self, endpoint: str) -> None:
+        """OAuth-style fragment parameters never appear in display output."""
+        model = Model(text=endpoint)
+
+        assert "TOKENVALUE" not in repr(model)
+        assert "TOKENVALUE" not in str(model.text)

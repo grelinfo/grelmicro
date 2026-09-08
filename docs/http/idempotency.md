@@ -232,6 +232,13 @@ bypass. The built-in key format is versioned, so an upgraded process cannot
 replay an unscoped entry written by an older release. Custom `key_maker` values
 remain unchanged.
 
+An authenticated Starlette scope bypasses the default too, including when
+`AuthenticationMiddleware` reads a custom header. Put authentication outside
+idempotency so it establishes `scope["user"]` first. A directly wrapped
+Starlette `AuthenticationMiddleware` is also detected and bypassed, but an
+application-specific authentication middleware cannot be identified by class;
+keep it outside this middleware or configure an identity-aware `key_maker`.
+
 !!! warning "Set `key_maker` for authenticated replay"
     To make authenticated requests idempotent, fold the caller identity into
     the key. Without that identity, any client that learns another client's

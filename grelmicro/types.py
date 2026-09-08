@@ -94,9 +94,10 @@ class SecretUrl(Secret[UrlType], Generic[UrlType]):
 
     A URL carries its credentials inside itself: the password sits in the
     userinfo section (`redis://user:password@host`) and tokens often ride
-    in the query string (`?api_key=...`). A plain URL field puts those in
-    `repr()`, `model_dump()`, `model_dump_json()`, and any log line that
-    prints the settings object.
+    in the query string (`?api_key=...`) or fragment
+    (`#access_token=...`). A plain URL field puts those in `repr()`,
+    `model_dump()`, `model_dump_json()`, and any log line that prints the
+    settings object.
 
     `SecretUrl` shows the URL with its credentials replaced by `***`
     everywhere the value is displayed or dumped, so an operator still

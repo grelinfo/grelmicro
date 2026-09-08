@@ -37,6 +37,7 @@ from grelmicro._paths import (
     BARE_METHOD_MESSAGE,
     MethodNames,
     PathPatterns,
+    _routing_app,
     as_patterns,
     route_path,
     selects,
@@ -252,24 +253,14 @@ def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:
     return tuple(found)
 
 
-def _routing_app(app: Any) -> Any:  # noqa: ANN401
-    """Unwrap middleware until an application exposing routes is reached."""
-    seen: set[int] = set()
-    while app is not None and id(app) not in seen:
-        seen.add(id(app))
-        router = getattr(app, "router", None)
-        if hasattr(app, "routes") or hasattr(router, "routes"):
-            return app
-        app = getattr(app, "app", None)
-    return None
-
-
 def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
     """Return whether an application is FastAPI or mounts one."""
     pending = [app]
     seen: set[int] = set()
     while pending:
-        current = pending.pop()
+        current = _routing_app(pending.pop())
+        if current is None:
+            continue
         if id(current) in seen:
             continue
         seen.add(id(current))
@@ -283,6 +274,30 @@ def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
             nested = getattr(route, "app", None)
             if nested is not None:
                 pending.append(nested)
+    return False
+
+
+def _authenticated_scope(scope: Scope) -> bool:
+    """Return whether authentication already established a caller identity."""
+    user = scope.get("user")
+    if user is not None and getattr(user, "is_authenticated", False):
+        return True
+    auth = scope.get("auth")
+    return bool(getattr(auth, "scopes", ()))
+
+
+def _has_downstream_authentication(app: Any) -> bool:  # noqa: ANN401
+    """Return whether Starlette authentication still sits inside this middleware."""
+    seen: set[int] = set()
+    while app is not None and id(app) not in seen:
+        seen.add(id(app))
+        if any(
+            klass.__module__ == "starlette.middleware.authentication"
+            and klass.__name__ == "AuthenticationMiddleware"
+            for klass in type(app).__mro__
+        ):
+            return True
+        app = getattr(app, "app", None)
     return False
 
 
@@ -711,6 +726,7 @@ class IdempotencyMiddleware:
         self._key_maker = key_maker
         self._skip = skip
         self._gated_routes = _GatedRoutes(app)
+        self._downstream_authentication = _has_downstream_authentication(app)
         self._replay_collision_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
@@ -801,6 +817,8 @@ class IdempotencyMiddleware:
         """Return whether the default key cannot safely replay this request."""
         return self._key_maker is None and (
             _has_private_request_header(scope["headers"])
+            or _authenticated_scope(scope)
+            or self._downstream_authentication
             or self._gated_routes.matches(scope)
         )
 

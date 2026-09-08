@@ -19,6 +19,7 @@ from grelmicro import (
     MiddlewarePlacementWarning,
     Usable,
 )
+from grelmicro._paths import _routing_app
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.http._idempotency import (
@@ -860,6 +861,21 @@ def test_security_probe_handles_repeated_mounted_application() -> None:
 
     # Act / Assert
     assert not _contains_fastapi(app)
+
+
+def test_security_probe_handles_an_asgi_middleware_loop() -> None:
+    """A malformed middleware cycle terminates without inventing routes."""
+
+    # Arrange
+    class Loop:
+        app: Any
+
+    loop = Loop()
+    loop.app = loop
+
+    # Act / Assert
+    assert _routing_app(loop) is loop
+    assert not _contains_fastapi(None)
 
 
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:

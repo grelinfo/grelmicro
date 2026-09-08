@@ -183,6 +183,21 @@ def route_path(
     return path
 
 
+def _routing_app(app: Any) -> Any:  # noqa: ANN401
+    """Unwrap ASGI middleware until an application exposing routes is reached."""
+    seen: set[int] = set()
+    while app is not None and id(app) not in seen:
+        seen.add(id(app))
+        router = getattr(app, "router", None)
+        if hasattr(app, "routes") or hasattr(router, "routes"):
+            return app
+        nested = getattr(app, "app", None)
+        if nested is None:
+            return app
+        app = nested
+    return app
+
+
 def walk_routes(
     app: Annotated[  # noqa: ANN401
         Any, Doc("The application, or the router, to read the routes off.")
@@ -205,6 +220,7 @@ def walk_routes(
     from here. A mount starts a new application boundary: the parent
     router's dependencies do not apply inside it.
     """
+    app = _routing_app(app)
     own = getattr(app, "router", None)
     if own is not None:
         contexts = (*contexts, own)
@@ -222,7 +238,7 @@ def walk_routes(
             )
             continue
         inner = getattr(route, "routes", None)
-        if inner:
+        if inner is not None:
             found.extend(
                 walk_routes(
                     getattr(route, "app", route),
