@@ -21,7 +21,7 @@ from grelmicro import (
 )
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
-from grelmicro.http._idempotency import _checked_key
+from grelmicro.http._idempotency import _checked_key, _GatedRoutes
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.starlette import install_middleware
@@ -830,6 +830,20 @@ def test_litestar_warns_when_the_wrap_sits_outside_app_middleware() -> None:
     # Act / Assert
     with pytest.warns(MiddlewarePlacementWarning, match="Litestar"):
         micro.install(app)
+
+
+def test_litestar_security_probe_needs_no_starlette(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-FastAPI app never imports FastAPI's Starlette route compiler."""
+    # Arrange
+    import sys  # noqa: PLC0415
+
+    app = Litestar(route_handlers=[])
+    monkeypatch.setitem(sys.modules, "starlette.routing", None)
+
+    # Act / Assert
+    _GatedRoutes().read(app)
 
 
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:

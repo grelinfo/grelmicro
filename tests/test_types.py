@@ -221,3 +221,14 @@ class TestFailClosed:
 
         assert "hunter2" not in repr(model)
         assert "sensitive" not in repr(model)
+
+    def test_protocol_relative_userinfo_and_query_are_both_redacted(
+        self,
+    ) -> None:
+        """A network-path endpoint masks its password and query credential."""
+        model = Model(
+            text="//user:hunter2@collector:4317/path?accessToken=sensitive"
+        )
+
+        assert "hunter2" not in repr(model)
+        assert "sensitive" not in repr(model)

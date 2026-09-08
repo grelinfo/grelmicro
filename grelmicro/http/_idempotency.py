@@ -199,6 +199,13 @@ class _GatedRoutes:
 
     def read(self, app: Any) -> None:  # noqa: ANN401
         """Read routes protected by FastAPI security dependencies."""
+        if not any(
+            klass.__module__.partition(".")[0] == "fastapi"
+            for klass in type(app).__mro__
+        ):
+            self._app = app
+            self._routes = ()
+            return
         from starlette.routing import compile_path  # noqa: PLC0415
 
         from grelmicro.http._response_cache import (  # noqa: PLC0415
