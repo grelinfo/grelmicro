@@ -20,6 +20,7 @@ from grelmicro.resilience import (
     Bulkhead,
     CircuitBreaker,
     ConstantBackoff,
+    Fallback,
     Retry,
     Timeout,
     shield,
@@ -70,6 +71,20 @@ async def test_retry_retries_an_async_callable_object() -> None:
         await policy(flaky)()
 
     assert flaky.calls == ATTEMPTS
+
+
+async def test_fallback_engages_for_an_async_callable_object() -> None:
+    """The fallback answered, rather than the failure reaching the caller.
+
+    The sync wrapper caught nothing, because the body had not run by the
+    time it returned. The exception surfaced later, when the caller
+    awaited the coroutine, past the `except` that was meant to answer it.
+    """
+    flaky = _Flaky()
+    policy = Fallback("orders", when=ValueError, default="backup")
+
+    assert await policy(flaky)() == "backup"
+    assert flaky.calls == 1
 
 
 async def test_a_circuit_breaker_admits_an_async_callable_object() -> None:
