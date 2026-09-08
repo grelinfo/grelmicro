@@ -16,10 +16,15 @@ from uuid import uuid4
 
 import pytest
 
-# The fixture waits up to 30s for the master and 30s for the sentinel. The
-# marker must stay above their sum, otherwise pytest-timeout fires at the same
-# moment as the last wait and hides which container failed to come up.
-pytestmark = [pytest.mark.timeout(120), pytest.mark.integration]
+from tests._containers import (
+    CONTAINER_LOG_TIMEOUT,
+    CONTAINER_TEST_TIMEOUT,
+)
+
+pytestmark = [
+    pytest.mark.timeout(CONTAINER_TEST_TIMEOUT),
+    pytest.mark.integration,
+]
 
 testcontainers = pytest.importorskip("testcontainers.core.container")
 
@@ -72,9 +77,15 @@ def sentinel_provider(
         .with_bind_ports(_SENTINEL_PORT, _SENTINEL_PORT)
     )
     with master:
-        wait_for_logs(master, "Ready to accept connections", timeout=30)
+        wait_for_logs(
+            master, "Ready to accept connections", timeout=CONTAINER_LOG_TIMEOUT
+        )
         with sentinel:
-            wait_for_logs(sentinel, "Sentinel new configuration", timeout=30)
+            wait_for_logs(
+                sentinel,
+                "Sentinel new configuration",
+                timeout=CONTAINER_LOG_TIMEOUT,
+            )
             from redis.asyncio.sentinel import Sentinel  # noqa: PLC0415
 
             # Sentinel announces the master by the Docker-network alias,

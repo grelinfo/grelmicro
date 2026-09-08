@@ -39,6 +39,7 @@ that a client library used to accept.
 | `SettingsValidationError: environment= must be one of ...` on a `Grelmicro(...)` that used to build | 0.40 | [Name a real tier](#0-40-environment-validated) |
 | `ValueError` where you caught `TypeError` from any `Match` argument error or a bad `when=` | 0.40 | [Catch `ValueError`](#0-40-match-value-error) |
 | `ImportError: cannot import name 'RedisProviderConfigError'` or `'PostgresProviderConfigError'` | 0.40 | [Catch the base error](#0-40-provider-errors) |
+| A `@retry`, `@fallback`, `@timeout`, `@bulkhead` or `@measure` on a callable object behaved as though it were not there | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 
 ## 0.40
 
@@ -426,6 +427,35 @@ async with idem(key) as op:
 
 It is valid **only** on a replay. Calling it on a first execution raises
 `IdempotencyStateError`, so keep it behind `if op.replayed:`.
+
+## 0.41, not breaking but worth knowing {#0-41-async-callable-objects}
+
+Every decorator now reads an object whose `__call__` is async as async.
+Before, `inspect.iscoroutinefunction` reported `False` for one, so the
+decorator built its sync wrapper. That wrapper called the object, took
+the coroutine it returned as the result, and returned. The body ran
+later, when your code awaited that coroutine, outside the policy.
+
+```python
+class Client:
+    async def __call__(self, order_id: str) -> Order:
+        ...
+
+
+fetch = retry(when=ConnectionError, attempts=3)(Client())
+```
+
+The retry above made **one** attempt, not three, and the first failure
+reached the caller with no backoff and no budget. `@fallback` never
+answered, `@measure` timed the creation of the coroutine rather than the
+call, and `@timeout`, `@bulkhead`, `@shield` and `@cached` refused the
+object outright as though it were sync code.
+
+Nothing in your code has to change. A decorator applied to a plain
+async function, which is how nearly everyone writes this, was never
+affected. Check any place you decorate a callable object: the policy is
+engaging now where it silently was not, so a retry that never fired
+starts firing, and a call that was never bounded starts being bounded.
 
 ## 0.34, not breaking but worth knowing {#0-34-task-run-outcomes}
 
