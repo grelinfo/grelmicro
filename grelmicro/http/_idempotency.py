@@ -21,7 +21,6 @@ from typing import (
     TypedDict,
     cast,
 )
-from weakref import WeakKeyDictionary
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveInt, StrictStr
 from typing_extensions import Doc
@@ -219,33 +218,17 @@ class _GatedRoutes:
             found.append((compiled, methods))
         self._routes = tuple(found)
 
-    def reread(self) -> None:
-        """Read routes added after installation, before the app starts."""
-        if self._app is not None:
-            self.read(self._app)
-
     def matches(self, scope: Scope) -> bool:
         """Return whether the request route has a security dependency."""
+        app = scope.get("app")
+        if app is not None and app is not self._app:
+            self.read(app)
         method = scope["method"]
         path = route_path(scope)
         return any(
             method in methods and regex.fullmatch(path)
             for regex, methods in self._routes
         )
-
-
-_GATED_ROUTES: WeakKeyDictionary[Idempotency[Any], _GatedRoutes] = (
-    WeakKeyDictionary()
-)
-
-
-def _gated_routes_for(idempotency: Idempotency[Any]) -> _GatedRoutes:
-    """Return the security routes shared by one store and its middleware."""
-    routes = _GATED_ROUTES.get(idempotency)
-    if routes is None:
-        routes = _GatedRoutes()
-        _GATED_ROUTES[idempotency] = routes
-    return routes
 
 
 def _field_name(value: str, argument: str, example: str) -> str:
@@ -662,7 +645,7 @@ class IdempotencyMiddleware:
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
-        self._gated_routes = _gated_routes_for(idempotency)
+        self._gated_routes = _GatedRoutes()
         self._replay_collision_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
@@ -1497,7 +1480,6 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
-        self._gated_routes = _gated_routes_for(idempotency)
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._live: Live[_State] = Live(_state_of(config))
@@ -1538,15 +1520,6 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             "live": self._live,
         }
 
-    def read_routes(
-        self,
-        app: Annotated[
-            object, Doc("The application to read security routes from.")
-        ],
-    ) -> None:
-        """Read routes whose FastAPI security dependencies must run."""
-        self._gated_routes.read(app)
-
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
         """Return what this component answers rather than letting through.
 
@@ -1580,7 +1553,6 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         reads the registration and adds the middleware to the framework
         before it serves. This is the declaration that it should.
         """
-        self._gated_routes.reread()
         return self
 
     async def __aexit__(

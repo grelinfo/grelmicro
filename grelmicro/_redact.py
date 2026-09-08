@@ -37,12 +37,15 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_QUALIFIER_SEPARATOR = re.compile(r"[.\[\]]")
 
 
 def _is_credential_query_key(key: str) -> bool:
     """Return whether `key` conventionally names credential material."""
     lowered = key.lower()
-    normalized = _CAMEL_CASE_BOUNDARY.sub("_", key)
+    normalized = _QUALIFIER_SEPARATOR.sub(
+        "_", _CAMEL_CASE_BOUNDARY.sub("_", key)
+    )
     return (
         lowered in _EXACT_CREDENTIAL_QUERY_KEYS
         or _CREDENTIAL_QUERY_KEY_PATTERN.search(normalized) is not None
@@ -160,19 +163,20 @@ def redact_url(url: str, *, multi_host: bool = False) -> str:
     """
     if not url:
         return url
+    swept = _USERINFO_RE.sub(rf"\1\2{MASK}\4", url)
     try:
-        parsed = MultiHostUrl(url) if multi_host else Url(url)
+        parsed = MultiHostUrl(swept) if multi_host else Url(swept)
     except ValueError:
-        return _redact_unparsed_url(url)
+        return _redact_unparsed_url(swept)
     redacted = (
         _redact_multi_host(parsed)
         if isinstance(parsed, MultiHostUrl)
         else _redact_single_host(parsed)
     )
     if redacted is not None:
-        return redacted
+        return _redact_unparsed_url(redacted)
     # Structured parsing found nothing. A scheme-less `user:pw@host:port`
     # parses as a path and hides its credential that way, so sweep the
     # original once more. The substitution is a no-op when there is
     # genuinely nothing to redact, which keeps the input string intact.
-    return _redact_unparsed_url(url)
+    return _redact_unparsed_url(swept)

@@ -40,6 +40,11 @@ from grelmicro._redact import _redact_query, _redact_query_values
             "accessToken=***&clientSecret=***",
             id="camel-case-credentials",
         ),
+        pytest.param(
+            "db.password=a&client.secret=b&auth[token]=c",
+            "db.password=***&client.secret=***&auth%5Btoken%5D=***",
+            id="structured-credentials",
+        ),
         pytest.param("code=x&sig=y", "code=***&sig=***", id="oauth-and-sas"),
         pytest.param("token", "token=***", id="no-value"),
         # A percent escape decodes to a key the raw text does not show, so

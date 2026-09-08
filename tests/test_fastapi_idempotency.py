@@ -35,7 +35,7 @@ from starlette.status import (
 )
 
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
+from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import DependencyNotFoundError, OutOfContextError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
@@ -295,6 +295,37 @@ def test_middleware_replay_never_skips_api_key_security() -> None:
     # Assert
     assert authorized.json() == {"call": 1}
     assert "idempotent-replayed" not in authorized.headers
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_standalone_middleware_detects_api_key_security() -> None:
+    """Hand-added middleware reads security metadata from the request app."""
+    # Arrange
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "standalone",
+            ttl=60,
+            cache=TTLCache(backend=MemoryCacheAdapter()),
+        ),
+    )
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"secret": "sensitive"}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/private", headers={**KEY, "X-API-Key": "secret"}
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
     assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in unauthenticated.headers
 

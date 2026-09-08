@@ -212,3 +212,12 @@ class TestFailClosed:
 
         assert "sensitive" not in repr(model)
         assert str(model.text) == "collector/path?accessToken=***"
+
+    def test_scheme_less_userinfo_and_query_are_both_redacted(self) -> None:
+        """Structured query rebuilding cannot expose path-like userinfo."""
+        model = Model(
+            text="user:hunter2@collector:4317/path?accessToken=sensitive"
+        )
+
+        assert "hunter2" not in repr(model)
+        assert "sensitive" not in repr(model)

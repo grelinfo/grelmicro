@@ -6,7 +6,6 @@ the OpenAPI schema and the health router.
 """
 
 import logging
-from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
 try:
@@ -59,7 +58,6 @@ from grelmicro.http._ratelimit import (
     state_on,
 )
 from grelmicro.http._response_cache import declare_cached
-from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     error_response,
@@ -76,12 +74,13 @@ from grelmicro.resilience.errors import RateLimitExceededError
 
 if TYPE_CHECKING:
     import inspect
-    from collections.abc import AsyncIterator, Callable, Collection, Sequence
+    from collections.abc import Callable, Collection, Sequence
 
     from fastapi import APIRouter, FastAPI
     from fastapi.params import Depends
 
     from grelmicro import Grelmicro
+    from grelmicro.idempotency import Idempotency
     from grelmicro.resilience.ratelimiter import RateLimiter
     from grelmicro.security.clientip import TrustedProxies
     from grelmicro.trace._component import Trace
@@ -137,8 +136,6 @@ def install(
     and calls this for you.
     """
     _install_starlette(app, micro, ambient=ambient)
-    _secure_idempotency_routes(app)
-    _refresh_idempotency_routes_on_startup(app)
     _instrument_app(app, micro)
 
 
@@ -183,7 +180,6 @@ def install_middleware(
     there. A component carrying neither is added silently.
     """
     _install_middleware_starlette(app, components)
-    _secure_idempotency_routes(app)
     for component in components:
         read_routes = getattr(component, "read_routes", None)
         if read_routes is not None:
@@ -296,7 +292,6 @@ def document_idempotency(
             `IdempotencyMiddleware`.
     """
     _require_fastapi(app, "document_idempotency")
-    _secure_idempotency_routes(app)
     _idempotency_options(app)
     original = app.openapi
 
@@ -1090,42 +1085,6 @@ def _idempotency_options(app: "FastAPI") -> list[dict[str, Any]]:
         "document_idempotency() found no IdempotencyMiddleware on the app. "
         "Add it with app.add_middleware(IdempotencyMiddleware, ...) first.",
     )
-
-
-def _secure_idempotency_routes(app: "FastAPI") -> None:
-    """Keep default idempotency behind every FastAPI security dependency."""
-    from grelmicro.http._idempotency import (  # noqa: PLC0415
-        _gated_routes_for,
-    )
-
-    for entry in app.user_middleware:
-        cls = entry.cls
-        if not (
-            is_class(cls)
-            and is_subclass(cls, IdempotencyMiddleware)
-            and entry.kwargs.get("key_maker") is None
-        ):
-            continue
-        idempotency = entry.kwargs.get("idempotency")
-        if isinstance(idempotency, Idempotency):
-            _gated_routes_for(idempotency).read(app)
-
-
-def _refresh_idempotency_routes_on_startup(app: "FastAPI") -> None:
-    """Read security routes again after application setup is complete."""
-    marker = "grelmicro_idempotency_security_refresh"
-    if getattr(app.state, marker, False):
-        return
-    previous = app.router.lifespan_context
-
-    @asynccontextmanager
-    async def lifespan(app: "FastAPI") -> "AsyncIterator[Any]":
-        _secure_idempotency_routes(app)
-        async with previous(app) as state:
-            yield state
-
-    app.router.lifespan_context = lifespan
-    setattr(app.state, marker, True)
 
 
 def _annotate_schema(
