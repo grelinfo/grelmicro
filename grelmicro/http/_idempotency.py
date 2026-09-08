@@ -188,54 +188,112 @@ _PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
 
 
 class _GatedRoutes:
-    """FastAPI routes whose security dependencies must run before replay."""
+    """FastAPI routes whose dependencies must run before replay."""
 
-    __slots__ = ("_app", "_routes")
+    __slots__ = ("_apps", "_routes", "_wrapped")
 
-    def __init__(self) -> None:
-        """Hold no routes until a framework integration supplies an app."""
-        self._app: Any = None
+    def __init__(self, app: Any = None) -> None:  # noqa: ANN401
+        """Remember the wrapped app and defer route discovery to a request."""
+        self._wrapped = app
+        self._apps: tuple[Any, ...] = ()
         self._routes: tuple[tuple[re.Pattern[str], frozenset[str]], ...] = ()
 
-    def read(self, app: Any) -> None:  # noqa: ANN401
-        """Read routes protected by FastAPI security dependencies."""
-        if not any(
-            klass.__module__.partition(".")[0] == "fastapi"
-            for klass in type(app).__mro__
-        ):
-            self._app = app
+    def read(self, *apps: Any) -> None:  # noqa: ANN401
+        """Read dependency-bearing routes from every reachable FastAPI app."""
+        self._apps = apps
+        roots: list[Any] = []
+        for app in apps:
+            root = _routing_app(app)
+            if (
+                root is not None
+                and not any(root is seen for seen in roots)
+                and _contains_fastapi(root)
+            ):
+                roots.append(root)
+        if not roots:
             self._routes = ()
             return
         from starlette.routing import compile_path  # noqa: PLC0415
 
-        from grelmicro.http._response_cache import (  # noqa: PLC0415
-            _gating_schemes,
-        )
-
-        self._app = app
         found: list[tuple[re.Pattern[str], frozenset[str]]] = []
-        for prefix, route, contexts in walk_routes(app):
-            if not _gating_schemes(route, contexts):
-                continue
-            compiled, _, _ = compile_path(f"{prefix}{route.path}")
-            methods = frozenset(
-                method.upper()
-                for method in (getattr(route, "methods", None) or ())
-            )
-            found.append((compiled, methods))
+        for root in roots:
+            for prefix, route, contexts in walk_routes(root):
+                if not _has_dependencies(route, contexts):
+                    continue
+                compiled, _, _ = compile_path(f"{prefix}{route.path}")
+                methods = frozenset(
+                    method.upper()
+                    for method in (getattr(route, "methods", None) or ())
+                )
+                found.append((compiled, methods))
         self._routes = tuple(found)
 
     def matches(self, scope: Scope) -> bool:
-        """Return whether the request route has a security dependency."""
-        app = scope.get("app")
-        if app is not None and app is not self._app:
-            self.read(app)
+        """Return whether the request route has a FastAPI dependency."""
+        apps = _unique_apps((self._wrapped, scope.get("app")))
+        if len(apps) != len(self._apps) or any(
+            app is not seen for app, seen in zip(apps, self._apps, strict=True)
+        ):
+            self.read(*apps)
         method = scope["method"]
         path = route_path(scope)
         return any(
             method in methods and regex.fullmatch(path)
             for regex, methods in self._routes
         )
+
+
+def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Return non-null applications once each, preserving identity order."""
+    found: list[Any] = []
+    for app in apps:
+        if app is not None and not any(app is seen for seen in found):
+            found.append(app)
+    return tuple(found)
+
+
+def _routing_app(app: Any) -> Any:  # noqa: ANN401
+    """Unwrap middleware until an application exposing routes is reached."""
+    seen: set[int] = set()
+    while app is not None and id(app) not in seen:
+        seen.add(id(app))
+        router = getattr(app, "router", None)
+        if hasattr(app, "routes") or hasattr(router, "routes"):
+            return app
+        app = getattr(app, "app", None)
+    return None
+
+
+def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
+    """Return whether an application is FastAPI or mounts one."""
+    pending = [app]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if any(
+            klass.__module__.partition(".")[0] == "fastapi"
+            for klass in type(current).__mro__
+        ):
+            return True
+        router = getattr(current, "router", None)
+        for route in getattr(router or current, "routes", ()) or ():
+            nested = getattr(route, "app", None)
+            if nested is not None:
+                pending.append(nested)
+    return False
+
+
+def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
+    """Return whether FastAPI runs dependencies before this route."""
+    dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
+    if getattr(dependency_tree, "dependencies", ()):
+        return True
+    return any(
+        getattr(context, "dependencies", ()) or () for context in contexts
+    )
 
 
 def _field_name(value: str, argument: str, example: str) -> str:
@@ -652,7 +710,7 @@ class IdempotencyMiddleware:
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
-        self._gated_routes = _GatedRoutes()
+        self._gated_routes = _GatedRoutes(app)
         self._replay_collision_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.

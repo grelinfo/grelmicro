@@ -223,12 +223,14 @@ The stored key combines the method, the path, the query string, and the header v
 Without a custom `key_maker`, a request carrying `Authorization` or `Cookie`
 bypasses idempotency and runs the handler every time. This safe default keeps
 private responses out of a shared entry and ensures authentication inside the
-application still runs. On FastAPI, a route guarded by a framework security
-dependency also bypasses the default, including an API key carried under a
-custom header name. Public requests continue to use the route-scoped default
-key. Required keys are validated before this bypass. The built-in key format
-is versioned, so an upgraded process cannot replay an unscoped entry written
-by an older release. Custom `key_maker` values remain unchanged.
+application still runs. On FastAPI, a route with any dependency also bypasses
+the default, including ordinary `Depends` authentication that reads an API key
+from a custom header. This applies when FastAPI is wrapped directly or mounted
+under another ASGI application. Dependency-free public requests continue to
+use the route-scoped default key. Required keys are validated before this
+bypass. The built-in key format is versioned, so an upgraded process cannot
+replay an unscoped entry written by an older release. Custom `key_maker` values
+remain unchanged.
 
 !!! warning "Set `key_maker` for authenticated replay"
     To make authenticated requests idempotent, fold the caller identity into

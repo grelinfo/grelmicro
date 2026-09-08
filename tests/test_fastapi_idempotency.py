@@ -273,6 +273,104 @@ def test_middleware_replay_never_skips_route_authentication() -> None:
     assert "idempotent-replayed" not in unauthenticated.headers
 
 
+def test_custom_header_dependency_runs_before_every_response() -> None:
+    """An ordinary custom-header dependency cannot be skipped by a replay."""
+    # Arrange
+    app = build_app()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key != "expected":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/custom-private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/custom-private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/custom-private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_direct_wrapper_detects_fastapi_dependencies() -> None:
+    """A middleware directly wrapping FastAPI still sees its dependencies."""
+    # Arrange
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "direct",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        authorized = client.post(
+            "/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_starlette_root_detects_mounted_fastapi_dependencies() -> None:
+    """A non-FastAPI root still finds dependencies in a FastAPI mount."""
+    # Arrange
+    root = Starlette()
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    root.mount("/api", app)
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "mounted-private",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(root) as client:
+        authorized = client.post(
+            "/api/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/api/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
 def test_middleware_replay_never_skips_api_key_security() -> None:
     """A custom credential header cannot put a gated route in a shared entry."""
     # Arrange
