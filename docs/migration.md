@@ -39,7 +39,9 @@ that a client library used to accept.
 | `SettingsValidationError: environment= must be one of ...` on a `Grelmicro(...)` that used to build | 0.40 | [Name a real tier](#0-40-environment-validated) |
 | `ValueError` where you caught `TypeError` from any `Match` argument error or a bad `when=` | 0.40 | [Catch `ValueError`](#0-40-match-value-error) |
 | `ImportError: cannot import name 'RedisProviderConfigError'` or `'PostgresProviderConfigError'` | 0.40 | [Catch the base error](#0-40-provider-errors) |
-| A `@retry`, `@fallback`, `@timeout`, `@bulkhead` or `@measure` on a callable object behaved as though it were not there | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| A `@retry` or `@fallback` on a callable object never engaged, or `@measure` recorded almost no time for it | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `TypeError: ... only decorates async functions` from `@timeout`, `@bulkhead`, `@shield` or `@cached` on a callable object | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `RuntimeError: CircuitBreaker '...' cannot be used from a worker thread` on a callable object, from the event loop | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 
 ## 0.40
 
@@ -446,10 +448,20 @@ fetch = retry(when=ConnectionError, attempts=3)(Client())
 ```
 
 The retry above made **one** attempt, not three, and the first failure
-reached the caller with no backoff and no budget. `@fallback` never
-answered, `@measure` timed the creation of the coroutine rather than the
-call, and `@timeout`, `@bulkhead`, `@shield` and `@cached` refused the
-object outright as though it were sync code.
+reached the caller with no backoff and no budget.
+
+Each decorator showed it differently, which is why the symptom table
+above lists three rows:
+
+- `@retry` and `@fallback` returned without engaging, silently. `@measure`
+  and `@instrument` timed the creation of the coroutine rather than the
+  call, so a slow body recorded almost no time and a failing one recorded
+  no error.
+- `@timeout`, `@bulkhead`, `@shield` and `@cached` refused the object at
+  decoration, with a `TypeError` saying they only decorate async
+  functions.
+- `CircuitBreaker` raised `RuntimeError: ... cannot be used from a worker
+  thread`, because the sync path it took is the one meant for a thread.
 
 Nothing in your code has to change. A decorator applied to a plain
 async function, which is how nearly everyone writes this, was never
