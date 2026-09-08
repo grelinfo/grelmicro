@@ -202,7 +202,8 @@ def walk_routes(
 
     An included router is a node of its own rather than the routes it
     holds, so what it was included under has to be carried down to them
-    from here. A mount is walked the same way.
+    from here. A mount starts a new application boundary: the parent
+    router's dependencies do not apply inside it.
     """
     own = getattr(app, "router", None)
     if own is not None:
@@ -226,7 +227,7 @@ def walk_routes(
                 walk_routes(
                     getattr(route, "app", route),
                     f"{prefix}{getattr(route, 'path', '')}",
-                    contexts,
+                    (),
                 )
             )
             continue

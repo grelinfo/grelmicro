@@ -37,6 +37,7 @@ from starlette.status import (
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.errors import DependencyNotFoundError, OutOfContextError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.idempotency import Idempotency
@@ -328,6 +329,43 @@ def test_standalone_middleware_detects_api_key_security() -> None:
     assert authorized.status_code == HTTP_200_OK
     assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_parent_security_does_not_disable_public_mounted_idempotency() -> None:
+    """A parent's dependency is not enforced inside a mounted application."""
+    # Arrange
+    api_key = APIKeyHeader(name="X-API-Key")
+    root = FastAPI(dependencies=[Depends(api_key)])
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "mounted",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+    sub = FastAPI()
+    calls = 0
+
+    @sub.post("/charge")
+    async def charge() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    root.mount("/sub", sub)
+
+    # Act
+    with TestClient(root) as client:
+        first = client.post("/sub/charge", headers=KEY)
+        replayed = client.post("/sub/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == {"call": 1}
+    assert replayed.json() == {"call": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
 
 
 @pytest.mark.parametrize("credential", ["Authorization", "Cookie"])
