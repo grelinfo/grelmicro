@@ -1190,7 +1190,7 @@ def _build_sync_wrapper(  # noqa: C901
             raise_backend_not_open("The cache")
         if on_backend_loop(loop):
             raise_event_loop_deadlock(
-                f"The sync `@cached` function {func.__qualname__!r}",
+                f"The sync `@cached` function {callable_name(func)!r}",
                 "Await an async `@cached` function from async code, or run "
                 "the sync one through `asyncio.to_thread(...)`.",
             )

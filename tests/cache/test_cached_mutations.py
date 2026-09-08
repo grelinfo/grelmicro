@@ -27,6 +27,7 @@ from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.errors import EventLoopDeadlockError
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -764,3 +765,23 @@ async def test_a_private_cache_is_never_named_after_an_address() -> None:
 async def _prefixed(prefix: str, value: int) -> str:
     """Module-level sample for the private-cache naming test."""
     return f"{prefix}{value}"
+
+
+async def test_a_sync_callable_object_gets_the_deadlock_message() -> None:
+    """The diagnosis survives a callable with no name of its own.
+
+    The message names the function it is about, and reading
+    `__qualname__` straight off a callable object raised `AttributeError`
+    instead, losing the one line that says what to do about it.
+    """
+    async with MemoryCacheAdapter() as backend:
+        store = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
+
+        class Job:
+            def __call__(self, value: int) -> int:
+                return value
+
+        wrapped = cached(store, key="{value}")(Job())
+
+        with pytest.raises(EventLoopDeadlockError, match="Job"):
+            wrapped(1)
