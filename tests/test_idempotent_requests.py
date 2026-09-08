@@ -21,7 +21,11 @@ from grelmicro import (
 )
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
-from grelmicro.http._idempotency import _checked_key, _GatedRoutes
+from grelmicro.http._idempotency import (
+    _checked_key,
+    _contains_fastapi,
+    _GatedRoutes,
+)
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.starlette import install_middleware
@@ -844,6 +848,18 @@ def test_litestar_security_probe_needs_no_starlette(
 
     # Act / Assert
     _GatedRoutes().read(app)
+
+
+def test_security_probe_handles_repeated_mounted_application() -> None:
+    """The same mounted app is traversed once and cannot form a loop."""
+    # Arrange
+    child = Starlette()
+    app = Starlette()
+    app.mount("/one", child)
+    app.mount("/two", child)
+
+    # Act / Assert
+    assert not _contains_fastapi(app)
 
 
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:
