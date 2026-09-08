@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from grelmicro.metrics import measure
-from grelmicro.metrics._measure import _default_name
+from grelmicro.metrics._measure import _default_name, _Instruments
+from grelmicro.metrics._naming import metric_name
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -197,3 +198,62 @@ def test_two_nested_classes_of_one_name_stay_apart() -> None:
         return _Fetcher()
 
     assert _default_name(factory()) != _default_name(_Fetcher())
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("__main__.charge", "main.charge"),
+        ("__main__.<lambda>", "main.lambda"),
+        ("<lambda>", "lambda"),
+        ("___", "unnamed"),
+        ("myapp.service.charge", "myapp.service.charge"),
+        ("myapp._internal.foo", "myapp._internal.foo"),
+    ],
+)
+def test_a_derived_metric_name_is_one_opentelemetry_accepts(
+    raw: str, expected: str
+) -> None:
+    """An instrument name starts with a letter and holds no brackets.
+
+    The last two cases are already valid and must come back untouched,
+    because renaming a metric that works today would break the dashboard
+    reading it.
+    """
+    assert metric_name(raw) == expected
+
+
+def test_measuring_a_function_in_the_entry_point_script_does_not_raise(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """`@measure` never breaks the call it was added to watch.
+
+    A function defined in the script the process was started from has
+    the module `__main__`, and a name starting with an underscore is
+    refused by the SDK. It raised from inside the call, and only once
+    metrics were turned on, so an app that ran in development failed in
+    production.
+    """
+    instruments = _Instruments("__main__.charge", in_flight=False)
+
+    instruments.exit(instruments.enter(), instruments.success())
+
+    assert metrics_reader.points("main.charge.duration")
+
+
+def test_an_explicit_name_the_sdk_refuses_does_not_raise(
+    metrics_reader: MetricsHarness,
+) -> None:
+    """A name passed by hand is corrected rather than allowed to crash.
+
+    `@measure` is observability, so it never breaks the call it wraps,
+    whatever it was named. A name the specification already accepts is
+    left exactly as it was, which the parametrised test above pins.
+    """
+
+    @measure(name="2 orders/sec")
+    def charge() -> int:
+        return 1
+
+    assert charge() == 1
+    assert metrics_reader.points("orders/sec.calls")

@@ -11,7 +11,11 @@ from typing_extensions import Doc
 
 from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics import _emit
-from grelmicro.metrics._naming import callable_name, unwrap_callable
+from grelmicro.metrics._naming import (
+    callable_name,
+    metric_name,
+    unwrap_callable,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -44,7 +48,14 @@ class _Instruments:
     __slots__ = ("active", "calls", "duration", "in_flight")
 
     def __init__(self, base: str, *, in_flight: bool) -> None:
-        """Bind the per-function metric names."""
+        """Bind the per-function metric names.
+
+        The base passes through `metric_name`, so a name the
+        specification refuses never reaches the SDK and `@measure`
+        never raises into the call it was added to watch. A name that
+        is already valid is untouched.
+        """
+        base = metric_name(base)
         self.duration = f"{base}.duration"
         self.calls = f"{base}.calls"
         self.active = f"{base}.active"
