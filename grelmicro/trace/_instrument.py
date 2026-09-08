@@ -17,9 +17,11 @@ from typing import (
 
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro._context import pop_context as _pop_context
 from grelmicro._context import push_context as _push_context
 from grelmicro._wrapping import refuse_registered
+from grelmicro.metrics._naming import callable_name, unwrap_callable
 from grelmicro.trace._otel import get as _get_otel
 
 if TYPE_CHECKING:
@@ -188,16 +190,18 @@ def instrument[**P, R](
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
         refuse_registered(fn, "@instrument")
-        span_name = name or str(getattr(fn, "__qualname__", fn))
+        span_name = name or callable_name(fn)
         extract = _make_extract_fields(
             inspect.signature(fn), skip_set, skip_all=skip_all
         )
         otel = _get_otel()
         tracer = (
-            otel.trace.get_tracer(fn.__module__) if otel is not None else None
+            otel.trace.get_tracer(unwrap_callable(fn).__module__)
+            if otel is not None
+            else None
         )
 
-        if inspect.iscoroutinefunction(fn):
+        if is_async_callable(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:

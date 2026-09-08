@@ -554,7 +554,7 @@ class TTLCache(Generic[T]):
                 ),
             )
         except Exception:  # serve stale on any recompute failure
-            stale = await self._read_stale(key, _SENTINEL)
+            stale = await self._read_stale(key, cast("T", _SENTINEL))
             if stale is not _SENTINEL:
                 _emit.incr(
                     "grelmicro.cache.stale_serves",

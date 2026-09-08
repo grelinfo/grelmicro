@@ -32,6 +32,7 @@ from typing import (
 from typing_extensions import Doc
 
 from grelmicro._async import (
+    is_async_callable,
     on_backend_loop,
     raise_backend_not_open,
     raise_event_loop_deadlock,
@@ -56,6 +57,7 @@ from grelmicro.cache.ttl import (
 from grelmicro.coordination.lock import Lock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
+from grelmicro.metrics._naming import callable_name
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
 # ``decorator`` would inherit ``cached``'s type parameters instead
@@ -323,13 +325,14 @@ def _private_cache(
     """Build the process-local cache `ttl=` asks for.
 
     It is named after the function it serves, so one decorated function's
-    hit rate is readable next to another's.
+    hit rate is readable next to another's. Two partials of one function
+    are two caches under one name, because the name comes from the
+    function behind the partial. Pass a `TTLCache` to tell them apart.
     """
-    qualname = getattr(func, "__qualname__", None) or repr(func)
     return TTLCache(
         maxsize=maxsize,
         ttl=ttl,
-        name=qualname.replace(".<locals>", ""),
+        name=callable_name(func),
         backend=_PrivateMemoryCacheAdapter(),
         serializer=PickleSerializer(),
     )
@@ -591,7 +594,7 @@ def cached(  # noqa: PLR0913, C901
             )
             raise TypeError(msg)
         is_async_gen_func = inspect.isasyncgenfunction(func)
-        is_async_func = inspect.iscoroutinefunction(func) or is_async_gen_func
+        is_async_func = is_async_callable(func) or is_async_gen_func
         if is_private_cache and not is_async_func:
             msg = (
                 "@cached(ttl=...) supports async functions only: the "
@@ -1187,7 +1190,7 @@ def _build_sync_wrapper(  # noqa: C901
             raise_backend_not_open("The cache")
         if on_backend_loop(loop):
             raise_event_loop_deadlock(
-                f"The sync `@cached` function {func.__qualname__!r}",
+                f"The sync `@cached` function {callable_name(func)!r}",
                 "Await an async `@cached` function from async code, or run "
                 "the sync one through `asyncio.to_thread(...)`.",
             )

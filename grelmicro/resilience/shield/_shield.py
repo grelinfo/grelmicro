@@ -15,6 +15,7 @@ from typing import Annotated, Any, Self, TypeVar
 from pydantic import Discriminator, PositiveFloat, ValidationError
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
@@ -596,7 +597,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         """Run `fn(*args, **kwargs)` through this Shield instance."""
-        if not inspect.iscoroutinefunction(fn) and not _is_async_callable(fn):
+        if not is_async_callable(fn):
             msg = (
                 "Shield.run requires an async callable. "
                 f"Got {fn!r}. Wrap sync code in asyncio.to_thread(...)."
@@ -618,7 +619,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                 holds it, so this would wrap direct calls alone.
         """
         refuse_registered(fn, f"Shield {self._name!r}")
-        if not inspect.iscoroutinefunction(fn):
+        if not is_async_callable(fn):
             msg = (
                 "Shield only decorates async functions. "
                 f"Got {fn!r}. Wrap sync code in asyncio.to_thread(...)."
@@ -839,13 +840,3 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                 clamp_max=config.timeout_clamp_max,
             ),
         )
-
-
-def _is_async_callable(fn: object) -> bool:
-    """Return True when `fn` is callable and returns an awaitable.
-
-    Covers `functools.partial`-wrapped coroutines that
-    `iscoroutinefunction` does not recognise.
-    """
-    target = fn.func if isinstance(fn, functools.partial) else fn
-    return inspect.iscoroutinefunction(target)

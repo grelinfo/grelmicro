@@ -39,6 +39,10 @@ that a client library used to accept.
 | `SettingsValidationError: environment= must be one of ...` on a `Grelmicro(...)` that used to build | 0.40 | [Name a real tier](#0-40-environment-validated) |
 | `ValueError` where you caught `TypeError` from any `Match` argument error or a bad `when=` | 0.40 | [Catch `ValueError`](#0-40-match-value-error) |
 | `ImportError: cannot import name 'RedisProviderConfigError'` or `'PostgresProviderConfigError'` | 0.40 | [Catch the base error](#0-40-provider-errors) |
+| A `@retry` or `@fallback` on a callable object never engaged, or `@measure` recorded almost no time for it | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `TypeError: ... only decorates async functions` from `@timeout`, `@bulkhead` or `@shield` on a callable object | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `TypeError: @cached(ttl=...) supports async functions only`, or `AttributeError: '...' object has no attribute '__qualname__'` from `@cached` | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 
 ## 0.40
 
@@ -426,6 +430,54 @@ async with idem(key) as op:
 
 It is valid **only** on a replay. Calling it on a first execution raises
 `IdempotencyStateError`, so keep it behind `if op.replayed:`.
+
+## 0.41, not breaking but worth knowing {#0-41-async-callable-objects}
+
+Every decorator now reads an object whose `__call__` is async as async.
+Before, `inspect.iscoroutinefunction` reported `False` for one, so the
+decorator built its sync wrapper. That wrapper called the object, took
+the coroutine it returned as the result, and returned. The body ran
+later, when your code awaited that coroutine, outside the policy.
+
+```python
+class Client:
+    async def __call__(self, order_id: str) -> Order:
+        ...
+
+
+fetch = retry(when=ConnectionError, attempts=3)(Client())
+```
+
+The retry above made **one** attempt, not three, and the first failure
+reached the caller with no backoff and no budget.
+
+Each decorator showed it differently, which is why the symptom table
+above lists three rows:
+
+- `@retry` and `@fallback` returned without engaging, silently. `@measure`
+  and `@instrument` timed the creation of the coroutine rather than the
+  call, so a slow body recorded almost no time and a failing one recorded
+  no error.
+- `@timeout`, `@bulkhead` and `@shield` refused the object at decoration,
+  with a `TypeError` saying they only decorate async functions.
+- `@cached(ttl=...)` refused it too, with its own wording: `supports
+  async functions only`. `@cached` on a `TTLCache` you passed did not
+  refuse, and raised `AttributeError: '...' object has no attribute
+  '__qualname__'` instead.
+- `CircuitBreaker` raised `EventLoopDeadlockError`, because the sync path
+  it took is the one meant for a worker thread and it saw the event loop
+  on the other side. That error is a `BaseException`, so an
+  `except Exception` around the call did not catch it.
+
+Nothing in your code has to change. A decorator applied to a plain
+async function, which is how nearly everyone writes this, was never
+affected.
+
+The behaviour of a running deployment changes only where the failure was
+silent, because the loud ones stopped the app from starting at all.
+So look at `@retry`, `@fallback`, `@measure` and `@instrument` on a
+callable object: a retry that never fired starts firing, and a call that
+recorded no time starts recording it.
 
 ## 0.34, not breaking but worth knowing {#0-34-task-run-outcomes}
 

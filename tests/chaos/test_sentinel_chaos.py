@@ -27,10 +27,12 @@ from uuid import uuid4
 
 import pytest
 
+from tests._containers import CONTAINER_LOG_TIMEOUT
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
-    pytest.mark.timeout(120),
+    pytest.mark.timeout(120, func_only=True),
 ]
 
 testcontainers = pytest.importorskip("testcontainers.core.container")
@@ -92,9 +94,15 @@ def sentinel_topology(
         .with_bind_ports(_SENTINEL_PORT, _SENTINEL_PORT)
     )
     with master:
-        wait_for_logs(master, "Ready to accept connections", timeout=30)
+        wait_for_logs(
+            master, "Ready to accept connections", timeout=CONTAINER_LOG_TIMEOUT
+        )
         with sentinel:
-            wait_for_logs(sentinel, "Sentinel new configuration", timeout=30)
+            wait_for_logs(
+                sentinel,
+                "Sentinel new configuration",
+                timeout=CONTAINER_LOG_TIMEOUT,
+            )
             from redis.asyncio.sentinel import Sentinel  # noqa: PLC0415
 
             sentinel_client = Sentinel(

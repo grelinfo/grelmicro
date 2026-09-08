@@ -12,6 +12,7 @@ mutants diverge.
 from __future__ import annotations
 
 import asyncio
+import functools
 import sys
 import threading
 from collections import OrderedDict
@@ -26,6 +27,7 @@ from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.errors import EventLoopDeadlockError
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -742,3 +744,44 @@ async def test_a_reused_decorator_gives_each_function_its_own_cache() -> None:
 
     # One shared cache would have dropped the second function's entry too.
     assert calls == {"first": 2, "second": 1}
+
+
+async def test_a_private_cache_is_never_named_after_an_address() -> None:
+    """The cache label a `@cached(ttl=...)` builds is stable across restarts.
+
+    A `functools.partial` carries no name, and its `repr` holds the
+    memory address of the function it wraps. Labelling a cache with it
+    would open a new time series every time the process restarts.
+    """
+    bound = functools.partial(_prefixed, "p")
+
+    wrapper = cached(ttl=30, key="{value}")(bound)
+
+    cache = _private_cache(wrapper)
+    assert cache.name == "_prefixed"
+    assert "0x" not in cache.name
+
+
+async def _prefixed(prefix: str, value: int) -> str:
+    """Module-level sample for the private-cache naming test."""
+    return f"{prefix}{value}"
+
+
+async def test_a_sync_callable_object_gets_the_deadlock_message() -> None:
+    """The diagnosis survives a callable with no name of its own.
+
+    The message names the function it is about, and reading
+    `__qualname__` straight off a callable object raised `AttributeError`
+    instead, losing the one line that says what to do about it.
+    """
+    async with MemoryCacheAdapter() as backend:
+        store = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
+
+        class Job:
+            def __call__(self, value: int) -> int:
+                return value
+
+        wrapped = cached(store, key="{value}")(Job())
+
+        with pytest.raises(EventLoopDeadlockError, match="Job"):
+            wrapped(1)

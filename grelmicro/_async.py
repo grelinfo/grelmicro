@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn, TypeGuard
 
 from grelmicro.errors import EventLoopDeadlockError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 
 def raise_backend_not_open(what: str) -> NoReturn:
@@ -81,14 +84,18 @@ async def sleep_or_stop(seconds: float, stop: asyncio.Event | None) -> bool:
     return True
 
 
-def is_async_callable(obj: Any) -> bool:  # noqa: ANN401
+def is_async_callable(
+    obj: Any,  # noqa: ANN401
+) -> TypeGuard[Callable[..., Awaitable[Any]]]:
     """Return True if ``obj`` is an async callable.
 
     Unwraps nested ``functools.partial`` wrappers, then checks both
-    the object itself and its ``__call__``. Mirrors Starlette's
-    detection (``starlette._utils.is_async_callable``) so partials
-    of async functions and callable instances with
-    ``async def __call__`` are both recognised.
+    the object itself and its ``__call__``, so partials of async
+    functions and callable instances with ``async def __call__`` are
+    both recognised.
+
+    Narrows like ``inspect.iscoroutinefunction`` does, so a decorator
+    picking its wrapper can await what it has just recognised.
     """
     while isinstance(obj, functools.partial):
         obj = obj.func

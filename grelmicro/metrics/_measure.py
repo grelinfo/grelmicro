@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import functools
-import inspect
 import time
 from typing import TYPE_CHECKING, Annotated, Any, ParamSpec, TypeVar, overload
 
 from typing_extensions import Doc
 
+from grelmicro._async import is_async_callable
 from grelmicro._wrapping import refuse_registered
 from grelmicro.metrics import _emit
+from grelmicro.metrics._naming import (
+    callable_name,
+    metric_name,
+    unwrap_callable,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,12 +31,14 @@ def _default_name(fn: Callable[..., Any]) -> str:
     """Derive a metric base name from a function's module and qualname.
 
     Lowercased and dotted, e.g. `myapp.service.charge`. Inner-function
-    markers (`<locals>`) are dropped so nested helpers stay readable.
+    markers (`<locals>`) are dropped so nested helpers stay readable. A
+    `functools.partial` is unwrapped, because it reports `functools` as
+    its module and its `repr` carries a memory address, which would open
+    a new metric on every restart.
     """
-    module = getattr(fn, "__module__", "") or ""
-    qualname = getattr(fn, "__qualname__", getattr(fn, "__name__", str(fn)))
-    qualname = qualname.replace(".<locals>", "")
-    parts = [p for p in (module, qualname) if p]
+    target = unwrap_callable(fn)
+    module = getattr(target, "__module__", "") or ""
+    parts = [p for p in (module, callable_name(target)) if p]
     return ".".join(parts).lower()
 
 
@@ -41,7 +48,14 @@ class _Instruments:
     __slots__ = ("active", "calls", "duration", "in_flight")
 
     def __init__(self, base: str, *, in_flight: bool) -> None:
-        """Bind the per-function metric names."""
+        """Bind the per-function metric names.
+
+        The base passes through `metric_name`, so a name the
+        specification refuses never reaches the SDK and `@measure`
+        never raises into the call it was added to watch. A name that
+        is already valid is untouched.
+        """
+        base = metric_name(base)
         self.duration = f"{base}.duration"
         self.calls = f"{base}.calls"
         self.active = f"{base}.active"
@@ -148,7 +162,7 @@ def measure[**P, R](
         base = name or _default_name(fn)
         m = _Instruments(base, in_flight=record_in_flight)
 
-        if inspect.iscoroutinefunction(fn):
+        if is_async_callable(fn):
 
             @functools.wraps(fn)
             async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
