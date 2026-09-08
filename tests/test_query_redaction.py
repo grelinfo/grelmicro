@@ -30,6 +30,16 @@ from grelmicro._redact import _redact_query, _redact_query_values
             "X-Amz-Credential=***&X-Amz-Signature=***&X-Amz-Security-Token=***",
             id="aws-signed-url",
         ),
+        pytest.param(
+            "db_password=a&x-api-key=b&private_key=c",
+            "db_password=***&x-api-key=***&private_key=***",
+            id="qualified-credentials",
+        ),
+        pytest.param(
+            "accessToken=a&clientSecret=b",
+            "accessToken=***&clientSecret=***",
+            id="camel-case-credentials",
+        ),
         pytest.param("code=x&sig=y", "code=***&sig=***", id="oauth-and-sas"),
         pytest.param("token", "token=***", id="no-value"),
         # A percent escape decodes to a key the raw text does not show, so

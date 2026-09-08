@@ -323,6 +323,28 @@ def test_middleware_same_key_on_another_route_executes_again(
     assert other.status_code == HTTP_201_CREATED
 
 
+def test_default_storage_key_does_not_read_legacy_entries() -> None:
+    """An upgraded process never replays an entry from the unsafe key format."""
+    # Arrange
+    middleware = IdempotencyMiddleware(
+        FastAPI(), idempotency=Idempotency("http", ttl=60)
+    )
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/private",
+        "query_string": b"",
+    }
+    legacy_key = "POST\x1f/private\x1fkey-1"
+
+    # Act
+    storage_key = middleware._storage_key(scope, "key-1")
+
+    # Assert
+    assert storage_key == "v2\x1fPOST\x1f/private\x1fkey-1"
+    assert storage_key != legacy_key
+
+
 def test_middleware_query_string_is_part_of_the_key(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:

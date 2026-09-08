@@ -178,6 +178,10 @@ _KEY_SEPARATOR = "\x1f"
 """Separator joining the parts of a stored key."""
 
 
+_DEFAULT_KEY_VERSION = "v2"
+"""Version isolating safe default keys from entries written before this policy."""
+
+
 _PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
 """Headers proving that a response was computed for one caller."""
 
@@ -803,7 +807,7 @@ class IdempotencyMiddleware:
         # The whole path, where `include` and `exclude` read the route: two
         # apps mounted side by side declare the same routes, and a key
         # without the prefix would have them replay each other.
-        parts = [scope["method"], scope["path"]]
+        parts = [_DEFAULT_KEY_VERSION, scope["method"], scope["path"]]
         query = scope.get("query_string", b"")
         if query:
             parts.append(query.decode("latin-1"))

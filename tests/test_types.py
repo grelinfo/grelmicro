@@ -57,6 +57,24 @@ class TestDisplay:
             str(model.generic) == "https://otlp:4318/v1?api_key=***&region=eu"
         )
 
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "db_password",
+            "x-api-key",
+            "private_key",
+            "accessToken",
+            "clientSecret",
+        ],
+    )
+    def test_qualified_query_credentials_redacted(self, key: str) -> None:
+        """Qualified and camel-case credential names stay out of displays."""
+        model = Model(generic=f"https://otlp:4318/v1?{key}=sensitive&region=eu")
+
+        assert str(model.generic) == (
+            f"https://otlp:4318/v1?{key}=***&region=eu"
+        )
+
     def test_url_without_credentials_stays_readable(self) -> None:
         """A URL with nothing to hide is displayed in full."""
         model = Model(generic="https://otlp.example.com:4318/v1/traces")

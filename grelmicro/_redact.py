@@ -33,17 +33,19 @@ _EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
 
 
 _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
-    r"(?:^|[_-])(?:credential|secret|signature|token)(?:$|[_-])",
+    r"(?:^|[_-])(?:credential|key|password|secret|signature|token)(?:$|[_-])",
     re.IGNORECASE,
 )
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 def _is_credential_query_key(key: str) -> bool:
     """Return whether `key` conventionally names credential material."""
     lowered = key.lower()
+    normalized = _CAMEL_CASE_BOUNDARY.sub("_", key)
     return (
         lowered in _EXACT_CREDENTIAL_QUERY_KEYS
-        or _CREDENTIAL_QUERY_KEY_PATTERN.search(lowered) is not None
+        or _CREDENTIAL_QUERY_KEY_PATTERN.search(normalized) is not None
     )
 
 
