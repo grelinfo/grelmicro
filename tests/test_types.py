@@ -203,3 +203,12 @@ class TestFailClosed:
 
         assert "hunter2" not in repr(model)
         assert str(model.text) == "user:***@collector:4317"
+
+    def test_scheme_less_endpoint_with_query_credential_is_redacted(
+        self,
+    ) -> None:
+        """A query on a non-URL endpoint is redacted by the fallback path."""
+        model = Model(text="collector/path?accessToken=sensitive")
+
+        assert "sensitive" not in repr(model)
+        assert str(model.text) == "collector/path?accessToken=***"

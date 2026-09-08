@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.applications import Starlette
@@ -269,6 +270,48 @@ def test_middleware_replay_never_skips_route_authentication() -> None:
     assert authorized.json() == {"secret": "sensitive"}
     assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_middleware_replay_never_skips_api_key_security() -> None:
+    """A custom credential header cannot put a gated route in a shared entry."""
+    # Arrange
+    app = build_app()
+    api_key = APIKeyHeader(name="X-API-Key")
+    calls = 0
+
+    @app.post("/api-private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/api-private", headers={**KEY, "X-API-Key": "secret"}
+        )
+        unauthenticated = client.post("/api-private", headers=KEY)
+
+    # Assert
+    assert authorized.json() == {"call": 1}
+    assert "idempotent-replayed" not in authorized.headers
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+@pytest.mark.parametrize("credential", ["Authorization", "Cookie"])
+def test_private_header_does_not_bypass_required_key(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+    credential: str,
+) -> None:
+    """Credentialed requests still obey the required-key contract."""
+    # Arrange
+    client, calls = client_factory(require_key=True)
+    # Act
+    response = client.post("/charge", headers={credential: "ignored"})
+    # Assert
+    assert response.status_code == HTTP_400_BAD_REQUEST
+    assert calls == {"count": 0}
 
 
 def test_middleware_request_without_key_passes_through(

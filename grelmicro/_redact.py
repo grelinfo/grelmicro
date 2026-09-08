@@ -83,6 +83,17 @@ def _redact_query_values(query: str | None) -> str | None:
     )
 
 
+def _redact_unparsed_url(url: str) -> str:
+    """Redact credentials without relying on the URL being structurally valid."""
+    redacted = _USERINFO_RE.sub(rf"\1\2{MASK}\4", url)
+    before_query, separator, remainder = redacted.partition("?")
+    if not separator:
+        return redacted
+    query, fragment_separator, fragment = remainder.partition("#")
+    safe_query = _redact_query(query)
+    return f"{before_query}?{safe_query}{fragment_separator}{fragment}"
+
+
 def _redact_single_host(parsed: Url) -> str | None:
     """Rebuild a single-host URL with its password and query redacted.
 
@@ -152,7 +163,7 @@ def redact_url(url: str, *, multi_host: bool = False) -> str:
     try:
         parsed = MultiHostUrl(url) if multi_host else Url(url)
     except ValueError:
-        return _USERINFO_RE.sub(rf"\1\2{MASK}\4", url)
+        return _redact_unparsed_url(url)
     redacted = (
         _redact_multi_host(parsed)
         if isinstance(parsed, MultiHostUrl)
@@ -164,4 +175,4 @@ def redact_url(url: str, *, multi_host: bool = False) -> str:
     # parses as a path and hides its credential that way, so sweep the
     # original once more. The substitution is a no-op when there is
     # genuinely nothing to redact, which keeps the input string intact.
-    return _USERINFO_RE.sub(rf"\1\2{MASK}\4", url)
+    return _redact_unparsed_url(url)

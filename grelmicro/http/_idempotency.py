@@ -21,6 +21,7 @@ from typing import (
     TypedDict,
     cast,
 )
+from weakref import WeakKeyDictionary
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveInt, StrictStr
 from typing_extensions import Doc
@@ -40,6 +41,7 @@ from grelmicro._paths import (
     as_patterns,
     route_path,
     selects,
+    walk_routes,
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
@@ -184,6 +186,66 @@ _DEFAULT_KEY_VERSION = "v2"
 
 _PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
 """Headers proving that a response was computed for one caller."""
+
+
+class _GatedRoutes:
+    """FastAPI routes whose security dependencies must run before replay."""
+
+    __slots__ = ("_app", "_routes")
+
+    def __init__(self) -> None:
+        """Hold no routes until a framework integration supplies an app."""
+        self._app: Any = None
+        self._routes: tuple[tuple[re.Pattern[str], frozenset[str]], ...] = ()
+
+    def read(self, app: Any) -> None:  # noqa: ANN401
+        """Read routes protected by FastAPI security dependencies."""
+        from starlette.routing import compile_path  # noqa: PLC0415
+
+        from grelmicro.http._response_cache import (  # noqa: PLC0415
+            _gating_schemes,
+        )
+
+        self._app = app
+        found: list[tuple[re.Pattern[str], frozenset[str]]] = []
+        for prefix, route, contexts in walk_routes(app):
+            if not _gating_schemes(route, contexts):
+                continue
+            compiled, _, _ = compile_path(f"{prefix}{route.path}")
+            methods = frozenset(
+                method.upper()
+                for method in (getattr(route, "methods", None) or ())
+            )
+            found.append((compiled, methods))
+        self._routes = tuple(found)
+
+    def reread(self) -> None:
+        """Read routes added after installation, before the app starts."""
+        if self._app is not None:
+            self.read(self._app)
+
+    def matches(self, scope: Scope) -> bool:
+        """Return whether the request route has a security dependency."""
+        method = scope["method"]
+        path = route_path(scope)
+        return any(
+            method in methods and regex.fullmatch(path)
+            for regex, methods in self._routes
+        )
+
+
+_GATED_ROUTES: WeakKeyDictionary[Idempotency[Any], _GatedRoutes] = (
+    WeakKeyDictionary()
+)
+
+
+def _gated_routes_for(idempotency: Idempotency[Any]) -> _GatedRoutes:
+    """Return the security routes shared by one store and its middleware."""
+    routes = _GATED_ROUTES.get(idempotency)
+    if routes is None:
+        routes = _GatedRoutes()
+        _GATED_ROUTES[idempotency] = routes
+    return routes
 
 
 def _field_name(value: str, argument: str, example: str) -> str:
@@ -600,6 +662,7 @@ class IdempotencyMiddleware:
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
+        self._gated_routes = _gated_routes_for(idempotency)
         self._replay_collision_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
@@ -637,10 +700,6 @@ class IdempotencyMiddleware:
         if (
             scope["type"] != "http"
             or scope["method"] not in state.methods
-            or (
-                self._key_maker is None
-                and _has_private_request_header(scope["headers"])
-            )
             or not selects(
                 route_path(scope),
                 include=config.include,
@@ -685,10 +744,31 @@ class IdempotencyMiddleware:
             )
             return
 
+        if self._unscoped_private(scope):
+            await self.app(scope, receive, send)
+        else:
+            await self._execute_key(scope, receive, send, state, key)
+
+    def _unscoped_private(self, scope: Scope) -> bool:
+        """Return whether the default key cannot safely replay this request."""
+        return self._key_maker is None and (
+            _has_private_request_header(scope["headers"])
+            or self._gated_routes.matches(scope)
+        )
+
+    async def _execute_key(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        state: _State,
+        key: str,
+    ) -> None:
+        """Fingerprint the request when configured, then execute its key."""
         fingerprint = None
-        if config.fingerprint_body:
+        if state.config.fingerprint_body:
             body, too_large, receive = await _buffer_request(
-                receive, config.max_body_size
+                receive, state.config.max_body_size
             )
             if too_large:
                 await _refuse(send, scope, REQUEST_BODY_TOO_LARGE)
@@ -1417,6 +1497,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
+        self._gated_routes = _gated_routes_for(idempotency)
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._live: Live[_State] = Live(_state_of(config))
@@ -1457,6 +1538,15 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             "live": self._live,
         }
 
+    def read_routes(
+        self,
+        app: Annotated[
+            object, Doc("The application to read security routes from.")
+        ],
+    ) -> None:
+        """Read routes whose FastAPI security dependencies must run."""
+        self._gated_routes.read(app)
+
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
         """Return what this component answers rather than letting through.
 
@@ -1490,6 +1580,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         reads the registration and adds the middleware to the framework
         before it serves. This is the declaration that it should.
         """
+        self._gated_routes.reread()
         return self
 
     async def __aexit__(
