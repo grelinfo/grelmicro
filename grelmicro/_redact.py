@@ -10,8 +10,10 @@ from pydantic_core import MultiHostUrl, Url
 
 MASK = "***"
 
-_USERINFO_RE = re.compile(r"(\A|://|//)([^:@/?#]*:)([^/?#]+)(@)")
-_MULTI_HOST_USERINFO_RE = re.compile(r"(\A|://|//|,)([^:@,/?#]*:)([^,/?#]+)(@)")
+_USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:@/?#]*:)([^/?#]+)(@)")
+_MULTI_HOST_USERINFO_RE = re.compile(
+    r"(\A|://|:/|//|,)([^:@,/?#]*:)([^,/?#]+)(@)"
+)
 _EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
     {
         "authorization",

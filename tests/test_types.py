@@ -241,6 +241,24 @@ class TestFailClosed:
         assert "hunter2" not in repr(model)
         assert "sensitive" not in repr(model)
 
+    def test_malformed_scheme_userinfo_is_redacted(self) -> None:
+        """Malformed userinfo and parameters remain secret in every display."""
+        model = Model(
+            text=(
+                "http:/user:PART1@PART2@bad host/path"
+                "?accessToken=QUERYSECRET#access_token=FRAGSECRET"
+            )
+        )
+
+        rendered = str(model.text)
+        assert "PART1" not in repr(model)
+        assert "PART2" not in rendered
+        assert "QUERYSECRET" not in rendered
+        assert "FRAGSECRET" not in rendered
+        assert rendered == (
+            "http:/user:***@bad host/path?accessToken=***#access_token=***"
+        )
+
     @pytest.mark.parametrize(
         "endpoint",
         [

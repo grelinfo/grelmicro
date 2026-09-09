@@ -10,13 +10,20 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 import pytest
-from fastapi import APIRouter, Depends, FastAPI, Response, Security
+from fastapi import APIRouter, Depends, FastAPI, Request, Response, Security
 from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
+from starlette.authentication import (
+    AuthCredentials,
+    AuthenticationBackend,
+    SimpleUser,
+)
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
-from starlette.routing import Mount, Route
+from starlette.routing import Mount, Route, Router
 
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
@@ -391,6 +398,70 @@ def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
     assert second.headers["access-control-allow-origin"] == (
         "https://client.example"
     )
+
+
+@pytest.mark.parametrize(
+    "configuration",
+    ["constructor", "add-middleware", "router"],
+)
+def test_middleware_configured_inside_a_mount_is_a_cache_boundary(
+    configuration: str,
+) -> None:
+    """A parent cache cannot answer before lazily built child middleware."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    middleware = [
+        Middleware(AuthenticationMiddleware, backend=HeaderAuthentication())
+    ]
+    inner = FastAPI(
+        middleware=middleware if configuration == "constructor" else None
+    )
+    calls = 0
+
+    @inner.get("/items", dependencies=[CachedResponse(ttl=TTL)])
+    async def items(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        identity = (
+            request.user.display_name
+            if request.user.is_authenticated
+            else "anonymous"
+        )
+        return {"user": identity, "calls": calls}
+
+    mounted: Any = inner
+    if configuration == "add-middleware":
+        inner.add_middleware(
+            AuthenticationMiddleware, backend=HeaderAuthentication()
+        )
+    elif configuration == "router":
+        mounted = Router(routes=inner.router.routes, middleware=middleware)
+
+    app = FastAPI()
+    app.mount("/shop", mounted)
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/shop/items", headers={"X-API-Key": "alice"})
+        bob = client.get("/shop/items", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/shop/items")
+
+    # Assert
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.json() == {"user": "anonymous", "calls": 3}
 
 
 def test_a_route_with_other_dependencies_is_read_too() -> None:

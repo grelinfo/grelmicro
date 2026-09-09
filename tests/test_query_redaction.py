@@ -122,3 +122,32 @@ def test_ambiguous_userinfo_masks_through_the_last_at_sign(
 ) -> None:
     """Malformed userinfo cannot expose a suffix of its password."""
     assert redact_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "http:/user:PART1,PART2@bad host/path",
+            "http:/user:***@bad host/path",
+        ),
+        (
+            "http:/user:PART1:PART2@PART3@bad host/path",
+            "http:/user:***@bad host/path",
+        ),
+    ],
+)
+def test_malformed_scheme_userinfo_is_redacted(url: str, expected: str) -> None:
+    """A single slash after a scheme cannot evade fallback redaction."""
+    assert redact_url(url) == expected
+
+
+def test_malformed_multi_host_userinfo_is_redacted() -> None:
+    """Every malformed DSN authority is masked without hiding its hosts."""
+    assert (
+        redact_url(
+            "postgresql:/u1:PART1@PART2@bad host,u2:OTHER@also bad/db",
+            multi_host=True,
+        )
+        == "postgresql:/u1:***@bad host,u2:***@also bad/db"
+    )

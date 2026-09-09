@@ -198,6 +198,16 @@ def _routing_app(app: Any) -> Any:  # noqa: ANN401
     return app
 
 
+def _has_configured_middleware(app: Any) -> bool:  # noqa: ANN401
+    """Return whether a routing application declares middleware of its own."""
+    if getattr(app, "user_middleware", ()):
+        return True
+    routed = getattr(app, "router", None) or app
+    stack = getattr(routed, "middleware_stack", None)
+    endpoint = getattr(routed, "app", None)
+    return stack is not None and endpoint is not None and stack != endpoint
+
+
 def walk_routes(
     app: Annotated[  # noqa: ANN401
         Any, Doc("The application, or the router, to read the routes off.")
@@ -248,9 +258,12 @@ def walk_routes(
             continue
         inner = getattr(route, "routes", None)
         if inner or (unwrap_middleware and inner is not None):
+            nested = getattr(route, "app", route)
+            if not unwrap_middleware and _has_configured_middleware(nested):
+                continue
             found.extend(
                 walk_routes(
-                    getattr(route, "app", route),
+                    nested,
                     f"{prefix}{getattr(route, 'path', '')}",
                     (),
                     unwrap_middleware=unwrap_middleware,
