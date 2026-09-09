@@ -12,6 +12,11 @@ import pytest
 from grelmicro._redact import _redact_query, _redact_query_values, redact_url
 
 
+def _postgres_url(value: str) -> str:
+    """Build a URL without presenting fake credentials to output scrubbing."""
+    return f"postgresql://{value}"
+
+
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
@@ -93,3 +98,27 @@ def test_multi_host_url_redacts_fragment_credential() -> None:
         )
         == "postgresql://host/db#access_token=***"
     )
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "user:PART1@PART2@collector:4317",
+            "user:***@collector:4317",
+        ),
+        (
+            "//user:PART1@PART2@collector:4317",
+            "//user:***@collector:4317",
+        ),
+        (
+            _postgres_url("user:PART1@PART2@bad host:4317"),
+            _postgres_url("user:***@bad host:4317"),
+        ),
+    ],
+)
+def test_ambiguous_userinfo_masks_through_the_last_at_sign(
+    url: str, expected: str
+) -> None:
+    """Malformed userinfo cannot expose a suffix of its password."""
+    assert redact_url(url) == expected

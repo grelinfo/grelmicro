@@ -30,7 +30,7 @@ from starlette.middleware.base import (
 )
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
-from starlette.routing import Route
+from starlette.routing import Route, Router
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -101,7 +101,9 @@ class _HeaderAuthentication(AuthenticationBackend):
 async def _private_identity(request: Request) -> JSONResponse:
     """Answer the authenticated identity or reject an anonymous request."""
     if not request.user.is_authenticated:
-        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+        return JSONResponse(
+            {"detail": "Unauthorized"}, status_code=HTTP_401_UNAUTHORIZED
+        )
     return JSONResponse({"user": request.user.display_name})
 
 
@@ -578,6 +580,51 @@ def test_mounted_authentication_is_path_specific() -> None:
     assert public_first.json() == {"call": 1}
     assert public_replay.json() == {"call": 1}
     assert public_replay.headers["idempotent-replayed"] == "true"
+
+
+@pytest.mark.parametrize("placement", ["route", "router"])
+def test_route_or_router_authentication_runs_before_replay(
+    placement: str,
+) -> None:
+    """Native Starlette authentication placements cannot be skipped."""
+    # Arrange
+    middleware = [
+        Middleware(AuthenticationMiddleware, backend=_HeaderAuthentication())
+    ]
+    route = Route(
+        "/private",
+        _private_identity,
+        methods=["POST"],
+        middleware=middleware if placement == "route" else None,
+    )
+    app = (
+        Starlette(routes=[route])
+        if placement == "route"
+        else Router(routes=[route], middleware=middleware)
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            f"{placement}-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
 
 
 def test_middleware_replay_never_skips_api_key_security() -> None:

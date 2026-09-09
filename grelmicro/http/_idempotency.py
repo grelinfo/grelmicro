@@ -209,7 +209,7 @@ class _GatedRoutes:
             if root is not None and not any(root is seen for seen in roots):
                 roots.append(root)
         authenticated = {
-            prefix for app in apps for prefix in _authentication_prefixes(app)
+            path for app in apps for path in _authentication_paths(app)
         }
         fastapi_roots = [root for root in roots if _contains_fastapi(root)]
         if not authenticated and not fastapi_roots:
@@ -219,14 +219,16 @@ class _GatedRoutes:
         from starlette.routing import compile_path  # noqa: PLC0415
 
         protected: list[re.Pattern[str]] = []
-        for prefix in sorted(authenticated):
+        for prefix, nested in sorted(authenticated):
             exact, _, _ = compile_path(prefix or "/")
-            nested, _, _ = compile_path(
-                f"{prefix.rstrip('/')}/{{path:path}}"
-                if prefix
-                else "/{path:path}"
-            )
-            protected.extend((exact, nested))
+            protected.append(exact)
+            if nested:
+                descendant, _, _ = compile_path(
+                    f"{prefix.rstrip('/')}/{{path:path}}"
+                    if prefix
+                    else "/{path:path}"
+                )
+                protected.append(descendant)
         self._authenticated = tuple(protected)
 
         found: list[tuple[re.Pattern[str], frozenset[str]]] = []
@@ -315,47 +317,53 @@ def _is_authentication_middleware(value: Any) -> bool:  # noqa: ANN401
 
 def _authentication_here(app: Any) -> bool:  # noqa: ANN401
     """Return whether this application boundary authenticates requests."""
+    if _authentication_chain(app):
+        return True
+    routed = _routing_app(app)
+    if routed is None:
+        return False
+    if any(
+        _is_authentication_middleware(getattr(middleware, "cls", middleware))
+        for middleware in getattr(routed, "user_middleware", ())
+    ):
+        return True
+    return _authentication_chain(getattr(routed, "middleware_stack", None))
+
+
+def _authentication_chain(app: Any) -> bool:  # noqa: ANN401
+    """Return whether an instantiated ASGI chain contains authentication."""
     seen: set[int] = set()
     while app is not None and id(app) not in seen:
         seen.add(id(app))
         if _is_authentication_middleware(app):
             return True
-        router = getattr(app, "router", None)
-        if hasattr(app, "routes") or hasattr(router, "routes"):
-            return any(
-                _is_authentication_middleware(
-                    getattr(middleware, "cls", middleware)
-                )
-                for middleware in getattr(app, "user_middleware", ())
-            )
         app = getattr(app, "app", None)
     return False
 
 
-def _authentication_prefixes(app: Any) -> set[str]:  # noqa: ANN401
-    """Return mounted path prefixes protected by Starlette authentication."""
-    found: set[str] = set()
+def _authentication_paths(app: Any) -> set[tuple[str, bool]]:  # noqa: ANN401
+    """Return exact or nested paths protected by Starlette authentication."""
+    found: set[tuple[str, bool]] = set()
 
     def visit(current: Any, prefix: str, ancestors: frozenset[int]) -> None:  # noqa: ANN401
         routed = _routing_app(current)
         if routed is None or id(routed) in ancestors:
             return
         if _authentication_here(current):
-            found.add(prefix)
+            found.add((prefix, True))
             return
         nested_ancestors = ancestors | {id(routed)}
         router = getattr(routed, "router", None)
         for route in getattr(router or routed, "routes", ()) or ():
             if getattr(route, "original_router", None) is not None:
                 continue
-            if getattr(route, "routes", None) is None:
-                continue
+            path = f"{prefix}{getattr(route, 'path', '')}"
             nested = getattr(route, "app", None)
-            visit(
-                nested,
-                f"{prefix}{getattr(route, 'path', '')}",
-                nested_ancestors,
-            )
+            if _authentication_here(nested):
+                found.add((path, getattr(route, "routes", None) is not None))
+                continue
+            if getattr(route, "routes", None) is not None:
+                visit(nested, path, nested_ancestors)
 
     visit(app, "", frozenset())
     return found

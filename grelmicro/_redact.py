@@ -10,7 +10,8 @@ from pydantic_core import MultiHostUrl, Url
 
 MASK = "***"
 
-_USERINFO_RE = re.compile(r"(\A|://|//|,)([^:@/?#]*:)([^@/?#]+)(@)")
+_USERINFO_RE = re.compile(r"(\A|://|//)([^:@/?#]*:)([^/?#]+)(@)")
+_MULTI_HOST_USERINFO_RE = re.compile(r"(\A|://|//|,)([^:@,/?#]*:)([^,/?#]+)(@)")
 _EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
     {
         "authorization",
@@ -97,9 +98,16 @@ def _redact_fragment(fragment: str | None) -> str | None:
     return _redact_query(fragment)
 
 
-def _redact_unparsed_url(url: str) -> str:
+def _userinfo_pattern(*, multi_host: bool) -> re.Pattern[str]:
+    """Return the userinfo grammar for one host or a comma-separated DSN."""
+    return _MULTI_HOST_USERINFO_RE if multi_host else _USERINFO_RE
+
+
+def _redact_unparsed_url(url: str, *, multi_host: bool = False) -> str:
     """Redact credentials without relying on the URL being structurally valid."""
-    redacted = _USERINFO_RE.sub(rf"\1\2{MASK}\4", url)
+    redacted = _userinfo_pattern(multi_host=multi_host).sub(
+        rf"\1\2{MASK}\4", url
+    )
     before_fragment, fragment_separator, fragment = redacted.partition("#")
     before_query, query_separator, query = before_fragment.partition("?")
     safe_query = _redact_query(query)
@@ -183,20 +191,21 @@ def redact_url(url: str, *, multi_host: bool = False) -> str:
     """
     if not url:
         return url
-    swept = _USERINFO_RE.sub(rf"\1\2{MASK}\4", url)
+    pattern = _userinfo_pattern(multi_host=multi_host)
+    swept = pattern.sub(rf"\1\2{MASK}\4", url)
     try:
         parsed = MultiHostUrl(swept) if multi_host else Url(swept)
     except ValueError:
-        return _redact_unparsed_url(swept)
+        return _redact_unparsed_url(swept, multi_host=multi_host)
     redacted = (
         _redact_multi_host(parsed)
         if isinstance(parsed, MultiHostUrl)
         else _redact_single_host(parsed)
     )
     if redacted is not None:
-        return _redact_unparsed_url(redacted)
+        return _redact_unparsed_url(redacted, multi_host=multi_host)
     # Structured parsing found nothing. A scheme-less `user:pw@host:port`
     # parses as a path and hides its credential that way, so sweep the
     # original once more. The substitution is a no-op when there is
     # genuinely nothing to redact, which keeps the input string intact.
-    return _redact_unparsed_url(swept)
+    return _redact_unparsed_url(swept, multi_host=multi_host)
