@@ -44,8 +44,9 @@ from grelmicro._paths import (
     _request_authority,
     _request_root_path,
     _request_scheme,
-    _route_topology,
+    _RouteTopologyState,
     _routing_app,
+    _same_routing_root,
     _scope_text,
     _wrapped_app,
     as_patterns,
@@ -211,17 +212,15 @@ class _GatedRoutes:
         self._apps: tuple[Any, ...] = ()
         self._authenticated: tuple[re.Pattern[str], ...] = ()
         self._routes: tuple[tuple[re.Pattern[str], frozenset[str]], ...] = ()
-        self._topology: tuple[tuple[Any, ...], ...] = ()
+        self._topology: tuple[_RouteTopologyState, ...] = ()
 
-    def read(self, *apps: Any) -> None:  # noqa: ANN401, C901
+    def read(self, *apps: Any) -> None:  # noqa: ANN401
         """Read dependency-bearing and authenticated routes from the apps."""
         self._apps = apps
-        self._topology = tuple(_route_topology(app) for app in apps)
-        roots: list[Any] = []
-        for app in apps:
-            root = _routing_app(app)
-            if root is not None and not any(root is seen for seen in roots):
-                roots.append(root)
+        self._topology = tuple(_RouteTopologyState(app) for app in apps)
+        roots = [
+            root for app in apps if (root := _routing_app(app)) is not None
+        ]
         authenticated = {
             path for app in apps for path in _authentication_paths(app)
         }
@@ -273,14 +272,13 @@ class _GatedRoutes:
     def matches(self, scope: Scope) -> bool:
         """Return whether authentication or a dependency guards the route."""
         apps = _unique_apps((self._wrapped, scope.get("app")))
-        topology = tuple(_route_topology(app) for app in apps)
         if (
             len(apps) != len(self._apps)
             or any(
                 app is not seen
                 for app, seen in zip(apps, self._apps, strict=True)
             )
-            or topology != self._topology
+            or any(snapshot.changed() for snapshot in self._topology)
         ):
             self.read(*apps)
         method = scope["method"]
@@ -294,10 +292,16 @@ class _GatedRoutes:
 
 
 def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:
-    """Return non-null applications once each, preserving identity order."""
+    """Return sources from one routing root, preserving the wrapped source."""
     found: list[Any] = []
     for app in apps:
-        if app is not None and not any(app is seen for seen in found):
+        if app is None:
+            continue
+        if found and not any(_same_routing_root(app, seen) for seen in found):
+            continue
+        if not any(
+            app is seen or _same_routing_root(app, seen) for seen in found
+        ):
             found.append(app)
     return tuple(found)
 
@@ -322,6 +326,11 @@ def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
             pending.append(getattr(current, "app", None))
         router = getattr(current, "router", None)
         for route in getattr(router or current, "routes", ()) or ():
+            if any(
+                klass.__module__.partition(".")[0] == "fastapi"
+                for klass in type(route).__mro__
+            ):
+                return True
             nested = getattr(route, "app", None)
             if nested is not None:
                 pending.append(nested)

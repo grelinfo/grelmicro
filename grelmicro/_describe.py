@@ -445,7 +445,7 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
         config = state.config
         if endpoint.method not in {"GET", "HEAD"}:
             return None
-        if state.policies._is_refused(endpoint.path):  # noqa: SLF001
+        if state.policies._refuses_template(endpoint.path):  # noqa: SLF001
             return None
         declared, ttl = declared_ttl(
             endpoint.route, endpoint.contexts, endpoint.path
@@ -511,10 +511,18 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
     """Return what an `IdempotentRequests` does to one endpoint."""
 
     def read(endpoint: _Endpoint) -> str | None:
+        from grelmicro.http._idempotency import (  # noqa: PLC0415
+            _has_dependencies,
+        )
+
         config = component.config
         methods = {name.upper() for name in config.methods}
         reach = _selected(config, endpoint)
         if endpoint.method not in methods or reach is None:
+            return None
+        if component._key_maker is None and _has_dependencies(  # noqa: SLF001
+            endpoint.route, endpoint.contexts
+        ):
             return None
         window = component.idempotency.config.ttl
         return f"idempotent {window:g}s{reach}"
@@ -577,7 +585,12 @@ def _describe_endpoints(
     lose routes hidden behind a CORS or authentication wrapper. Component
     readers still apply their own runtime boundaries to those routes.
     """
-    rules = _endpoint_rules(list(micro.components))
+    components = list(micro.components)
+    for component in components:
+        if getattr(component, "kind", None) == "cached_responses":
+            cached: Any = component
+            cached._live.state.policies.refresh(app)  # noqa: SLF001
+    rules = _endpoint_rules(components)
     if not rules:
         return ()
     compiled = dict(_declared_paths(app))

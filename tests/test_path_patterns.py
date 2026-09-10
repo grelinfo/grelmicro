@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from starlette.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -27,6 +27,9 @@ from grelmicro._paths import (
     _nested_routing_app,
     _request_authority,
     _route_topology,
+    _RouteTopologyState,
+    _routing_root,
+    _same_routing_root,
     _transparent_routing_source,
     matches,
     names_route,
@@ -153,6 +156,30 @@ def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
     assert _transparent_routing_source(None) is None
     broken_exception = ExceptionMiddleware(cast("Any", None))
     assert _transparent_routing_source(broken_exception) is broken_exception
+
+
+def test_routing_root_distinguishes_mount_coordinates_from_wrapped_sources() -> (
+    None
+):
+    """Wrapped app entry points share a root; a mount is a different root."""
+    router = Router(routes=[Route("/x", app)])
+    mounted = Mount("/api", app=router)
+    web = FastAPI()
+
+    assert _routing_root(router.app) is router
+    assert _routing_root(mounted) is mounted
+    assert _same_routing_root(web, web.router.app)
+    assert not _same_routing_root(web, router)
+
+
+def test_topology_generation_collects_router_declared_dependencies() -> None:
+    """Router-level dependencies participate in the guarded full snapshot."""
+    router = APIRouter(dependencies=[Depends(app)])
+
+    snapshot = _RouteTopologyState(router)
+
+    assert not snapshot.changed()
+    assert _route_topology(router)
 
 
 def test_route_topology_tracks_dependency_override_identities() -> None:

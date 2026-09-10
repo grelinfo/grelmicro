@@ -86,6 +86,23 @@ class TestDisplay:
         assert "FIRST" not in repr(model.generic)
         assert "SECOND" not in model.model_dump_json()
 
+    def test_nested_encoded_assignment_is_redacted_in_every_display(
+        self,
+    ) -> None:
+        """A credential inside a fully encoded redirect stays out of outputs."""
+        model = Model(
+            generic=(
+                "https://example.test/?redirect=https%3A%2F%2Fidp.test%2Fcb"
+                "%3Faccess_token%3DLEAKME%26state%3Dok"
+            )
+        )
+
+        displayed = str(model.generic)
+        assert "LEAKME" not in displayed
+        assert "LEAKME" not in repr(model.generic)
+        assert "LEAKME" not in model.model_dump_json()
+        assert "redirect=***" in displayed
+
     @pytest.mark.parametrize(
         "key",
         [

@@ -366,6 +366,38 @@ def test_credential_before_fragment_question_mark_is_redacted() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.test/?access_token=FIRST/LEAKME",
+        (
+            "https://example.test/?redirect=https%3A%2F%2Fidp.test%2Fcb"
+            "%3Faccess_token%3DLEAKME%26state%3Dok"
+        ),
+        "https://example.test/?access_token%3DLEAKME",
+    ],
+)
+def test_credential_continuations_and_encoded_assignments_mask_the_enclosing_value(
+    url: str,
+) -> None:
+    """Raw suffixes and fully encoded nested assignments cannot leak."""
+    redacted = redact_url(url)
+
+    assert "FIRST" not in redacted
+    assert "LEAKME" not in redacted
+    assert "***" in redacted
+
+
+def test_fully_encoded_innocent_assignment_and_empty_url_are_preserved() -> (
+    None
+):
+    """Encoded assignment support does not rewrite non-credential material."""
+    url = "https://example.test/?state%3Dok"
+
+    assert redact_url(url) == url
+    assert redact_url("") == ""
+
+
 def test_path_prefixed_fragment_credential_is_redacted() -> None:
     """A credential assignment embedded in a fragment path is masked."""
     assert (

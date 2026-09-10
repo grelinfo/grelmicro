@@ -134,8 +134,14 @@ last of them is how the one that refused the store goes missing.
 ## The key
 
 By default the key is the scheme, the host, the prefix the app is served
-under, the path, and the whole query string, in one order whatever order the
-client sent it in, plus the value of every header named in `vary_by_headers`.
+under, the path, and the whole parsed query. Distinct parameter names are put
+in one canonical order, so `page=1&sort=name` and `sort=name&page=1` share an
+entry. Repeated values keep their request order: `role=admin&role=user` is not
+the same resource as `role=user&role=admin`. Percent-encoded names are compared
+after decoding. The key also carries every occurrence of each header named in
+`vary_by_headers`, and distinguishes an absent selected query parameter or
+header from one present with an empty value.
+
 The host and the prefix are in it so an app answering for two hostnames, and
 two services behind one gateway sharing one store, never hand out each other's
 responses.

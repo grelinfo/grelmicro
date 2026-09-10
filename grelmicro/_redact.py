@@ -46,9 +46,10 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
 )
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
-_ENCODED_PARAMETER_BOUNDARY = re.compile(r"%(?:2f|3b|26|3f)", re.IGNORECASE)
-_QUERY_DELIMITER = re.compile(r"([/?&;])")
-_FRAGMENT_DELIMITER = re.compile(r"([/&;])")
+_PARAMETER_BOUNDARY = re.compile(r"[/?&;]|%(?:2f|3b|26|3f)", re.IGNORECASE)
+_ASSIGNMENT_SEPARATOR = re.compile(r"=|%3d", re.IGNORECASE)
+_QUERY_DELIMITER = re.compile(r"(&)")
+_FRAGMENT_DELIMITER = re.compile(r"(?!)")
 _MAX_PORT = 65535
 _MAX_PORT_DIGITS = len(str(_MAX_PORT))
 
@@ -110,12 +111,18 @@ def _redact_assignment_fields(
 def _redact_assignment_segment(segment: str) -> str:
     """Mask one raw-delimiter-bounded assignment segment."""
     key, separator, _raw_value = segment.partition("=")
-    if _is_credential_query_key(key):
+    if _PARAMETER_BOUNDARY.search(key) is None and _is_credential_query_key(
+        key
+    ):
         normalized = quote_plus(unquote_plus(key), safe="*")
         return f"{normalized}={MASK}"
     if not separator:
-        return segment
-    boundaries = tuple(_ENCODED_PARAMETER_BOUNDARY.finditer(segment))
+        encoded = _ASSIGNMENT_SEPARATOR.search(segment)
+        if encoded is not None:
+            encoded_key = segment[: encoded.start()]
+            if _is_credential_query_key(encoded_key):
+                return f"{unquote_plus(encoded_key)}={MASK}"
+    boundaries = tuple(_PARAMETER_BOUNDARY.finditer(segment))
     for index, boundary in enumerate(boundaries):
         field_end = (
             boundaries[index + 1].start()
@@ -123,10 +130,13 @@ def _redact_assignment_segment(segment: str) -> str:
             else len(segment)
         )
         field = segment[boundary.end() : field_end]
-        embedded_key, embedded_separator, _embedded_value = field.partition("=")
-        if not embedded_separator:
+        assignment = _ASSIGNMENT_SEPARATOR.search(field)
+        if assignment is None:
             continue
+        embedded_key = field[: assignment.start()]
         if _is_credential_query_key(embedded_key):
+            if assignment.group(0) != "=" and separator:
+                return f"{key}={MASK}"
             return (
                 f"{segment[: boundary.start()]}{boundary.group(0)}"
                 f"{unquote_plus(embedded_key)}={MASK}"

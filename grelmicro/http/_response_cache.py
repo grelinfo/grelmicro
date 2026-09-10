@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import math
 from collections import OrderedDict, abc
 
@@ -22,6 +23,7 @@ from typing import (
     TypedDict,
     cast,
 )
+from urllib.parse import parse_qsl, unquote_plus
 
 from pydantic import AfterValidator, BaseModel, PositiveInt
 from typing_extensions import Doc
@@ -47,8 +49,9 @@ from grelmicro._paths import (
     _request_authority,
     _request_root_path,
     _request_scheme,
-    _route_topology,
+    _RouteTopologyState,
     _routing_app,
+    _same_routing_root,
     as_patterns,
     matches,
     names_route,
@@ -283,11 +286,11 @@ UNSET = _Unset()
 def _unique_policy_sources(
     sources: tuple[tuple[Any, bool], ...],
 ) -> tuple[tuple[Any, bool], ...]:
-    """Return applications once each, retaining the strictest root boundary."""
+    """Return routing roots once each, retaining the strictest boundary."""
     found: list[tuple[Any, bool]] = []
     for app, include_root in sources:
         for index, (seen, strict) in enumerate(found):
-            if app is seen:
+            if app is seen or _same_routing_root(app, seen):
                 found[index] = (seen, strict or include_root)
                 break
         else:
@@ -311,6 +314,7 @@ class _Policies:
         "_include",
         "_refused",
         "_refused_paths",
+        "_refused_templates",
         "_routes",
         "_topology",
     )
@@ -363,9 +367,10 @@ class _Policies:
         self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
         self._refused: tuple[Pattern[str], ...] = ()
         self._refused_paths: frozenset[str] = frozenset()
+        self._refused_templates: tuple[str, ...] = ()
         self._app: Any = None
         self._base_sources: tuple[tuple[Any, bool], ...] = ()
-        self._topology: tuple[tuple[int, bool, tuple[Any, ...]], ...] = ()
+        self._topology: tuple[tuple[bool, _RouteTopologyState], ...] = ()
 
     def _is_refused(self, path: str) -> bool:
         """Return whether the app refuses to have this path cached.
@@ -377,6 +382,18 @@ class _Policies:
         return path in self._refused_paths or any(
             regex.fullmatch(path) for regex in self._refused
         )
+
+    def _refuses_template(self, path: str) -> bool:
+        """Return whether a refusal covers a declared route template."""
+        for template in self._refused_templates:
+            if template == path:
+                return True
+            suffix = "/{path:path}"
+            if template.endswith(suffix):
+                prefix = template[: -len(suffix)]
+                if not prefix or path.startswith(f"{prefix}/"):
+                    return True
+        return False
 
     def read(
         self,
@@ -395,24 +412,38 @@ class _Policies:
 
     def refresh(self, *apps: Any) -> None:  # noqa: ANN401
         """Refresh policy metadata when a request exposes changed routes."""
+        observed = tuple(
+            (app, False)
+            for app in apps
+            if app is not None
+            and (
+                not self._base_sources
+                or any(
+                    _same_routing_root(app, source)
+                    for source, _include_root in self._base_sources
+                )
+            )
+        )
         sources = _unique_policy_sources(
             (
                 *self._base_sources,
-                *((app, False) for app in apps if app is not None),
+                *observed,
             )
         )
-        topology = tuple(
-            (id(app), include_root, _route_topology(app))
-            for app, include_root in sources
+        same_sources = len(sources) == len(self._topology) and all(
+            include_root == previous_root and app is snapshot.app
+            for (app, include_root), (previous_root, snapshot) in zip(
+                sources, self._topology, strict=True
+            )
         )
-        if topology != self._topology:
-            self._refresh(sources, topology=topology)
+        if not same_sources or any(
+            snapshot.changed() for _include_root, snapshot in self._topology
+        ):
+            self._refresh(sources)
 
     def _refresh(
         self,
         sources: tuple[tuple[Any, bool], ...],
-        *,
-        topology: tuple[tuple[int, bool, tuple[Any, ...]], ...] | None = None,
     ) -> None:
         """Read and publish routes from one coherent topology snapshot."""
         found: list[tuple[Pattern[str], float | None]] = []
@@ -433,16 +464,13 @@ class _Policies:
         self._refused_paths = frozenset(
             template for template, _ in refused if "{" not in template
         )
+        self._refused_templates = tuple(template for template, _ in refused)
         self._refused = tuple(
             regex for template, regex in refused if "{" in template
         )
-        self._topology = (
-            topology
-            if topology is not None
-            else tuple(
-                (id(app), include_root, _route_topology(app))
-                for app, include_root in sources
-            )
+        self._topology = tuple(
+            (include_root, _RouteTopologyState(app))
+            for app, include_root in sources
         )
 
     def reread(self) -> None:
@@ -600,7 +628,7 @@ def _marked_routes(
         refusal = _unreadable(route, contexts, declared)
         if _dependency_bearing_read(
             route, contexts
-        ) or _nested_get_has_dependencies(route):
+        ) or _nested_read_has_dependencies(route):
             # Kept whether a pattern named it or not, so the answer at
             # request time does not depend on how it was named. Only a
             # dependency-bearing read: a write is already passed through
@@ -684,10 +712,12 @@ def _authentication_refusals(
     return found
 
 
-def _nested_get_has_dependencies(route: Any) -> bool:  # noqa: ANN401
-    """Return whether a leaf routing endpoint gates any possible GET."""
+def _nested_read_has_dependencies(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a leaf routing endpoint gates a GET or HEAD."""
     nested = _nested_routing_app(route)
-    return nested is not None and _routing_dependencies(nested, "GET")
+    return nested is not None and any(
+        _routing_dependencies(nested, method) for method in _SAFE_METHODS
+    )
 
 
 def _routing_dependencies(
@@ -751,11 +781,13 @@ def _dependency_bearing_read(
     route: Any,  # noqa: ANN401
     contexts: tuple[Any, ...],
 ) -> bool:
-    """Return whether a GET runs a dependency other than the cache marker."""
+    """Return whether a GET or HEAD runs a non-cache dependency."""
     methods = {
         method.upper() for method in (getattr(route, "methods", None) or ())
     }
-    return "GET" in methods and _has_non_cache_dependencies(route, contexts)
+    return bool(methods & _SAFE_METHODS) and _has_non_cache_dependencies(
+        route, contexts
+    )
 
 
 def _has_non_cache_dependencies(
@@ -1854,25 +1886,36 @@ def _carries_credentials(scope: Scope) -> bool:
 
 
 def _query_of(scope: Scope, selected: tuple[str, ...] | None) -> str:
-    """Return the query string the key reads, in one order whatever order it came in."""
+    """Return an injective query view with repeated-value order preserved."""
     raw = scope.get("query_string", b"").decode("latin-1")
-    if not raw:
-        return ""
-    pairs = sorted(part for part in raw.split("&") if part)
+    pairs = parse_qsl(raw, keep_blank_values=True)
     if selected is None:
-        return "&".join(pairs)
-    wanted = set(selected)
-    return "&".join(pair for pair in pairs if pair.split("=", 1)[0] in wanted)
+        grouped: dict[str, list[str]] = {}
+        for name, value in pairs:
+            grouped.setdefault(name, []).append(value)
+        material: list[tuple[str, list[str] | None]] = [
+            (name, grouped[name]) for name in sorted(grouped)
+        ]
+    else:
+        grouped = {}
+        for name, value in pairs:
+            grouped.setdefault(name, []).append(value)
+        material = [
+            (name, grouped.get(name))
+            for name in sorted({unquote_plus(name) for name in selected})
+        ]
+    return json.dumps(material, ensure_ascii=True, separators=(",", ":"))
 
 
 def _header_of(scope: Scope, name: str) -> str:
-    """Return one request header's value, empty when it is absent."""
+    """Return an injective view of all occurrences of one request header."""
     wanted = name.encode("latin-1")
-    return ",".join(
+    values = [
         value.decode("latin-1")
         for key, value in scope["headers"]
         if key.lower() == wanted
-    )
+    ]
+    return json.dumps(values or None, separators=(",", ":"))
 
 
 class CachedResponses(Reconfigurable[CachedResponsesConfig]):

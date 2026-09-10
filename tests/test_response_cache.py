@@ -36,6 +36,7 @@ from starlette.responses import StreamingResponse
 from starlette.routing import Mount, Route, Router
 
 from grelmicro import Grelmicro
+from grelmicro._paths import _RouteTopologyState
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import SettingsValidationError
@@ -47,9 +48,11 @@ from grelmicro.http import (
 from grelmicro.http._response_cache import (
     _UNSTORABLE_LIMIT,
     _WARNED_LIMIT,
+    UNSET,
     _declared_schemes,
     _has_non_cache_dependencies,
     _routing_dependencies,
+    _unique_policy_sources,
     declare_cached,
     declared_ttl,
 )
@@ -74,8 +77,9 @@ BIG = 2048
 TWICE = 2
 OTHER_TTL = 300.0
 READS = 3
+FOUR = 4
 SHARED_TTL = 50.0
-"""How many times the handler runs when nothing was stored."""
+BULK_ROUTES = 1000
 
 
 async def _header_principal(
@@ -278,6 +282,171 @@ def test_a_head_never_fills_the_cache() -> None:
     assert head.status_code == HTTP_200_OK
     assert calls == TWICE
     assert read.content == b"ok"
+
+
+def test_a_protected_head_refuses_the_shared_get_head_cache_key() -> None:
+    """A cached GET cannot answer over a separate HEAD dependency."""
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+    calls = {"get": 0, "head": 0}
+
+    @app.head("/reads", dependencies=[Depends(api_key)])
+    async def head() -> Response:
+        calls["head"] += 1
+        return Response(headers={"X-Head-Calls": str(calls["head"])})
+
+    @app.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
+    async def reads() -> dict[str, int]:
+        calls["get"] += 1
+        return {"calls": calls["get"]}
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        first = client.get("/reads")
+        second = client.get("/reads")
+        anonymous = client.head("/reads")
+        authorized = client.head("/reads", headers={"X-API-Key": "alice"})
+
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert authorized.headers["x-head-calls"] == "1"
+    assert all(
+        "age" not in response.headers
+        for response in (second, anonymous, authorized)
+    )
+
+
+def test_separate_public_head_still_reads_the_cached_get() -> None:
+    """A dependency-free HEAD route does not make a public GET uncacheable."""
+    app = FastAPI()
+    calls = {"get": 0, "head": 0}
+
+    @app.head("/reads")
+    async def head() -> Response:
+        calls["head"] += 1
+        return Response(headers={"X-Head-Calls": str(calls["head"])})
+
+    @app.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
+    async def reads() -> dict[str, int]:
+        calls["get"] += 1
+        return {"calls": calls["get"]}
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        first = client.get("/reads")
+        head_response = client.head("/reads")
+        replayed = client.get("/reads")
+
+    assert first.json() == replayed.json() == {"calls": 1}
+    assert head_response.status_code == HTTP_200_OK
+    assert head_response.content == b""
+    assert head_response.headers["age"] == "0"
+    assert calls == {"get": 1, "head": 0}
+
+
+def test_nested_head_dependency_refuses_an_outer_shared_cache_key() -> None:
+    """A leaf router cannot hide a protected HEAD behind a public GET."""
+    api_key = APIKeyHeader(name="X-API-Key")
+    inner = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    calls = {"get": 0, "head": 0}
+
+    @inner.head("/reads", dependencies=[Depends(api_key)])
+    async def head() -> Response:
+        calls["head"] += 1
+        return Response()
+
+    async def reads(_request: Request) -> Response:
+        calls["get"] += 1
+        return Response(str(calls["get"]))
+
+    app = Router(
+        routes=[
+            Route("/reads", inner, methods=["HEAD"]),
+            Route("/reads", reads, methods=["GET"]),
+        ]
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/reads": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.get("/reads")
+        second = client.get("/reads")
+        anonymous = client.head("/reads")
+        authorized = client.head("/reads", headers={"X-API-Key": "alice"})
+
+    assert first.text == "1"
+    assert second.text == "2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert authorized.status_code == HTTP_200_OK
+    assert calls == {"get": 2, "head": 1}
+
+
+def test_head_authentication_middleware_refuses_the_shared_cache_key() -> None:
+    """Route-local HEAD authentication always runs before a cached GET."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = {"get": 0, "head": 0}
+
+    async def head(request: Request) -> Response:
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls["head"] += 1
+        return Response()
+
+    async def reads(_request: Request) -> Response:
+        calls["get"] += 1
+        return Response(str(calls["get"]))
+
+    app = Router(
+        routes=[
+            Route(
+                "/reads",
+                head,
+                methods=["HEAD"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            ),
+            Route("/reads", reads, methods=["GET"]),
+        ]
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/reads": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.get("/reads")
+        second = client.get("/reads")
+        anonymous = client.head("/reads")
+        authorized = client.head("/reads", headers={"X-API-Key": "alice"})
+
+    assert first.text == "1"
+    assert second.text == "2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert authorized.status_code == HTTP_200_OK
+    assert calls == {"get": 2, "head": 1}
 
 
 def test_a_marked_route_takes_the_components_ttl_when_it_names_none() -> None:
@@ -587,6 +756,59 @@ def test_a_mounted_route_is_read_with_its_prefix() -> None:
 
     # Assert
     assert calls == 1
+
+
+@pytest.mark.parametrize("child_policy", ["public", "private"])
+def test_mounted_router_cache_does_not_merge_parent_local_coordinates(
+    child_policy: str,
+) -> None:
+    """A mounted cache reads its router, not an unrelated parent `/x`."""
+    private_child = child_policy == "private"
+    parent = FastAPI()
+
+    @parent.get("/x", dependencies=[CachedResponse(ttl=TTL)])
+    async def parent_x() -> dict[str, bool]:
+        return {"parent": True}
+
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    child_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @child_app.get(
+        "/x",
+        dependencies=[Depends(authenticate)] if private_child else None,
+    )
+    async def child_x() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    child = Router(
+        routes=child_app.router.routes,
+        middleware=[
+            Middleware(
+                CachedResponsesMiddleware,
+                cache=_cache(),
+            )
+        ],
+    )
+    parent.mount("/sub", child)
+
+    with TestClient(parent) as client:
+        headers = {"X-API-Key": "alice"} if private_child else {}
+        first = client.get("/sub/x", headers=headers)
+        second = client.get("/sub/x", headers=headers)
+        anonymous = client.get("/sub/x") if private_child else None
+
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
+    assert "age" not in second.headers
+    if anonymous is not None:
+        assert anonymous.status_code == HTTP_401_UNAUTHORIZED
 
 
 def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
@@ -973,6 +1195,51 @@ def test_add_middleware_cache_ignores_builtin_exception_routing() -> None:
     assert first.text == replayed.text == "1"
     assert replayed.headers["age"] == "0"
     assert calls == 1
+
+
+def test_fastapi_add_middleware_cache_ignores_framework_exit_stack() -> None:
+    """FastAPI's dependency cleanup wrapper is not a security boundary."""
+    calls = 0
+    app = FastAPI()
+
+    @app.get("/public")
+    async def public() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app.add_middleware(
+        CachedResponsesMiddleware,
+        cache=_cache(),
+        include={"/public": TTL},
+    )
+
+    with TestClient(app) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    assert first.json() == replayed.json() == {"calls": 1}
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
+def test_cache_policy_sources_deduplicate_identical_routing_roots() -> None:
+    """The same source keeps one entry and the strictest root boundary."""
+    app = FastAPI()
+    other = FastAPI()
+
+    same_object = _unique_policy_sources(((app, False), (app, True)))
+    wrapped_source = _unique_policy_sources(
+        ((app, False), (app.router.app, True))
+    )
+    after_unrelated = _unique_policy_sources(
+        ((other, False), (app, False), (app.router.app, True))
+    )
+
+    assert same_object == ((app, True),)
+    assert wrapped_source == ((app, True),)
+    assert after_unrelated == ((other, False), (app, True))
+    assert repr(UNSET) == "UNSET"
 
 
 def test_leaf_router_authentication_is_an_exact_cache_boundary() -> None:
@@ -1875,6 +2142,47 @@ def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
         )
         with pytest.raises(TypeError, match="gated by APIKeyHeader"):
             client.get("/private", headers={"X-API-Key": "alice"})
+
+
+def test_cache_topology_rebuilds_once_only_after_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unchanged request skips the full walker; one route addition rebuilds."""
+    app = FastAPI()
+
+    @app.get("/reads")
+    async def reads() -> dict[str, bool]:
+        return {"ok": True}
+
+    for index in range(BULK_ROUTES):
+        app.add_api_route(f"/bulk/{index}", reads, methods=["GET"])
+
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/reads": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        client.get("/reads")
+        rebuilds = 0
+        original = _RouteTopologyState.rebuild
+
+        def counted(snapshot: _RouteTopologyState) -> None:
+            nonlocal rebuilds
+            rebuilds += 1
+            original(snapshot)
+
+        monkeypatch.setattr(_RouteTopologyState, "rebuild", counted)
+        client.get("/reads")
+        assert rebuilds == 0
+
+        app.add_api_route("/later", reads, methods=["GET"])
+        client.get("/reads")
+        assert rebuilds == 1
+
+        client.get("/reads")
+        assert rebuilds == 1
 
 
 def test_hand_wired_cache_revalidates_a_lifespan_added_route() -> None:
@@ -2941,6 +3249,144 @@ def test_a_bare_string_is_a_missing_comma() -> None:
     # Hand-wired ASGI refuses the same mistake as a wrong argument type.
     with pytest.raises(TypeError, match="is a string"):
         CachedResponsesMiddleware(_nothing, cache=_cache(), include="/reads")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_default_query_vary_preserves_repeated_value_order() -> None:
+    """Repeated values stay ordered while distinct names stay canonical."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/roles")
+    async def roles(request: Request) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {
+            "roles": request.query_params.getlist("role"),
+            "calls": calls,
+        }
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/roles",)),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as client:
+        first = client.get("/roles?role=admin&role=user&page=1")
+        reordered_names = client.get("/roles?page=1&role=admin&role=user")
+        reversed_roles = client.get("/roles?role=user&role=admin&page=1")
+
+    assert (
+        first.json()
+        == reordered_names.json()
+        == {
+            "roles": ["admin", "user"],
+            "calls": 1,
+        }
+    )
+    assert reordered_names.headers["age"] == "0"
+    assert reversed_roles.json() == {
+        "roles": ["user", "admin"],
+        "calls": 2,
+    }
+
+
+def test_selected_query_vary_decodes_names_and_distinguishes_absence() -> None:
+    """Selected repeated values, encoded names, and an absent key are distinct."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/users")
+    async def users(request: Request) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {
+            "users": request.query_params.getlist("user"),
+            "present": "user" in request.query_params,
+            "calls": calls,
+        }
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(
+                include=("/users",),
+                vary_by_query=("user",),
+            ),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as client:
+        encoded = client.get("/users?%75ser=alice&user=bob&utm=one")
+        ignored_changed = client.get("/users?user=alice&user=bob&utm=two")
+        reversed_users = client.get("/users?user=bob&user=alice")
+        absent = client.get("/users?utm=one")
+        empty = client.get("/users?user=")
+
+    assert (
+        encoded.json()
+        == ignored_changed.json()
+        == {
+            "users": ["alice", "bob"],
+            "present": True,
+            "calls": 1,
+        }
+    )
+    assert ignored_changed.headers["age"] == "0"
+    assert reversed_users.json()["calls"] == TWICE
+    assert absent.json() == {"users": [], "present": False, "calls": READS}
+    assert empty.json() == {"users": [""], "present": True, "calls": FOUR}
+
+
+def test_header_vary_distinguishes_absent_from_present_empty() -> None:
+    """An empty request header is observable and cannot alias its absence."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/variant")
+    async def variant(request: Request) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {
+            "present": "x-variant" in request.headers,
+            "value": request.headers.get("x-variant"),
+            "calls": calls,
+        }
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(
+                include=("/variant",),
+                vary_by_headers=("x-variant",),
+            ),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as client:
+        absent = client.get("/variant")
+        empty = client.get("/variant", headers={"X-Variant": ""})
+        empty_replayed = client.get("/variant", headers={"X-Variant": ""})
+
+    assert absent.json() == {
+        "present": False,
+        "value": None,
+        "calls": 1,
+    }
+    assert (
+        empty.json()
+        == empty_replayed.json()
+        == {
+            "present": True,
+            "value": "",
+            "calls": 2,
+        }
+    )
+    assert empty_replayed.headers["age"] == "0"
 
 
 def test_two_services_behind_one_gateway_are_two_resources() -> None:

@@ -53,6 +53,7 @@ from starlette.status import (
 )
 
 from grelmicro import Grelmicro
+from grelmicro._paths import _RouteTopologyState
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
@@ -1081,6 +1082,48 @@ def test_idempotency_refreshes_gates_after_the_first_request() -> None:
     assert "idempotent-replayed" not in anonymous.headers
 
 
+def test_idempotency_topology_rebuilds_once_only_after_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stable requests skip the walker and one dynamic route rebuilds once."""
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "topology-generation",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        client.post("/charge", headers={"Idempotency-Key": "first"})
+        rebuilds = 0
+        original = _RouteTopologyState.rebuild
+
+        def counted(snapshot: _RouteTopologyState) -> None:
+            nonlocal rebuilds
+            rebuilds += 1
+            original(snapshot)
+
+        monkeypatch.setattr(_RouteTopologyState, "rebuild", counted)
+        client.post("/charge", headers={"Idempotency-Key": "second"})
+        assert rebuilds == 0
+
+        app.add_api_route("/later", charge, methods=["POST"])
+        client.post("/charge", headers={"Idempotency-Key": "third"})
+        assert rebuilds == 1
+
+        client.post("/charge", headers={"Idempotency-Key": "fourth"})
+        assert rebuilds == 1
+
+
 def test_idempotency_reads_routes_added_during_lifespan() -> None:
     """A startup-added dependency is gated before the route first runs."""
     calls = 0
@@ -1224,6 +1267,81 @@ def test_parent_security_does_not_disable_public_mounted_idempotency() -> None:
     assert first.json() == {"call": 1}
     assert replayed.json() == {"call": 1}
     assert replayed.headers["idempotent-replayed"] == "true"
+
+
+@pytest.mark.parametrize("child_policy", ["public", "private"])
+def test_mounted_router_idempotency_does_not_merge_parent_local_coordinates(
+    child_policy: str,
+) -> None:
+    """A mounted `/x` reads its own gates, not the parent's unrelated `/x`."""
+    private_child = child_policy == "private"
+    parent = FastAPI()
+
+    async def parent_gate() -> None:
+        return None
+
+    @parent.post(
+        "/x",
+        dependencies=None if private_child else [Depends(parent_gate)],
+    )
+    async def parent_x() -> dict[str, bool]:
+        return {"parent": True}
+
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    child_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @child_app.post(
+        "/x",
+        dependencies=[Depends(authenticate)] if private_child else None,
+    )
+    async def child_x() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    child = Router(
+        routes=child_app.router.routes,
+        middleware=[
+            Middleware(
+                IdempotencyMiddleware,
+                idempotency=Idempotency(
+                    "mounted-local",
+                    ttl=60,
+                    cache=TTLCache(
+                        backend=MemoryCacheAdapter(),
+                        serializer=JsonSerializer(),
+                    ),
+                ),
+            )
+        ],
+    )
+    parent.mount("/sub", child)
+
+    with TestClient(parent) as client:
+        headers = {
+            **KEY,
+            **({"X-API-Key": "alice"} if private_child else {}),
+        }
+        first = client.post("/sub/x", headers=headers)
+        second = client.post("/sub/x", headers=headers)
+        anonymous = (
+            client.post("/sub/x", headers=KEY) if private_child else None
+        )
+
+    if private_child:
+        assert first.json() == {"calls": 1}
+        assert second.json() == {"calls": 2}
+        assert "idempotent-replayed" not in second.headers
+        assert anonymous is not None
+        assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    else:
+        assert first.json() == second.json() == {"calls": 1}
+        assert second.headers["idempotent-replayed"] == "true"
 
 
 @pytest.mark.parametrize("credential", ["Authorization", "Cookie"])

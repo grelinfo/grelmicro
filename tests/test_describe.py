@@ -7,7 +7,8 @@ import sys
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
+from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.authentication import AuthenticationBackend
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -27,7 +28,11 @@ from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.describe import AppReport as PublicAppReport
 from grelmicro.health import HealthChecks
-from grelmicro.http import CachedResponses
+from grelmicro.http import (
+    CachedResponses,
+    CachedResponsesConfig,
+    IdempotentRequests,
+)
 from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
@@ -244,11 +249,41 @@ _CLI_APP.mount(
 _CLI_MICRO = Grelmicro(
     uses=[
         Cache(MemoryCacheAdapter()),
-        CachedResponses(include=("/api/*",)),
+        CachedResponses.from_config(CachedResponsesConfig(include=("/api/*",))),
     ],
     environment="development",
 )
 _CLI_MICRO.install(_CLI_APP)
+
+
+async def _report_dependency() -> None:
+    """Stand in for a gate the endpoint report must not skip."""
+
+
+_CLI_POLICY_ROUTER = APIRouter()
+
+
+@_CLI_POLICY_ROUTER.get(
+    "/users/{uid:int}",
+    dependencies=[Depends(_report_dependency)],
+)
+async def _cli_policy_user(uid: int) -> dict[str, int]:
+    """Return one typed route for the CLI endpoint table."""
+    return {"uid": uid}
+
+
+_CLI_POLICY_APP = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+_CLI_POLICY_MICRO = Grelmicro(
+    uses=[
+        Cache(MemoryCacheAdapter()),
+        CachedResponses.from_config(
+            CachedResponsesConfig(include=("/api/users/*",))
+        ),
+    ],
+    environment="development",
+)
+_CLI_POLICY_MICRO.install(_CLI_POLICY_APP)
+_CLI_POLICY_APP.include_router(_CLI_POLICY_ROUTER, prefix="/api")
 
 
 def test_cli_lists_middleware_wrapped_mounted_endpoints(
@@ -268,6 +303,27 @@ def test_cli_lists_middleware_wrapped_mounted_endpoints(
     assert code == 0
     assert "GET    /api/x" in output
     assert "path-patterns" not in output
+
+
+def test_cli_reports_typed_dependency_route_as_uncached(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`check --app` uses the route template's refusal, not a concrete match."""
+    code = main(
+        [
+            "check",
+            "tests.test_describe:_CLI_POLICY_MICRO",
+            "--app",
+            "tests.test_describe:_CLI_POLICY_APP",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    line = next(
+        row for row in output.splitlines() if "/api/users/{uid:int}" in row
+    )
+    assert code == 0
+    assert line.rstrip().endswith("-")
 
 
 def test_describe_flags_a_forgotten_install() -> None:
@@ -400,6 +456,76 @@ def test_describe_does_not_apply_cache_before_an_ordinary_dependency() -> None:
     )
 
     assert endpoint.applies == ()
+
+
+def test_dynamic_typed_dependency_report_is_stable_around_traffic() -> None:
+    """A late included typed route is uncached before and after a request."""
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/api/users/*",)),
+        ],
+        environment="development",
+    )
+    micro.install(app)
+    router = APIRouter()
+
+    @router.get(
+        "/users/{uid:int}",
+        dependencies=[Depends(_report_dependency)],
+    )
+    async def user(uid: int) -> dict[str, int]:
+        return {"uid": uid}
+
+    app.include_router(router, prefix="/api")
+    before = next(
+        row
+        for row in micro.describe(app).endpoints
+        if row.path == "/api/users/{uid:int}"
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/api/users/7").json() == {"uid": 7}
+
+    after = next(
+        row
+        for row in micro.describe(app).endpoints
+        if row.path == "/api/users/{uid:int}"
+    )
+
+    assert before.applies == after.applies == ()
+
+
+@pytest.mark.parametrize("key_kind", ["default", "custom"])
+def test_describe_idempotency_matches_dependency_gate_policy(
+    key_kind: str,
+) -> None:
+    """Default keys bypass dependency routes; custom identity keys may replay."""
+    component = IdempotentRequests(
+        key_maker=(lambda scope, key: f"{scope['path']}:{key}")
+        if key_kind == "custom"
+        else None
+    )
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.post("/charge", dependencies=[Depends(_report_dependency)])
+    async def charge() -> dict[str, bool]:
+        return {"charged": True}
+
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), component],
+        environment="development",
+    )
+    micro.install(app)
+
+    endpoint = next(
+        row for row in micro.describe(app).endpoints if row.path == "/charge"
+    )
+
+    assert endpoint.applies == (
+        ("idempotent 86400s",) if key_kind == "custom" else ()
+    )
 
 
 def test_describe_warns_on_unknown_framework() -> None:
