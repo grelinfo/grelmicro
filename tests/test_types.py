@@ -238,6 +238,18 @@ class TestFailClosed:
                 "https://example/#/callback?state=x;token=***",
             ),
             (
+                "https://example/?state=x/access_token=SECRET",
+                "https://example/?state=x/access_token=***",
+            ),
+            (
+                "https://example/#/callback?state=x/access_token=SECRET",
+                "https://example/#/callback?state=x/access_token=***",
+            ),
+            (
+                "https://example/?state=x/access%5Ftoken=SECRET",
+                "https://example/?state=x/access_token=***",
+            ),
+            (
                 "https://example/?state=x;token=SECRET",
                 "https://example/?state=x;token=***",
             ),

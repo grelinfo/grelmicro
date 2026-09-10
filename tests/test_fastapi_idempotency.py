@@ -7,6 +7,7 @@ import gzip
 import importlib
 import json
 import sys
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 from unittest.mock import patch
 
@@ -1022,6 +1023,107 @@ def test_self_mount_does_not_break_default_idempotency_discovery() -> None:
     # Assert
     assert first.json() == replayed.json() == {"call": 1}
     assert replayed.headers["idempotent-replayed"] == "true"
+
+
+def test_idempotency_refreshes_gates_after_the_first_request() -> None:
+    """A route added to the same router cannot inherit an empty gate cache."""
+    app = FastAPI()
+
+    @app.post("/public")
+    async def public() -> dict[str, bool]:
+        return {"public": True}
+
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "dynamic-gates",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": request.headers["x-api-key"],
+            "calls": calls,
+        }
+
+    with TestClient(app) as client:
+        assert client.post("/public", headers=KEY).status_code == HTTP_200_OK
+        app.add_api_route(
+            "/private",
+            private,
+            methods=["POST"],
+            dependencies=[Depends(authenticate)],
+        )
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_idempotency_reads_routes_added_during_lifespan() -> None:
+    """A startup-added dependency is gated before the route first runs."""
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": request.headers["x-api-key"],
+            "calls": calls,
+        }
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.add_api_route(
+            "/private",
+            private,
+            methods=["POST"],
+            dependencies=[Depends(authenticate)],
+        )
+        yield
+
+    app = FastAPI(lifespan=lifespan)
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "lifespan-gates",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(app) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
 
 
 def test_middleware_replay_never_skips_api_key_security() -> None:

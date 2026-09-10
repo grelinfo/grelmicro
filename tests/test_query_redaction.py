@@ -233,6 +233,18 @@ def test_innocent_fragment_path_assignment_is_preserved() -> None:
             "https://example/#/callback?state=x;token=***",
         ),
         (
+            "https://example/?state=x/access_token=SECRET",
+            "https://example/?state=x/access_token=***",
+        ),
+        (
+            "https://example/#/callback?state=x/access_token=SECRET",
+            "https://example/#/callback?state=x/access_token=***",
+        ),
+        (
+            "https://example/?state=x/access%5Ftoken=SECRET",
+            "https://example/?state=x/access_token=***",
+        ),
+        (
             "https://example/?state=x;token=SECRET",
             "https://example/?state=x;token=***",
         ),
@@ -247,6 +259,14 @@ def test_innocent_fragment_path_assignment_is_preserved() -> None:
         (
             "https://example/#/callback/state=readable?result=ok",
             "https://example/#/callback/state=readable?result=ok",
+        ),
+        (
+            "https://example/?state=x/callback=readable&result=ok",
+            "https://example/?state=x/callback=readable&result=ok",
+        ),
+        (
+            "https://example/?state=x/callback=readable&token=SECRET",
+            "https://example/?state=x/callback=readable&token=***",
         ),
     ],
 )

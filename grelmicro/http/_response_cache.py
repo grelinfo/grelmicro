@@ -41,6 +41,7 @@ from grelmicro._paths import (
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
+    _route_topology,
     _routing_app,
     as_patterns,
     matches,
@@ -57,7 +58,11 @@ from grelmicro.http._conditional import (
     _tags,
     etag_of,
 )
-from grelmicro.http._idempotency import StoredResponse
+from grelmicro.http._idempotency import (
+    StoredResponse,
+    _authenticated_scope,
+    _authentication_paths,
+)
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -269,6 +274,21 @@ UNSET = _Unset()
 """The one instance of `_Unset`, so a caller can be told apart from a default."""
 
 
+def _unique_policy_sources(
+    sources: tuple[tuple[Any, bool], ...],
+) -> tuple[tuple[Any, bool], ...]:
+    """Return applications once each, retaining the strictest root boundary."""
+    found: list[tuple[Any, bool]] = []
+    for app, include_root in sources:
+        for index, (seen, strict) in enumerate(found):
+            if app is seen:
+                found[index] = (seen, strict or include_root)
+                break
+        else:
+            found.append((app, include_root))
+    return tuple(found)
+
+
 class _Policies:
     """The paths a middleware caches, and for how long.
 
@@ -280,11 +300,13 @@ class _Policies:
 
     __slots__ = (
         "_app",
+        "_base_sources",
         "_exclude",
         "_include",
         "_refused",
         "_refused_paths",
         "_routes",
+        "_topology",
     )
 
     def __init__(
@@ -336,6 +358,8 @@ class _Policies:
         self._refused: tuple[Pattern[str], ...] = ()
         self._refused_paths: frozenset[str] = frozenset()
         self._app: Any = None
+        self._base_sources: tuple[tuple[Any, bool], ...] = ()
+        self._topology: tuple[tuple[int, bool, tuple[Any, ...]], ...] = ()
 
     def _is_refused(self, path: str) -> bool:
         """Return whether the app refuses to have this path cached.
@@ -360,12 +384,42 @@ class _Policies:
             TypeError: If a marked route answers a method other than `GET`.
         """
         self._app = app
-        found, refused = _marked_routes(
-            app,
-            tuple(pattern for pattern, _ in self._include),
-            self._exclude,
-            include_root_middleware=include_root_middleware,
+        self._base_sources = ((app, include_root_middleware),)
+        self._refresh(self._base_sources)
+
+    def refresh(self, *apps: Any) -> None:  # noqa: ANN401
+        """Refresh policy metadata when a request exposes changed routes."""
+        sources = _unique_policy_sources(
+            (
+                *self._base_sources,
+                *((app, False) for app in apps if app is not None),
+            )
         )
+        topology = tuple(
+            (id(app), include_root, _route_topology(app))
+            for app, include_root in sources
+        )
+        if topology != self._topology:
+            self._refresh(sources, topology=topology)
+
+    def _refresh(
+        self,
+        sources: tuple[tuple[Any, bool], ...],
+        *,
+        topology: tuple[tuple[int, bool, tuple[Any, ...]], ...] | None = None,
+    ) -> None:
+        """Read and publish routes from one coherent topology snapshot."""
+        found: list[tuple[Pattern[str], float | None]] = []
+        refused: list[tuple[str, Pattern[str]]] = []
+        for app, include_root in sources:
+            app_found, app_refused = _marked_routes(
+                app,
+                tuple(pattern for pattern, _ in self._include),
+                self._exclude,
+                include_root_middleware=include_root,
+            )
+            found.extend(app_found)
+            refused.extend(app_refused)
         self._routes = tuple(found)
         # A route declared with no parameter answers one path, so it is
         # a set lookup. Only a template standing for many needs its
@@ -376,11 +430,19 @@ class _Policies:
         self._refused = tuple(
             regex for template, regex in refused if "{" in template
         )
+        self._topology = (
+            topology
+            if topology is not None
+            else tuple(
+                (id(app), include_root, _route_topology(app))
+                for app, include_root in sources
+            )
+        )
 
     def reread(self) -> None:
         """Read the app again, for the routes added since install."""
-        if self._app is not None:
-            self.read(self._app)
+        if self._base_sources:
+            self._refresh(self._base_sources)
 
     def pattern_ttl(
         self,
@@ -505,7 +567,10 @@ def _marked_routes(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
-    refused = _middleware_refusals(app, include_root=include_root_middleware)
+    refused = [
+        *_middleware_refusals(app, include_root=include_root_middleware),
+        *_authentication_refusals(app, include_root=include_root_middleware),
+    ]
     answered: list[tuple[str, Pattern[str], frozenset[str]]] = []
     for prefix, route, contexts in walk_routes(app):
         above = _declaring_above(contexts)
@@ -568,6 +633,33 @@ def _middleware_refusals(
     for boundary, nested in _middleware_boundaries(
         app, include_root=include_root
     ):
+        exact = boundary or "/"
+        exact_pattern, _, _ = compile_path(exact)
+        found.append((exact, exact_pattern))
+        if not nested:
+            continue
+        descendants = (
+            f"{boundary.rstrip('/')}/{{path:path}}"
+            if boundary
+            else "/{path:path}"
+        )
+        descendant_pattern, _, _ = compile_path(descendants)
+        found.append((descendants, descendant_pattern))
+    return found
+
+
+def _authentication_refusals(
+    app: Any,  # noqa: ANN401
+    *,
+    include_root: bool,
+) -> list[tuple[str, Pattern[str]]]:
+    """Compile exact and descendant refusals for authentication boundaries."""
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    found: list[tuple[str, Pattern[str]]] = []
+    for boundary, nested in _authentication_paths(app):
+        if not include_root and not boundary:
+            continue
         exact = boundary or "/"
         exact_pattern, _, _ = compile_path(exact)
         found.append((exact, exact_pattern))
@@ -1007,7 +1099,8 @@ class CachedResponsesMiddleware:
     status `200`, no `Set-Cookie`, no `Content-Encoding`, no
     `Cache-Control` refusing it, and a `Vary` naming nothing outside
     `vary_by_headers`. A request carrying `Authorization` or `Cookie`
-    never reads the cache and never fills it.
+    never reads the cache and never fills it. Neither does one an outer
+    ASGI authentication middleware has already marked as authenticated.
 
     A request's own `Cache-Control` is not read. This answers for the
     resource rather than for one caller, so a caller that could ask for
@@ -1167,11 +1260,12 @@ class CachedResponsesMiddleware:
         if matches(path, config.exclude):
             await self.app(scope, receive, send)
             return
-        ttl = state.policies.ttl_for(path, config.ttl)
-        if ttl is None:
+        if _carries_credentials(scope) or _asks_for_part(scope):
             await self.app(scope, receive, send)
             return
-        if _carries_credentials(scope) or _asks_for_part(scope):
+        state.policies.refresh(scope.get("app"))
+        ttl = state.policies.ttl_for(path, config.ttl)
+        if ttl is None:
             await self.app(scope, receive, send)
             return
         built = (
@@ -1705,7 +1799,7 @@ def _split_field(value: bytes) -> list[str]:
 
 def _carries_credentials(scope: Scope) -> bool:
     """Return whether the request is one caller's, so no cache may answer it."""
-    return any(
+    return _authenticated_scope(scope) or any(
         name.lower() in _PRIVATE_REQUEST_HEADERS for name, _ in scope["headers"]
     )
 

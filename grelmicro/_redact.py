@@ -47,6 +47,7 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
 _QUERY_PARAMETER = re.compile(r"(^|[?&;])([^=?&;]+)(=)?([^?&;]*)")
+_SLASH_PARAMETER = re.compile(r"(/)([^=/?&;]+)=([^/?&;]*)")
 _FRAGMENT_PARAMETER = re.compile(r"(^|[/&;])([^=/&;]+)=([^/?&;]*)")
 
 
@@ -74,22 +75,32 @@ def _redact_query(query: str | None) -> str | None:
         return query
 
     matches = list(_QUERY_PARAMETER.finditer(query))
-    if not any(_is_credential_query_key(match.group(2)) for match in matches):
+    direct_credentials = any(
+        _is_credential_query_key(match.group(2)) for match in matches
+    )
+    slash_credentials = any(
+        _is_credential_query_key(match.group(2))
+        for match in _SLASH_PARAMETER.finditer(query)
+    )
+    if not direct_credentials and not slash_credentials:
         return query
 
     def replace(match: re.Match[str]) -> str:
         key = unquote_plus(match.group(2))
-        value = (
-            MASK
-            if _is_credential_query_key(key)
-            else unquote_plus(match.group(4))
-        )
-        return (
-            f"{match.group(1)}{quote_plus(key, safe='*')}="
-            f"{quote_plus(value, safe='*')}"
-        )
+        if not _is_credential_query_key(key):
+            return match.group(0)
+        return f"{match.group(1)}{quote_plus(key, safe='*')}={MASK}"
 
-    return _QUERY_PARAMETER.sub(replace, query)
+    redacted = (
+        _QUERY_PARAMETER.sub(replace, query) if direct_credentials else query
+    )
+
+    def replace_slash(match: re.Match[str]) -> str:
+        if not _is_credential_query_key(match.group(2)):
+            return match.group(0)
+        return f"{match.group(1)}{unquote_plus(match.group(2))}={MASK}"
+
+    return _SLASH_PARAMETER.sub(replace_slash, redacted)
 
 
 def _redact_query_values(query: str | None) -> str | None:

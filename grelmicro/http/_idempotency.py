@@ -38,7 +38,9 @@ from grelmicro._paths import (
     MethodNames,
     PathPatterns,
     _is_mount,
+    _is_route,
     _nested_routing_app,
+    _route_topology,
     _routing_app,
     _wrapped_app,
     as_patterns,
@@ -194,7 +196,13 @@ _PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
 class _GatedRoutes:
     """Routes whose dependencies or authentication must run before replay."""
 
-    __slots__ = ("_apps", "_authenticated", "_routes", "_wrapped")
+    __slots__ = (
+        "_apps",
+        "_authenticated",
+        "_routes",
+        "_topology",
+        "_wrapped",
+    )
 
     def __init__(self, app: Any = None) -> None:  # noqa: ANN401
         """Remember the wrapped app and defer route discovery to a request."""
@@ -202,10 +210,12 @@ class _GatedRoutes:
         self._apps: tuple[Any, ...] = ()
         self._authenticated: tuple[re.Pattern[str], ...] = ()
         self._routes: tuple[tuple[re.Pattern[str], frozenset[str]], ...] = ()
+        self._topology: tuple[tuple[Any, ...], ...] = ()
 
     def read(self, *apps: Any) -> None:  # noqa: ANN401, C901
         """Read dependency-bearing and authenticated routes from the apps."""
         self._apps = apps
+        self._topology = tuple(_route_topology(app) for app in apps)
         roots: list[Any] = []
         for app in apps:
             root = _routing_app(app)
@@ -262,8 +272,14 @@ class _GatedRoutes:
     def matches(self, scope: Scope) -> bool:
         """Return whether authentication or a dependency guards the route."""
         apps = _unique_apps((self._wrapped, scope.get("app")))
-        if len(apps) != len(self._apps) or any(
-            app is not seen for app, seen in zip(apps, self._apps, strict=True)
+        topology = tuple(_route_topology(app) for app in apps)
+        if (
+            len(apps) != len(self._apps)
+            or any(
+                app is not seen
+                for app, seen in zip(apps, self._apps, strict=True)
+            )
+            or topology != self._topology
         ):
             self.read(*apps)
         method = scope["method"]
@@ -362,7 +378,7 @@ def _authentication_paths(  # noqa: C901
     """Return exact or nested paths protected by Starlette authentication."""
     found: set[tuple[str, bool]] = set()
 
-    def visit(  # noqa: C901
+    def visit(  # noqa: C901, PLR0912
         current: Any,  # noqa: ANN401
         prefix: str,
         ancestors: frozenset[int],
@@ -382,6 +398,20 @@ def _authentication_paths(  # noqa: C901
                 target.add((path, True))
             else:
                 visit(nested, path, nested_ancestors, target)
+            return
+        if _is_route(routed):
+            path = f"{prefix}{getattr(routed, 'path', '')}"
+            nested = getattr(routed, "app", None)
+            if _authentication_here(nested):
+                target.add((path, False))
+                return
+            leaf = _nested_routing_app(routed)
+            if leaf is None:
+                return
+            direct_found: set[tuple[str, bool]] = set()
+            visit(leaf, "", nested_ancestors, direct_found)
+            if direct_found:
+                target.add((path, False))
             return
         router = getattr(routed, "router", None)
         for route in getattr(router or routed, "routes", ()) or ():

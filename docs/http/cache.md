@@ -80,6 +80,7 @@ of them is that mistake.
 | Not stored | Why |
 |---|---|
 | A request carrying `Authorization` or `Cookie` | it was answered for one caller |
+| A request whose ASGI scope carries an authenticated user or authentication scopes | an outer authentication middleware identified one caller |
 | A response carrying `Set-Cookie` | it is one caller's session |
 | A response carrying `Cache-Control: no-store`, `no-cache` or `private` | it said so |
 | A response carrying `Cache-Control: max-age=0` or `s-maxage=0` | it is stale already |

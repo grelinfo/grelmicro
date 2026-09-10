@@ -192,6 +192,8 @@ def _routing_app(app: Any) -> Any:  # noqa: ANN401
         if bound is not None:
             app = bound
             continue
+        if _is_mount(app) or _is_route(app):
+            return app
         nested = _wrapped_app(app)
         if nested is not None:
             app = nested
@@ -223,12 +225,30 @@ def _is_mount(app: Any) -> bool:  # noqa: ANN401
     )
 
 
+def _is_route(app: Any) -> bool:  # noqa: ANN401
+    """Return whether `app` is a Starlette leaf routing node."""
+    return any(
+        klass.__module__ == "starlette.routing"
+        and klass.__name__ in {"Route", "WebSocketRoute"}
+        for klass in type(app).__mro__
+    )
+
+
+def _is_exception_middleware(app: Any) -> bool:  # noqa: ANN401
+    """Return whether `app` is Starlette's built-in exception router."""
+    klass = type(app)
+    return (
+        klass.__module__ == "starlette.middleware.exceptions"
+        and klass.__name__ == "ExceptionMiddleware"
+    )
+
+
 def _is_starlette_routing_app(app: Any) -> bool:  # noqa: ANN401
     """Return whether `app` resolves to a Starlette-compatible router."""
     routed = _routing_app(app)
     if routed is None:
         return False
-    if _is_mount(routed):
+    if _is_mount(routed) or _is_route(routed):
         return True
     return any(
         (
@@ -245,7 +265,7 @@ def _is_starlette_routing_app(app: Any) -> bool:  # noqa: ANN401
 
 def _wrapped_app(app: Any) -> Any | None:  # noqa: ANN401
     """Return the application an explicit ASGI wrapper delegates to."""
-    if _is_mount(app):
+    if _is_mount(app) or _is_route(app):
         return None
     nested = getattr(app, "app", None)
     if (
@@ -257,8 +277,27 @@ def _wrapped_app(app: Any) -> Any | None:  # noqa: ANN401
     return nested
 
 
+def _transparent_routing_source(app: Any) -> Any:  # noqa: ANN401
+    """Unwrap bound routers and Starlette's built-in exception router."""
+    seen: set[int] = set()
+    while app is not None and id(app) not in seen:
+        seen.add(id(app))
+        bound = _bound_router(app)
+        if bound is not None:
+            app = bound
+            continue
+        if not _is_exception_middleware(app):
+            break
+        nested = _wrapped_app(app)
+        if nested is None:
+            break
+        app = nested
+    return app
+
+
 def _has_configured_middleware(app: Any) -> bool:  # noqa: ANN401
     """Return whether a routing application declares middleware of its own."""
+    app = _transparent_routing_source(app)
     if _wrapped_app(app) is not None:
         return True
     if getattr(app, "user_middleware", ()):
@@ -275,6 +314,7 @@ def _middleware_boundaries(
     include_root: bool = False,
 ) -> set[tuple[str, bool]]:
     """Return exact or nested paths a parent response cache must not cross."""
+    app = _transparent_routing_source(app)
     if _wrapped_app(app) is not None:
         return {("", True)}
     if include_root and _has_configured_middleware(app):
@@ -291,6 +331,7 @@ def _visit_middleware_boundaries(
     found: set[tuple[str, bool]],
 ) -> None:
     """Add middleware boundaries below one routing application."""
+    current = _transparent_routing_source(current)
     if current is None or id(current) in ancestors:
         return
     nested_ancestors = ancestors | {id(current)}
@@ -301,6 +342,9 @@ def _visit_middleware_boundaries(
             nested_ancestors,
             found,
         )
+        return
+    if _is_route(current):
+        _visit_boundary_route(current, prefix, nested_ancestors, found)
         return
     router = getattr(current, "router", None)
     for route in getattr(router or current, "routes", ()) or ():
@@ -376,9 +420,7 @@ def _nested_routing_app(route: Any) -> Any | None:  # noqa: ANN401
 
 def _route_source(app: Any, *, unwrap_middleware: bool) -> Any | None:  # noqa: ANN401
     """Resolve the routing object visible through the requested boundary."""
-    bound = _bound_router(app)
-    if bound is not None:
-        app = bound
+    app = _transparent_routing_source(app)
     if unwrap_middleware:
         return _routing_app(app)
     if _wrapped_app(app) is not None:
@@ -429,6 +471,12 @@ def _walk_routes(
     )
     if mounted is not None:
         return mounted
+    if _is_route(app):
+        return (
+            [(prefix, app, contexts)]
+            if getattr(app, "path", None) is not None
+            else []
+        )
     own = getattr(app, "router", None)
     if own is not None:
         contexts = (*contexts, own)
@@ -465,6 +513,133 @@ def _walk_routes(
         if getattr(route, "path", None) is not None:
             found.append((prefix, route, contexts))
     return found
+
+
+def _dependency_topology(
+    dependency: Any,  # noqa: ANN401
+    ancestors: frozenset[int] = frozenset(),
+) -> tuple[Any, ...]:
+    """Return the identity and descendants of one resolved dependency."""
+    if dependency is None:
+        return ()
+    if id(dependency) in ancestors:
+        return ("cycle", id(dependency))
+    nested_ancestors = ancestors | {id(dependency)}
+    return (
+        id(dependency),
+        id(getattr(dependency, "call", None)),
+        tuple(
+            _dependency_topology(child, nested_ancestors)
+            for child in getattr(dependency, "dependencies", ()) or ()
+        ),
+    )
+
+
+def _declared_dependency_topology(holder: Any) -> tuple[Any, ...]:  # noqa: ANN401
+    """Return dependencies declared directly on a router or include."""
+    return tuple(
+        (
+            id(dependency),
+            id(getattr(dependency, "dependency", None)),
+        )
+        for dependency in getattr(holder, "dependencies", ()) or ()
+    )
+
+
+def _middleware_topology(app: Any) -> tuple[Any, ...]:  # noqa: ANN401
+    """Return middleware declarations and the currently built stack."""
+    declared = tuple(
+        (
+            id(middleware),
+            id(getattr(middleware, "cls", middleware)),
+        )
+        for middleware in getattr(app, "user_middleware", ()) or ()
+    )
+    stack = getattr(app, "middleware_stack", None)
+    chain: list[tuple[int, type[Any]]] = []
+    seen: set[int] = set()
+    while stack is not None and id(stack) not in seen:
+        seen.add(id(stack))
+        chain.append((id(stack), type(stack)))
+        stack = _wrapped_app(stack)
+    return declared, tuple(chain)
+
+
+def _route_topology_node(  # noqa: PLR0911
+    current: Any,  # noqa: ANN401
+    ancestors: frozenset[int],
+) -> tuple[Any, ...]:
+    """Return a cycle-safe snapshot of one routing branch."""
+    if current is None:
+        return ("none",)
+    bound = _bound_router(current)
+    if bound is not None:
+        current = bound
+    if id(current) in ancestors:
+        return ("cycle", id(current))
+    nested_ancestors = ancestors | {id(current)}
+    included = getattr(current, "original_router", None)
+    if included is not None:
+        context = getattr(current, "include_context", None)
+        return (
+            "include",
+            id(current),
+            getattr(context, "prefix", ""),
+            _declared_dependency_topology(context),
+            _route_topology_node(included, nested_ancestors),
+        )
+    if _is_mount(current):
+        return (
+            "mount",
+            id(current),
+            getattr(current, "path", ""),
+            _route_topology_node(
+                getattr(current, "app", None), nested_ancestors
+            ),
+        )
+    if _is_route(current):
+        dependency = getattr(current, "dependant", None)  # codespell:ignore
+        return (
+            "route",
+            id(current),
+            getattr(current, "path", ""),
+            tuple(sorted(getattr(current, "methods", None) or ())),
+            _dependency_topology(dependency),
+            _route_topology_node(
+                getattr(current, "app", None), nested_ancestors
+            ),
+        )
+    nested = _wrapped_app(current)
+    if nested is not None:
+        return (
+            "wrapper",
+            id(current),
+            type(current),
+            _route_topology_node(nested, nested_ancestors),
+        )
+    router = getattr(current, "router", None)
+    routed = router or current
+    routes = getattr(routed, "routes", None)
+    if routes is None:
+        return ("opaque", id(current), type(current))
+    return (
+        "router",
+        id(current),
+        id(routed),
+        _middleware_topology(current),
+        _middleware_topology(routed),
+        _declared_dependency_topology(current),
+        _declared_dependency_topology(routed),
+        tuple(
+            _route_topology_node(route, nested_ancestors)
+            for route in routes or ()
+        ),
+    )
+
+
+def _route_topology(app: Any) -> tuple[Any, ...]:  # noqa: ANN401
+    """Return a cycle-safe snapshot that changes with routing policy."""
+    return _route_topology_node(app, frozenset())
 
 
 def walk_routes(

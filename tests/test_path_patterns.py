@@ -13,14 +13,20 @@ from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
+from starlette.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.routing import Mount, Route, Router, compile_path
 
 from grelmicro._paths import (
+    _dependency_topology,
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
+    _route_topology,
+    _transparent_routing_source,
     matches,
     names_route,
     walk_routes,
@@ -34,6 +40,7 @@ from grelmicro.http import (
     IdempotentRequests,
     RateLimitedRequests,
 )
+from grelmicro.http._idempotency import _authentication_paths
 from grelmicro.idempotency import Idempotency
 from grelmicro.log import AccessLog, AccessLogMiddleware
 from grelmicro.resilience import RateLimiter
@@ -46,8 +53,21 @@ async def app(scope: object, receive: object, send: object) -> None:
 
 def test_route_walkers_treat_wrappers_and_middleware_as_boundaries() -> None:
     """Boundary discovery terminates on wrappers, includes, and cycles."""
+
+    class CustomExceptionMiddleware(ExceptionMiddleware):
+        """A user wrapper must not inherit the built-in routing exemption."""
+
+    class Backend(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
     # Arrange
     wrapped = SimpleNamespace(app=Router())
+    builtin_exception = ExceptionMiddleware(Router())
+    custom_exception = CustomExceptionMiddleware(Router())
+    protected_exception = ExceptionMiddleware(
+        AuthenticationMiddleware(Router(), backend=Backend())
+    )
     included = Router(
         middleware=[
             Middleware(CORSMiddleware, allow_origins=["https://example.test"])
@@ -70,6 +90,9 @@ def test_route_walkers_treat_wrappers_and_middleware_as_boundaries() -> None:
 
     # Act / Assert
     assert _middleware_boundaries(wrapped) == {("", True)}
+    assert _middleware_boundaries(builtin_exception) == set()
+    assert _middleware_boundaries(custom_exception) == {("", True)}
+    assert _middleware_boundaries(protected_exception) == {("", True)}
     assert walk_routes(wrapped) == []
     assert _middleware_boundaries(root) == {("/api", True)}
     assert _middleware_boundaries(loop) == set()
@@ -102,6 +125,9 @@ def test_direct_mount_and_bound_router_keep_their_routing_context() -> None:
     assert [
         (prefix, found.path) for prefix, found, _ in walk_routes(router.app)
     ] == [("", "/items")]
+    assert [
+        (prefix, found.path) for prefix, found, _ in walk_routes(route)
+    ] == [("", "/items")]
     assert walk_routes(protected) == []
 
 
@@ -111,11 +137,49 @@ def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
     mounted = Mount("/api", app=Router())
     recursive = SimpleNamespace(routes=None)
     recursive.app = recursive
+    dependency = SimpleNamespace(call=None, dependencies=[])
+    dependency.dependencies.append(dependency)
 
     # Act / Assert
     assert not _is_starlette_routing_app(None)
     assert _is_starlette_routing_app(mounted)
     assert _nested_routing_app(recursive) is None
+    assert _route_topology(None) == ("none",)
+    assert _dependency_topology(dependency)[2] == (("cycle", id(dependency)),)
+    assert _transparent_routing_source(None) is None
+    broken_exception = ExceptionMiddleware(cast("Any", None))
+    assert _transparent_routing_source(broken_exception) is broken_exception
+
+
+def test_direct_route_authentication_flattens_nested_router_boundaries() -> (
+    None
+):
+    """A direct Route keeps protected leaf routers exact and public ones open."""
+
+    class Backend(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    protected = Router(
+        routes=[
+            Route(
+                "/private",
+                app,
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=Backend(),
+                    )
+                ],
+            )
+        ]
+    )
+    public = Router(routes=[Route("/public", app)])
+
+    assert _authentication_paths(Route("/private", protected)) == {
+        ("/private", False)
+    }
+    assert _authentication_paths(Route("/public", public)) == set()
 
 
 def test_route_walker_stops_cycles_per_path_not_globally() -> None:
@@ -142,10 +206,14 @@ def test_route_walker_stops_cycles_per_path_not_globally() -> None:
         f"{prefix}{route.path}"
         for prefix, route, _contexts in walk_routes(cyclic)
     ]
+    before = _route_topology(cyclic)
+    cyclic.add_api_route("/later", charge, methods=["POST"])
+    after = _route_topology(cyclic)
 
     # Assert
     assert repeated_paths == ["/one/items", "/two/items"]
     assert cyclic_paths.count("/charge") == 1
+    assert before != after
 
 
 def components() -> list[tuple[str, Any]]:
