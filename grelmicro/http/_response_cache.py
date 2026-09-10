@@ -40,9 +40,13 @@ from grelmicro._paths import (
     PathPatterns,
     _bound_router,
     _effective_dependency_call,
+    _inherited_dependency_overrides_provider,
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
+    _request_authority,
+    _request_root_path,
+    _request_scheme,
     _route_topology,
     _routing_app,
     as_patterns,
@@ -760,7 +764,7 @@ def _has_non_cache_dependencies(
 ) -> bool:
     """Return whether FastAPI resolves anything besides the cache marker."""
     declared = getattr(route, "dependant", None)  # codespell:ignore
-    route_provider = getattr(route, "dependency_overrides_provider", None)
+    route_provider = _inherited_dependency_overrides_provider(route, contexts)
     pending = [
         (dependency, route_provider)
         for dependency in getattr(declared, "dependencies", ()) or ()
@@ -784,12 +788,9 @@ def _has_non_cache_dependencies(
             for child in getattr(dependency, "dependencies", ()) or ()
         )
     for context in contexts:
-        context_provider = getattr(
-            context, "dependency_overrides_provider", None
-        )
         for dependency in getattr(context, "dependencies", ()) or ():
             call, effective, _ = _effective_dependency_call(
-                dependency, context_provider or route_provider
+                dependency, route_provider
             )
             if (
                 getattr(call, _MARKER, _UNMARKED) is _UNMARKED
@@ -1501,9 +1502,9 @@ class CachedResponsesMiddleware:
         each other's responses.
         """
         parts = [
-            scope.get("scheme", "http"),
-            _header_of(scope, "host"),
-            scope.get("root_path", ""),
+            _request_scheme(scope),
+            _request_authority(scope),
+            _request_root_path(scope),
             path,
             _query_of(scope, state.config.vary_by_query),
         ]

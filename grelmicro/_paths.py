@@ -6,6 +6,7 @@ once: `include` narrows, `exclude` carves out, and `exclude` wins.
 
 from __future__ import annotations
 
+from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import BeforeValidator
@@ -154,6 +155,20 @@ and no `*` to warn about.
 _PREFIX = "*"
 """What turns a pattern into a prefix match, at the end of it."""
 
+_DEFAULT_PORTS = {
+    "http": 80,
+    "https": 443,
+    "ws": 80,
+    "wss": 443,
+}
+"""Ports omitted from a canonical authority for their scheme."""
+
+_INVALID_PORT = object()
+"""Marks an authority port that cannot be canonicalized safely."""
+
+_MAX_PORT = 65535
+"""Largest valid TCP port."""
+
 
 def route_path(
     scope: Annotated[
@@ -172,8 +187,8 @@ def route_path(
     `/apikeys` alone and shortens `/api/keys`. An app answering at its
     prefix reads as `/`, which is the route it declares.
     """
-    path = scope["path"]
-    root = scope.get("root_path", "").rstrip("/")
+    path = _scope_text(scope["path"])
+    root = _request_root_path(scope)
     if not root or not path.startswith(root):
         return path
     if path == root:
@@ -181,6 +196,109 @@ def route_path(
     if path[len(root)] == "/":
         return path[len(root) :]
     return path
+
+
+def _scope_text(value: str | bytes) -> str:
+    """Return an ASGI text or byte value without losing byte identity."""
+    return value.decode("latin-1") if isinstance(value, bytes) else value
+
+
+def _request_scheme(scope: MutableMapping[str, Any]) -> str:
+    """Return the lower-case scheme of an ASGI request."""
+    return _scope_text(scope.get("scheme", "http")).lower()
+
+
+def _request_root_path(scope: MutableMapping[str, Any]) -> str:
+    """Return the mount or proxy prefix in canonical ASGI form."""
+    return _scope_text(scope.get("root_path", "")).rstrip("/")
+
+
+def _canonical_host(host: str) -> tuple[str, bool]:
+    """Return a normalized host and whether it is an IPv6 literal."""
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return host.lower(), False
+    return str(address), isinstance(address, IPv6Address)
+
+
+def _canonical_port(port: Any, scheme: str) -> int | object | None:  # noqa: ANN401
+    """Return a normalized non-default port, or mark a malformed one."""
+    if port is None:
+        return None
+    if isinstance(port, int):
+        number = port
+    else:
+        value = _scope_text(port)
+        if not value.isascii() or not value.isdecimal():
+            return _INVALID_PORT
+        number = int(value)
+    if not 0 <= number <= _MAX_PORT:
+        return _INVALID_PORT
+    return None if number == _DEFAULT_PORTS.get(scheme) else number
+
+
+def _canonical_authority(  # noqa: PLR0911
+    authority: str, scheme: str
+) -> str:
+    """Return one authority with canonical host casing, IP, and port."""
+    raw = authority.strip()
+    if not raw:
+        return ""
+    if raw.startswith("["):
+        closing = raw.find("]")
+        if closing < 0:
+            return raw.lower()
+        host = raw[1:closing]
+        suffix = raw[closing + 1 :]
+        if suffix and not suffix.startswith(":"):
+            return raw.lower()
+        port = _canonical_port(suffix[1:] if suffix else None, scheme)
+        if port is _INVALID_PORT:
+            return raw.lower()
+        bracketed = True
+    elif raw.count(":") == 1:
+        host, raw_port = raw.rsplit(":", 1)
+        port = _canonical_port(raw_port, scheme)
+        if port is _INVALID_PORT:
+            return raw.lower()
+        bracketed = False
+    else:
+        host = raw
+        port = None
+        bracketed = False
+    if not host:
+        return raw.lower()
+    normalized, ipv6 = _canonical_host(host)
+    rendered = f"[{normalized}]" if bracketed or ipv6 else normalized
+    return rendered if port is None else f"{rendered}:{port}"
+
+
+def _request_authority(scope: MutableMapping[str, Any]) -> str:
+    """Return the canonical authority used to route an ASGI request.
+
+    The Host header is what HTTP host routing reads, so it takes precedence.
+    A server tuple is the ASGI fallback when that header is absent. Forwarded
+    headers are deliberately ignored: only trusted proxy middleware may turn
+    those into the scope values used here.
+    """
+    scheme = _request_scheme(scope)
+    for raw_name, raw_value in scope.get("headers", ()):
+        if _scope_text(raw_name).lower() == "host":
+            return _canonical_authority(_scope_text(raw_value), scheme)
+    server = scope.get("server")
+    if not server:
+        return ""
+    host = _scope_text(server[0])
+    port = _canonical_port(server[1] if len(server) > 1 else None, scheme)
+    normalized, ipv6 = _canonical_host(host)
+    rendered = f"[{normalized}]" if ipv6 else normalized
+    if port is _INVALID_PORT:
+        raw_port = server[1]
+        if isinstance(raw_port, bytes):
+            raw_port = raw_port.decode("latin-1")
+        return f"{rendered}:{raw_port}"
+    return rendered if port is None else f"{rendered}:{port}"
 
 
 def _routing_app(app: Any) -> Any:  # noqa: ANN401
@@ -555,6 +673,17 @@ def _dependency_overrides_provider(
     return inherited if provider is None else provider
 
 
+def _inherited_dependency_overrides_provider(
+    holder: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+) -> Any:  # noqa: ANN401
+    """Return the nearest override provider inherited by one route."""
+    provider = None
+    for context in contexts:
+        provider = _dependency_overrides_provider(context, provider)
+    return _dependency_overrides_provider(holder, provider)
+
+
 def _dependency_overrides_topology(
     provider: Any,  # noqa: ANN401
 ) -> tuple[Any, ...]:
@@ -584,9 +713,12 @@ def _effective_dependency_call(
     return call, effective, provider
 
 
-def _declared_dependency_topology(holder: Any) -> tuple[Any, ...]:  # noqa: ANN401
-    """Return dependencies declared directly on a router or include."""
-    provider = _dependency_overrides_provider(holder)
+def _declared_dependency_topology(
+    holder: Any,  # noqa: ANN401
+    inherited_provider: Any = None,  # noqa: ANN401
+) -> tuple[Any, ...]:
+    """Return a holder's provider and directly declared dependencies."""
+    provider = _dependency_overrides_provider(holder, inherited_provider)
     found: list[tuple[Any, ...]] = []
     for dependency in getattr(holder, "dependencies", ()) or ():
         call, effective, dependency_provider = _effective_dependency_call(
@@ -600,7 +732,7 @@ def _declared_dependency_topology(holder: Any) -> tuple[Any, ...]:  # noqa: ANN4
                 _dependency_overrides_topology(dependency_provider),
             )
         )
-    return tuple(found)
+    return _dependency_overrides_topology(provider), tuple(found)
 
 
 def _middleware_topology(app: Any) -> tuple[Any, ...]:  # noqa: ANN401
@@ -625,6 +757,7 @@ def _middleware_topology(app: Any) -> tuple[Any, ...]:  # noqa: ANN401
 def _route_topology_node(  # noqa: PLR0911
     current: Any,  # noqa: ANN401
     ancestors: frozenset[int],
+    provider: Any = None,  # noqa: ANN401
 ) -> tuple[Any, ...]:
     """Return a cycle-safe snapshot of one routing branch."""
     if current is None:
@@ -638,12 +771,14 @@ def _route_topology_node(  # noqa: PLR0911
     included = getattr(current, "original_router", None)
     if included is not None:
         context = getattr(current, "include_context", None)
+        provider = _dependency_overrides_provider(current, provider)
+        context_provider = _dependency_overrides_provider(context, provider)
         return (
             "include",
             id(current),
             getattr(context, "prefix", ""),
-            _declared_dependency_topology(context),
-            _route_topology_node(included, nested_ancestors),
+            _declared_dependency_topology(context, provider),
+            _route_topology_node(included, nested_ancestors, context_provider),
         )
     if _is_mount(current):
         return (
@@ -651,12 +786,12 @@ def _route_topology_node(  # noqa: PLR0911
             id(current),
             getattr(current, "path", ""),
             _route_topology_node(
-                getattr(current, "app", None), nested_ancestors
+                getattr(current, "app", None), nested_ancestors, None
             ),
         )
     if _is_route(current):
         dependency = getattr(current, "dependant", None)  # codespell:ignore
-        provider = _dependency_overrides_provider(current)
+        provider = _dependency_overrides_provider(current, provider)
         return (
             "route",
             id(current),
@@ -665,7 +800,7 @@ def _route_topology_node(  # noqa: PLR0911
             _dependency_overrides_topology(provider),
             _dependency_topology(dependency, provider),
             _route_topology_node(
-                getattr(current, "app", None), nested_ancestors
+                getattr(current, "app", None), nested_ancestors, provider
             ),
         )
     nested = _wrapped_app(current)
@@ -674,10 +809,12 @@ def _route_topology_node(  # noqa: PLR0911
             "wrapper",
             id(current),
             type(current),
-            _route_topology_node(nested, nested_ancestors),
+            _route_topology_node(nested, nested_ancestors, provider),
         )
     router = getattr(current, "router", None)
     routed = router or current
+    current_provider = _dependency_overrides_provider(current, provider)
+    routed_provider = _dependency_overrides_provider(routed, current_provider)
     routes = getattr(routed, "routes", None)
     if routes is None:
         return ("opaque", id(current), type(current))
@@ -687,10 +824,10 @@ def _route_topology_node(  # noqa: PLR0911
         id(routed),
         _middleware_topology(current),
         _middleware_topology(routed),
-        _declared_dependency_topology(current),
-        _declared_dependency_topology(routed),
+        _declared_dependency_topology(current, provider),
+        _declared_dependency_topology(routed, current_provider),
         tuple(
-            _route_topology_node(route, nested_ancestors)
+            _route_topology_node(route, nested_ancestors, routed_provider)
             for route in routes or ()
         ),
     )

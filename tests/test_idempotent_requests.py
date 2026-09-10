@@ -988,7 +988,7 @@ async def test_a_key_holding_bytes_a_header_cannot_carry_is_refused() -> None:
 
     # Act
     async with micro:
-        for raw in (b"abc\x01def", b"key-\xff"):
+        for raw in (b"abc\x01def", b"abc\x1fdef", b"key-\xff"):
             sent.clear()
             await wrapped(
                 {

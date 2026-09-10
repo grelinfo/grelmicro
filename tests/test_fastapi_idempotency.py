@@ -39,7 +39,7 @@ from starlette.middleware.base import (
 )
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
-from starlette.routing import Mount, Route, Router
+from starlette.routing import Host, Mount, Route, Router
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -58,7 +58,10 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.errors import DependencyNotFoundError, OutOfContextError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
-from grelmicro.http._idempotency import _dependency_methods
+from grelmicro.http._idempotency import (
+    _default_storage_key,
+    _dependency_methods,
+)
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.fastapi import document_idempotency
@@ -1300,14 +1303,330 @@ def test_default_storage_key_does_not_read_legacy_entries() -> None:
         "path": "/private",
         "query_string": b"",
     }
-    legacy_key = "POST\x1f/private\x1fkey-1"
+    legacy_keys = {
+        "POST\x1f/private\x1fkey-1",
+        "v2\x1fPOST\x1f/private\x1fkey-1",
+    }
 
     # Act
     storage_key = middleware._storage_key(scope, "key-1")
 
     # Assert
-    assert storage_key == "v2\x1fPOST\x1f/private\x1fkey-1"
-    assert storage_key != legacy_key
+    assert storage_key.startswith("v3|")
+    assert storage_key not in legacy_keys
+    assert storage_key.isascii()
+
+
+def test_default_key_isolates_host_routed_tenants() -> None:
+    """The same path and client key cannot replay across Host routes."""
+    calls = {"alice": 0, "bob": 0}
+
+    def tenant(name: str) -> Router:
+        async def charge(_request: Request) -> JSONResponse:
+            calls[name] += 1
+            return JSONResponse({"tenant": name, "call": calls[name]})
+
+        return Router(routes=[Route("/charge", charge, methods=["POST"])])
+
+    routed = Router(
+        routes=[
+            Host("alice.example", app=tenant("alice")),
+            Host("bob.example", app=tenant("bob")),
+        ]
+    )
+    wrapped = IdempotencyMiddleware(
+        routed,
+        idempotency=Idempotency(
+            "host-tenants",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        alice = client.post("/charge", headers={**KEY, "Host": "alice.example"})
+        bob = client.post("/charge", headers={**KEY, "Host": "bob.example"})
+        alice_replay = client.post(
+            "/charge", headers={**KEY, "Host": "ALICE.EXAMPLE:80"}
+        )
+
+    assert (
+        alice.json()
+        == alice_replay.json()
+        == {
+            "tenant": "alice",
+            "call": 1,
+        }
+    )
+    assert bob.json() == {"tenant": "bob", "call": 1}
+    assert "idempotent-replayed" not in bob.headers
+    assert alice_replay.headers["idempotent-replayed"] == "true"
+
+
+def test_default_key_isolates_schemes_on_one_authority() -> None:
+    """HTTP and HTTPS never share an idempotency operation."""
+    calls = 0
+
+    async def charge(request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"scheme": request.scope["scheme"], "call": calls})
+
+    wrapped = IdempotencyMiddleware(
+        Router(routes=[Route("/charge", charge, methods=["POST"])]),
+        idempotency=Idempotency(
+            "schemes",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        plain = client.post("http://same.example/charge", headers=KEY)
+        secure = client.post("https://same.example/charge", headers=KEY)
+        replay = client.post("http://same.example/charge", headers=KEY)
+
+    assert plain.json() == replay.json() == {"scheme": "http", "call": 1}
+    assert secure.json() == {"scheme": "https", "call": 2}
+    assert "idempotent-replayed" not in secure.headers
+    assert replay.headers["idempotent-replayed"] == "true"
+
+
+def test_default_key_isolates_mount_root_paths() -> None:
+    """One mounted app does not replay the same route across mount points."""
+    calls = 0
+
+    async def charge(_request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"call": calls})
+
+    mounted = IdempotencyMiddleware(
+        Router(routes=[Route("/charge", charge, methods=["POST"])]),
+        idempotency=Idempotency(
+            "mounts",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+    root = Router(
+        routes=[Mount("/one", app=mounted), Mount("/two", app=mounted)]
+    )
+
+    with TestClient(root) as client:
+        one = client.post("/one/charge", headers=KEY)
+        two = client.post("/two/charge", headers=KEY)
+        one_replay = client.post("/one/charge", headers=KEY)
+        two_replay = client.post("/two/charge", headers=KEY)
+
+    assert one.json() == one_replay.json() == {"call": 1}
+    assert two.json() == two_replay.json() == {"call": 2}
+    assert one_replay.headers["idempotent-replayed"] == "true"
+    assert two_replay.headers["idempotent-replayed"] == "true"
+
+
+def test_default_key_canonicalizes_authority_and_route_path() -> None:
+    """Equivalent Host/server and rooted path spellings make the same key."""
+    host_scope: Scope = {
+        "type": "http",
+        "scheme": "HTTP",
+        "root_path": "/api/",
+        "method": "POST",
+        "path": "/api/charge",
+        "query_string": b"",
+        "headers": [(b"host", b"EXAMPLE.COM:080")],
+    }
+    server_scope: Scope = {
+        **host_scope,
+        "scheme": b"http",
+        "root_path": b"/api",
+        "method": b"POST",
+        "path": b"/charge",
+        "headers": [],
+        "server": (b"example.com", b"80"),
+    }
+
+    assert _default_storage_key(host_scope, "key-1") == _default_storage_key(
+        server_scope, "key-1"
+    )
+
+
+def test_default_key_serialization_has_no_delimiter_collisions() -> None:
+    """Control characters cannot move data between structured fields."""
+    base: Scope = {
+        "type": "http",
+        "scheme": "http",
+        "root_path": "",
+        "method": "POST",
+        "headers": [(b"host", b"example.test")],
+    }
+    path_then_query = _default_storage_key(
+        {**base, "path": "/a\x1fb", "query_string": b"c"}, "same"
+    )
+    path_before_query = _default_storage_key(
+        {**base, "path": "/a", "query_string": b"b\x1fc"}, "same"
+    )
+    query_then_key = _default_storage_key(
+        {**base, "path": "/a", "query_string": b"b"}, "c\x1fd"
+    )
+    query_before_key = _default_storage_key(
+        {**base, "path": "/a", "query_string": b"b\x1fc"}, "d"
+    )
+    unicode_bytes = _default_storage_key(
+        {
+            **base,
+            "path": "/coffee-\u00e9/\u2603",
+            "query_string": b"\xff\x1f",
+        },
+        "key-1",
+    )
+
+    assert path_then_query != path_before_query
+    assert query_then_key != query_before_key
+    assert unicode_bytes.isascii()
+    assert "\x00" not in unicode_bytes
+    assert "\x1f" not in unicode_bytes
+
+
+async def test_delimiter_injection_cannot_replay_another_request() -> None:
+    """A decoded path separator cannot absorb the raw query field."""
+    calls = 0
+
+    async def app(scope: Scope, _receive: Receive, send: Send) -> None:
+        nonlocal calls
+        calls += 1
+        body = json.dumps(
+            {
+                "call": calls,
+                "path": scope["path"],
+                "query": scope["query_string"].decode("latin-1"),
+            }
+        ).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "delimiter-injection",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    async def request(path: str, query: bytes) -> list[Message]:
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            return {
+                "type": "http.request",
+                "body": b"",
+                "more_body": False,
+            }
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        await wrapped(
+            {
+                "type": "http",
+                "scheme": "http",
+                "server": ("example.test", 80),
+                "root_path": "",
+                "method": "POST",
+                "path": path,
+                "query_string": query,
+                "headers": [(b"idempotency-key", b"same")],
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    first = await request("/a\x1fb", b"c")
+    second = await request("/a", b"b\x1fc")
+
+    first_body = json.loads(first[-1]["body"])
+    second_body = json.loads(second[-1]["body"])
+    assert first_body == {"call": 1, "path": "/a\x1fb", "query": "c"}
+    assert second_body == {"call": 2, "path": "/a", "query": "b\x1fc"}
+    assert all(
+        (b"idempotent-replayed", b"true") not in message.get("headers", ())
+        for message in second
+    )
+
+
+def test_default_key_represents_query_presence_and_exclusion_policy() -> None:
+    """Missing, empty, included, and deliberately excluded queries differ."""
+    base: Scope = {
+        "type": "http",
+        "scheme": "http",
+        "root_path": "",
+        "method": "POST",
+        "path": "/charge",
+        "headers": [],
+        "server": ("example.test", 80),
+    }
+    missing = _default_storage_key(base, "key-1")
+    empty = _default_storage_key(
+        {**base, "query_string": b""},
+        "key-1",
+    )
+    excluded_empty = _default_storage_key(
+        {**base, "query_string": b""},
+        "key-1",
+        include_query=False,
+    )
+    excluded_value = _default_storage_key(
+        {**base, "query_string": b"x=\x1f"},
+        "key-1",
+        include_query=False,
+    )
+    present_none = _default_storage_key(
+        {**base, "query_string": None},
+        "key-1",
+    )
+
+    assert missing != empty
+    assert present_none not in {missing, empty}
+    assert excluded_empty == excluded_value
+    assert excluded_empty not in {missing, empty, present_none}
+
+
+def test_custom_key_maker_output_remains_exactly_unchanged() -> None:
+    """Structured encoding applies only to the built-in key maker."""
+    custom = "tenant\x1froute\x1fkey-1"
+    middleware = IdempotencyMiddleware(
+        FastAPI(),
+        idempotency=Idempotency("custom"),
+        key_maker=lambda _scope, _key: custom,
+    )
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/charge",
+        "query_string": b"",
+        "headers": [],
+    }
+
+    assert middleware._storage_key(scope, "key-1") == custom
 
 
 def test_middleware_query_string_is_part_of_the_key(

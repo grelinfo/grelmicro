@@ -1377,6 +1377,185 @@ def test_cache_marker_override_changes_invalidate_public_policy(
     assert removed.headers["age"] == "0"
 
 
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+@pytest.mark.parametrize("placement", ["route", "include"])
+def test_included_cache_marker_override_before_first_request_is_private(
+    wiring: str,
+    placement: str,
+) -> None:
+    """An app override reaches route and include cache declarations."""
+    app = FastAPI()
+    router = APIRouter()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @router.get(
+        "/private",
+        dependencies=[marker] if placement == "route" else None,
+    )
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    app.include_router(
+        router,
+        dependencies=[marker] if placement == "include" else None,
+    )
+    app.dependency_overrides[marker.dependency] = _identity_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/private", headers={"X-Identity": "alice"})
+        bob = client.get("/private", headers={"X-Identity": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_included_cache_marker_override_changes_refresh_public_policy(
+    wiring: str,
+) -> None:
+    """Included routes track override mutation, replacement, and removal."""
+    app = FastAPI()
+    router = APIRouter()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @router.get("/identity", dependencies=[marker])
+    async def identity(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": getattr(request.state, "identity", "public"),
+            "calls": calls,
+        }
+
+    app.include_router(router)
+    app.include_router(router)
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        public = client.get("/identity")
+        public_hit = client.get("/identity")
+
+        app.dependency_overrides[marker.dependency] = _identity_override
+        alice = client.get("/identity", headers={"X-Identity": "alice"})
+        bob = client.get("/identity", headers={"X-Identity": "bob"})
+        anonymous = client.get("/identity")
+
+        app.dependency_overrides = {
+            marker.dependency: _prefixed_identity_override
+        }
+        changed = client.get("/identity", headers={"X-Identity": "alice"})
+
+        app.dependency_overrides.clear()
+        removed = client.get("/identity")
+
+    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
+    assert public_hit.headers["age"] == "0"
+    assert alice.json() == {"user": "alice", "calls": 2}
+    assert bob.json() == {"user": "bob", "calls": 3}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+    assert changed.json() == {"user": "changed:alice", "calls": 4}
+    assert "age" not in changed.headers
+    assert removed.json() == {"user": "public", "calls": 1}
+    assert removed.headers["age"] == "0"
+
+
+def test_multiple_nested_includes_keep_private_and_public_policies() -> None:
+    """Nested override inheritance leaves ordinary and public siblings safe."""
+    private_marker = CachedResponse(ttl=TTL)
+    public_marker = CachedResponse(ttl=TTL)
+    calls = {"direct": 0, "nested": 0, "ordinary": 0, "public": 0}
+
+    direct = APIRouter()
+
+    @direct.get("/direct", dependencies=[private_marker])
+    async def direct_private(request: Request) -> dict[str, str | int]:
+        calls["direct"] += 1
+        return {"user": request.state.identity, "calls": calls["direct"]}
+
+    inner = APIRouter()
+
+    @inner.get("/nested", dependencies=[private_marker])
+    async def nested_private(request: Request) -> dict[str, str | int]:
+        calls["nested"] += 1
+        return {"user": request.state.identity, "calls": calls["nested"]}
+
+    @inner.get("/ordinary", dependencies=[public_marker])
+    async def ordinary(
+        user: str = Depends(_header_principal),  # noqa: FAST002
+    ) -> dict[str, str | int]:
+        calls["ordinary"] += 1
+        return {"user": user, "calls": calls["ordinary"]}
+
+    @inner.get("/public", dependencies=[public_marker])
+    async def public() -> dict[str, int]:
+        calls["public"] += 1
+        return {"calls": calls["public"]}
+
+    middle = APIRouter()
+    middle.include_router(inner, prefix="/inner")
+    app = FastAPI()
+    app.include_router(direct, prefix="/one")
+    app.include_router(middle, prefix="/two")
+    app.dependency_overrides[private_marker.dependency] = _identity_override
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        direct_alice = client.get(
+            "/one/direct", headers={"X-Identity": "alice"}
+        )
+        direct_bob = client.get("/one/direct", headers={"X-Identity": "bob"})
+        nested_alice = client.get(
+            "/two/inner/nested", headers={"X-Identity": "alice"}
+        )
+        nested_bob = client.get(
+            "/two/inner/nested", headers={"X-Identity": "bob"}
+        )
+        ordinary_alice = client.get(
+            "/two/inner/ordinary", headers={"X-API-Key": "alice"}
+        )
+        ordinary_bob = client.get(
+            "/two/inner/ordinary", headers={"X-API-Key": "bob"}
+        )
+        public_first = client.get("/two/inner/public")
+        public_hit = client.get("/two/inner/public")
+
+    assert direct_alice.json() == {"user": "alice", "calls": 1}
+    assert direct_bob.json() == {"user": "bob", "calls": 2}
+    assert nested_alice.json() == {"user": "alice", "calls": 1}
+    assert nested_bob.json() == {"user": "bob", "calls": 2}
+    assert ordinary_alice.json() == {"user": "alice", "calls": 1}
+    assert ordinary_bob.json() == {"user": "bob", "calls": 2}
+    assert public_first.json() == public_hit.json() == {"calls": 1}
+    assert "age" not in direct_bob.headers
+    assert "age" not in nested_bob.headers
+    assert "age" not in ordinary_bob.headers
+    assert public_hit.headers["age"] == "0"
+
+
 @pytest.mark.parametrize(
     "authenticate",
     [_header_principal, _request_principal],

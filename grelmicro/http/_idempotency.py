@@ -8,6 +8,7 @@ so `micro.install(app)` adds it.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import logging
 import re
@@ -40,8 +41,12 @@ from grelmicro._paths import (
     _is_mount,
     _is_route,
     _nested_routing_app,
+    _request_authority,
+    _request_root_path,
+    _request_scheme,
     _route_topology,
     _routing_app,
+    _scope_text,
     _wrapped_app,
     as_patterns,
     route_path,
@@ -181,11 +186,7 @@ _MIN_CONTENT_STATUS = 200
 """Lowest status that may carry content."""
 
 
-_KEY_SEPARATOR = "\x1f"
-"""Separator joining the parts of a stored key."""
-
-
-_DEFAULT_KEY_VERSION = "v2"
+_DEFAULT_KEY_VERSION = "v3"
 """Version isolating safe default keys from entries written before this policy."""
 
 
@@ -781,11 +782,12 @@ class IdempotencyMiddleware:
                 """
                 Build the stored key from the ASGI scope and the client key.
 
-                Defaults to the method, the path, the query string, and
-                the client key, so two public routes never replay each
-                other. Requests carrying `Authorization` or `Cookie`
-                bypass that unscoped default. Set this to an identity-aware
-                key in a multi-tenant app that needs authenticated replay.
+                Defaults to the authority, scheme, root path, method, route
+                path, query string, and client key, so two public resources
+                never replay each other. Requests carrying `Authorization`
+                or `Cookie` bypass that unscoped default. Set this to an
+                identity-aware key in a multi-tenant app that needs
+                authenticated replay.
                 """
             ),
         ] = None,
@@ -1117,15 +1119,50 @@ class IdempotencyMiddleware:
         """Build the stored key, scoped by route unless `key_maker` says otherwise."""
         if self._key_maker is not None:
             return _checked_key(self._key_maker(scope, key), key)
-        # The whole path, where `include` and `exclude` read the route: two
-        # apps mounted side by side declare the same routes, and a key
-        # without the prefix would have them replay each other.
-        parts = [_DEFAULT_KEY_VERSION, scope["method"], scope["path"]]
-        query = scope.get("query_string", b"")
-        if query:
-            parts.append(query.decode("latin-1"))
-        parts.append(key)
-        return _KEY_SEPARATOR.join(parts)
+        return _default_storage_key(scope, key)
+
+
+def _encoded_key_field(name: str, value: str | bytes | None) -> str:
+    """Encode one typed, length-delimited field as backend-safe ASCII."""
+    if value is None:
+        return f"{name}=n0:"
+    kind = "b" if isinstance(value, bytes) else "s"
+    raw = (
+        value
+        if isinstance(value, bytes)
+        else value.encode("utf-8", errors="surrogatepass")
+    )
+    encoded = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+    return f"{name}={kind}{len(raw)}:{encoded}"
+
+
+def _default_storage_key(
+    scope: Scope,
+    key: str,
+    *,
+    include_query: bool = True,
+) -> str:
+    """Build an injective default key from the complete public request scope."""
+    query_present = include_query and "query_string" in scope
+    query = scope.get("query_string") if query_present else None
+    fields = (
+        _DEFAULT_KEY_VERSION,
+        _encoded_key_field("authority", _request_authority(scope)),
+        _encoded_key_field("scheme", _request_scheme(scope)),
+        _encoded_key_field("root_path", _request_root_path(scope)),
+        _encoded_key_field("method", _scope_text(scope["method"])),
+        _encoded_key_field("path", route_path(scope)),
+        _encoded_key_field(
+            "query_policy", "included" if include_query else "excluded"
+        ),
+        _encoded_key_field(
+            "query_present",
+            "yes" if query_present else ("no" if include_query else None),
+        ),
+        _encoded_key_field("query", query),
+        _encoded_key_field("client_key", key),
+    )
+    return "|".join(fields)
 
 
 _UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")

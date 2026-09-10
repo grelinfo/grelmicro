@@ -25,6 +25,7 @@ from grelmicro._paths import (
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
+    _request_authority,
     _route_topology,
     _transparent_routing_source,
     matches,
@@ -185,6 +186,188 @@ def test_route_topology_tracks_dependency_override_identities() -> None:
     assert second_override != first_override
     assert unrelated_override != second_override
     assert _route_topology(web) == original
+
+
+def test_included_topology_inherits_an_empty_contexts_override_provider() -> (
+    None
+):
+    """Provider identity and mappings count without include dependencies."""
+    web = FastAPI()
+    router = FastAPI().router
+    marker = CachedResponse()
+
+    @router.get("/x", dependencies=[marker])
+    async def x() -> None:
+        return None
+
+    web.include_router(router)
+    inclusion = web.routes[-1]
+    context = cast("Any", inclusion).include_context
+    assert context.dependencies == []
+
+    original = _route_topology(web)
+    replacement = SimpleNamespace(dependency_overrides={})
+    context.dependency_overrides_provider = replacement
+    provider_changed = _route_topology(web)
+    replacement.dependency_overrides[marker.dependency] = app
+    mapping_changed = _route_topology(web)
+    replacement.dependency_overrides.clear()
+
+    assert provider_changed != original
+    assert mapping_changed != provider_changed
+    assert _route_topology(web) == provider_changed
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        pytest.param(
+            {
+                "scheme": "HTTP",
+                "headers": [(b"host", b"Example.COM.:080")],
+                "server": ("wrong.example", 9000),
+            },
+            "example.com.",
+            id="host-default-port",
+        ),
+        pytest.param(
+            {
+                "scheme": b"https",
+                "headers": [("Host", "[2001:0DB8::1]:443")],
+            },
+            "[2001:db8::1]",
+            id="ipv6-host",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"x-forwarded-host", b"untrusted.example")],
+                "server": ("Example.COM", 8080),
+            },
+            "example.com:8080",
+            id="server-fallback",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [],
+                "server": (b"2001:0DB8::1", b"8080"),
+            },
+            "[2001:db8::1]:8080",
+            id="ipv6-server-bytes",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [],
+                "server": ("127.0.0.1",),
+            },
+            "127.0.0.1",
+            id="server-without-port",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [],
+                "server": ("Example.COM", 70000),
+            },
+            "example.com:70000",
+            id="invalid-server-port-preserved",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [],
+                "server": ("Example.COM", b"invalid"),
+            },
+            "example.com:invalid",
+            id="invalid-server-port-bytes-preserved",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"Example.COM:8080")],
+            },
+            "example.com:8080",
+            id="host-non-default-port",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"2001:0DB8::1")],
+            },
+            "[2001:db8::1]",
+            id="bare-ipv6-host",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"Example.COM:invalid")],
+            },
+            "example.com:invalid",
+            id="invalid-port-preserved",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"Example.COM:70000")],
+            },
+            "example.com:70000",
+            id="out-of-range-port-preserved",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"[2001:DB8::1]:invalid")],
+            },
+            "[2001:db8::1]:invalid",
+            id="invalid-ipv6-port-preserved",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"[2001:DB8::1]suffix")],
+            },
+            "[2001:db8::1]suffix",
+            id="invalid-ipv6-suffix-preserved",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b"[2001:DB8::1")],
+            },
+            "[2001:db8::1",
+            id="unclosed-ipv6-preserved",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b" ")],
+            },
+            "",
+            id="empty-host",
+        ),
+        pytest.param(
+            {
+                "scheme": "http",
+                "headers": [(b"host", b":80")],
+            },
+            ":80",
+            id="missing-host-preserved",
+        ),
+        pytest.param(
+            {"scheme": "http", "headers": []},
+            "",
+            id="no-authority",
+        ),
+    ],
+)
+def test_request_authority_is_canonical_and_uses_server_fallback(
+    scope: dict[str, Any],
+    expected: str,
+) -> None:
+    """Authority follows Host routing and normalizes equivalent spellings."""
+    assert _request_authority(scope) == expected
 
 
 def test_direct_route_authentication_flattens_nested_router_boundaries() -> (

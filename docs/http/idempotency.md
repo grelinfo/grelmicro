@@ -218,7 +218,14 @@ Use it for a response that is technically replayable but should not be. The four
 
 ## Keys are scoped per route
 
-The stored key combines the method, the path, the query string, and the header value. The same client key on `POST /charge` and `POST /refund` stores two entries, so one route never replays another one's response.
+The stored key combines the canonical authority, scheme, root path, method,
+route path, query string, and header value. The same client key on
+`POST /charge` and `POST /refund`, on two host-routed tenants, or on two mounts
+stores separate entries. Equivalent authority spellings, such as host-name
+case or an explicit default port, still identify the same public resource.
+The fields use a typed, length-delimited encoding, so a decoded path or raw
+query containing control characters cannot move a value across field
+boundaries.
 
 Without a custom `key_maker`, a request carrying `Authorization` or `Cookie`
 bypasses idempotency and runs the handler every time. This safe default keeps
@@ -250,20 +257,27 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
     Fold in an **authenticated** identity. Anything the client sends is chosen by the client, so a key built from a raw header lets a caller name the tenant whose entry they read.
 
     ```python
-    SEP = "\x1f"  # not a byte an identity can contain
+    import json
 
 
     def tenant_key(scope, key):
         user = scope.get("user")
         if user is None or not user.is_authenticated:
             raise PermissionError("idempotency needs an authenticated caller")
-        return SEP.join((str(user.tenant_id), scope["path"], key))
+        return json.dumps(
+            ["tenant-v1", str(user.tenant_id), scope["path"], key],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
 
 
     IdempotentRequests(key_maker=tenant_key)
     ```
 
-    Three things carry the isolation here. The identity comes from authentication rather than from the request. The separator is one an identity cannot contain, so `a` plus `b|c` cannot collide with `a|b` plus `c`. And a missing identity raises instead of returning a partial key.
+    Three things carry the isolation here. The identity comes from
+    authentication rather than from the request. The structured encoding
+    preserves every field boundary even when a value contains punctuation.
+    And a missing identity raises instead of returning a partial key.
 
     That last one is the general rule: **a key that is partly missing does not fail, it merges.** Callers whose key lost the same component land in one entry and replay each other, while the request still answers normally.
 
