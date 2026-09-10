@@ -94,6 +94,9 @@ headers and no body.
 
 Only `GET` is cached. `CachedResponse()` on a route that answers anything
 else is refused when `micro.install(app)` reads it, naming the path.
+A FastAPI `GET` with another dependency is left uncached: a hit would answer
+before that dependency ran, and an ordinary `Depends` may read a custom
+credential or otherwise vary the response without declaring `Vary`.
 
 ## Vary
 
@@ -208,9 +211,11 @@ CachedResponses(ttl=60, include=("/products/*", "/catalog"))
 `exclude=` carves a path out again, whatever a route or a pattern says.
 
 A pattern naming a read that sits behind a security scheme is refused where
-it is written, the same as declaring it on the route would be. On a framework
-grelmicro cannot read the routes of, nothing can check that for you: name
-paths that answer everybody the same.
+it is written, the same as declaring it on the route would be. A read with an
+ordinary FastAPI dependency is left uncached too, whether the dependency was
+declared on the route, router, app, or include. On a framework grelmicro
+cannot read the routes of, nothing can check that for you: name paths that
+answer everybody the same.
 
 ## Invalidating
 
@@ -244,15 +249,14 @@ can answer.
 
 !!! warning "A hit answers before the app is routed"
     A route's own `Depends` never runs on a hit, because the response is
-    already on its way back by then. `CachedResponse()` on a route gated by a
-    security scheme, an `APIKeyHeader` or an `HTTPBearer`, is refused when
-    `micro.install(app)` reads it, naming the path. A scheme the router was
-    built or included with counts the same way, and so does one declared by
-    a dependency of its own.
+    already on its way back by then. A route carrying any dependency besides
+    the `CachedResponse()` marker is therefore left uncached, including a
+    plain `Depends` that reads `Request` or `Header`. Dependencies on the app,
+    router, and include count too.
 
-    A gate that is a plain `Depends` reading a header of its own cannot be
-    seen from here. Do not declare `CachedResponse()` on a route like that:
-    cache what answers everybody the same, and use
+    A FastAPI security scheme, such as `APIKeyHeader` or `HTTPBearer`, remains
+    a configuration error and is refused when `micro.install(app)` reads it,
+    naming the path. Cache what answers everybody the same, and use
     [`@cached`](../cache/cached.md) on the data behind the ones that do not.
 
 ## Changing it while it runs

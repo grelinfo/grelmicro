@@ -188,14 +188,49 @@ def test_ambiguous_multi_host_segments_fail_closed(
     assert redact_url(url, multi_host=True) == expected
 
 
-def test_unambiguous_multi_host_structure_stays_readable() -> None:
+@pytest.mark.parametrize("port", ["0", "5432", "65535"])
+def test_unambiguous_multi_host_structure_stays_readable(port: str) -> None:
     """Plain hosts and ports survive a malformed credential on another host."""
     assert (
         redact_url(
-            "postgresql:/host1:5432,u:SECRET@bad host/db",
+            f"postgresql:/host1:{port},u:SECRET@bad host/db",
             multi_host=True,
         )
-        == "postgresql:/host1:5432,u:***@bad host/db"
+        == f"postgresql:/host1:{port},u:***@bad host/db"
+    )
+
+
+@pytest.mark.parametrize("port", ["65536", "999999", "\uff11\uff12\uff13"])
+def test_invalid_ambiguous_multi_host_ports_are_masked(port: str) -> None:
+    """Out-of-range decimal material is not mistaken for a host port."""
+    assert (
+        redact_url(
+            f"postgresql:/user:{port},other:SECOND_SECRET@bad host/db",
+            multi_host=True,
+        )
+        == "postgresql:/user:***,other:***@bad host/db"
+    )
+
+
+def test_numeric_multi_host_password_is_masked() -> None:
+    """A numeric password directly followed by an authority marker is secret."""
+    assert (
+        redact_url(
+            "postgresql:/user:5432@bad host,other:SECOND@also bad/db",
+            multi_host=True,
+        )
+        == "postgresql:/user:***@bad host,other:***@also bad/db"
+    )
+
+
+def test_invalid_host_with_port_shaped_material_is_masked() -> None:
+    """A valid port range does not rescue a malformed surrounding host."""
+    assert (
+        redact_url(
+            "postgresql:/bad host:5432,other:SECOND@also bad/db",
+            multi_host=True,
+        )
+        == "postgresql:/bad host:***,other:***@also bad/db"
     )
 
 
@@ -257,8 +292,28 @@ def test_innocent_fragment_path_assignment_is_preserved() -> None:
             "https://example/#/callback;client_secret=***?state=x",
         ),
         (
+            "https://example.test/?state=x%2Faccess%5Ftoken=SECRET_VALUE",
+            "https://example.test/?state=x%2Faccess_token=***",
+        ),
+        (
+            "https://example.test/#/callback?state=x%3Btoken=SECRET_VALUE",
+            "https://example.test/#/callback?state=x%3Btoken=***",
+        ),
+        (
+            "https://example.test/#/callback?state=x%26token=SECRET_VALUE",
+            "https://example.test/#/callback?state=x%26token=***",
+        ),
+        (
+            "https://example.test/?state=x%2fAcCeSs%5ftOkEn=SECRET_VALUE",
+            "https://example.test/?state=x%2fAcCeSs_tOkEn=***",
+        ),
+        (
             "https://example/#/callback/state=readable?result=ok",
             "https://example/#/callback/state=readable?result=ok",
+        ),
+        (
+            "https://example/?state=x%2Fcallback=readable%26result=ok",
+            "https://example/?state=x%2Fcallback=readable%26result=ok",
         ),
         (
             "https://example/?state=x/callback=readable&result=ok",

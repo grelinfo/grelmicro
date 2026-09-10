@@ -46,9 +46,26 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
 )
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
-_QUERY_PARAMETER = re.compile(r"(^|[?&;])([^=?&;]+)(=)?([^?&;]*)")
-_SLASH_PARAMETER = re.compile(r"(/)([^=/?&;]+)=([^/?&;]*)")
-_FRAGMENT_PARAMETER = re.compile(r"(^|[/&;])([^=/&;]+)=([^/?&;]*)")
+_ENCODED_ASSIGNMENT_SEPARATOR = r"%(?:2f|3b|26)"
+_ASSIGNMENT_SEPARATOR = rf"(?:[/&;]|{_ENCODED_ASSIGNMENT_SEPARATOR})"
+_PATH_ASSIGNMENT_SEPARATOR = rf"(?:/|{_ENCODED_ASSIGNMENT_SEPARATOR})"
+_QUERY_PARAMETER = re.compile(
+    rf"(^|[?&;])([^=?&;]+)(=)?([^?&;]*?)"
+    rf"(?={_ENCODED_ASSIGNMENT_SEPARATOR}[^=/?&;]+=|[?&;]|$)",
+    re.IGNORECASE,
+)
+_EMBEDDED_PARAMETER = re.compile(
+    rf"({_PATH_ASSIGNMENT_SEPARATOR})([^=/?&;]+)=([^/?&;]*?)"
+    rf"(?={_PATH_ASSIGNMENT_SEPARATOR}[^=/?&;]+=|[?&;]|$)",
+    re.IGNORECASE,
+)
+_FRAGMENT_PARAMETER = re.compile(
+    rf"(^|{_ASSIGNMENT_SEPARATOR})([^=/&;]+)=([^/?&;]*?)"
+    rf"(?={_ASSIGNMENT_SEPARATOR}[^=/?&;]+=|[?&;]|$)",
+    re.IGNORECASE,
+)
+_MAX_PORT = 65535
+_MAX_PORT_DIGITS = len(str(_MAX_PORT))
 
 
 def _is_credential_query_key(key: str) -> bool:
@@ -78,11 +95,11 @@ def _redact_query(query: str | None) -> str | None:
     direct_credentials = any(
         _is_credential_query_key(match.group(2)) for match in matches
     )
-    slash_credentials = any(
+    embedded_credentials = any(
         _is_credential_query_key(match.group(2))
-        for match in _SLASH_PARAMETER.finditer(query)
+        for match in _EMBEDDED_PARAMETER.finditer(query)
     )
-    if not direct_credentials and not slash_credentials:
+    if not direct_credentials and not embedded_credentials:
         return query
 
     def replace(match: re.Match[str]) -> str:
@@ -95,12 +112,12 @@ def _redact_query(query: str | None) -> str | None:
         _QUERY_PARAMETER.sub(replace, query) if direct_credentials else query
     )
 
-    def replace_slash(match: re.Match[str]) -> str:
+    def replace_embedded(match: re.Match[str]) -> str:
         if not _is_credential_query_key(match.group(2)):
             return match.group(0)
         return f"{match.group(1)}{unquote_plus(match.group(2))}={MASK}"
 
-    return _SLASH_PARAMETER.sub(replace_slash, redacted)
+    return _EMBEDDED_PARAMETER.sub(replace_embedded, redacted)
 
 
 def _redact_query_values(query: str | None) -> str | None:
@@ -165,10 +182,33 @@ def _redact_unparsed_url(url: str, *, multi_host: bool = False) -> str:
 def _redact_ambiguous_multi_host_userinfo(match: re.Match[str]) -> str:
     """Mask a malformed authority segment that could be password material."""
     candidate = match.group(3)
-    if candidate.isdecimal():
+    host = match.group(2)[:-1]
+    if _is_valid_host_port(host, candidate):
         # In multi-host syntax this is the unambiguous host:port form.
         return match.group(0)
     return f"{match.group(1)}{match.group(2)}{MASK}"
+
+
+def _is_valid_host_port(host: str, port: str) -> bool:
+    """Return whether one malformed-authority segment is plainly host:port."""
+    if not port.isascii() or not port.isdecimal():
+        return False
+    normalized = port.lstrip("0")
+    if len(normalized) > _MAX_PORT_DIGITS or (
+        len(normalized) == _MAX_PORT_DIGITS and normalized > str(_MAX_PORT)
+    ):
+        return False
+    number = int(normalized or "0")
+    try:
+        parsed = MultiHostUrl(f"postgresql://{host}:{number}")
+    except ValueError:
+        return False
+    hosts = parsed.hosts()
+    return (
+        len(hosts) == 1
+        and hosts[0].get("username") is None
+        and hosts[0].get("password") is None
+    )
 
 
 def _redact_single_host(parsed: Url) -> str | None:

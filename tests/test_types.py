@@ -257,6 +257,18 @@ class TestFailClosed:
                 "https://example/#/callback/access%5Ftoken=SECRET",
                 "https://example/#/callback/access_token=***",
             ),
+            (
+                "https://example.test/?state=x%2Faccess%5Ftoken=SECRET",
+                "https://example.test/?state=x%2Faccess_token=***",
+            ),
+            (
+                "https://example.test/#/callback?state=x%3btoken=SECRET",
+                "https://example.test/#/callback?state=x%3btoken=***",
+            ),
+            (
+                "https://example.test/#/callback?state=x%26token=SECRET",
+                "https://example.test/#/callback?state=x%26token=***",
+            ),
         ],
     )
     def test_string_url_assignment_variants_are_redacted(
@@ -267,6 +279,7 @@ class TestFailClosed:
 
         assert str(model.text) == expected
         assert "SECRET" not in repr(model.text)
+        assert "SECRET" not in model.model_dump_json()
 
     def test_protocol_relative_userinfo_and_query_are_both_redacted(
         self,

@@ -38,6 +38,7 @@ from grelmicro._paths import (
     BARE_STRING_MESSAGE,
     FieldNames,
     PathPatterns,
+    _bound_router,
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
@@ -520,10 +521,9 @@ def declared_ttl(
 
     A declaration a route inherited from the router that holds it counts
     only where the cache may answer for it. A router holds more than
-    reads, so the write under it, and the read behind a security scheme,
-    are left to their handlers, and this says so too. Declared on the
-    route itself the same thing is refused outright, at install, so it
-    never reaches here.
+    reads, so the write under it, and a read with another dependency, are
+    left to their handlers, and this says so too. A security scheme
+    declared on the route itself is refused outright at install.
     """
     ttl = _declared_ttl(route, _declaring_above(contexts))
     for context in reversed(contexts):
@@ -532,7 +532,9 @@ def declared_ttl(
         ttl = _inherited_ttl(context)
     if ttl is _UNMARKED:
         return False, None
-    if _unreadable(route, contexts, declared) is not None:
+    if _unreadable(
+        route, contexts, declared
+    ) is not None or _has_non_cache_dependencies(route, contexts):
         return False, None
     return True, ttl
 
@@ -591,12 +593,14 @@ def _marked_routes(
             # gated read with no way to keep the rest.
             is_named = named_exactly = False
         refusal = _unreadable(route, contexts, declared)
-        if _gated_read(route, contexts) or _nested_get_has_dependencies(route):
+        if _dependency_bearing_read(
+            route, contexts
+        ) or _nested_get_has_dependencies(route):
             # Kept whether a pattern named it or not, so the answer at
             # request time does not depend on how it was named. Only a
-            # gated read: a write is already passed through by the
-            # method guard, and one route's method must not speak for
-            # another declared on the same path.
+            # dependency-bearing read: a write is already passed through
+            # by the method guard, and one route's method must not speak
+            # for another declared on the same path.
             refused.append((declared, compiled))
         if named_exactly:
             answered.append((declared, compiled, _methods_of(route)))
@@ -696,13 +700,7 @@ def _routing_dependencies(
             candidate.upper()
             for candidate in (getattr(route, "methods", None) or ())
         }
-        dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
-        has_dependencies = bool(
-            getattr(dependency_tree, "dependencies", ())
-        ) or any(
-            getattr(context, "dependencies", ()) or () for context in contexts
-        )
-        if method in methods and has_dependencies:
+        if method in methods and _has_non_cache_dependencies(route, contexts):
             return True
         nested = _nested_routing_app(route)
         if nested is not None and _routing_dependencies(
@@ -744,24 +742,40 @@ def _named_by(
     return bool(hits), any(not pattern.endswith(_PREFIX) for pattern in hits)
 
 
-def _gated_read(
+def _dependency_bearing_read(
     route: Any,  # noqa: ANN401
     contexts: tuple[Any, ...],
 ) -> bool:
-    """Return whether this route is a read the caller has to be let past.
-
-    A hit answers before the app is routed, so the gate would not run
-    and one caller's response would go to whoever asks next. A write is
-    not one of these: the method guard passes it through already, and a
-    route is one of several a path may declare, so refusing the path for
-    a write would take the read declared beside it with it.
-    """
+    """Return whether a GET runs a dependency other than the cache marker."""
     methods = {
         method.upper() for method in (getattr(route, "methods", None) or ())
     }
-    if "GET" not in methods:
-        return False
-    return bool(_gating_schemes(route, contexts))
+    return "GET" in methods and _has_non_cache_dependencies(route, contexts)
+
+
+def _has_non_cache_dependencies(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+) -> bool:
+    """Return whether FastAPI resolves anything besides the cache marker."""
+    declared = getattr(route, "dependant", None)  # codespell:ignore
+    pending = list(getattr(declared, "dependencies", ()) or ())
+    seen: set[int] = set()
+    while pending:
+        dependency = pending.pop()
+        if id(dependency) in seen:
+            continue
+        seen.add(id(dependency))
+        call = getattr(dependency, "call", None)
+        if getattr(call, _MARKER, _UNMARKED) is _UNMARKED:
+            return True
+        pending.extend(getattr(dependency, "dependencies", ()) or ())
+    return any(
+        getattr(getattr(dependency, "dependency", None), _MARKER, _UNMARKED)
+        is _UNMARKED
+        for context in contexts
+        for dependency in getattr(context, "dependencies", ()) or ()
+    )
 
 
 def _methods_of(route: Any) -> frozenset[str]:  # noqa: ANN401
@@ -1238,7 +1252,14 @@ class CachedResponsesMiddleware:
                 )
             )
             if _is_starlette_routing_app(app):
-                owned_policies.read(app, include_root_middleware=True)
+                # A bound Router.app is the entry point below that Router's
+                # own stack. Its current cache and any outer middleware do
+                # not run below this instance and therefore are not
+                # boundaries; route middleware still is.
+                owned_policies.read(
+                    app,
+                    include_root_middleware=_bound_router(app) is None,
+                )
             self._live = Live(_state_of(config, owned_policies))
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
@@ -2085,10 +2106,11 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         """Publish the snapshot the next request reads.
 
         The new patterns are read against the app's own routes first, the
-        same reading `micro.install(app)` does. A pattern naming a write,
-        or a read behind a security scheme, is refused at install, and it
-        has to be refused here too: a mounted file must not be able to
-        start caching what the static path would not.
+        same reading `micro.install(app)` does. A pattern naming a write
+        or a read behind a security scheme is refused at install, and a
+        read with another dependency is left uncached. Reload has to
+        preserve both decisions: a mounted file must not be able to start
+        caching what the static path would not.
         """
         policies = _Policies(new_config.include, new_config.exclude)
         app = self._policies._app  # noqa: SLF001
