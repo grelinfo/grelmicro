@@ -8,6 +8,7 @@ have to agree on every query, which is what these hold.
 from __future__ import annotations
 
 import pytest
+from pydantic_core import MultiHostUrl
 
 from grelmicro._redact import _redact_query, _redact_query_values, redact_url
 
@@ -98,6 +99,84 @@ def test_multi_host_url_redacts_fragment_credential() -> None:
         )
         == "postgresql://host/db#access_token=***"
     )
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://example.test/callback?access_token=FIRST%26part=SECOND",
+            "https://example.test/callback?access_token=***",
+        ),
+        (
+            "https://example.test/callback?access_token=FIRST%3bpart=SECOND",
+            "https://example.test/callback?access_token=***",
+        ),
+        (
+            "https://example.test/callback?AcCeSs_ToKeN=FIRST%2fpart=SECOND",
+            "https://example.test/callback?AcCeSs_ToKeN=***",
+        ),
+        (
+            "https://example.test/#access_token=FIRST%26part=SECOND",
+            "https://example.test/#access_token=***",
+        ),
+        (
+            "https://example.test/#/callback?token=FIRST%3Bpart=SECOND",
+            "https://example.test/#/callback?token=***",
+        ),
+        (
+            "https://example.test/#/access_token=FIRST%2Fpart=SECOND",
+            "https://example.test/#/access_token=***",
+        ),
+    ],
+)
+def test_encoded_separators_cannot_end_a_credential_value(
+    url: str, expected: str
+) -> None:
+    """Ambiguous encoded continuation after a credential is masked whole."""
+    assert redact_url(url) == expected
+
+
+def test_embedded_credential_masks_its_ambiguous_encoded_continuation() -> None:
+    """An encoded separator can start a credential, never finish one."""
+    assert (
+        redact_url(
+            "https://example.test/?state=ok%26access_token="
+            "FIRST%3bpart=SECOND&visible=yes"
+        )
+        == "https://example.test/?state=ok%26access_token=***&visible=yes"
+    )
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "postgresql://[::1]:5432,user:pw@db.example:5433/app",
+            "postgresql://[::1]:5432,user:***@db.example:5433/app",
+        ),
+        (
+            "postgresql://user:SECRET@[::1]:5432,db.example:5433/app",
+            "postgresql://user:***@[::1]:5432,db.example:5433/app",
+        ),
+        (
+            "postgresql://user:SECRET@db.example:5433,[::1]:5432/app",
+            "postgresql://user:***@db.example:5433,[::1]:5432/app",
+        ),
+        (
+            "postgresql://db.example:5433,user:SECRET@[2001:db8::1]:5432/app",
+            "postgresql://db.example:5433,user:***@[2001:db8::1]:5432/app",
+        ),
+    ],
+)
+def test_valid_ipv6_multi_host_urls_remain_structured(
+    url: str, expected: str
+) -> None:
+    """Structured redaction preserves IPv6 hosts in every host position."""
+    rendered = redact_url(url, multi_host=True)
+
+    assert rendered == expected
+    assert MultiHostUrl(rendered).hosts()
 
 
 @pytest.mark.parametrize(

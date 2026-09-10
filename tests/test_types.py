@@ -8,6 +8,7 @@ from pydantic import (
     RedisDsn,
     ValidationError,
 )
+from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro.types import SecretUrl
@@ -49,6 +50,18 @@ class TestDisplay:
 
         assert str(model.postgres) == POSTGRES_SAFE
 
+    def test_ipv6_multi_host_dsn_stays_parseable(self) -> None:
+        """A plain IPv6 host is not mistaken for malformed userinfo."""
+        model = Model(
+            postgres=("postgresql://[::1]:5432,user:pw@db.example:5433/app")
+        )
+
+        rendered = str(model.postgres)
+        assert rendered == (
+            "postgresql://[::1]:5432,user:***@db.example:5433/app"
+        )
+        assert MultiHostUrl(rendered).hosts()
+
     def test_query_credentials_redacted(self) -> None:
         """Credential-like query parameters are redacted."""
         model = Model(generic="https://otlp:4318/v1?api_key=abc&region=eu")
@@ -56,6 +69,22 @@ class TestDisplay:
         assert (
             str(model.generic) == "https://otlp:4318/v1?api_key=***&region=eu"
         )
+
+    def test_encoded_query_credential_continuation_is_fully_redacted(
+        self,
+    ) -> None:
+        """A structured URL masks ambiguous encoded credential continuation."""
+        model = Model(
+            generic=(
+                "https://example.test/callback?access_token=FIRST%26part=SECOND"
+            )
+        )
+
+        assert str(model.generic) == (
+            "https://example.test/callback?access_token=***"
+        )
+        assert "FIRST" not in repr(model.generic)
+        assert "SECOND" not in model.model_dump_json()
 
     @pytest.mark.parametrize(
         "key",
@@ -280,6 +309,27 @@ class TestFailClosed:
         assert str(model.text) == expected
         assert "SECRET" not in repr(model.text)
         assert "SECRET" not in model.model_dump_json()
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://example.test/callback?access_token=FIRST%26part=SECOND",
+            "https://example.test/#access_token=FIRST%3bpart=SECOND",
+            "https://example.test/#/callback?token=FIRST%2Fpart=SECOND",
+        ],
+    )
+    def test_encoded_credential_continuation_is_hidden_everywhere(
+        self, value: str
+    ) -> None:
+        """String, repr, and JSON mask the whole ambiguous credential value."""
+        model = Model(text=value)
+
+        assert "FIRST" not in str(model.text)
+        assert "SECOND" not in str(model.text)
+        assert "FIRST" not in repr(model.text)
+        assert "SECOND" not in repr(model.text)
+        assert "FIRST" not in model.model_dump_json()
+        assert "SECOND" not in model.model_dump_json()
 
     def test_protocol_relative_userinfo_and_query_are_both_redacted(
         self,

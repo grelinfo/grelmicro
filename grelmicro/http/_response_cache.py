@@ -39,6 +39,7 @@ from grelmicro._paths import (
     FieldNames,
     PathPatterns,
     _bound_router,
+    _effective_dependency_call,
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
@@ -759,23 +760,43 @@ def _has_non_cache_dependencies(
 ) -> bool:
     """Return whether FastAPI resolves anything besides the cache marker."""
     declared = getattr(route, "dependant", None)  # codespell:ignore
-    pending = list(getattr(declared, "dependencies", ()) or ())
+    route_provider = getattr(route, "dependency_overrides_provider", None)
+    pending = [
+        (dependency, route_provider)
+        for dependency in getattr(declared, "dependencies", ()) or ()
+    ]
     seen: set[int] = set()
     while pending:
-        dependency = pending.pop()
+        dependency, provider = pending.pop()
         if id(dependency) in seen:
             continue
         seen.add(id(dependency))
-        call = getattr(dependency, "call", None)
-        if getattr(call, _MARKER, _UNMARKED) is _UNMARKED:
+        call, effective, dependency_provider = _effective_dependency_call(
+            dependency, provider
+        )
+        if (
+            getattr(call, _MARKER, _UNMARKED) is _UNMARKED
+            or effective is not call
+        ):
             return True
-        pending.extend(getattr(dependency, "dependencies", ()) or ())
-    return any(
-        getattr(getattr(dependency, "dependency", None), _MARKER, _UNMARKED)
-        is _UNMARKED
-        for context in contexts
-        for dependency in getattr(context, "dependencies", ()) or ()
-    )
+        pending.extend(
+            (child, dependency_provider)
+            for child in getattr(dependency, "dependencies", ()) or ()
+        )
+    for context in contexts:
+        context_provider = getattr(
+            context, "dependency_overrides_provider", None
+        )
+        for dependency in getattr(context, "dependencies", ()) or ():
+            call, effective, _ = _effective_dependency_call(
+                dependency, context_provider or route_provider
+            )
+            if (
+                getattr(call, _MARKER, _UNMARKED) is _UNMARKED
+                or effective is not call
+            ):
+                return True
+    return False
 
 
 def _methods_of(route: Any) -> frozenset[str]:  # noqa: ANN401

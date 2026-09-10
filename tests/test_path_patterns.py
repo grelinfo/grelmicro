@@ -42,6 +42,7 @@ from grelmicro.http import (
 )
 from grelmicro.http._idempotency import _authentication_paths
 from grelmicro.idempotency import Idempotency
+from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.log import AccessLog, AccessLogMiddleware
 from grelmicro.resilience import RateLimiter
 from grelmicro.security import TrustedProxies
@@ -146,9 +147,44 @@ def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
     assert _nested_routing_app(recursive) is None
     assert _route_topology(None) == ("none",)
     assert _dependency_topology(dependency)[2] == (("cycle", id(dependency)),)
+    provider = SimpleNamespace()
+    assert _dependency_topology(dependency, provider)[4] == (id(provider),)
     assert _transparent_routing_source(None) is None
     broken_exception = ExceptionMiddleware(cast("Any", None))
     assert _transparent_routing_source(broken_exception) is broken_exception
+
+
+def test_route_topology_tracks_dependency_override_identities() -> None:
+    """Override keys, values, and effective calls invalidate route policy."""
+    web = FastAPI()
+    marker = CachedResponse()
+
+    @web.get("/x", dependencies=[marker])
+    async def x() -> None:
+        return None
+
+    async def first() -> None:
+        return None
+
+    async def second() -> None:
+        return None
+
+    async def unrelated() -> None:
+        return None
+
+    original = _route_topology(web)
+    web.dependency_overrides[marker.dependency] = first
+    first_override = _route_topology(web)
+    web.dependency_overrides[marker.dependency] = second
+    second_override = _route_topology(web)
+    web.dependency_overrides[unrelated] = first
+    unrelated_override = _route_topology(web)
+    web.dependency_overrides.clear()
+
+    assert first_override != original
+    assert second_override != first_override
+    assert unrelated_override != second_override
+    assert _route_topology(web) == original
 
 
 def test_direct_route_authentication_flattens_nested_router_boundaries() -> (

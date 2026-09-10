@@ -47,23 +47,12 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
 _ENCODED_ASSIGNMENT_SEPARATOR = r"%(?:2f|3b|26)"
-_ASSIGNMENT_SEPARATOR = rf"(?:[/&;]|{_ENCODED_ASSIGNMENT_SEPARATOR})"
-_PATH_ASSIGNMENT_SEPARATOR = rf"(?:/|{_ENCODED_ASSIGNMENT_SEPARATOR})"
-_QUERY_PARAMETER = re.compile(
-    rf"(^|[?&;])([^=?&;]+)(=)?([^?&;]*?)"
-    rf"(?={_ENCODED_ASSIGNMENT_SEPARATOR}[^=/?&;]+=|[?&;]|$)",
+_ENCODED_PARAMETER = re.compile(
+    rf"({_ENCODED_ASSIGNMENT_SEPARATOR})([^=/?&;]+)=",
     re.IGNORECASE,
 )
-_EMBEDDED_PARAMETER = re.compile(
-    rf"({_PATH_ASSIGNMENT_SEPARATOR})([^=/?&;]+)=([^/?&;]*?)"
-    rf"(?={_PATH_ASSIGNMENT_SEPARATOR}[^=/?&;]+=|[?&;]|$)",
-    re.IGNORECASE,
-)
-_FRAGMENT_PARAMETER = re.compile(
-    rf"(^|{_ASSIGNMENT_SEPARATOR})([^=/&;]+)=([^/?&;]*?)"
-    rf"(?={_ASSIGNMENT_SEPARATOR}[^=/?&;]+=|[?&;]|$)",
-    re.IGNORECASE,
-)
+_QUERY_DELIMITER = re.compile(r"([/?&;])")
+_FRAGMENT_DELIMITER = re.compile(r"([/&;])")
 _MAX_PORT = 65535
 _MAX_PORT_DIGITS = len(str(_MAX_PORT))
 
@@ -90,34 +79,7 @@ def _redact_query(query: str | None) -> str | None:
     """
     if not query:
         return query
-
-    matches = list(_QUERY_PARAMETER.finditer(query))
-    direct_credentials = any(
-        _is_credential_query_key(match.group(2)) for match in matches
-    )
-    embedded_credentials = any(
-        _is_credential_query_key(match.group(2))
-        for match in _EMBEDDED_PARAMETER.finditer(query)
-    )
-    if not direct_credentials and not embedded_credentials:
-        return query
-
-    def replace(match: re.Match[str]) -> str:
-        key = unquote_plus(match.group(2))
-        if not _is_credential_query_key(key):
-            return match.group(0)
-        return f"{match.group(1)}{quote_plus(key, safe='*')}={MASK}"
-
-    redacted = (
-        _QUERY_PARAMETER.sub(replace, query) if direct_credentials else query
-    )
-
-    def replace_embedded(match: re.Match[str]) -> str:
-        if not _is_credential_query_key(match.group(2)):
-            return match.group(0)
-        return f"{match.group(1)}{unquote_plus(match.group(2))}={MASK}"
-
-    return _EMBEDDED_PARAMETER.sub(replace_embedded, redacted)
+    return _redact_assignment_fields(query, _QUERY_DELIMITER)
 
 
 def _redact_query_values(query: str | None) -> str | None:
@@ -135,13 +97,36 @@ def _redact_query_values(query: str | None) -> str | None:
 
 def _redact_fragment_path(path: str) -> str:
     """Mask credential assignments embedded in a path-like fragment."""
+    return _redact_assignment_fields(path, _FRAGMENT_DELIMITER)
 
-    def replace(match: re.Match[str]) -> str:
-        if not _is_credential_query_key(match.group(2)):
-            return match.group(0)
-        return f"{match.group(1)}{unquote_plus(match.group(2))}={MASK}"
 
-    return _FRAGMENT_PARAMETER.sub(replace, path)
+def _redact_assignment_fields(
+    value: str,
+    delimiter: re.Pattern[str],
+) -> str:
+    """Mask credential fields without treating encoded separators as endings."""
+    parts = delimiter.split(value)
+    for index in range(0, len(parts), 2):
+        parts[index] = _redact_assignment_segment(parts[index])
+    return "".join(parts)
+
+
+def _redact_assignment_segment(segment: str) -> str:
+    """Mask one raw-delimiter-bounded assignment segment."""
+    key, separator, _raw_value = segment.partition("=")
+    if _is_credential_query_key(key):
+        normalized = quote_plus(unquote_plus(key), safe="*")
+        return f"{normalized}={MASK}"
+    if not separator:
+        return segment
+    for match in _ENCODED_PARAMETER.finditer(segment):
+        embedded_key = match.group(2)
+        if _is_credential_query_key(embedded_key):
+            return (
+                f"{segment[: match.start()]}{match.group(1)}"
+                f"{unquote_plus(embedded_key)}={MASK}"
+            )
+    return segment
 
 
 def _redact_fragment(fragment: str | None) -> str | None:
@@ -296,6 +281,8 @@ def redact_url(url: str, *, multi_host: bool = False) -> str:
         else _redact_single_host(parsed)
     )
     if redacted is not None:
+        if isinstance(parsed, MultiHostUrl):
+            return redacted
         return _redact_unparsed_url(redacted, multi_host=multi_host)
     # Structured parsing found nothing. A scheme-less `user:pw@host:port`
     # parses as a path and hides its credential that way, so sweep the

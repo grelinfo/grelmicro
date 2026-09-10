@@ -517,6 +517,7 @@ def _walk_routes(
 
 def _dependency_topology(
     dependency: Any,  # noqa: ANN401
+    provider: Any = None,  # noqa: ANN401
     ancestors: frozenset[int] = frozenset(),
 ) -> tuple[Any, ...]:
     """Return the identity and descendants of one resolved dependency."""
@@ -525,25 +526,81 @@ def _dependency_topology(
     if id(dependency) in ancestors:
         return ("cycle", id(dependency))
     nested_ancestors = ancestors | {id(dependency)}
+    call, effective, provider = _effective_dependency_call(dependency, provider)
     return (
         id(dependency),
-        id(getattr(dependency, "call", None)),
+        id(call),
         tuple(
-            _dependency_topology(child, nested_ancestors)
+            _dependency_topology(child, provider, nested_ancestors)
             for child in getattr(dependency, "dependencies", ()) or ()
         ),
+        id(effective),
+        _dependency_overrides_topology(provider),
     )
+
+
+def _dependency_callable(dependency: Any) -> Any:  # noqa: ANN401
+    """Return the callable stored on a resolved or declared dependency."""
+    if hasattr(dependency, "call"):
+        return getattr(dependency, "call", None)
+    return getattr(dependency, "dependency", None)
+
+
+def _dependency_overrides_provider(
+    holder: Any,  # noqa: ANN401
+    inherited: Any = None,  # noqa: ANN401
+) -> Any:  # noqa: ANN401
+    """Return the closest FastAPI dependency override provider."""
+    provider = getattr(holder, "dependency_overrides_provider", None)
+    return inherited if provider is None else provider
+
+
+def _dependency_overrides_topology(
+    provider: Any,  # noqa: ANN401
+) -> tuple[Any, ...]:
+    """Return identities that change when FastAPI overrides change."""
+    if provider is None:
+        return ()
+    overrides = getattr(provider, "dependency_overrides", None)
+    if overrides is None:
+        return (id(provider),)
+    entries = tuple(
+        sorted((id(key), id(value)) for key, value in overrides.items())
+    )
+    return id(provider), id(overrides), entries
+
+
+def _effective_dependency_call(
+    dependency: Any,  # noqa: ANN401
+    provider: Any = None,  # noqa: ANN401
+) -> tuple[Any, Any, Any]:
+    """Return a dependency's declared call, effective call, and provider."""
+    provider = _dependency_overrides_provider(dependency, provider)
+    call = _dependency_callable(dependency)
+    overrides = getattr(provider, "dependency_overrides", None)
+    if overrides is None:
+        return call, call, provider
+    effective = overrides.get(call, call)
+    return call, effective, provider
 
 
 def _declared_dependency_topology(holder: Any) -> tuple[Any, ...]:  # noqa: ANN401
     """Return dependencies declared directly on a router or include."""
-    return tuple(
-        (
-            id(dependency),
-            id(getattr(dependency, "dependency", None)),
+    provider = _dependency_overrides_provider(holder)
+    found: list[tuple[Any, ...]] = []
+    for dependency in getattr(holder, "dependencies", ()) or ():
+        call, effective, dependency_provider = _effective_dependency_call(
+            dependency, provider
         )
-        for dependency in getattr(holder, "dependencies", ()) or ()
-    )
+        found.append(
+            (
+                id(dependency),
+                id(call),
+                id(effective),
+                _dependency_overrides_topology(dependency_provider),
+            )
+        )
+    return tuple(found)
 
 
 def _middleware_topology(app: Any) -> tuple[Any, ...]:  # noqa: ANN401
@@ -599,12 +656,14 @@ def _route_topology_node(  # noqa: PLR0911
         )
     if _is_route(current):
         dependency = getattr(current, "dependant", None)  # codespell:ignore
+        provider = _dependency_overrides_provider(current)
         return (
             "route",
             id(current),
             getattr(current, "path", ""),
             tuple(sorted(getattr(current, "methods", None) or ())),
-            _dependency_topology(dependency),
+            _dependency_overrides_topology(provider),
+            _dependency_topology(dependency, provider),
             _route_topology_node(
                 getattr(current, "app", None), nested_ancestors
             ),

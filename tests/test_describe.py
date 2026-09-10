@@ -7,7 +7,13 @@ import sys
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+from starlette.applications import Starlette
+from starlette.authentication import AuthenticationBackend
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from grelmicro import Grelmicro
 from grelmicro.__main__ import TargetError, load_target, main
@@ -21,6 +27,8 @@ from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.describe import AppReport as PublicAppReport
 from grelmicro.health import HealthChecks
+from grelmicro.http import CachedResponses
+from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.redis import RedisProvider
@@ -222,6 +230,46 @@ _PASSING_APP = Grelmicro(uses=[HealthChecks()], environment="development")
 _FAILING_APP = Grelmicro(uses=[MemoryProvider()], environment="production")
 
 
+async def _cli_endpoint(_request: Any) -> JSONResponse:  # noqa: ANN401
+    """Return the endpoint the CLI report must enumerate."""
+    return JSONResponse({"x": True})
+
+
+_CLI_CHILD = Starlette(routes=[Route("/x", _cli_endpoint)])
+_CLI_APP = FastAPI()
+_CLI_APP.mount(
+    "/api",
+    CORSMiddleware(_CLI_CHILD, allow_origins=["https://client.example"]),
+)
+_CLI_MICRO = Grelmicro(
+    uses=[
+        Cache(MemoryCacheAdapter()),
+        CachedResponses(include=("/api/*",)),
+    ],
+    environment="development",
+)
+_CLI_MICRO.install(_CLI_APP)
+
+
+def test_cli_lists_middleware_wrapped_mounted_endpoints(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The `--app` endpoint table sees routes behind mounted middleware."""
+    code = main(
+        [
+            "check",
+            "tests.test_describe:_CLI_MICRO",
+            "--app",
+            "tests.test_describe:_CLI_APP",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "GET    /api/x" in output
+    assert "path-patterns" not in output
+
+
 def test_describe_flags_a_forgotten_install() -> None:
     """An app that never called `micro.install(app)` fails the ambient check.
 
@@ -251,6 +299,107 @@ def test_describe_passes_after_install() -> None:
     report = micro.describe(app)
 
     assert report.ok
+
+
+class _AnonymousAuthentication(AuthenticationBackend):
+    """Authentication boundary that leaves anonymous requests alone."""
+
+    async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+        return None
+
+
+@pytest.mark.parametrize("framework", ["starlette", "fastapi"])
+@pytest.mark.parametrize("middleware", ["cors", "authentication"])
+def test_describe_lists_middleware_wrapped_mounted_endpoints(
+    framework: str,
+    middleware: str,
+) -> None:
+    """Endpoint reports cross middleware without crossing cache boundaries."""
+
+    async def x(_request: Any = None) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"x": True})
+
+    if framework == "starlette":
+        child: Any = Starlette(routes=[Route("/x", x)])
+    else:
+        child = FastAPI()
+        child.get("/x")(x)
+    wrapped = (
+        CORSMiddleware(child, allow_origins=["https://client.example"])
+        if middleware == "cors"
+        else AuthenticationMiddleware(child, backend=_AnonymousAuthentication())
+    )
+    app = FastAPI()
+    app.mount("/api", wrapped)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/api/*",)),
+        ],
+        environment="development",
+    )
+    micro.install(app)
+
+    report = micro.describe(app)
+
+    endpoint = next(row for row in report.endpoints if row.path == "/api/x")
+    assert endpoint.method == "GET"
+    assert endpoint.applies == ()
+    assert not any(
+        check.name == "path-patterns" and "/api/*" in check.detail
+        for check in report.checks
+    )
+
+
+def test_describe_does_not_apply_parent_cache_to_child_declaration() -> None:
+    """A child marker remains behind its mounted middleware boundary."""
+    child = FastAPI()
+
+    @child.get("/x", dependencies=[CachedResponse()])
+    async def x() -> dict[str, bool]:
+        return {"x": True}
+
+    app = FastAPI()
+    app.mount(
+        "/api",
+        CORSMiddleware(child, allow_origins=["https://client.example"]),
+    )
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), CachedResponses()],
+        environment="development",
+    )
+    micro.install(app)
+
+    endpoint = next(
+        row for row in micro.describe(app).endpoints if row.path == "/api/x"
+    )
+
+    assert endpoint.applies == ()
+
+
+def test_describe_does_not_apply_cache_before_an_ordinary_dependency() -> None:
+    """The endpoint table preserves the cache's dependency privacy rule."""
+    app = FastAPI()
+    marker = CachedResponse()
+
+    async def audit() -> None:
+        return None
+
+    @app.get("/x", dependencies=[marker, Depends(audit)])
+    async def x() -> dict[str, bool]:
+        return {"x": True}
+
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), CachedResponses()],
+        environment="development",
+    )
+    micro.install(app)
+
+    endpoint = next(
+        row for row in micro.describe(app).endpoints if row.path == "/x"
+    )
+
+    assert endpoint.applies == ()
 
 
 def test_describe_warns_on_unknown_framework() -> None:

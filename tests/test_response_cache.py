@@ -51,6 +51,7 @@ from grelmicro.http._response_cache import (
     _has_non_cache_dependencies,
     _routing_dependencies,
     declare_cached,
+    declared_ttl,
 )
 from grelmicro.integrations.fastapi import CachedResponse
 
@@ -92,6 +93,20 @@ async def _request_principal(request: Request) -> str:
     if identity is None:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
     return identity
+
+
+async def _identity_override(request: Request) -> None:
+    """Authenticate an overridden cache marker through `X-Identity`."""
+    identity = request.headers.get("x-identity")
+    if identity is None:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+    request.state.identity = identity
+
+
+async def _prefixed_identity_override(request: Request) -> None:
+    """Authenticate through a distinct override callable."""
+    await _identity_override(request)
+    request.state.identity = f"changed:{request.state.identity}"
 
 
 class _RoutingProxy:
@@ -1252,6 +1267,13 @@ def test_a_route_with_other_dependencies_is_not_cached() -> None:
         calls += 1
         return {"calls": calls}
 
+    route = next(
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/reads"
+    )
+    assert declared_ttl(route, (), "/reads") == (False, None)
+
     # Act
     with TestClient(app) as client:
         client.get("/reads")
@@ -1259,6 +1281,100 @@ def test_a_route_with_other_dependencies_is_not_cached() -> None:
 
     # Assert
     assert calls == TWICE
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_cache_marker_override_before_first_request_is_private(
+    wiring: str,
+) -> None:
+    """An override replacing the marker is a dependency the cache cannot skip."""
+    app = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @app.get("/private", dependencies=[marker])
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    app.dependency_overrides[marker.dependency] = _identity_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/private", headers={"X-Identity": "alice"})
+        bob = client.get("/private", headers={"X-Identity": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_cache_marker_override_changes_invalidate_public_policy(
+    wiring: str,
+) -> None:
+    """Adding, changing, and removing an override refreshes cache privacy."""
+    app = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @app.get("/identity", dependencies=[marker])
+    async def identity(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": getattr(request.state, "identity", "public"),
+            "calls": calls,
+        }
+
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        public = client.get("/identity")
+        public_hit = client.get("/identity")
+
+        app.dependency_overrides[marker.dependency] = _identity_override
+        alice = client.get("/identity", headers={"X-Identity": "alice"})
+        bob = client.get("/identity", headers={"X-Identity": "bob"})
+
+        app.dependency_overrides[marker.dependency] = marker.dependency
+        same_marker = client.get("/identity", headers={"X-Identity": "ignored"})
+
+        app.dependency_overrides[marker.dependency] = (
+            _prefixed_identity_override
+        )
+        changed = client.get("/identity", headers={"X-Identity": "alice"})
+
+        del app.dependency_overrides[marker.dependency]
+        removed = client.get("/identity")
+
+    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
+    assert public_hit.headers["age"] == "0"
+    assert alice.json() == {"user": "alice", "calls": 2}
+    assert bob.json() == {"user": "bob", "calls": 3}
+    assert "age" not in alice.headers
+    assert "age" not in bob.headers
+    assert same_marker.json() == {"user": "public", "calls": 1}
+    assert same_marker.headers["age"] == "0"
+    assert changed.json() == {"user": "changed:alice", "calls": 4}
+    assert "age" not in changed.headers
+    assert removed.json() == {"user": "public", "calls": 1}
+    assert removed.headers["age"] == "0"
 
 
 @pytest.mark.parametrize(
