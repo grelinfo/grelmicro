@@ -10,9 +10,9 @@ from pydantic_core import MultiHostUrl, Url
 
 MASK = "***"
 
-_USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:@/?#]*:)([^/?#]+)(@)")
+_USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:/?#]*:)([^/?#]+)(@)")
 _MULTI_HOST_USERINFO_RE = re.compile(
-    r"(\A|://|:/|//|,)([^:@,/?#]*:)([^,/?#]+)(@)"
+    r"(\A|://|:/|//|,)([^:,/?#]*:)([^,/?#]+)(@)"
 )
 _EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
     {
@@ -95,9 +95,10 @@ def _redact_fragment(fragment: str | None) -> str | None:
     if not fragment:
         return fragment
     path, separator, parameters = fragment.partition("?")
+    safe_path = _redact_query(path)
     if separator:
-        return f"{path}?{_redact_query(parameters)}"
-    return _redact_query(fragment)
+        return f"{safe_path}?{_redact_query(parameters)}"
+    return safe_path
 
 
 def _userinfo_pattern(*, multi_host: bool) -> re.Pattern[str]:

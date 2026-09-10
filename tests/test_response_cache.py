@@ -64,6 +64,27 @@ SHARED_TTL = 50.0
 """How many times the handler runs when nothing was stored."""
 
 
+class _RoutingProxy:
+    """ASGI middleware exposing the routes of the application it wraps."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        self.app = app
+
+    @property
+    def routes(self) -> Any:  # noqa: ANN401
+        """Forward route introspection like a transparent middleware."""
+        return self.app.routes
+
+    async def __call__(
+        self,
+        scope: Any,  # noqa: ANN401
+        receive: Any,  # noqa: ANN401
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        """Pass the request through."""
+        await self.app(scope, receive, send)
+
+
 def _app(component: CachedResponses) -> FastAPI:
     """Return an app whose `/reads` route counts what reached the handler."""
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), component])
@@ -404,8 +425,10 @@ def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
     "configuration",
     ["constructor", "add-middleware", "router"],
 )
+@pytest.mark.parametrize("policy", ["declaration", "include"])
 def test_middleware_configured_inside_a_mount_is_a_cache_boundary(
     configuration: str,
+    policy: str,
 ) -> None:
     """A parent cache cannot answer before lazily built child middleware."""
 
@@ -428,7 +451,11 @@ def test_middleware_configured_inside_a_mount_is_a_cache_boundary(
     )
     calls = 0
 
-    @inner.get("/items", dependencies=[CachedResponse(ttl=TTL)])
+    dependencies = (
+        [CachedResponse(ttl=TTL)] if policy == "declaration" else None
+    )
+
+    @inner.get("/items", dependencies=dependencies)
     async def items(request: Request) -> dict[str, str | int]:
         nonlocal calls
         calls += 1
@@ -449,7 +476,12 @@ def test_middleware_configured_inside_a_mount_is_a_cache_boundary(
 
     app = FastAPI()
     app.mount("/shop", mounted)
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    cached = (
+        CachedResponses()
+        if policy == "declaration"
+        else CachedResponses(include={"/shop/items": TTL})
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), cached])
     micro.install(app)
 
     # Act
@@ -462,6 +494,45 @@ def test_middleware_configured_inside_a_mount_is_a_cache_boundary(
     assert alice.json() == {"user": "alice", "calls": 1}
     assert bob.json() == {"user": "bob", "calls": 2}
     assert anonymous.json() == {"user": "anonymous", "calls": 3}
+
+
+@pytest.mark.parametrize("policy", ["declaration", "include"])
+def test_route_transparent_mounted_wrapper_is_a_cache_boundary(
+    policy: str,
+) -> None:
+    """Forwarded route attributes cannot hide an explicit ASGI boundary."""
+    # Arrange
+    calls = 0
+    inner = FastAPI()
+
+    dependencies = (
+        [CachedResponse(ttl=TTL)] if policy == "declaration" else None
+    )
+
+    @inner.get("/items", dependencies=dependencies)
+    async def items() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app = FastAPI()
+    app.mount("/shop", _RoutingProxy(inner))
+    cached = (
+        CachedResponses()
+        if policy == "declaration"
+        else CachedResponses(include={"/shop/items": TTL})
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), cached])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.get("/shop/items")
+        second = client.get("/shop/items")
+
+    # Assert
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
 
 
 def test_a_route_with_other_dependencies_is_read_too() -> None:

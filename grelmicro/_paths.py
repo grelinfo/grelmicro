@@ -188,24 +188,74 @@ def _routing_app(app: Any) -> Any:  # noqa: ANN401
     seen: set[int] = set()
     while app is not None and id(app) not in seen:
         seen.add(id(app))
+        nested = _wrapped_app(app)
+        if nested is not None:
+            app = nested
+            continue
         router = getattr(app, "router", None)
         if hasattr(app, "routes") or hasattr(router, "routes"):
             return app
-        nested = getattr(app, "app", None)
-        if nested is None:
-            return app
-        app = nested
+        return app
     return app
+
+
+def _wrapped_app(app: Any) -> Any | None:  # noqa: ANN401
+    """Return the application an explicit ASGI wrapper delegates to."""
+    nested = getattr(app, "app", None)
+    if (
+        nested is None
+        or nested is app
+        or getattr(nested, "__self__", None) is app
+    ):
+        return None
+    return nested
 
 
 def _has_configured_middleware(app: Any) -> bool:  # noqa: ANN401
     """Return whether a routing application declares middleware of its own."""
+    if _wrapped_app(app) is not None:
+        return True
     if getattr(app, "user_middleware", ()):
         return True
     routed = getattr(app, "router", None) or app
     stack = getattr(routed, "middleware_stack", None)
     endpoint = getattr(routed, "app", None)
     return stack is not None and endpoint is not None and stack != endpoint
+
+
+def _middleware_boundaries(app: Any) -> set[str]:  # noqa: ANN401
+    """Return mount prefixes a parent response cache must not cross."""
+    found: set[str] = set()
+    if _wrapped_app(app) is not None:
+        found.add("")
+        return found
+
+    def visit(current: Any, prefix: str, ancestors: frozenset[int]) -> None:  # noqa: ANN401
+        if current is None or id(current) in ancestors:
+            return
+        nested_ancestors = ancestors | {id(current)}
+        router = getattr(current, "router", None)
+        for route in getattr(router or current, "routes", ()) or ():
+            included = getattr(route, "original_router", None)
+            if included is not None:
+                context = getattr(route, "include_context", None)
+                path = f"{prefix}{getattr(context, 'prefix', '')}"
+                if _has_configured_middleware(included):
+                    found.add(path)
+                else:
+                    visit(included, path, nested_ancestors)
+                continue
+            if getattr(route, "routes", None) is None:
+                continue
+            path = f"{prefix}{getattr(route, 'path', '')}"
+            nested = getattr(route, "app", route)
+            if _has_configured_middleware(nested):
+                found.add(path)
+            else:
+                visit(nested, path, nested_ancestors)
+
+    visit(app, "", frozenset())
+    return found
 
 
 def walk_routes(
@@ -239,6 +289,8 @@ def walk_routes(
     """
     if unwrap_middleware:
         app = _routing_app(app)
+    elif _wrapped_app(app) is not None:
+        return []
     own = getattr(app, "router", None)
     if own is not None:
         contexts = (*contexts, own)

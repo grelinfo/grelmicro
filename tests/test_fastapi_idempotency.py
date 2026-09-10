@@ -11,7 +11,15 @@ from typing import TYPE_CHECKING, Annotated, Any
 from unittest.mock import patch
 
 import pytest
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
 from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
@@ -96,6 +104,27 @@ class _HeaderAuthentication(AuthenticationBackend):
         if identity is None:
             return None
         return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+
+class _RoutingProxy:
+    """ASGI middleware exposing the routes of the application it wraps."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        self.app = app
+
+    @property
+    def routes(self) -> Any:  # noqa: ANN401
+        """Forward route introspection like a transparent middleware."""
+        return self.app.routes
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        """Pass the request through."""
+        await self.app(scope, receive, send)
 
 
 async def _private_identity(request: Request) -> JSONResponse:
@@ -366,6 +395,91 @@ def test_direct_wrapper_detects_fastapi_dependencies() -> None:
     assert authorized.status_code == HTTP_200_OK
     assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_route_transparent_wrapper_detects_fastapi_dependencies() -> None:
+    """Forwarded route attributes cannot hide a FastAPI dependency."""
+    # Arrange
+    app = FastAPI()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key != "expected":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    wrapped = IdempotencyMiddleware(
+        _RoutingProxy(app),
+        idempotency=Idempotency(
+            "transparent",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        authorized = client.post(
+            "/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_included_router_detects_authenticated_mount() -> None:
+    """An included router cannot hide authentication inside one of its mounts."""
+    # Arrange
+    router = APIRouter()
+    private = Starlette(
+        routes=[Route("/identity", _private_identity, methods=["POST"])],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    router.mount("/private", private)
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "included-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post(
+            "/api/private/identity",
+            headers={**KEY, "X-API-Key": "alice"},
+        )
+        bob = client.post(
+            "/api/private/identity",
+            headers={**KEY, "X-API-Key": "bob"},
+        )
+        anonymous = client.post("/api/private/identity", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
 
 
 def test_starlette_root_detects_mounted_fastapi_dependencies() -> None:

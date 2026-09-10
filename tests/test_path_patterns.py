@@ -8,12 +8,20 @@ nothing said. Every door that takes patterns refuses one.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from starlette.routing import compile_path
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.routing import Router, compile_path
 
-from grelmicro._paths import matches, names_route
+from grelmicro._paths import (
+    _middleware_boundaries,
+    matches,
+    names_route,
+    walk_routes,
+)
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
     CachedResponses,
@@ -31,6 +39,37 @@ from grelmicro.security import TrustedProxies
 
 async def app(scope: object, receive: object, send: object) -> None:
     """Stand in for the app a middleware wraps."""
+
+
+def test_route_walkers_treat_wrappers_and_middleware_as_boundaries() -> None:
+    """Boundary discovery terminates on wrappers, includes, and cycles."""
+    # Arrange
+    wrapped = SimpleNamespace(app=Router())
+    included = Router(
+        middleware=[
+            Middleware(CORSMiddleware, allow_origins=["https://example.test"])
+        ]
+    )
+    inclusion = SimpleNamespace(
+        original_router=included,
+        include_context=SimpleNamespace(prefix="/api"),
+    )
+    root = SimpleNamespace(routes=[inclusion])
+    loop = SimpleNamespace()
+    loop.routes = [
+        SimpleNamespace(
+            original_router=None,
+            routes=[],
+            path="/loop",
+            app=loop,
+        )
+    ]
+
+    # Act / Assert
+    assert _middleware_boundaries(wrapped) == {""}
+    assert walk_routes(wrapped) == []
+    assert _middleware_boundaries(root) == {"/api"}
+    assert _middleware_boundaries(loop) == set()
 
 
 def components() -> list[tuple[str, Any]]:

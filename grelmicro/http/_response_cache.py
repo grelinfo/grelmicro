@@ -38,6 +38,7 @@ from grelmicro._paths import (
     BARE_STRING_MESSAGE,
     FieldNames,
     PathPatterns,
+    _middleware_boundaries,
     as_patterns,
     matches,
     names_route,
@@ -496,7 +497,7 @@ def _marked_routes(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
-    refused: list[tuple[str, Pattern[str]]] = []
+    refused = _middleware_refusals(app)
     answered: list[tuple[str, Pattern[str], frozenset[str]]] = []
     for prefix, route, contexts in walk_routes(app):
         above = _declaring_above(contexts)
@@ -545,6 +546,27 @@ def _marked_routes(
         found.append((compiled, cast("float | None", ttl)))
     _refuse_named_write(named, answered)
     return found, refused
+
+
+def _middleware_refusals(
+    app: Any,  # noqa: ANN401
+) -> list[tuple[str, Pattern[str]]]:
+    """Compile exact and descendant refusals for every middleware boundary."""
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    found: list[tuple[str, Pattern[str]]] = []
+    for boundary in _middleware_boundaries(app):
+        exact = boundary or "/"
+        exact_pattern, _, _ = compile_path(exact)
+        found.append((exact, exact_pattern))
+        descendants = (
+            f"{boundary.rstrip('/')}/{{path:path}}"
+            if boundary
+            else "/{path:path}"
+        )
+        descendant_pattern, _, _ = compile_path(descendants)
+        found.append((descendants, descendant_pattern))
+    return found
 
 
 def _inherited(ttl: object, contexts: tuple[Any, ...]) -> object:

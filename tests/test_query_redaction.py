@@ -135,6 +135,10 @@ def test_ambiguous_userinfo_masks_through_the_last_at_sign(
             "http:/user:PART1:PART2@PART3@bad host/path",
             "http:/user:***@bad host/path",
         ),
+        (
+            "http:/user@realm:PWSECRET@bad host/path",
+            "http:/user@realm:***@bad host/path",
+        ),
     ],
 )
 def test_malformed_scheme_userinfo_is_redacted(url: str, expected: str) -> None:
@@ -146,8 +150,16 @@ def test_malformed_multi_host_userinfo_is_redacted() -> None:
     """Every malformed DSN authority is masked without hiding its hosts."""
     assert (
         redact_url(
-            "postgresql:/u1:PART1@PART2@bad host,u2:OTHER@also bad/db",
+            "postgresql:/u@realm:PART1@PART2@bad host,u2:OTHER@also bad/db",
             multi_host=True,
         )
-        == "postgresql:/u1:***@bad host,u2:***@also bad/db"
+        == "postgresql:/u@realm:***@bad host,u2:***@also bad/db"
+    )
+
+
+def test_credential_before_fragment_question_mark_is_redacted() -> None:
+    """A query-shaped fragment prefix cannot expose a credential."""
+    assert (
+        redact_url("https://example.test/#access_token=FRAGSECRET?state=x")
+        == "https://example.test/#access_token=***?state=x"
     )

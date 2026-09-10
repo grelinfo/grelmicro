@@ -355,7 +355,14 @@ def _authentication_paths(app: Any) -> set[tuple[str, bool]]:  # noqa: ANN401
         nested_ancestors = ancestors | {id(routed)}
         router = getattr(routed, "router", None)
         for route in getattr(router or routed, "routes", ()) or ():
-            if getattr(route, "original_router", None) is not None:
+            included = getattr(route, "original_router", None)
+            if included is not None:
+                context = getattr(route, "include_context", None)
+                visit(
+                    included,
+                    f"{prefix}{getattr(context, 'prefix', '')}",
+                    nested_ancestors,
+                )
                 continue
             path = f"{prefix}{getattr(route, 'path', '')}"
             nested = getattr(route, "app", None)

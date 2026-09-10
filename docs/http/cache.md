@@ -176,8 +176,9 @@ declared one is not overridden by an `include` pattern naming it.
 A middleware around a mounted application, or configured on that application
 or its router, is a cache boundary. A `CachedResponse()` declaration behind it
 is not consumed by a cache on the parent, because a parent hit would answer
-before the mounted middleware ran. Install `CachedResponses` inside that
-application when its own routes should be cached.
+before the mounted middleware ran. An explicit parent `include` rule stops at
+the same boundary. Install `CachedResponses` inside that application when its
+own routes should be cached.
 
 Starlette and Litestar resolve no dependencies to hang it on, and a router you
 did not write cannot be changed either, so name the URLs and how long each is

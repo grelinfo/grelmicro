@@ -259,10 +259,18 @@ class TestFailClosed:
             "http:/user:***@bad host/path?accessToken=***#access_token=***"
         )
 
+    def test_malformed_username_at_sign_is_redacted(self) -> None:
+        """An extra at sign before the password cannot evade redaction."""
+        model = Model(text="http:/user@realm:PWSECRET@bad host/path")
+
+        assert "PWSECRET" not in repr(model)
+        assert str(model.text) == "http:/user@realm:***@bad host/path"
+
     @pytest.mark.parametrize(
         "endpoint",
         [
             "https://example.test/callback#access_token=TOKENVALUE",
+            "https://example.test/#access_token=TOKENVALUE?state=x",
             "collector/path#accessToken=TOKENVALUE",
             "collector/path#/callback?clientSecret=TOKENVALUE",
         ],
