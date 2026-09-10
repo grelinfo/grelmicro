@@ -157,9 +157,38 @@ def test_malformed_multi_host_userinfo_is_redacted() -> None:
     )
 
 
+def test_comma_inside_malformed_multi_host_password_is_redacted() -> None:
+    """An ambiguous comma cannot expose a malformed authority password."""
+    assert (
+        redact_url(
+            "postgresql:/u:FIRST,SECOND@bad host,u2:OTHER@also bad/db",
+            multi_host=True,
+        )
+        == "postgresql:/u:***@bad host,u2:***@also bad/db"
+    )
+
+
 def test_credential_before_fragment_question_mark_is_redacted() -> None:
     """A query-shaped fragment prefix cannot expose a credential."""
     assert (
         redact_url("https://example.test/#access_token=FRAGSECRET?state=x")
         == "https://example.test/#access_token=***?state=x"
+    )
+
+
+def test_path_prefixed_fragment_credential_is_redacted() -> None:
+    """A credential assignment embedded in a fragment path is masked."""
+    assert (
+        redact_url(
+            "https://example.test/#/callback/token=FRAGMENT_VALUE?state=ok"
+        )
+        == "https://example.test/#/callback/token=***?state=ok"
+    )
+
+
+def test_innocent_fragment_path_assignment_is_preserved() -> None:
+    """Fragment path assignments that are not credentials remain readable."""
+    assert (
+        redact_url("https://example.test/#/callback/state=ok?token=SECRET")
+        == "https://example.test/#/callback/state=ok?token=***"
     )

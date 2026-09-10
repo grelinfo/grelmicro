@@ -180,6 +180,9 @@ before the mounted middleware ran. An explicit parent `include` rule stops at
 the same boundary. Install `CachedResponses` inside that application when its
 own routes should be cached.
 
+Middleware configured on an individual Starlette route is an exact boundary
+for that route as well, so an explicit cache rule cannot answer before it runs.
+
 Starlette and Litestar resolve no dependencies to hang it on, and a router you
 did not write cannot be changed either, so name the URLs and how long each is
 kept:

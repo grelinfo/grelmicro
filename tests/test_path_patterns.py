@@ -14,7 +14,7 @@ from typing import Any, cast
 import pytest
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.routing import Router, compile_path
+from starlette.routing import Mount, Route, Router, compile_path
 
 from grelmicro._paths import (
     _middleware_boundaries,
@@ -66,10 +66,40 @@ def test_route_walkers_treat_wrappers_and_middleware_as_boundaries() -> None:
     ]
 
     # Act / Assert
-    assert _middleware_boundaries(wrapped) == {""}
+    assert _middleware_boundaries(wrapped) == {("", True)}
     assert walk_routes(wrapped) == []
-    assert _middleware_boundaries(root) == {"/api"}
+    assert _middleware_boundaries(root) == {("/api", True)}
     assert _middleware_boundaries(loop) == set()
+
+
+def test_direct_mount_and_bound_router_keep_their_routing_context() -> None:
+    """Direct routing nodes retain prefixes and configured boundaries."""
+    # Arrange
+    route = Route("/items", app)
+    router = Router(routes=[route])
+    mounted = Mount("/api", app=router)
+    protected = Mount(
+        "/private",
+        app=Router(
+            routes=[route],
+            middleware=[
+                Middleware(
+                    CORSMiddleware,
+                    allow_origins=["https://example.test"],
+                )
+            ],
+        ),
+    )
+
+    # Act / Assert
+    assert _middleware_boundaries(mounted) == set()
+    assert [
+        (prefix, found.path) for prefix, found, _ in walk_routes(mounted)
+    ] == [("/api", "/items")]
+    assert [
+        (prefix, found.path) for prefix, found, _ in walk_routes(router.app)
+    ] == [("", "/items")]
+    assert walk_routes(protected) == []
 
 
 def components() -> list[tuple[str, Any]]:

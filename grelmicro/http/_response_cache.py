@@ -555,10 +555,12 @@ def _middleware_refusals(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[str, Pattern[str]]] = []
-    for boundary in _middleware_boundaries(app):
+    for boundary, nested in _middleware_boundaries(app):
         exact = boundary or "/"
         exact_pattern, _, _ = compile_path(exact)
         found.append((exact, exact_pattern))
+        if not nested:
+            continue
         descendants = (
             f"{boundary.rstrip('/')}/{{path:path}}"
             if boundary

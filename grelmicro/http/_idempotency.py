@@ -37,7 +37,9 @@ from grelmicro._paths import (
     BARE_METHOD_MESSAGE,
     MethodNames,
     PathPatterns,
+    _is_mount,
     _routing_app,
+    _wrapped_app,
     as_patterns,
     route_path,
     selects,
@@ -288,6 +290,8 @@ def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
             for klass in type(current).__mro__
         ):
             return True
+        if _is_mount(current):
+            pending.append(getattr(current, "app", None))
         router = getattr(current, "router", None)
         for route in getattr(router or current, "routes", ()) or ():
             nested = getattr(route, "app", None)
@@ -337,7 +341,7 @@ def _authentication_chain(app: Any) -> bool:  # noqa: ANN401
         seen.add(id(app))
         if _is_authentication_middleware(app):
             return True
-        app = getattr(app, "app", None)
+        app = _wrapped_app(app)
     return False
 
 
@@ -353,6 +357,14 @@ def _authentication_paths(app: Any) -> set[tuple[str, bool]]:  # noqa: ANN401
             found.add((prefix, True))
             return
         nested_ancestors = ancestors | {id(routed)}
+        if _is_mount(routed):
+            path = f"{prefix}{getattr(routed, 'path', '')}"
+            nested = getattr(routed, "app", None)
+            if _authentication_here(nested):
+                found.add((path, True))
+            else:
+                visit(nested, path, nested_ancestors)
+            return
         router = getattr(routed, "router", None)
         for route in getattr(router or routed, "routes", ()) or ():
             included = getattr(route, "original_router", None)

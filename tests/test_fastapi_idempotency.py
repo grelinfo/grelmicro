@@ -38,7 +38,7 @@ from starlette.middleware.base import (
 )
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
-from starlette.routing import Route, Router
+from starlette.routing import Mount, Route, Router
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
@@ -732,6 +732,125 @@ def test_route_or_router_authentication_runs_before_replay(
         alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
         bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
         anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_router_middleware_preserves_bound_route_context() -> None:
+    """A Router's bound endpoint still exposes route-local authentication."""
+    # Arrange
+    route = Route(
+        "/private",
+        _private_identity,
+        methods=["POST"],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    app = Router(
+        routes=[route],
+        middleware=[
+            Middleware(
+                IdempotencyMiddleware,
+                idempotency=Idempotency(
+                    "router-bound-method",
+                    ttl=60,
+                    cache=TTLCache(
+                        backend=MemoryCacheAdapter(),
+                        serializer=JsonSerializer(),
+                    ),
+                ),
+            )
+        ],
+    )
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_direct_mount_preserves_fastapi_dependency_prefix() -> None:
+    """Security discovery keeps a directly wrapped mount's path prefix."""
+    # Arrange
+    app = FastAPI()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key != "expected":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    wrapped = IdempotencyMiddleware(
+        Mount("/api", app=app),
+        idempotency=Idempotency(
+            "direct-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    client = TestClient(wrapped)
+    authorized = client.post(
+        "/api/private", headers={**KEY, "X-API-Key": "expected"}
+    )
+    anonymous = client.post("/api/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_direct_mount_preserves_authentication_prefix() -> None:
+    """A directly wrapped mount retains application-wide authentication."""
+    # Arrange
+    app = Starlette(
+        routes=[Route("/private", _private_identity, methods=["POST"])],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    wrapped = IdempotencyMiddleware(
+        Mount("/api", app=app),
+        idempotency=Idempotency(
+            "direct-authenticated-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    client = TestClient(wrapped)
+    alice = client.post("/api/private", headers={**KEY, "X-API-Key": "alice"})
+    bob = client.post("/api/private", headers={**KEY, "X-API-Key": "bob"})
+    anonymous = client.post("/api/private", headers=KEY)
 
     # Assert
     assert alice.json() == {"user": "alice"}

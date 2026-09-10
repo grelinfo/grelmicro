@@ -12,7 +12,8 @@ MASK = "***"
 
 _USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:/?#]*:)([^/?#]+)(@)")
 _MULTI_HOST_USERINFO_RE = re.compile(
-    r"(\A|://|:/|//|,)([^:,/?#]*:)([^,/?#]+)(@)"
+    r"(\A|://|:/|//|,)([^:,/?#]*:)"
+    r"((?:(?!,[^:,/?#]*:)[^/?#])+)(@)"
 )
 _EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
     {
@@ -41,7 +42,8 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-_QUALIFIER_SEPARATOR = re.compile(r"[.\[\]]")
+_QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
+_FRAGMENT_PARAMETER = re.compile(r"(^|[/&;])([^=/&;]+)=([^/&;]*)")
 
 
 def _is_credential_query_key(key: str) -> bool:
@@ -90,12 +92,23 @@ def _redact_query_values(query: str | None) -> str | None:
     )
 
 
+def _redact_fragment_path(path: str) -> str:
+    """Mask credential assignments embedded in a path-like fragment."""
+
+    def replace(match: re.Match[str]) -> str:
+        if not _is_credential_query_key(match.group(2)):
+            return match.group(0)
+        return f"{match.group(1)}{match.group(2)}={MASK}"
+
+    return _FRAGMENT_PARAMETER.sub(replace, path)
+
+
 def _redact_fragment(fragment: str | None) -> str | None:
     """Redact credential-like parameters carried in a URL fragment."""
     if not fragment:
         return fragment
     path, separator, parameters = fragment.partition("?")
-    safe_path = _redact_query(path)
+    safe_path = _redact_fragment_path(path)
     if separator:
         return f"{safe_path}?{_redact_query(parameters)}"
     return safe_path

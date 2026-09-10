@@ -271,6 +271,7 @@ class TestFailClosed:
         [
             "https://example.test/callback#access_token=TOKENVALUE",
             "https://example.test/#access_token=TOKENVALUE?state=x",
+            "https://example.test/#/callback/token=TOKENVALUE?state=x",
             "collector/path#accessToken=TOKENVALUE",
             "collector/path#/callback?clientSecret=TOKENVALUE",
         ],

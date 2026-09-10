@@ -421,6 +421,66 @@ def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
     )
 
 
+def test_route_middleware_refuses_an_explicit_parent_cache_rule() -> None:
+    """A parent cache cannot answer before route-local authentication."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        identity = (
+            request.user.display_name
+            if request.user.is_authenticated
+            else "anonymous"
+        )
+        return Response(f"{identity}:{calls}")
+
+    app = Starlette(
+        routes=[
+            Route(
+                "/private",
+                private,
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            )
+        ]
+    )
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/private": TTL}),
+        ]
+    )
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.text == "anonymous:3"
+
+
 @pytest.mark.parametrize(
     "configuration",
     ["constructor", "add-middleware", "router"],
