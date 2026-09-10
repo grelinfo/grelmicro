@@ -168,6 +168,37 @@ def test_comma_inside_malformed_multi_host_password_is_redacted() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "postgresql:/u:SECRET1,part:SECRET2@bad host,host2/db",
+            "postgresql:/u:***,part:***@bad host,host2/db",
+        ),
+        (
+            "postgresql:/u:SECRET1,a:b,c:d@bad host",
+            "postgresql:/u:***,a:***,c:***@bad host",
+        ),
+    ],
+)
+def test_ambiguous_multi_host_segments_fail_closed(
+    url: str, expected: str
+) -> None:
+    """Every password-shaped segment is masked when authority syntax is bad."""
+    assert redact_url(url, multi_host=True) == expected
+
+
+def test_unambiguous_multi_host_structure_stays_readable() -> None:
+    """Plain hosts and ports survive a malformed credential on another host."""
+    assert (
+        redact_url(
+            "postgresql:/host1:5432,u:SECRET@bad host/db",
+            multi_host=True,
+        )
+        == "postgresql:/host1:5432,u:***@bad host/db"
+    )
+
+
 def test_credential_before_fragment_question_mark_is_redacted() -> None:
     """A query-shaped fragment prefix cannot expose a credential."""
     assert (
@@ -192,3 +223,35 @@ def test_innocent_fragment_path_assignment_is_preserved() -> None:
         redact_url("https://example.test/#/callback/state=ok?token=SECRET")
         == "https://example.test/#/callback/state=ok?token=***"
     )
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "https://example/#/callback?state=x;token=SECRET",
+            "https://example/#/callback?state=x;token=***",
+        ),
+        (
+            "https://example/?state=x;token=SECRET",
+            "https://example/?state=x;token=***",
+        ),
+        (
+            "https://example/#/callback/access%5Ftoken=SECRET",
+            "https://example/#/callback/access_token=***",
+        ),
+        (
+            "https://example/#/callback;client_secret=SECRET?state=x",
+            "https://example/#/callback;client_secret=***?state=x",
+        ),
+        (
+            "https://example/#/callback/state=readable?result=ok",
+            "https://example/#/callback/state=readable?result=ok",
+        ),
+    ],
+)
+def test_url_assignment_separators_do_not_expose_credentials(
+    url: str, expected: str
+) -> None:
+    """Query and path-like fragment assignments use the same key policy."""
+    assert redact_url(url) == expected

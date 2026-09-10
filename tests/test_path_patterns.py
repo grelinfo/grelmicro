@@ -12,12 +12,15 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from fastapi import FastAPI
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount, Route, Router, compile_path
 
 from grelmicro._paths import (
+    _is_starlette_routing_app,
     _middleware_boundaries,
+    _nested_routing_app,
     matches,
     names_route,
     walk_routes,
@@ -100,6 +103,49 @@ def test_direct_mount_and_bound_router_keep_their_routing_context() -> None:
         (prefix, found.path) for prefix, found, _ in walk_routes(router.app)
     ] == [("", "/items")]
     assert walk_routes(protected) == []
+
+
+def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
+    """Optional route discovery recognizes mounts and rejects unusable leaves."""
+    # Arrange
+    mounted = Mount("/api", app=Router())
+    recursive = SimpleNamespace(routes=None)
+    recursive.app = recursive
+
+    # Act / Assert
+    assert not _is_starlette_routing_app(None)
+    assert _is_starlette_routing_app(mounted)
+    assert _nested_routing_app(recursive) is None
+
+
+def test_route_walker_stops_cycles_per_path_not_globally() -> None:
+    """Cycles stop while repeated mounts retain both distinct prefixes."""
+    # Arrange
+    child = Router(routes=[Route("/items", app)])
+    repeated = Router(
+        routes=[Mount("/one", app=child), Mount("/two", app=child)]
+    )
+    cyclic = FastAPI()
+
+    @cyclic.post("/charge")
+    async def charge() -> dict[str, bool]:
+        return {"charged": True}
+
+    cyclic.mount("/v1", cyclic)
+
+    # Act
+    repeated_paths = [
+        f"{prefix}{route.path}"
+        for prefix, route, _contexts in walk_routes(repeated)
+    ]
+    cyclic_paths = [
+        f"{prefix}{route.path}"
+        for prefix, route, _contexts in walk_routes(cyclic)
+    ]
+
+    # Assert
+    assert repeated_paths == ["/one/items", "/two/items"]
+    assert cyclic_paths.count("/charge") == 1
 
 
 def components() -> list[tuple[str, Any]]:

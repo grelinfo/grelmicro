@@ -223,6 +223,26 @@ def _is_mount(app: Any) -> bool:  # noqa: ANN401
     )
 
 
+def _is_starlette_routing_app(app: Any) -> bool:  # noqa: ANN401
+    """Return whether `app` resolves to a Starlette-compatible router."""
+    routed = _routing_app(app)
+    if routed is None:
+        return False
+    if _is_mount(routed):
+        return True
+    return any(
+        (
+            klass.__module__ == "starlette.applications"
+            and klass.__name__ == "Starlette"
+        )
+        or (
+            klass.__module__ == "starlette.routing"
+            and klass.__name__ == "Router"
+        )
+        for klass in type(routed).__mro__
+    )
+
+
 def _wrapped_app(app: Any) -> Any | None:  # noqa: ANN401
     """Return the application an explicit ASGI wrapper delegates to."""
     if _is_mount(app):
@@ -249,9 +269,15 @@ def _has_configured_middleware(app: Any) -> bool:  # noqa: ANN401
     return stack is not None and endpoint is not None and stack != endpoint
 
 
-def _middleware_boundaries(app: Any) -> set[tuple[str, bool]]:  # noqa: ANN401
+def _middleware_boundaries(
+    app: Any,  # noqa: ANN401
+    *,
+    include_root: bool = False,
+) -> set[tuple[str, bool]]:
     """Return exact or nested paths a parent response cache must not cross."""
     if _wrapped_app(app) is not None:
+        return {("", True)}
+    if include_root and _has_configured_middleware(app):
         return {("", True)}
     found: set[tuple[str, bool]] = set()
     _visit_middleware_boundaries(app, "", frozenset(), found)
@@ -317,6 +343,35 @@ def _visit_boundary_route(
         _visit_boundary_app(nested, path, ancestors, found)
     elif _has_configured_middleware(nested):
         found.add((path, False))
+    else:
+        routed = _nested_routing_app(route)
+        if routed is None:
+            return
+        nested_boundaries: set[tuple[str, bool]] = set()
+        _visit_boundary_app(routed, "", ancestors, nested_boundaries)
+        if nested_boundaries:
+            # A Router used as a Route endpoint receives the outer route's
+            # unchanged scope. Its own path cannot be composed with the
+            # outer one the way a Mount's can, so refuse the exact path.
+            found.add((path, False))
+
+
+def _nested_routing_app(route: Any) -> Any | None:  # noqa: ANN401
+    """Return a routing application used as a leaf route endpoint."""
+    if getattr(route, "routes", None) is not None:
+        return None
+    nested = getattr(route, "app", None)
+    if nested is None:
+        return None
+    routed = _routing_app(nested)
+    if routed is None or routed is route:
+        return None
+    router = getattr(routed, "router", None)
+    return (
+        routed
+        if hasattr(routed, "routes") or hasattr(router, "routes")
+        else None
+    )
 
 
 def _route_source(app: Any, *, unwrap_middleware: bool) -> Any | None:  # noqa: ANN401
@@ -334,6 +389,7 @@ def _route_source(app: Any, *, unwrap_middleware: bool) -> Any | None:  # noqa: 
 def _walk_mounted_routes(
     app: Any,  # noqa: ANN401
     prefix: str,
+    ancestors: frozenset[int],
     *,
     unwrap_middleware: bool,
 ) -> list[tuple[str, Any, tuple[Any, ...]]] | None:
@@ -343,12 +399,72 @@ def _walk_mounted_routes(
     nested = getattr(app, "app", app)
     if not unwrap_middleware and _has_configured_middleware(nested):
         return []
-    return walk_routes(
+    return _walk_routes(
         nested,
         f"{prefix}{getattr(app, 'path', '')}",
         (),
+        ancestors,
         unwrap_middleware=unwrap_middleware,
     )
+
+
+def _walk_routes(
+    app: Any,  # noqa: ANN401
+    prefix: str,
+    contexts: tuple[Any, ...],
+    ancestors: frozenset[int],
+    *,
+    unwrap_middleware: bool,
+) -> list[tuple[str, Any, tuple[Any, ...]]]:
+    """Walk one routing branch while stopping only its own ancestry."""
+    app = _route_source(app, unwrap_middleware=unwrap_middleware)
+    if app is None or id(app) in ancestors:
+        return []
+    nested_ancestors = ancestors | {id(app)}
+    mounted = _walk_mounted_routes(
+        app,
+        prefix,
+        nested_ancestors,
+        unwrap_middleware=unwrap_middleware,
+    )
+    if mounted is not None:
+        return mounted
+    own = getattr(app, "router", None)
+    if own is not None:
+        contexts = (*contexts, own)
+    found: list[tuple[str, Any, tuple[Any, ...]]] = []
+    for route in getattr(app, "routes", ()):
+        context = getattr(route, "include_context", None)
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            found.extend(
+                _walk_routes(
+                    included,
+                    f"{prefix}{getattr(context, 'prefix', '')}",
+                    (*contexts, context, included),
+                    nested_ancestors,
+                    unwrap_middleware=unwrap_middleware,
+                )
+            )
+            continue
+        inner = getattr(route, "routes", None)
+        if inner or (unwrap_middleware and inner is not None):
+            nested = getattr(route, "app", route)
+            if not unwrap_middleware and _has_configured_middleware(nested):
+                continue
+            found.extend(
+                _walk_routes(
+                    nested,
+                    f"{prefix}{getattr(route, 'path', '')}",
+                    (),
+                    nested_ancestors,
+                    unwrap_middleware=unwrap_middleware,
+                )
+            )
+            continue
+        if getattr(route, "path", None) is not None:
+            found.append((prefix, route, contexts))
+    return found
 
 
 def walk_routes(
@@ -380,48 +496,13 @@ def walk_routes(
     mounted app is a boundary too unless the caller explicitly asks to
     inspect through it.
     """
-    app = _route_source(app, unwrap_middleware=unwrap_middleware)
-    if app is None:
-        return []
-    mounted = _walk_mounted_routes(
-        app, prefix, unwrap_middleware=unwrap_middleware
+    return _walk_routes(
+        app,
+        prefix,
+        contexts,
+        frozenset(),
+        unwrap_middleware=unwrap_middleware,
     )
-    if mounted is not None:
-        return mounted
-    own = getattr(app, "router", None)
-    if own is not None:
-        contexts = (*contexts, own)
-    found: list[tuple[str, Any, tuple[Any, ...]]] = []
-    for route in getattr(app, "routes", ()):
-        context = getattr(route, "include_context", None)
-        included = getattr(route, "original_router", None)
-        if included is not None:
-            found.extend(
-                walk_routes(
-                    included,
-                    f"{prefix}{getattr(context, 'prefix', '')}",
-                    (*contexts, context, included),
-                    unwrap_middleware=unwrap_middleware,
-                )
-            )
-            continue
-        inner = getattr(route, "routes", None)
-        if inner or (unwrap_middleware and inner is not None):
-            nested = getattr(route, "app", route)
-            if not unwrap_middleware and _has_configured_middleware(nested):
-                continue
-            found.extend(
-                walk_routes(
-                    nested,
-                    f"{prefix}{getattr(route, 'path', '')}",
-                    (),
-                    unwrap_middleware=unwrap_middleware,
-                )
-            )
-            continue
-        if getattr(route, "path", None) is not None:
-            found.append((prefix, route, contexts))
-    return found
 
 
 def as_patterns(

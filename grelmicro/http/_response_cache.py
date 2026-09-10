@@ -38,7 +38,10 @@ from grelmicro._paths import (
     BARE_STRING_MESSAGE,
     FieldNames,
     PathPatterns,
+    _is_starlette_routing_app,
     _middleware_boundaries,
+    _nested_routing_app,
+    _routing_app,
     as_patterns,
     matches,
     names_route,
@@ -348,6 +351,8 @@ class _Policies:
     def read(
         self,
         app: Annotated[Any, Doc("The application to read the rules off.")],  # noqa: ANN401
+        *,
+        include_root_middleware: bool = False,
     ) -> None:
         """Read every route the app declares that asked to be cached.
 
@@ -359,6 +364,7 @@ class _Policies:
             app,
             tuple(pattern for pattern, _ in self._include),
             self._exclude,
+            include_root_middleware=include_root_middleware,
         )
         self._routes = tuple(found)
         # A route declared with no parameter answers one path, so it is
@@ -473,6 +479,8 @@ def _marked_routes(
     app: Any,  # noqa: ANN401
     named: tuple[str, ...] = (),
     excluded: tuple[str, ...] = (),
+    *,
+    include_root_middleware: bool = False,
 ) -> tuple[
     list[tuple[Pattern[str], float | None]], list[tuple[str, Pattern[str]]]
 ]:
@@ -497,7 +505,7 @@ def _marked_routes(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
-    refused = _middleware_refusals(app)
+    refused = _middleware_refusals(app, include_root=include_root_middleware)
     answered: list[tuple[str, Pattern[str], frozenset[str]]] = []
     for prefix, route, contexts in walk_routes(app):
         above = _declaring_above(contexts)
@@ -518,7 +526,7 @@ def _marked_routes(
             # gated read with no way to keep the rest.
             is_named = named_exactly = False
         refusal = _unreadable(route, contexts, declared)
-        if _gated_read(route, contexts):
+        if _gated_read(route, contexts) or _nested_get_has_dependencies(route):
             # Kept whether a pattern named it or not, so the answer at
             # request time does not depend on how it was named. Only a
             # gated read: a write is already passed through by the
@@ -550,12 +558,16 @@ def _marked_routes(
 
 def _middleware_refusals(
     app: Any,  # noqa: ANN401
+    *,
+    include_root: bool = False,
 ) -> list[tuple[str, Pattern[str]]]:
     """Compile exact and descendant refusals for every middleware boundary."""
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[str, Pattern[str]]] = []
-    for boundary, nested in _middleware_boundaries(app):
+    for boundary, nested in _middleware_boundaries(
+        app, include_root=include_root
+    ):
         exact = boundary or "/"
         exact_pattern, _, _ = compile_path(exact)
         found.append((exact, exact_pattern))
@@ -569,6 +581,43 @@ def _middleware_refusals(
         descendant_pattern, _, _ = compile_path(descendants)
         found.append((descendants, descendant_pattern))
     return found
+
+
+def _nested_get_has_dependencies(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a leaf routing endpoint gates any possible GET."""
+    nested = _nested_routing_app(route)
+    return nested is not None and _routing_dependencies(nested, "GET")
+
+
+def _routing_dependencies(
+    app: Any,  # noqa: ANN401
+    method: str,
+    ancestors: frozenset[int] = frozenset(),
+) -> bool:
+    """Find a dependency below a routing endpoint without composing paths."""
+    routed = _routing_app(app)
+    if routed is None or id(routed) in ancestors:
+        return False
+    nested_ancestors = ancestors | {id(routed)}
+    for _prefix, route, contexts in walk_routes(routed, unwrap_middleware=True):
+        methods = {
+            candidate.upper()
+            for candidate in (getattr(route, "methods", None) or ())
+        }
+        dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
+        has_dependencies = bool(
+            getattr(dependency_tree, "dependencies", ())
+        ) or any(
+            getattr(context, "dependencies", ()) or () for context in contexts
+        )
+        if method in methods and has_dependencies:
+            return True
+        nested = _nested_routing_app(route)
+        if nested is not None and _routing_dependencies(
+            nested, method, nested_ancestors
+        ):
+            return True
+    return False
 
 
 def _inherited(ttl: object, contexts: tuple[Any, ...]) -> object:
@@ -1070,36 +1119,34 @@ class CachedResponsesMiddleware:
         self._tag = tag
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
-        self._live = (
-            live
-            if live is not None
-            else Live(
-                _state_of(
-                    build_config(
-                        CachedResponsesConfig,
-                        ttl=ttl,
-                        include=include or (),
-                        exclude=as_patterns(exclude, name="exclude"),
-                        vary_by_headers=as_patterns(
-                            vary_by_headers, name="vary_by_headers"
-                        ),
-                        vary_by_query=(
-                            None
-                            if vary_by_query is None
-                            else as_patterns(
-                                vary_by_query, name="vary_by_query"
-                            )
-                        ),
-                        max_body_size=max_body_size,
-                    ),
-                    policies
-                    if policies is not None
-                    else _Policies(
-                        include or {}, as_patterns(exclude, name="exclude")
-                    ),
+        if live is not None:
+            self._live = live
+        else:
+            config = build_config(
+                CachedResponsesConfig,
+                ttl=ttl,
+                include=include or (),
+                exclude=as_patterns(exclude, name="exclude"),
+                vary_by_headers=as_patterns(
+                    vary_by_headers, name="vary_by_headers"
+                ),
+                vary_by_query=(
+                    None
+                    if vary_by_query is None
+                    else as_patterns(vary_by_query, name="vary_by_query")
+                ),
+                max_body_size=max_body_size,
+            )
+            owned_policies = (
+                policies
+                if policies is not None
+                else _Policies(
+                    include or {}, as_patterns(exclude, name="exclude")
                 )
             )
-        )
+            if _is_starlette_routing_app(app):
+                owned_policies.read(app, include_root_middleware=True)
+            self._live = Live(_state_of(config, owned_policies))
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()

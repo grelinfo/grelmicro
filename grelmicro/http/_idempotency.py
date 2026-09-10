@@ -38,6 +38,7 @@ from grelmicro._paths import (
     MethodNames,
     PathPatterns,
     _is_mount,
+    _nested_routing_app,
     _routing_app,
     _wrapped_app,
     as_patterns,
@@ -202,7 +203,7 @@ class _GatedRoutes:
         self._authenticated: tuple[re.Pattern[str], ...] = ()
         self._routes: tuple[tuple[re.Pattern[str], frozenset[str]], ...] = ()
 
-    def read(self, *apps: Any) -> None:  # noqa: ANN401
+    def read(self, *apps: Any) -> None:  # noqa: ANN401, C901
         """Read dependency-bearing and authenticated routes from the apps."""
         self._apps = apps
         roots: list[Any] = []
@@ -238,14 +239,24 @@ class _GatedRoutes:
             for prefix, route, contexts in walk_routes(
                 root, unwrap_middleware=True
             ):
-                if not _has_dependencies(route, contexts):
-                    continue
                 compiled, _, _ = compile_path(f"{prefix}{route.path}")
                 methods = frozenset(
                     method.upper()
                     for method in (getattr(route, "methods", None) or ())
                 )
-                found.append((compiled, methods))
+                if _has_dependencies(route, contexts):
+                    found.append((compiled, methods))
+                leaf = _nested_routing_app(route)
+                if leaf is None:
+                    continue
+                nested_methods = _dependency_methods(
+                    leaf, frozenset({id(root)})
+                )
+                if nested_methods:
+                    # A Router used as a Route endpoint keeps the outer
+                    # route's exact match. Its inner paths cannot be safely
+                    # composed onto that path, so gate the exact outer route.
+                    found.append((compiled, nested_methods))
         self._routes = tuple(found)
 
     def matches(self, scope: Scope) -> bool:
@@ -345,25 +356,32 @@ def _authentication_chain(app: Any) -> bool:  # noqa: ANN401
     return False
 
 
-def _authentication_paths(app: Any) -> set[tuple[str, bool]]:  # noqa: ANN401
+def _authentication_paths(  # noqa: C901
+    app: Any,  # noqa: ANN401
+) -> set[tuple[str, bool]]:
     """Return exact or nested paths protected by Starlette authentication."""
     found: set[tuple[str, bool]] = set()
 
-    def visit(current: Any, prefix: str, ancestors: frozenset[int]) -> None:  # noqa: ANN401
+    def visit(  # noqa: C901
+        current: Any,  # noqa: ANN401
+        prefix: str,
+        ancestors: frozenset[int],
+        target: set[tuple[str, bool]],
+    ) -> None:
         routed = _routing_app(current)
         if routed is None or id(routed) in ancestors:
             return
         if _authentication_here(current):
-            found.add((prefix, True))
+            target.add((prefix, True))
             return
         nested_ancestors = ancestors | {id(routed)}
         if _is_mount(routed):
             path = f"{prefix}{getattr(routed, 'path', '')}"
             nested = getattr(routed, "app", None)
             if _authentication_here(nested):
-                found.add((path, True))
+                target.add((path, True))
             else:
-                visit(nested, path, nested_ancestors)
+                visit(nested, path, nested_ancestors, target)
             return
         router = getattr(routed, "router", None)
         for route in getattr(router or routed, "routes", ()) or ():
@@ -374,17 +392,29 @@ def _authentication_paths(app: Any) -> set[tuple[str, bool]]:  # noqa: ANN401
                     included,
                     f"{prefix}{getattr(context, 'prefix', '')}",
                     nested_ancestors,
+                    target,
                 )
                 continue
             path = f"{prefix}{getattr(route, 'path', '')}"
             nested = getattr(route, "app", None)
             if _authentication_here(nested):
-                found.add((path, getattr(route, "routes", None) is not None))
+                target.add((path, getattr(route, "routes", None) is not None))
                 continue
             if getattr(route, "routes", None) is not None:
-                visit(nested, path, nested_ancestors)
+                visit(nested, path, nested_ancestors, target)
+                continue
+            leaf = _nested_routing_app(route)
+            if leaf is None:
+                continue
+            nested_found: set[tuple[str, bool]] = set()
+            visit(leaf, "", nested_ancestors, nested_found)
+            if nested_found:
+                # A leaf router receives the unchanged outer scope, unlike
+                # a Mount. Its protected inner paths therefore collapse to
+                # the exact path matched by the outer Route.
+                target.add((path, False))
 
-    visit(app, "", frozenset())
+    visit(app, "", frozenset(), found)
     return found
 
 
@@ -396,6 +426,28 @@ def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: A
     return any(
         getattr(context, "dependencies", ()) or () for context in contexts
     )
+
+
+def _dependency_methods(
+    app: Any,  # noqa: ANN401
+    ancestors: frozenset[int] = frozenset(),
+) -> frozenset[str]:
+    """Return methods gated by dependencies below a leaf routing endpoint."""
+    routed = _routing_app(app)
+    if routed is None or id(routed) in ancestors:
+        return frozenset()
+    nested_ancestors = ancestors | {id(routed)}
+    found: set[str] = set()
+    for _prefix, route, contexts in walk_routes(routed, unwrap_middleware=True):
+        if _has_dependencies(route, contexts):
+            found.update(
+                method.upper()
+                for method in (getattr(route, "methods", None) or ())
+            )
+        nested = _nested_routing_app(route)
+        if nested is not None:
+            found.update(_dependency_methods(nested, nested_ancestors))
+    return frozenset(found)
 
 
 def _field_name(value: str, argument: str, example: str) -> str:

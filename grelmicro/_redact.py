@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, quote_plus, unquote_plus, urlencode
 
 from pydantic_core import MultiHostUrl, Url
 
@@ -14,6 +14,9 @@ _USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:/?#]*:)([^/?#]+)(@)")
 _MULTI_HOST_USERINFO_RE = re.compile(
     r"(\A|://|:/|//|,)([^:,/?#]*:)"
     r"((?:(?!,[^:,/?#]*:)[^/?#])+)(@)"
+)
+_AMBIGUOUS_MULTI_HOST_USERINFO_RE = re.compile(
+    r"(\A|://|:/|//|,)([^:,/?#]*:)([^,/@?#]+)(?=,[^/?#]*@)"
 )
 _EXACT_CREDENTIAL_QUERY_KEYS = frozenset(
     {
@@ -43,11 +46,13 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
 )
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
-_FRAGMENT_PARAMETER = re.compile(r"(^|[/&;])([^=/&;]+)=([^/&;]*)")
+_QUERY_PARAMETER = re.compile(r"(^|[?&;])([^=?&;]+)(=)?([^?&;]*)")
+_FRAGMENT_PARAMETER = re.compile(r"(^|[/&;])([^=/&;]+)=([^/?&;]*)")
 
 
 def _is_credential_query_key(key: str) -> bool:
     """Return whether `key` conventionally names credential material."""
+    key = unquote_plus(key)
     lowered = key.lower()
     normalized = _QUALIFIER_SEPARATOR.sub(
         "_", _CAMEL_CASE_BOUNDARY.sub("_", key)
@@ -67,16 +72,24 @@ def _redact_query(query: str | None) -> str | None:
     """
     if not query:
         return query
-    pairs = parse_qsl(query, keep_blank_values=True)
-    if not any(_is_credential_query_key(key) for key, _value in pairs):
+
+    matches = list(_QUERY_PARAMETER.finditer(query))
+    if not any(_is_credential_query_key(match.group(2)) for match in matches):
         return query
-    redacted_pairs = [
-        (key, MASK if _is_credential_query_key(key) else value)
-        for key, value in pairs
-    ]
-    # `safe="*"` keeps the `***` marker readable; other values are
-    # properly escaped by `urlencode`.
-    return urlencode(redacted_pairs, safe="*")
+
+    def replace(match: re.Match[str]) -> str:
+        key = unquote_plus(match.group(2))
+        value = (
+            MASK
+            if _is_credential_query_key(key)
+            else unquote_plus(match.group(4))
+        )
+        return (
+            f"{match.group(1)}{quote_plus(key, safe='*')}="
+            f"{quote_plus(value, safe='*')}"
+        )
+
+    return _QUERY_PARAMETER.sub(replace, query)
 
 
 def _redact_query_values(query: str | None) -> str | None:
@@ -98,7 +111,7 @@ def _redact_fragment_path(path: str) -> str:
     def replace(match: re.Match[str]) -> str:
         if not _is_credential_query_key(match.group(2)):
             return match.group(0)
-        return f"{match.group(1)}{match.group(2)}={MASK}"
+        return f"{match.group(1)}{unquote_plus(match.group(2))}={MASK}"
 
     return _FRAGMENT_PARAMETER.sub(replace, path)
 
@@ -124,6 +137,10 @@ def _redact_unparsed_url(url: str, *, multi_host: bool = False) -> str:
     redacted = _userinfo_pattern(multi_host=multi_host).sub(
         rf"\1\2{MASK}\4", url
     )
+    if multi_host:
+        redacted = _AMBIGUOUS_MULTI_HOST_USERINFO_RE.sub(
+            _redact_ambiguous_multi_host_userinfo, redacted
+        )
     before_fragment, fragment_separator, fragment = redacted.partition("#")
     before_query, query_separator, query = before_fragment.partition("?")
     safe_query = _redact_query(query)
@@ -132,6 +149,15 @@ def _redact_unparsed_url(url: str, *, multi_host: bool = False) -> str:
         f"{before_query}{query_separator}{safe_query}"
         f"{fragment_separator}{safe_fragment}"
     )
+
+
+def _redact_ambiguous_multi_host_userinfo(match: re.Match[str]) -> str:
+    """Mask a malformed authority segment that could be password material."""
+    candidate = match.group(3)
+    if candidate.isdecimal():
+        # In multi-host syntax this is the unambiguous host:port form.
+        return match.group(0)
+    return f"{match.group(1)}{match.group(2)}{MASK}"
 
 
 def _redact_single_host(parsed: Url) -> str | None:

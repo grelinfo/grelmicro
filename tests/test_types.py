@@ -230,6 +230,32 @@ class TestFailClosed:
         assert "hunter2" not in repr(model)
         assert "sensitive" not in repr(model)
 
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (
+                "https://example/#/callback?state=x;token=SECRET",
+                "https://example/#/callback?state=x;token=***",
+            ),
+            (
+                "https://example/?state=x;token=SECRET",
+                "https://example/?state=x;token=***",
+            ),
+            (
+                "https://example/#/callback/access%5Ftoken=SECRET",
+                "https://example/#/callback/access_token=***",
+            ),
+        ],
+    )
+    def test_string_url_assignment_variants_are_redacted(
+        self, value: str, expected: str
+    ) -> None:
+        """String endpoints mask separator and encoded credential variants."""
+        model = Model(text=value)
+
+        assert str(model.text) == expected
+        assert "SECRET" not in repr(model.text)
+
     def test_protocol_relative_userinfo_and_query_are_both_redacted(
         self,
     ) -> None:

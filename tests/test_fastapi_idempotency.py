@@ -57,6 +57,7 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.errors import DependencyNotFoundError, OutOfContextError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
+from grelmicro.http._idempotency import _dependency_methods
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.fastapi import document_idempotency
@@ -741,6 +742,135 @@ def test_route_or_router_authentication_runs_before_replay(
     assert "idempotent-replayed" not in anonymous.headers
 
 
+def test_leaf_router_authentication_runs_before_replay() -> None:
+    """A Router used as a Route endpoint cannot hide authentication."""
+    # Arrange
+    inner = Router(
+        routes=[
+            Route(
+                "/private",
+                _private_identity,
+                methods=["POST"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=_HeaderAuthentication(),
+                    )
+                ],
+            )
+        ]
+    )
+    middle = Router(routes=[Route("/private", inner)])
+    app = Router(routes=[Route("/private", middle)])
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "leaf-router-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_leaf_fastapi_dependency_runs_before_replay() -> None:
+    """A FastAPI router used as a Route endpoint cannot hide a dependency."""
+    # Arrange
+    inner = FastAPI()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> str:
+        if x_api_key is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+        return x_api_key
+
+    @inner.post("/private", dependencies=[Depends(authenticate)])
+    async def private(request: Request) -> dict[str, str]:
+        return {"user": request.headers["x-api-key"]}
+
+    middle = Router(routes=[Route("/private", inner)])
+    app = Router(routes=[Route("/private", middle)])
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "leaf-fastapi-dependency",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_public_leaf_router_remains_replayable() -> None:
+    """A leaf router without a gate still uses default idempotency."""
+    # Arrange
+    calls = 0
+
+    async def public(_request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"call": calls})
+
+    inner = FastAPI()
+    inner.add_api_route("/charge", public, methods=["POST"])
+    app = Router(
+        routes=[
+            Route("/charge", inner),
+            Route("/other", public, methods=["POST"]),
+        ]
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "public-leaf-router",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        first = client.post("/charge", headers=KEY)
+        replayed = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == replayed.json() == {"call": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+    assert calls == 1
+    assert _dependency_methods(None) == frozenset()
+
+
 def test_router_middleware_preserves_bound_route_context() -> None:
     """A Router's bound endpoint still exposes route-local authentication."""
     # Arrange
@@ -858,6 +988,40 @@ def test_direct_mount_preserves_authentication_prefix() -> None:
     assert anonymous.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in bob.headers
     assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_self_mount_does_not_break_default_idempotency_discovery() -> None:
+    """A cyclic mount stops discovery without disabling ordinary replay."""
+    # Arrange
+    calls = 0
+    app = FastAPI()
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    app.mount("/v1", app)
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "cyclic-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers=KEY)
+        replayed = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == replayed.json() == {"call": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
 
 
 def test_middleware_replay_never_skips_api_key_security() -> None:

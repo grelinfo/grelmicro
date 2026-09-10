@@ -38,6 +38,7 @@ from grelmicro.http._response_cache import (
     _UNSTORABLE_LIMIT,
     _WARNED_LIMIT,
     _declared_schemes,
+    _routing_dependencies,
     declare_cached,
 )
 from grelmicro.integrations.fastapi import CachedResponse
@@ -54,6 +55,7 @@ pytestmark = [pytest.mark.timeout(5)]
 
 HTTP_200_OK = 200
 HTTP_304_NOT_MODIFIED = 304
+HTTP_401_UNAUTHORIZED = 401
 HTTP_404_NOT_FOUND = 404
 TTL = 60.0
 BIG = 2048
@@ -479,6 +481,187 @@ def test_route_middleware_refuses_an_explicit_parent_cache_rule() -> None:
     assert alice.text == "alice:1"
     assert bob.text == "bob:2"
     assert anonymous.text == "anonymous:3"
+
+
+def test_hand_wired_cache_reads_inner_application_middleware() -> None:
+    """Direct wrapping cannot answer before the app authenticates a caller."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    app = Starlette(
+        routes=[Route("/private", private)],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=HeaderAuthentication(),
+            )
+        ],
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+def test_leaf_router_authentication_is_an_exact_cache_boundary() -> None:
+    """A Router used as a Route endpoint cannot hide route authentication."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    inner = Router(
+        routes=[
+            Route(
+                "/private",
+                private,
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            )
+        ]
+    )
+    app = Router(routes=[Route("/private", inner)])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+def test_leaf_fastapi_dependency_is_an_exact_cache_boundary() -> None:
+    """A leaf FastAPI router cannot hide a dependency from a parent cache."""
+    # Arrange
+    calls = 0
+    inner = FastAPI()
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            from fastapi import HTTPException  # noqa: PLC0415
+
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @inner.get("/private", dependencies=[Depends(authenticate)])
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(f"{request.headers['x-api-key']}:{calls}")
+
+    middle = Router(routes=[Route("/private", inner)])
+    app = Router(routes=[Route("/private", middle)])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+def test_public_leaf_router_remains_cacheable() -> None:
+    """Only a protected leaf router makes its exact outer route a boundary."""
+    # Arrange
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    inner = FastAPI()
+    inner.add_api_route("/public", public, methods=["GET"])
+    app = Router(routes=[Route("/public", inner)])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/public": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    # Assert
+    assert first.text == replayed.text == "1"
+    assert "age" in replayed.headers
+    assert calls == 1
+    assert not _routing_dependencies(None, "GET")
 
 
 @pytest.mark.parametrize(
