@@ -40,7 +40,7 @@ from grelmicro._paths import (
     PathPatterns,
     _bound_router,
     _effective_dependency_call,
-    _inherited_dependency_overrides_provider,
+    _inherited_dependency_overrides_context,
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
@@ -764,19 +764,23 @@ def _has_non_cache_dependencies(
 ) -> bool:
     """Return whether FastAPI resolves anything besides the cache marker."""
     declared = getattr(route, "dependant", None)  # codespell:ignore
-    route_provider = _inherited_dependency_overrides_provider(route, contexts)
+    route_provider, provider_is_authoritative = (
+        _inherited_dependency_overrides_context(route, contexts)
+    )
     pending = [
-        (dependency, route_provider)
+        (dependency, route_provider, provider_is_authoritative)
         for dependency in getattr(declared, "dependencies", ()) or ()
     ]
     seen: set[int] = set()
     while pending:
-        dependency, provider = pending.pop()
+        dependency, provider, authoritative = pending.pop()
         if id(dependency) in seen:
             continue
         seen.add(id(dependency))
         call, effective, dependency_provider = _effective_dependency_call(
-            dependency, provider
+            dependency,
+            provider,
+            provider_is_authoritative=authoritative,
         )
         if (
             getattr(call, _MARKER, _UNMARKED) is _UNMARKED
@@ -784,13 +788,15 @@ def _has_non_cache_dependencies(
         ):
             return True
         pending.extend(
-            (child, dependency_provider)
+            (child, dependency_provider, authoritative)
             for child in getattr(dependency, "dependencies", ()) or ()
         )
     for context in contexts:
         for dependency in getattr(context, "dependencies", ()) or ():
             call, effective, _ = _effective_dependency_call(
-                dependency, route_provider
+                dependency,
+                route_provider,
+                provider_is_authoritative=provider_is_authoritative,
             )
             if (
                 getattr(call, _MARKER, _UNMARKED) is _UNMARKED

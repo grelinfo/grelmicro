@@ -1142,7 +1142,7 @@ def _default_storage_key(
     *,
     include_query: bool = True,
 ) -> str:
-    """Build an injective default key from the complete public request scope."""
+    """Build a fixed-size digest of the complete public request scope."""
     query_present = include_query and "query_string" in scope
     query = scope.get("query_string") if query_present else None
     fields = (
@@ -1162,7 +1162,8 @@ def _default_storage_key(
         _encoded_key_field("query", query),
         _encoded_key_field("client_key", key),
     )
-    return "|".join(fields)
+    material = "|".join(fields).encode("ascii")
+    return f"{_DEFAULT_KEY_VERSION}:{hashlib.sha256(material).hexdigest()}"
 
 
 _UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")

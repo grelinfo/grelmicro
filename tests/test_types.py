@@ -331,6 +331,30 @@ class TestFailClosed:
         assert "FIRST" not in model.model_dump_json()
         assert "SECOND" not in model.model_dump_json()
 
+    @pytest.mark.parametrize(
+        ("value", "secret"),
+        [
+            (
+                "https://example.test/#state=ok%3Faccess_token=FRAGMENT_SECRET",
+                "FRAGMENT_SECRET",
+            ),
+            (
+                "https://example.test/?redirect=callback%3Faccess_token=QUERY_SECRET",
+                "QUERY_SECRET",
+            ),
+        ],
+    )
+    def test_encoded_question_mark_credentials_are_hidden_everywhere(
+        self, value: str, secret: str
+    ) -> None:
+        """Nested redirect credentials stay out of every display sink."""
+        model = Model(text=value)
+
+        assert secret not in str(model.text)
+        assert secret not in repr(model)
+        assert secret not in repr(model.model_dump())
+        assert secret not in model.model_dump_json()
+
     def test_protocol_relative_userinfo_and_query_are_both_redacted(
         self,
     ) -> None:

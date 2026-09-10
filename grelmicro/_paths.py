@@ -637,6 +637,8 @@ def _dependency_topology(
     dependency: Any,  # noqa: ANN401
     provider: Any = None,  # noqa: ANN401
     ancestors: frozenset[int] = frozenset(),
+    *,
+    provider_is_authoritative: bool = False,
 ) -> tuple[Any, ...]:
     """Return the identity and descendants of one resolved dependency."""
     if dependency is None:
@@ -644,12 +646,21 @@ def _dependency_topology(
     if id(dependency) in ancestors:
         return ("cycle", id(dependency))
     nested_ancestors = ancestors | {id(dependency)}
-    call, effective, provider = _effective_dependency_call(dependency, provider)
+    call, effective, provider = _effective_dependency_call(
+        dependency,
+        provider,
+        provider_is_authoritative=provider_is_authoritative,
+    )
     return (
         id(dependency),
         id(call),
         tuple(
-            _dependency_topology(child, provider, nested_ancestors)
+            _dependency_topology(
+                child,
+                provider,
+                nested_ancestors,
+                provider_is_authoritative=provider_is_authoritative,
+            )
             for child in getattr(dependency, "dependencies", ()) or ()
         ),
         id(effective),
@@ -673,15 +684,54 @@ def _dependency_overrides_provider(
     return inherited if provider is None else provider
 
 
-def _inherited_dependency_overrides_provider(
+def _is_router_include_context(holder: Any) -> bool:  # noqa: ANN401
+    """Return whether `holder` is FastAPI's router inclusion context."""
+    klass = type(holder)
+    return (
+        klass.__module__ == "fastapi.routing"
+        and klass.__name__ == "_RouterIncludeContext"
+    )
+
+
+def _dependency_overrides_context(
+    holder: Any,  # noqa: ANN401
+    inherited: Any = None,  # noqa: ANN401
+    *,
+    authoritative: bool = False,
+) -> tuple[Any, bool]:
+    """Return the effective provider and whether an outer include owns it.
+
+    FastAPI combines nested router inclusion contexts by retaining the
+    outer context's provider, including when that provider is `None`.
+    Once such a context is reached, the original router and route below
+    it cannot replace the provider.
+    """
+    if authoritative:
+        return inherited, True
+    return (
+        _dependency_overrides_provider(holder, inherited),
+        _is_router_include_context(holder),
+    )
+
+
+def _inherited_dependency_overrides_context(
     holder: Any,  # noqa: ANN401
     contexts: tuple[Any, ...],
-) -> Any:  # noqa: ANN401
-    """Return the nearest override provider inherited by one route."""
+) -> tuple[Any, bool]:
+    """Return the provider state inherited by one included route."""
     provider = None
+    authoritative = False
     for context in contexts:
-        provider = _dependency_overrides_provider(context, provider)
-    return _dependency_overrides_provider(holder, provider)
+        provider, authoritative = _dependency_overrides_context(
+            context,
+            provider,
+            authoritative=authoritative,
+        )
+    return _dependency_overrides_context(
+        holder,
+        provider,
+        authoritative=authoritative,
+    )
 
 
 def _dependency_overrides_topology(
@@ -702,9 +752,15 @@ def _dependency_overrides_topology(
 def _effective_dependency_call(
     dependency: Any,  # noqa: ANN401
     provider: Any = None,  # noqa: ANN401
+    *,
+    provider_is_authoritative: bool = False,
 ) -> tuple[Any, Any, Any]:
     """Return a dependency's declared call, effective call, and provider."""
-    provider = _dependency_overrides_provider(dependency, provider)
+    provider, _authoritative = _dependency_overrides_context(
+        dependency,
+        provider,
+        authoritative=provider_is_authoritative,
+    )
     call = _dependency_callable(dependency)
     overrides = getattr(provider, "dependency_overrides", None)
     if overrides is None:
@@ -716,13 +772,21 @@ def _effective_dependency_call(
 def _declared_dependency_topology(
     holder: Any,  # noqa: ANN401
     inherited_provider: Any = None,  # noqa: ANN401
+    *,
+    provider_is_authoritative: bool = False,
 ) -> tuple[Any, ...]:
     """Return a holder's provider and directly declared dependencies."""
-    provider = _dependency_overrides_provider(holder, inherited_provider)
+    provider, authoritative = _dependency_overrides_context(
+        holder,
+        inherited_provider,
+        authoritative=provider_is_authoritative,
+    )
     found: list[tuple[Any, ...]] = []
     for dependency in getattr(holder, "dependencies", ()) or ():
         call, effective, dependency_provider = _effective_dependency_call(
-            dependency, provider
+            dependency,
+            provider,
+            provider_is_authoritative=authoritative,
         )
         found.append(
             (
@@ -758,6 +822,8 @@ def _route_topology_node(  # noqa: PLR0911
     current: Any,  # noqa: ANN401
     ancestors: frozenset[int],
     provider: Any = None,  # noqa: ANN401
+    *,
+    provider_is_authoritative: bool = False,
 ) -> tuple[Any, ...]:
     """Return a cycle-safe snapshot of one routing branch."""
     if current is None:
@@ -771,14 +837,31 @@ def _route_topology_node(  # noqa: PLR0911
     included = getattr(current, "original_router", None)
     if included is not None:
         context = getattr(current, "include_context", None)
-        provider = _dependency_overrides_provider(current, provider)
-        context_provider = _dependency_overrides_provider(context, provider)
+        provider, authoritative = _dependency_overrides_context(
+            current,
+            provider,
+            authoritative=provider_is_authoritative,
+        )
+        context_provider, context_authoritative = _dependency_overrides_context(
+            context,
+            provider,
+            authoritative=authoritative,
+        )
         return (
             "include",
             id(current),
             getattr(context, "prefix", ""),
-            _declared_dependency_topology(context, provider),
-            _route_topology_node(included, nested_ancestors, context_provider),
+            _declared_dependency_topology(
+                context,
+                provider,
+                provider_is_authoritative=authoritative,
+            ),
+            _route_topology_node(
+                included,
+                nested_ancestors,
+                context_provider,
+                provider_is_authoritative=context_authoritative,
+            ),
         )
     if _is_mount(current):
         return (
@@ -791,16 +874,27 @@ def _route_topology_node(  # noqa: PLR0911
         )
     if _is_route(current):
         dependency = getattr(current, "dependant", None)  # codespell:ignore
-        provider = _dependency_overrides_provider(current, provider)
+        provider, authoritative = _dependency_overrides_context(
+            current,
+            provider,
+            authoritative=provider_is_authoritative,
+        )
         return (
             "route",
             id(current),
             getattr(current, "path", ""),
             tuple(sorted(getattr(current, "methods", None) or ())),
             _dependency_overrides_topology(provider),
-            _dependency_topology(dependency, provider),
+            _dependency_topology(
+                dependency,
+                provider,
+                provider_is_authoritative=authoritative,
+            ),
             _route_topology_node(
-                getattr(current, "app", None), nested_ancestors, provider
+                getattr(current, "app", None),
+                nested_ancestors,
+                provider,
+                provider_is_authoritative=authoritative,
             ),
         )
     nested = _wrapped_app(current)
@@ -809,12 +903,25 @@ def _route_topology_node(  # noqa: PLR0911
             "wrapper",
             id(current),
             type(current),
-            _route_topology_node(nested, nested_ancestors, provider),
+            _route_topology_node(
+                nested,
+                nested_ancestors,
+                provider,
+                provider_is_authoritative=provider_is_authoritative,
+            ),
         )
     router = getattr(current, "router", None)
     routed = router or current
-    current_provider = _dependency_overrides_provider(current, provider)
-    routed_provider = _dependency_overrides_provider(routed, current_provider)
+    current_provider, current_authoritative = _dependency_overrides_context(
+        current,
+        provider,
+        authoritative=provider_is_authoritative,
+    )
+    routed_provider, routed_authoritative = _dependency_overrides_context(
+        routed,
+        current_provider,
+        authoritative=current_authoritative,
+    )
     routes = getattr(routed, "routes", None)
     if routes is None:
         return ("opaque", id(current), type(current))
@@ -824,10 +931,23 @@ def _route_topology_node(  # noqa: PLR0911
         id(routed),
         _middleware_topology(current),
         _middleware_topology(routed),
-        _declared_dependency_topology(current, provider),
-        _declared_dependency_topology(routed, current_provider),
+        _declared_dependency_topology(
+            current,
+            provider,
+            provider_is_authoritative=provider_is_authoritative,
+        ),
+        _declared_dependency_topology(
+            routed,
+            current_provider,
+            provider_is_authoritative=current_authoritative,
+        ),
         tuple(
-            _route_topology_node(route, nested_ancestors, routed_provider)
+            _route_topology_node(
+                route,
+                nested_ancestors,
+                routed_provider,
+                provider_is_authoritative=routed_authoritative,
+            )
             for route in routes or ()
         ),
     )

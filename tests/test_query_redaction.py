@@ -152,6 +152,51 @@ def test_embedded_credential_masks_its_ambiguous_encoded_continuation() -> None:
     ("url", "expected"),
     [
         (
+            "https://example.test/#state=ok%3Faccess_token=FRAGMENT_SECRET",
+            "https://example.test/#state=ok%3Faccess_token=***",
+        ),
+        (
+            "https://example.test/?redirect=callback%3Faccess_token=QUERY_SECRET",
+            "https://example.test/?redirect=callback%3Faccess_token=***",
+        ),
+        (
+            "https://example.test/?redirect=callback%3faccess_token=QUERY_SECRET",
+            "https://example.test/?redirect=callback%3faccess_token=***",
+        ),
+        (
+            (
+                "https://example.test/?redirect=callback%3Fstate=ok"
+                "%26access_token=QUERY_SECRET&visible=yes"
+            ),
+            (
+                "https://example.test/?redirect=callback%3Fstate=ok"
+                "%26access_token=***&visible=yes"
+            ),
+        ),
+        (
+            (
+                "https://example.test/#state=ok%3Fcontinue"
+                "%2Fnext%3Btoken=FRAGMENT_SECRET"
+            ),
+            "https://example.test/#state=ok%3Fcontinue%2Fnext%3Btoken=***",
+        ),
+        (
+            "https://example.test/?redirect=callback%3Fstate=ok",
+            "https://example.test/?redirect=callback%3Fstate=ok",
+        ),
+    ],
+)
+def test_encoded_question_marks_start_nested_parameters(
+    url: str, expected: str
+) -> None:
+    """Every encoded boundary is scanned without shortening secret values."""
+    assert redact_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
             "postgresql://[::1]:5432,user:pw@db.example:5433/app",
             "postgresql://[::1]:5432,user:***@db.example:5433/app",
         ),

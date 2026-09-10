@@ -109,6 +109,20 @@ async def _prefixed_identity_override(request: Request) -> None:
     request.state.identity = f"changed:{request.state.identity}"
 
 
+async def _who_override(request: Request) -> None:
+    """Authenticate an overridden cache marker through `X-Who`."""
+    identity = request.headers.get("x-who")
+    if identity is None:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+    request.state.identity = identity
+
+
+async def _prefixed_who_override(request: Request) -> None:
+    """Authenticate through a distinct `X-Who` override callable."""
+    await _who_override(request)
+    request.state.identity = f"changed:{request.state.identity}"
+
+
 class _RoutingProxy:
     """ASGI middleware exposing the routes of the application it wraps."""
 
@@ -1480,6 +1494,136 @@ def test_included_cache_marker_override_changes_refresh_public_policy(
     assert "age" not in changed.headers
     assert removed.json() == {"user": "public", "calls": 1}
     assert removed.headers["age"] == "0"
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_included_fastapi_uses_outer_override_provider(wiring: str) -> None:
+    """A parent app override wins over the child app's conflicting provider."""
+    child = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @child.get("/private", dependencies=[marker])
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    child.dependency_overrides[marker.dependency] = marker.dependency
+    app = FastAPI()
+    app.include_router(child.router)
+    app.dependency_overrides[marker.dependency] = _who_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/private", headers={"X-Who": "alice"})
+        bob = client.get("/private", headers={"X-Who": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_included_fastapi_outer_override_changes_refresh_policy(
+    wiring: str,
+) -> None:
+    """Outer override mutation and removal preserve a public child marker."""
+    child = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @child.get("/identity", dependencies=[marker])
+    async def identity(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": getattr(request.state, "identity", "public"),
+            "calls": calls,
+        }
+
+    child.dependency_overrides[marker.dependency] = _identity_override
+    app = FastAPI()
+    app.include_router(child.router)
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        public = client.get("/identity")
+        public_hit = client.get("/identity")
+
+        app.dependency_overrides[marker.dependency] = _who_override
+        alice = client.get("/identity", headers={"X-Who": "alice"})
+        bob = client.get("/identity", headers={"X-Who": "bob"})
+
+        app.dependency_overrides = {marker.dependency: _prefixed_who_override}
+        changed = client.get("/identity", headers={"X-Who": "alice"})
+
+        app.dependency_overrides.clear()
+        removed = client.get("/identity")
+
+    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
+    assert public_hit.headers["age"] == "0"
+    assert alice.json() == {"user": "alice", "calls": 2}
+    assert bob.json() == {"user": "bob", "calls": 3}
+    assert "age" not in alice.headers
+    assert "age" not in bob.headers
+    assert changed.json() == {"user": "changed:alice", "calls": 4}
+    assert "age" not in changed.headers
+    assert removed.json() == {"user": "public", "calls": 1}
+    assert removed.headers["age"] == "0"
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_nested_included_fastapi_keeps_outer_override_provider(
+    wiring: str,
+) -> None:
+    """Nested child providers cannot replace the outer inclusion provider."""
+    grandchild = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @grandchild.get("/private", dependencies=[marker])
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    grandchild.dependency_overrides[marker.dependency] = marker.dependency
+    child = FastAPI()
+    child.include_router(grandchild.router, prefix="/nested")
+    child.dependency_overrides[marker.dependency] = marker.dependency
+    app = FastAPI()
+    app.include_router(child.router, prefix="/api")
+    app.dependency_overrides[marker.dependency] = _who_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/api/nested/private", headers={"X-Who": "alice"})
+        bob = client.get("/api/nested/private", headers={"X-Who": "bob"})
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert "age" not in alice.headers
+    assert "age" not in bob.headers
 
 
 def test_multiple_nested_includes_keep_private_and_public_policies() -> None:

@@ -225,7 +225,11 @@ stores separate entries. Equivalent authority spellings, such as host-name
 case or an explicit default port, still identify the same public resource.
 The fields use a typed, length-delimited encoding, so a decoded path or raw
 query containing control characters cannot move a value across field
-boundaries.
+boundaries. The default then stores a SHA-256 digest of that serialization as
+`v3:` followed by 64 hexadecimal characters. Its 67-byte size is fixed even
+for a large path or query, so it remains suitable for an indexed PostgreSQL
+text key. A custom `key_maker` is not hashed or rewritten: its output remains
+the exact stored key.
 
 Without a custom `key_maker`, a request carrying `Authorization` or `Cookie`
 bypasses idempotency and runs the handler every time. This safe default keeps

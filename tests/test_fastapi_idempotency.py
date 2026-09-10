@@ -86,6 +86,8 @@ pytestmark = [pytest.mark.timeout(10)]
 
 KEY = {"Idempotency-Key": "key-1"}
 LARGE_BODY = b"x" * 4096
+DEFAULT_STORAGE_KEY_LENGTH = 67
+POSTGRES_BTREE_INDEX_ITEM_LIMIT = 2704
 
 
 class _Forking(BaseHTTPMiddleware):
@@ -1312,9 +1314,13 @@ def test_default_storage_key_does_not_read_legacy_entries() -> None:
     storage_key = middleware._storage_key(scope, "key-1")
 
     # Assert
-    assert storage_key.startswith("v3|")
+    assert storage_key == (
+        "v3:c76e3d88ba132d35646eeed3c855df0be7d25bc0cc8b4787c94cb587ae1c5e22"
+    )
+    assert storage_key.startswith("v3:")
     assert storage_key not in legacy_keys
     assert storage_key.isascii()
+    assert len(storage_key) == DEFAULT_STORAGE_KEY_LENGTH
 
 
 def test_default_key_isolates_host_routed_tenants() -> None:
@@ -1492,6 +1498,53 @@ def test_default_key_serialization_has_no_delimiter_collisions() -> None:
     assert unicode_bytes.isascii()
     assert "\x00" not in unicode_bytes
     assert "\x1f" not in unicode_bytes
+
+
+def test_default_key_has_fixed_postgres_compatible_size() -> None:
+    """Large request fields still produce one bounded backend storage key."""
+    authority = (
+        "".join(chr(33 + (index * 37) % 90) for index in range(4096))
+        .replace(":", "x")
+        .replace("[", "y")
+    )
+    path = "/" + "".join(
+        chr(0x80 + (index * 71) % 0x700) for index in range(4096)
+    )
+    query = bytes((index * 73) % 256 for index in range(4096))
+    client_key = "".join(chr(0x20 + (index * 43) % 95) for index in range(4096))
+    base: Scope = {
+        "type": "http",
+        "scheme": "https",
+        "root_path": "/gateway",
+        "method": "POST",
+        "path": "/charge",
+        "query_string": b"",
+        "headers": [(b"host", b"example.test")],
+    }
+
+    keys = (
+        _default_storage_key(
+            {**base, "headers": [(b"host", authority.encode("ascii"))]},
+            "key-1",
+        ),
+        _default_storage_key({**base, "path": path}, "key-1"),
+        _default_storage_key({**base, "query_string": query}, "key-1"),
+        _default_storage_key(base, client_key),
+        _default_storage_key(
+            {
+                **base,
+                "headers": [(b"host", authority.encode("ascii"))],
+                "path": path,
+                "query_string": query,
+            },
+            client_key,
+        ),
+    )
+
+    assert all(key.startswith("v3:") and key.isascii() for key in keys)
+    assert {len(key) for key in keys} == {DEFAULT_STORAGE_KEY_LENGTH}
+    assert len(set(keys)) == len(keys)
+    assert len(keys[-1].encode()) < POSTGRES_BTREE_INDEX_ITEM_LIMIT
 
 
 async def test_delimiter_injection_cannot_replay_another_request() -> None:

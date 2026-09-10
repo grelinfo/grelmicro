@@ -46,11 +46,7 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
 )
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
-_ENCODED_ASSIGNMENT_SEPARATOR = r"%(?:2f|3b|26)"
-_ENCODED_PARAMETER = re.compile(
-    rf"({_ENCODED_ASSIGNMENT_SEPARATOR})([^=/?&;]+)=",
-    re.IGNORECASE,
-)
+_ENCODED_PARAMETER_BOUNDARY = re.compile(r"%(?:2f|3b|26|3f)", re.IGNORECASE)
 _QUERY_DELIMITER = re.compile(r"([/?&;])")
 _FRAGMENT_DELIMITER = re.compile(r"([/&;])")
 _MAX_PORT = 65535
@@ -119,11 +115,20 @@ def _redact_assignment_segment(segment: str) -> str:
         return f"{normalized}={MASK}"
     if not separator:
         return segment
-    for match in _ENCODED_PARAMETER.finditer(segment):
-        embedded_key = match.group(2)
+    boundaries = tuple(_ENCODED_PARAMETER_BOUNDARY.finditer(segment))
+    for index, boundary in enumerate(boundaries):
+        field_end = (
+            boundaries[index + 1].start()
+            if index + 1 < len(boundaries)
+            else len(segment)
+        )
+        field = segment[boundary.end() : field_end]
+        embedded_key, embedded_separator, _embedded_value = field.partition("=")
+        if not embedded_separator:
+            continue
         if _is_credential_query_key(embedded_key):
             return (
-                f"{segment[: match.start()]}{match.group(1)}"
+                f"{segment[: boundary.start()]}{boundary.group(0)}"
                 f"{unquote_plus(embedded_key)}={MASK}"
             )
     return segment

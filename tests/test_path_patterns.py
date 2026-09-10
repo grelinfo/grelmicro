@@ -218,6 +218,34 @@ def test_included_topology_inherits_an_empty_contexts_override_provider() -> (
     assert _route_topology(web) == provider_changed
 
 
+def test_included_topology_ignores_shadowed_child_override_providers() -> None:
+    """Only the outer include provider can change its effective topology."""
+    marker = CachedResponse()
+    child = FastAPI()
+
+    @child.get("/x", dependencies=[marker])
+    async def x() -> None:
+        return None
+
+    parent = FastAPI()
+    parent.include_router(child.router)
+    original = _route_topology(parent)
+
+    async def child_override() -> None:
+        return None
+
+    child.dependency_overrides[marker.dependency] = child_override
+    child_changed = _route_topology(parent)
+
+    async def parent_override() -> None:
+        return None
+
+    parent.dependency_overrides[marker.dependency] = parent_override
+
+    assert child_changed == original
+    assert _route_topology(parent) != original
+
+
 @pytest.mark.parametrize(
     ("scope", "expected"),
     [
