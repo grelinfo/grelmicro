@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from lightkube.core.exceptions import ApiError
 from lightkube.models.coordination_v1 import LeaseSpec
-from lightkube.models.meta_v1 import ObjectMeta
+from lightkube.models.meta_v1 import ObjectMeta, Status
 from lightkube.resources.coordination_v1 import Lease
 
 from grelmicro.coordination.kubernetes import (
@@ -25,9 +25,7 @@ TOKEN = "test-token"
 
 def _make_api_error(code: int) -> ApiError:
     """Create an ApiError with the given status code."""
-    return ApiError(
-        status={"code": code, "message": "error", "status": "Failure"}
-    )
+    return ApiError(status=Status(code=code, message="error", status="Failure"))
 
 
 def _make_lease(
