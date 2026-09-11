@@ -184,6 +184,10 @@ def test_embedded_credential_masks_its_ambiguous_encoded_continuation() -> None:
             "https://example.test/?redirect=callback%3Fstate=ok",
             "https://example.test/?redirect=callback%3Fstate=ok",
         ),
+        (
+            "https://example.test/?redirect=callback%3Ftoken%3DLEAKME",
+            "https://example.test/?redirect=***",
+        ),
     ],
 )
 def test_encoded_question_marks_start_nested_parameters(
@@ -386,6 +390,51 @@ def test_credential_continuations_and_encoded_assignments_mask_the_enclosing_val
     assert "FIRST" not in redacted
     assert "LEAKME" not in redacted
     assert "***" in redacted
+
+
+@pytest.mark.parametrize(
+    "nested",
+    [
+        "https%3A%2F%2Finner.test%2F%23token%3DLEAKME",
+        "https%3A%2F%2Fuser%3ALEAKME%40inner.test%2F",
+        "https%3A%2F%2Finner.test%2F%3Fclient_secret%3DLEAKME",
+        "HTTPS%3a%2f%2finner.test%2f%23ToKeN%3dLEAKME",
+        "https%3A%2Fuser%3ALEAKME%40inner.test%2F",
+        "https%253A%252F%252Finner.test%252F%2523token%253DLEAKME",
+    ],
+    ids=[
+        "fragment",
+        "userinfo",
+        "query",
+        "mixed-case",
+        "malformed",
+        "double-encoded",
+    ],
+)
+def test_encoded_nested_url_credentials_mask_the_outer_value(
+    nested: str,
+) -> None:
+    """A nested URL is one outer value, so none of its continuation survives."""
+    redacted = redact_url(f"https://outer.test/?redirect={nested}&state=ok")
+
+    assert redacted == "https://outer.test/?redirect=***&state=ok"
+    assert "LEAKME" not in redacted
+
+
+@pytest.mark.parametrize(
+    "nested",
+    [
+        "https%3A%2F%2Finner.test%2F%3Fstate%3Dok%23ready",
+        "https%253A%252F%252Finner.test%252F%253Fstate%253Dok",
+        "https%3A%2Fbroken%25redirect",
+    ],
+    ids=["single-encoded", "double-encoded", "malformed"],
+)
+def test_innocent_encoded_nested_urls_are_preserved(nested: str) -> None:
+    """Bounded inspection does not rewrite redirects carrying no credential."""
+    url = f"https://outer.test/?redirect={nested}&state=ok"
+
+    assert redact_url(url) == url
 
 
 def test_fully_encoded_innocent_assignment_and_empty_url_are_preserved() -> (

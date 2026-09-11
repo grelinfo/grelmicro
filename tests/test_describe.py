@@ -7,14 +7,16 @@ import sys
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Security
+from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.authentication import AuthenticationBackend
+from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route, Router
 
 from grelmicro import Grelmicro
 from grelmicro.__main__ import TargetError, load_target, main
@@ -526,6 +528,203 @@ def test_describe_idempotency_matches_dependency_gate_policy(
     assert endpoint.applies == (
         ("idempotent 86400s",) if key_kind == "custom" else ()
     )
+
+
+@pytest.mark.parametrize("key_kind", ["default", "custom"])
+def test_describe_idempotency_matches_nested_runtime_gates(
+    key_kind: str,
+) -> None:
+    """Mounted auth and nested dependency gates use runtime's path policy."""
+    component = IdempotentRequests(
+        key_maker=(lambda scope, key: f"{scope['path']}:{key}")
+        if key_kind == "custom"
+        else None
+    )
+
+    async def post(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    authenticated = Starlette(
+        routes=[Route("/charge/{item_id:int}", post, methods=["POST"])]
+    )
+    mounted = AuthenticationMiddleware(
+        authenticated,
+        backend=_AnonymousAuthentication(),
+    )
+
+    dependency_leaf = FastAPI(
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    @dependency_leaf.post(
+        "/nested-dep/{item_id:int}",
+        dependencies=[Depends(_report_dependency)],
+    )
+    async def nested_dep(item_id: int) -> dict[str, int]:
+        return {"item_id": item_id}
+
+    api_key = APIKeyHeader(name="X-API-Key")
+    security_leaf = FastAPI(
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    @security_leaf.post(
+        "/nested-security/{item_id:int}",
+        dependencies=[Security(api_key)],
+    )
+    async def nested_security(item_id: int) -> dict[str, int]:
+        return {"item_id": item_id}
+
+    app = Starlette(
+        routes=[
+            Mount("/auth", app=mounted),
+            Route(
+                "/nested-dep/{item_id:int}",
+                dependency_leaf,
+                methods=["POST"],
+            ),
+            Route(
+                "/nested-security/{item_id:int}",
+                security_leaf,
+                methods=["POST"],
+            ),
+            Route("/public/{item_id:int}", post, methods=["POST"]),
+        ]
+    )
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), component],
+        environment="development",
+    )
+
+    endpoints = {row.path: row.applies for row in micro.describe(app).endpoints}
+    applied = ("idempotent 86400s",)
+
+    assert endpoints["/public/{item_id:int}"] == applied
+    expected_private = applied if key_kind == "custom" else ()
+    assert endpoints["/auth/charge/{item_id:int}"] == expected_private
+    assert endpoints["/nested-dep/{item_id:int}"] == expected_private
+    assert endpoints["/nested-security/{item_id:int}"] == expected_private
+
+
+@pytest.mark.parametrize(
+    ("boundary", "private_path", "public_applies"),
+    [
+        ("application", "/private/{item_id:int}", ()),
+        ("router", "/group/private/{item_id:int}", ("idempotent 86400s",)),
+        ("route", "/private/{item_id:int}", ("idempotent 86400s",)),
+        ("mount", "/private/{item_id:int}", ("idempotent 86400s",)),
+    ],
+)
+def test_describe_idempotency_matches_authentication_boundaries(
+    boundary: str,
+    private_path: str,
+    public_applies: tuple[str, ...],
+) -> None:
+    """App, router, route, and mount authentication match runtime bypass."""
+
+    async def post(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    private = Route(
+        "/private/{item_id:int}",
+        post,
+        methods=["POST"],
+    )
+    public = Route("/public/{item_id:int}", post, methods=["POST"])
+    auth = Middleware(
+        AuthenticationMiddleware,
+        backend=_AnonymousAuthentication(),
+    )
+    if boundary == "application":
+        app = Starlette(routes=[private, public], middleware=[auth])
+    elif boundary == "router":
+        app = Starlette(
+            routes=[
+                Mount(
+                    "/group",
+                    app=Router(routes=[private], middleware=[auth]),
+                ),
+                public,
+            ]
+        )
+    elif boundary == "route":
+        app = Starlette(
+            routes=[
+                Route(
+                    "/private/{item_id:int}",
+                    post,
+                    methods=["POST"],
+                    middleware=[auth],
+                ),
+                public,
+            ]
+        )
+    else:
+        child = Starlette(
+            routes=[
+                Route("/{item_id:int}", post, methods=["POST"]),
+            ]
+        )
+        app = Starlette(
+            routes=[
+                Mount(
+                    "/private",
+                    app=AuthenticationMiddleware(
+                        child,
+                        backend=_AnonymousAuthentication(),
+                    ),
+                ),
+                public,
+            ]
+        )
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(),
+        ],
+        environment="development",
+    )
+    endpoints = {row.path: row.applies for row in micro.describe(app).endpoints}
+
+    assert endpoints[private_path] == ()
+    assert endpoints["/public/{item_id:int}"] == public_applies
+
+
+def test_describe_idempotency_refreshes_dynamic_auth_topology() -> None:
+    """A late protected mount updates the report without hiding its sibling."""
+
+    async def post(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    app = Starlette(routes=[Route("/public", post, methods=["POST"])])
+    component = IdempotentRequests()
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), component],
+        environment="development",
+    )
+    before = {row.path: row.applies for row in micro.describe(app).endpoints}
+
+    private = Starlette(routes=[Route("/charge", post, methods=["POST"])])
+    app.router.routes.append(
+        Mount(
+            "/private",
+            app=AuthenticationMiddleware(
+                private,
+                backend=_AnonymousAuthentication(),
+            ),
+        )
+    )
+    assert component.route_is_gated("POST", "/private/charge")
+    after = {row.path: row.applies for row in micro.describe(app).endpoints}
+
+    assert before == {"/public": ("idempotent 86400s",)}
+    assert after["/public"] == ("idempotent 86400s",)
+    assert after["/private/charge"] == ()
 
 
 def test_describe_warns_on_unknown_framework() -> None:

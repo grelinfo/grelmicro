@@ -410,19 +410,27 @@ class _Policies:
         self._base_sources = ((app, include_root_middleware),)
         self._refresh(self._base_sources)
 
-    def refresh(self, *apps: Any) -> None:  # noqa: ANN401
+    def bind(
+        self,
+        app: Annotated[Any, Doc("The ASGI source the middleware wraps.")],  # noqa: ANN401
+    ) -> None:
+        """Remember an opaque source without pretending its routes are visible."""
+        if self._app is None:
+            self._app = app
+
+    def refresh(
+        self,
+        *apps: Any,  # noqa: ANN401
+        source: Any = None,  # noqa: ANN401
+    ) -> None:
         """Refresh policy metadata when a request exposes changed routes."""
+        expected = self._app if source is None else source
         observed = tuple(
             (app, False)
             for app in apps
             if app is not None
-            and (
-                not self._base_sources
-                or any(
-                    _same_routing_root(app, source)
-                    for source, _include_root in self._base_sources
-                )
-            )
+            and expected is not None
+            and _same_routing_root(app, expected)
         )
         sources = _unique_policy_sources(
             (
@@ -1311,6 +1319,7 @@ class CachedResponsesMiddleware:
                     include or {}, as_patterns(exclude, name="exclude")
                 )
             )
+            owned_policies.bind(app)
             if _is_starlette_routing_app(app):
                 # A bound Router.app is the entry point below that Router's
                 # own stack. Its current cache and any outer middleware do
@@ -1341,10 +1350,11 @@ class CachedResponsesMiddleware:
         if matches(path, config.exclude):
             await self.app(scope, receive, send)
             return
+        authentication_visible = "user" in scope or "auth" in scope
         if _carries_credentials(scope) or _asks_for_part(scope):
             await self.app(scope, receive, send)
             return
-        state.policies.refresh(scope.get("app"))
+        state.policies.refresh(scope.get("app"), source=self.app)
         ttl = state.policies.ttl_for(path, config.ttl)
         if ttl is None:
             await self.app(scope, receive, send)
@@ -1358,7 +1368,14 @@ class CachedResponsesMiddleware:
             await self.app(scope, receive, send)
             return
         await self._answer(
-            scope, receive, send, state=state, key=built, ttl=ttl, path=path
+            scope,
+            receive,
+            send,
+            state=state,
+            key=built,
+            ttl=ttl,
+            path=path,
+            authentication_visible=authentication_visible,
         )
 
     async def _answer(
@@ -1371,6 +1388,7 @@ class CachedResponsesMiddleware:
         key: str,
         ttl: float,
         path: str,
+        authentication_visible: bool,
     ) -> None:
         """Serve the stored response, or run the app and store what it said.
 
@@ -1400,7 +1418,13 @@ class CachedResponsesMiddleware:
             attempt.ran = True
             await self.app(scope, receive, capture)
             await capture.flush()
-            attempt.entry = self._entry_of(capture, state=state, path=path)
+            attempt.entry = self._entry_of(
+                capture,
+                state=state,
+                scope=scope,
+                path=path,
+                authentication_visible=authentication_visible,
+            )
             attempt.returned = True
             if attempt.entry is None:
                 raise _NotStored
@@ -1555,11 +1579,23 @@ class CachedResponsesMiddleware:
         return f"{self._tag}:{digest}"
 
     def _entry_of(
-        self, capture: _ResponseCapture, *, state: _State, path: str
+        self,
+        capture: _ResponseCapture,
+        *,
+        state: _State,
+        scope: Scope,
+        path: str,
+        authentication_visible: bool,
     ) -> _Entry | None:
         """Return the entry this response is stored as, or `None` to skip it."""
         start = capture.start
         if start is None or capture.released or not capture.complete:
+            return None
+        if not authentication_visible and ("user" in scope or "auth" in scope):
+            # An opaque wrapped application may run authentication below this
+            # middleware, where route inspection cannot discover it. Even an
+            # anonymous result cannot be stored: a later authenticated request
+            # would otherwise read it before that inner authentication runs.
             return None
         if start["status"] != _HTTP_200_OK:
             return None

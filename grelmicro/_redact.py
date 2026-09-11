@@ -50,6 +50,10 @@ _PARAMETER_BOUNDARY = re.compile(r"[/?&;]|%(?:2f|3b|26|3f)", re.IGNORECASE)
 _ASSIGNMENT_SEPARATOR = re.compile(r"=|%3d", re.IGNORECASE)
 _QUERY_DELIMITER = re.compile(r"(&)")
 _FRAGMENT_DELIMITER = re.compile(r"(?!)")
+_NESTED_URL = re.compile(
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*:/|//)",
+)
+_MAX_NESTED_URL_DECODE_DEPTH = 2
 _MAX_PORT = 65535
 _MAX_PORT_DIGITS = len(str(_MAX_PORT))
 
@@ -100,28 +104,47 @@ def _redact_fragment_path(path: str) -> str:
 def _redact_assignment_fields(
     value: str,
     delimiter: re.Pattern[str],
+    *,
+    inspect_nested: bool = True,
 ) -> str:
     """Mask credential fields without treating encoded separators as endings."""
     parts = delimiter.split(value)
     for index in range(0, len(parts), 2):
-        parts[index] = _redact_assignment_segment(parts[index])
+        parts[index] = _redact_assignment_segment(
+            parts[index],
+            inspect_nested=inspect_nested,
+        )
     return "".join(parts)
 
 
-def _redact_assignment_segment(segment: str) -> str:
+def _redact_assignment_segment(
+    segment: str,
+    *,
+    inspect_nested: bool = True,
+) -> str:
     """Mask one raw-delimiter-bounded assignment segment."""
-    key, separator, _raw_value = segment.partition("=")
-    if _PARAMETER_BOUNDARY.search(key) is None and _is_credential_query_key(
+    key, separator, raw_value = segment.partition("=")
+    direct_credential = _PARAMETER_BOUNDARY.search(
         key
-    ):
+    ) is None and _is_credential_query_key(key)
+    nested_credential = (
+        inspect_nested
+        and bool(separator)
+        and _nested_url_has_credentials(raw_value)
+    )
+    if direct_credential or nested_credential:
         normalized = quote_plus(unquote_plus(key), safe="*")
         return f"{normalized}={MASK}"
     if not separator:
         encoded = _ASSIGNMENT_SEPARATOR.search(segment)
         if encoded is not None:
-            encoded_key = segment[: encoded.start()]
-            if _is_credential_query_key(encoded_key):
-                return f"{unquote_plus(encoded_key)}={MASK}"
+            redacted = _redact_encoded_assignment(
+                segment,
+                encoded,
+                inspect_nested=inspect_nested,
+            )
+            if redacted is not None:
+                return redacted
     boundaries = tuple(_PARAMETER_BOUNDARY.finditer(segment))
     for index, boundary in enumerate(boundaries):
         field_end = (
@@ -144,14 +167,85 @@ def _redact_assignment_segment(segment: str) -> str:
     return segment
 
 
-def _redact_fragment(fragment: str | None) -> str | None:
+def _redact_encoded_assignment(
+    segment: str,
+    assignment: re.Match[str],
+    *,
+    inspect_nested: bool,
+) -> str | None:
+    """Mask a credential carried behind a percent-encoded equals sign."""
+    key = segment[: assignment.start()]
+    nested = inspect_nested and _nested_url_has_credentials(
+        segment[assignment.end() :]
+    )
+    if not _is_credential_query_key(key) and not nested:
+        return None
+    return f"{unquote_plus(key)}={MASK}"
+
+
+def _nested_url_has_credentials(value: str) -> bool:
+    """Return whether a bounded decoding reveals credentials in a nested URL."""
+    candidate = value
+    for _depth in range(_MAX_NESTED_URL_DECODE_DEPTH):
+        if _NESTED_URL.match(candidate) and _url_text_has_credentials(
+            candidate
+        ):
+            return True
+        decoded = unquote_plus(candidate)
+        if decoded == candidate:
+            return False
+        candidate = decoded
+    return bool(
+        _NESTED_URL.match(candidate) and _url_text_has_credentials(candidate)
+    )
+
+
+def _url_text_has_credentials(value: str) -> bool:
+    """Inspect one decoded URL-shaped value without recursively decoding it."""
+    if _USERINFO_RE.search(value) is not None:
+        return True
+    before_fragment, fragment_separator, fragment = value.partition("#")
+    _before_query, query_separator, query = before_fragment.partition("?")
+    if query_separator and (
+        _redact_assignment_fields(
+            query,
+            _QUERY_DELIMITER,
+            inspect_nested=False,
+        )
+        != query
+    ):
+        return True
+    return bool(
+        fragment_separator
+        and _redact_fragment(fragment, inspect_nested=False) != fragment
+    )
+
+
+def _redact_fragment(
+    fragment: str | None,
+    *,
+    inspect_nested: bool = True,
+) -> str | None:
     """Redact credential-like parameters carried in a URL fragment."""
     if not fragment:
         return fragment
     path, separator, parameters = fragment.partition("?")
-    safe_path = _redact_fragment_path(path)
+    safe_path = (
+        _redact_fragment_path(path)
+        if inspect_nested
+        else _redact_assignment_fields(
+            path,
+            _FRAGMENT_DELIMITER,
+            inspect_nested=False,
+        )
+    )
     if separator:
-        return f"{safe_path}?{_redact_query(parameters)}"
+        safe_parameters = _redact_assignment_fields(
+            parameters,
+            _QUERY_DELIMITER,
+            inspect_nested=inspect_nested,
+        )
+        return f"{safe_path}?{safe_parameters}"
     return safe_path
 
 

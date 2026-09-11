@@ -104,6 +104,26 @@ class TestDisplay:
         assert "redirect=***" in displayed
 
     @pytest.mark.parametrize(
+        "nested",
+        [
+            "https%3A%2F%2Finner.test%2F%23token%3DLEAKME",
+            "https%3A%2F%2Fuser%3ALEAKME%40inner.test%2F",
+        ],
+        ids=["fragment", "userinfo"],
+    )
+    def test_fully_encoded_nested_url_is_redacted_in_json(
+        self,
+        nested: str,
+    ) -> None:
+        """Encoded URL credentials stay out of every SecretUrl rendering."""
+        model = Model(generic=f"https://outer.test/?redirect={nested}&state=ok")
+
+        assert "LEAKME" not in str(model.generic)
+        assert "LEAKME" not in repr(model.model_dump())
+        assert "LEAKME" not in model.model_dump_json()
+        assert "redirect=***" in model.model_dump_json()
+
+    @pytest.mark.parametrize(
         "key",
         [
             "db_password",

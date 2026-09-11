@@ -511,17 +511,14 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
     """Return what an `IdempotentRequests` does to one endpoint."""
 
     def read(endpoint: _Endpoint) -> str | None:
-        from grelmicro.http._idempotency import (  # noqa: PLC0415
-            _has_dependencies,
-        )
-
         config = component.config
         methods = {name.upper() for name in config.methods}
         reach = _selected(config, endpoint)
         if endpoint.method not in methods or reach is None:
             return None
-        if component._key_maker is None and _has_dependencies(  # noqa: SLF001
-            endpoint.route, endpoint.contexts
+        if (
+            component._key_maker is None  # noqa: SLF001
+            and component.route_is_gated(endpoint.method, endpoint.path)
         ):
             return None
         window = component.idempotency.config.ttl
@@ -590,6 +587,9 @@ def _describe_endpoints(
         if getattr(component, "kind", None) == "cached_responses":
             cached: Any = component
             cached._live.state.policies.refresh(app)  # noqa: SLF001
+        refresh_routes = getattr(component, "refresh_routes", None)
+        if refresh_routes is not None:
+            refresh_routes(app)
     rules = _endpoint_rules(components)
     if not rules:
         return ()

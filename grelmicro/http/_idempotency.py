@@ -210,8 +210,10 @@ class _GatedRoutes:
         """Remember the wrapped app and defer route discovery to a request."""
         self._wrapped = app
         self._apps: tuple[Any, ...] = ()
-        self._authenticated: tuple[re.Pattern[str], ...] = ()
-        self._routes: tuple[tuple[re.Pattern[str], frozenset[str]], ...] = ()
+        self._authenticated: tuple[tuple[str, re.Pattern[str]], ...] = ()
+        self._routes: tuple[
+            tuple[str, re.Pattern[str], frozenset[str]], ...
+        ] = ()
         self._topology: tuple[_RouteTopologyState, ...] = ()
 
     def read(self, *apps: Any) -> None:  # noqa: ANN401
@@ -231,31 +233,33 @@ class _GatedRoutes:
             return
         from starlette.routing import compile_path  # noqa: PLC0415
 
-        protected: list[re.Pattern[str]] = []
+        protected: list[tuple[str, re.Pattern[str]]] = []
         for prefix, nested in sorted(authenticated):
             exact, _, _ = compile_path(prefix or "/")
-            protected.append(exact)
+            protected.append((prefix or "/", exact))
             if nested:
-                descendant, _, _ = compile_path(
+                template = (
                     f"{prefix.rstrip('/')}/{{path:path}}"
                     if prefix
                     else "/{path:path}"
                 )
-                protected.append(descendant)
+                descendant, _, _ = compile_path(template)
+                protected.append((template, descendant))
         self._authenticated = tuple(protected)
 
-        found: list[tuple[re.Pattern[str], frozenset[str]]] = []
+        found: list[tuple[str, re.Pattern[str], frozenset[str]]] = []
         for root in fastapi_roots:
             for prefix, route, contexts in walk_routes(
                 root, unwrap_middleware=True
             ):
-                compiled, _, _ = compile_path(f"{prefix}{route.path}")
+                template = f"{prefix}{route.path}"
+                compiled, _, _ = compile_path(template)
                 methods = frozenset(
                     method.upper()
                     for method in (getattr(route, "methods", None) or ())
                 )
                 if _has_dependencies(route, contexts):
-                    found.append((compiled, methods))
+                    found.append((template, compiled, methods))
                 leaf = _nested_routing_app(route)
                 if leaf is None:
                     continue
@@ -266,29 +270,47 @@ class _GatedRoutes:
                     # A Router used as a Route endpoint keeps the outer
                     # route's exact match. Its inner paths cannot be safely
                     # composed onto that path, so gate the exact outer route.
-                    found.append((compiled, nested_methods))
+                    found.append((template, compiled, nested_methods))
         self._routes = tuple(found)
 
-    def matches(self, scope: Scope) -> bool:
-        """Return whether authentication or a dependency guards the route."""
-        apps = _unique_apps((self._wrapped, scope.get("app")))
+    def refresh(self, *apps: Any) -> None:  # noqa: ANN401
+        """Refresh the gate classification from compatible routing sources."""
+        sources = _unique_apps((self._wrapped, *apps))
         if (
-            len(apps) != len(self._apps)
+            len(sources) != len(self._apps)
             or any(
                 app is not seen
-                for app, seen in zip(apps, self._apps, strict=True)
+                for app, seen in zip(sources, self._apps, strict=True)
             )
             or any(snapshot.changed() for snapshot in self._topology)
         ):
-            self.read(*apps)
-        method = scope["method"]
-        path = route_path(scope)
+            self.read(*sources)
+
+    def matches(self, scope: Scope) -> bool:
+        """Return whether authentication or a dependency guards the route."""
+        self.refresh(scope.get("app"))
+        return self.matches_route(scope["method"], route_path(scope))
+
+    def matches_route(self, method: str, path: str) -> bool:
+        """Return whether runtime replay is gated for this method and path."""
+        if any(snapshot.changed() for snapshot in self._topology):
+            self.read(*self._apps)
         return any(
-            regex.fullmatch(path) for regex in self._authenticated
+            _gate_path_matches(template, regex, path)
+            for template, regex in self._authenticated
         ) or any(
-            method in methods and regex.fullmatch(path)
-            for regex, methods in self._routes
+            method in methods and _gate_path_matches(template, regex, path)
+            for template, regex, methods in self._routes
         )
+
+
+def _gate_path_matches(
+    template: str,
+    regex: re.Pattern[str],
+    path: str,
+) -> bool:
+    """Match runtime URLs and the route templates used by endpoint reports."""
+    return template == path or regex.fullmatch(path) is not None
 
 
 def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -1777,9 +1799,22 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
+        self._gated_routes = _GatedRoutes()
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._live: Live[_State] = Live(_state_of(config))
+
+    def refresh_routes(
+        self,
+        app: Annotated[Any, Doc("The application whose routes are reported.")],  # noqa: ANN401
+    ) -> None:
+        """Refresh the same route gates the runtime middleware enforces."""
+        if self._key_maker is None:
+            self._gated_routes.refresh(app)
+
+    def route_is_gated(self, method: str, path: str) -> bool:
+        """Return whether a default key bypasses this route at runtime."""
+        return self._gated_routes.matches_route(method, path)
 
     async def _apply_reconfigure(
         self, new_config: IdempotentRequestsConfig

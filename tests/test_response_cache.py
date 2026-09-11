@@ -51,6 +51,7 @@ from grelmicro.http._response_cache import (
     UNSET,
     _declared_schemes,
     _has_non_cache_dependencies,
+    _Policies,
     _routing_dependencies,
     _unique_policy_sources,
     declare_cached,
@@ -146,6 +147,22 @@ class _RoutingProxy:
     ) -> None:
         """Pass the request through."""
         await self.app(scope, receive, send)
+
+
+class _OpaqueASGI:
+    """Delegate without exposing a routing source to policy discovery."""
+
+    def __init__(self, target: Any) -> None:  # noqa: ANN401
+        self.target = target
+
+    async def __call__(
+        self,
+        scope: Any,  # noqa: ANN401
+        receive: Any,  # noqa: ANN401
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        """Pass the request through without publishing route metadata."""
+        await self.target(scope, receive, send)
 
 
 def _app(component: CachedResponses) -> FastAPI:
@@ -809,6 +826,145 @@ def test_mounted_router_cache_does_not_merge_parent_local_coordinates(
     assert "age" not in second.headers
     if anonymous is not None:
         assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+
+
+def test_opaque_mounted_cache_does_not_adopt_parent_route_metadata() -> None:
+    """An opaque child cannot inherit an unrelated parent declaration."""
+    parent = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @parent.get("/x", dependencies=[CachedResponse(ttl=TTL)])
+    async def parent_x() -> dict[str, bool]:
+        return {"parent": True}
+
+    calls = 0
+
+    async def child(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        identity = dict(scope["headers"]).get(b"x-api-key", b"anonymous")
+        body = identity + f":{calls}".encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [(b"content-length", str(len(body)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(_OpaqueASGI(child), cache=_cache()),
+    )
+
+    with TestClient(parent) as client:
+        alice = client.get("/sub/x", headers={"X-API-Key": "alice"})
+        bob = client.get("/sub/x", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/sub/x")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.text == "anonymous:3"
+    assert "age" not in bob.headers
+
+
+def test_explicit_include_still_caches_an_opaque_mounted_child() -> None:
+    """Opaque sources retain the paths explicitly configured on their cache."""
+    calls = 0
+
+    async def child(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        body = str(calls).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [(b"content-length", str(len(body)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    parent = FastAPI()
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(
+            _OpaqueASGI(child),
+            cache=_cache(),
+            include={"/x": TTL},
+        ),
+    )
+
+    with TestClient(parent) as client:
+        first = client.get("/sub/x")
+        replayed = client.get("/sub/x")
+
+    assert first.text == replayed.text == "1"
+    assert calls == 1
+    assert "age" in replayed.headers
+
+
+def test_binding_does_not_replace_an_explicit_policy_source() -> None:
+    """A supplied policy keeps the routing root it already read."""
+    app = FastAPI()
+    policies = _Policies(())
+    policies.read(app)
+
+    policies.bind(object())
+
+    assert policies._app is app
+
+
+def test_opaque_child_authentication_is_observed_before_storing() -> None:
+    """Runtime authentication hidden by an opaque child keeps responses private."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+    child = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @child.get("/x")
+    async def child_x(request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        identity = (
+            request.user.display_name
+            if request.user.is_authenticated
+            else "anonymous"
+        )
+        return Response(f"{identity}:{calls}")
+
+    protected = AuthenticationMiddleware(
+        child,
+        backend=HeaderAuthentication(),
+    )
+    parent = FastAPI()
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(
+            _OpaqueASGI(protected),
+            cache=_cache(),
+            include={"/x": TTL},
+        ),
+    )
+
+    with TestClient(parent) as client:
+        alice = client.get("/sub/x", headers={"X-API-Key": "alice"})
+        bob = client.get("/sub/x", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/sub/x")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.text == "anonymous:3"
+    assert "age" not in bob.headers
 
 
 def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
