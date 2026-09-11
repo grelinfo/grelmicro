@@ -66,18 +66,29 @@ def _no_leaked_log_backend() -> Generator[None, None, None]:
     directory configures logging without it, which is most of the suite,
     so the guard belongs here rather than in each of them.
     """
-    loguru_logger.configure(handlers=[])
+    loguru_logger.configure(handlers=[], patcher=lambda _record: None)
     structlog.reset_defaults()
     root = logging.getLogger()
-    handlers = root.handlers.copy()
-    root.handlers.clear()
+    old_handlers = root.handlers.copy()
+    old_level = root.level
+    # pytest owns the capture handler it installs before fixtures run, and
+    # dropping it loses the setup phase of every failure report.
+    root.handlers[:] = [
+        handler
+        for handler in root.handlers
+        if type(handler).__module__.startswith("_pytest")
+    ]
 
     yield
 
     loguru_logger.remove()
+    loguru_logger.configure(patcher=lambda _record: None)
     structlog.reset_defaults()
-    root.handlers.clear()
-    root.handlers.extend(handlers)
+    root.handlers[:] = old_handlers
+    # `install_root` sets the root level with the handler, so a test that
+    # configured WARNING would drop the next test's INFO records before
+    # any handler saw them, and `capsys` would read back nothing.
+    root.setLevel(old_level)
 
 
 @pytest.fixture(autouse=True)

@@ -567,10 +567,30 @@ def test_a_key_that_addresses_a_row_is_not_a_credential(key: str) -> None:
 
 @pytest.mark.parametrize(
     "key",
-    ["api_key", "session_key", "secret_key", "signing_key", "unknown_key"],
+    [
+        "api_key",
+        "api-key",
+        "x-api-key",
+        "session_key",
+        "secret_key",
+        "signing_key",
+        "unknown_key",
+        "idempotency_key",
+        "idempotency-key",
+        "foreign_key",
+        "group_key",
+        "order_key",
+        "primary_key",
+    ],
 )
 def test_an_unrecognised_key_name_is_still_masked(key: str) -> None:
-    """Only the settled names are let through, so a new one stays masked."""
+    """Only the settled names are let through, so a new one stays masked.
+
+    `idempotency_key` is here on purpose: a leaked one can replay a
+    request, so it is masked whatever the issue that raised it said. The
+    four ending in `key` that are not credentials are here too, because
+    which names stopped being redacted is the whole risk of this rule.
+    """
     assert redact_url(f"https://h/p?{key}=abc") == f"https://h/p?{key}={MASK}"
 
 
