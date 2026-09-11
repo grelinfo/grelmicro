@@ -58,7 +58,14 @@ def _no_leaked_log_queue() -> Generator[None, None, None]:
     The next test to configure logging would bind the sink to that writer,
     which holds the stream of the test that started it, and read nothing
     back from `capsys`.
+
+    Taking one out on the way in as well as on the way out is what makes
+    that impossible rather than unlikely. A writer installed at import
+    time, or left by a teardown that did not run, reaches the next test
+    otherwise, and `install_if_absent` keeps it rather than replacing it.
     """
+    log_queue.uninstall()
+
     yield
 
     log_queue.uninstall()

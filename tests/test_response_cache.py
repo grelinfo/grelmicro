@@ -2491,10 +2491,18 @@ def test_cache_revalidates_same_length_route_replacement() -> None:
     assert public_calls == private_calls == 1
 
 
+@pytest.mark.timeout(30)
 def test_cache_topology_rebuilds_once_only_after_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An unchanged request skips the full walker; one route addition rebuilds."""
+    """An unchanged request skips the full walker; one route addition rebuilds.
+
+    Registering `BULK_ROUTES` routes is the slow part and it is setup, not
+    what the test measures, so this one carries more than the file's five
+    seconds. A loaded runner sharing two cores between workers takes far
+    longer over that setup than an idle machine does, and the assertion
+    counts rebuilds rather than time.
+    """
     app = FastAPI()
 
     @app.get("/reads")
