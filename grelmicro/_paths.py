@@ -839,7 +839,7 @@ class _TopologyWatch:
 
 
 class _RouteTopologyState:
-    """A full topology snapshot guarded by a cheap mutation signature."""
+    """A routing topology guarded by a cheap mutation signature."""
 
     __slots__ = ("_signature", "_watch", "app", "value")
 
@@ -863,45 +863,6 @@ class _RouteTopologyState:
         self.value = self._signature
 
 
-def _dependency_topology(
-    dependency: Any,  # noqa: ANN401
-    provider: Any = None,  # noqa: ANN401
-    ancestors: frozenset[int] = frozenset(),
-    *,
-    provider_is_authoritative: bool = False,
-    watch: _TopologyWatch | None = None,
-) -> tuple[Any, ...]:
-    """Return the identity and descendants of one resolved dependency."""
-    if dependency is None:
-        return ()
-    if id(dependency) in ancestors:
-        return ("cycle", id(dependency))
-    nested_ancestors = ancestors | {id(dependency)}
-    call, effective, provider = _effective_dependency_call(
-        dependency,
-        provider,
-        provider_is_authoritative=provider_is_authoritative,
-    )
-    if watch is not None:
-        watch.provider(provider)
-    return (
-        id(dependency),
-        id(call),
-        tuple(
-            _dependency_topology(
-                child,
-                provider,
-                nested_ancestors,
-                provider_is_authoritative=provider_is_authoritative,
-                watch=watch,
-            )
-            for child in getattr(dependency, "dependencies", ()) or ()
-        ),
-        id(effective),
-        _dependency_overrides_topology(provider),
-    )
-
-
 def _watch_dependency_topology(
     dependency: Any,  # noqa: ANN401
     provider: Any = None,  # noqa: ANN401
@@ -910,15 +871,15 @@ def _watch_dependency_topology(
     provider_is_authoritative: bool = False,
     watch: _TopologyWatch,
 ) -> None:
-    """Register dependency nodes without constructing a nested snapshot."""
+    """Register every dependency node reachable from `dependency`."""
     if dependency is None or id(dependency) in ancestors:
         return
     watch.dependency(dependency)
     nested_ancestors = ancestors | {id(dependency)}
-    _call, _effective, provider = _effective_dependency_call(
+    provider, _authoritative = _dependency_overrides_context(
         dependency,
         provider,
-        provider_is_authoritative=provider_is_authoritative,
+        authoritative=provider_is_authoritative,
     )
     watch.provider(provider)
     for child in getattr(dependency, "dependencies", ()) or ():
@@ -997,21 +958,6 @@ def _inherited_dependency_overrides_context(
     )
 
 
-def _dependency_overrides_topology(
-    provider: Any,  # noqa: ANN401
-) -> tuple[Any, ...]:
-    """Return identities that change when FastAPI overrides change."""
-    if provider is None:
-        return ()
-    overrides = getattr(provider, "dependency_overrides", None)
-    if overrides is None:
-        return (id(provider),)
-    entries = tuple(
-        sorted((id(key), id(value)) for key, value in overrides.items())
-    )
-    return id(provider), id(overrides), entries
-
-
 def _effective_dependency_call(
     dependency: Any,  # noqa: ANN401
     provider: Any = None,  # noqa: ANN401
@@ -1032,43 +978,6 @@ def _effective_dependency_call(
     return call, effective, provider
 
 
-def _declared_dependency_topology(
-    holder: Any,  # noqa: ANN401
-    inherited_provider: Any = None,  # noqa: ANN401
-    *,
-    provider_is_authoritative: bool = False,
-    watch: _TopologyWatch | None = None,
-) -> tuple[Any, ...]:
-    """Return a holder's provider and directly declared dependencies."""
-    if watch is not None:
-        watch.holder(holder)
-    provider, authoritative = _dependency_overrides_context(
-        holder,
-        inherited_provider,
-        authoritative=provider_is_authoritative,
-    )
-    if watch is not None:
-        watch.provider(provider)
-    found: list[tuple[Any, ...]] = []
-    for dependency in getattr(holder, "dependencies", ()) or ():
-        call, effective, dependency_provider = _effective_dependency_call(
-            dependency,
-            provider,
-            provider_is_authoritative=authoritative,
-        )
-        if watch is not None:
-            watch.provider(dependency_provider)
-        found.append(
-            (
-                id(dependency),
-                id(call),
-                id(effective),
-                _dependency_overrides_topology(dependency_provider),
-            )
-        )
-    return _dependency_overrides_topology(provider), tuple(found)
-
-
 def _watch_declared_dependencies(
     holder: Any,  # noqa: ANN401
     inherited_provider: Any = None,  # noqa: ANN401
@@ -1086,36 +995,12 @@ def _watch_declared_dependencies(
     watch.provider(provider)
     for dependency in getattr(holder, "dependencies", ()) or ():
         watch.dependency(dependency)
-        _call, _effective, dependency_provider = _effective_dependency_call(
+        dependency_provider, _authoritative = _dependency_overrides_context(
             dependency,
             provider,
-            provider_is_authoritative=authoritative,
+            authoritative=authoritative,
         )
         watch.provider(dependency_provider)
-
-
-def _middleware_topology(
-    app: Any,  # noqa: ANN401
-    watch: _TopologyWatch | None = None,
-) -> tuple[Any, ...]:
-    """Return middleware declarations and the currently built stack."""
-    if watch is not None:
-        watch.middleware(app)
-    declared = tuple(
-        (
-            id(middleware),
-            id(getattr(middleware, "cls", middleware)),
-        )
-        for middleware in getattr(app, "user_middleware", ()) or ()
-    )
-    stack = getattr(app, "middleware_stack", None)
-    chain: list[tuple[int, type[Any]]] = []
-    seen: set[int] = set()
-    while stack is not None and id(stack) not in seen:
-        seen.add(id(stack))
-        chain.append((id(stack), type(stack)))
-        stack = _wrapped_app(stack)
-    return declared, tuple(chain)
 
 
 def _watch_topology_node(  # noqa: PLR0911
@@ -1222,8 +1107,8 @@ def _watch_topology_node(  # noqa: PLR0911
     if routes is None:
         return
     watch.router(routed)
-    _middleware_topology(current, watch)
-    _middleware_topology(routed, watch)
+    watch.middleware(current)
+    watch.middleware(routed)
     _watch_declared_dependencies(
         current,
         provider,
@@ -1244,168 +1129,6 @@ def _watch_topology_node(  # noqa: PLR0911
             provider_is_authoritative=routed_authoritative,
             watch=watch,
         )
-
-
-def _route_topology_node(  # noqa: C901, PLR0911, PLR0912
-    current: Any,  # noqa: ANN401
-    ancestors: frozenset[int],
-    provider: Any = None,  # noqa: ANN401
-    *,
-    provider_is_authoritative: bool = False,
-    watch: _TopologyWatch | None = None,
-) -> tuple[Any, ...]:
-    """Return a cycle-safe snapshot of one routing branch."""
-    if current is None:
-        return ("none",)
-    bound = _bound_router(current)
-    if bound is not None:
-        current = bound
-    if id(current) in ancestors:
-        return ("cycle", id(current))
-    nested_ancestors = ancestors | {id(current)}
-    included = getattr(current, "original_router", None)
-    if included is not None:
-        context = getattr(current, "include_context", None)
-        provider, authoritative = _dependency_overrides_context(
-            current,
-            provider,
-            authoritative=provider_is_authoritative,
-        )
-        context_provider, context_authoritative = _dependency_overrides_context(
-            context,
-            provider,
-            authoritative=authoritative,
-        )
-        return (
-            "include",
-            id(current),
-            getattr(context, "prefix", ""),
-            _declared_dependency_topology(
-                context,
-                provider,
-                provider_is_authoritative=authoritative,
-                watch=watch,
-            ),
-            _route_topology_node(
-                included,
-                nested_ancestors,
-                context_provider,
-                provider_is_authoritative=context_authoritative,
-                watch=watch,
-            ),
-        )
-    if _is_mount(current):
-        if watch is not None:
-            watch.route(current)
-        return (
-            "mount",
-            id(current),
-            getattr(current, "path", ""),
-            _route_topology_node(
-                getattr(current, "app", None),
-                nested_ancestors,
-                None,
-                watch=watch,
-            ),
-        )
-    if _is_route(current):
-        if watch is not None:
-            watch.route(current)
-        dependency = getattr(current, "dependant", None)  # codespell:ignore
-        provider, authoritative = _dependency_overrides_context(
-            current,
-            provider,
-            authoritative=provider_is_authoritative,
-        )
-        if watch is not None:
-            watch.provider(provider)
-        return (
-            "route",
-            id(current),
-            getattr(current, "path", ""),
-            tuple(sorted(getattr(current, "methods", None) or ())),
-            _dependency_overrides_topology(provider),
-            _dependency_topology(
-                dependency,
-                provider,
-                provider_is_authoritative=authoritative,
-                watch=watch,
-            ),
-            _route_topology_node(
-                getattr(current, "app", None),
-                nested_ancestors,
-                provider,
-                provider_is_authoritative=authoritative,
-                watch=watch,
-            ),
-        )
-    nested = _wrapped_app(current)
-    if nested is not None:
-        if watch is not None:
-            watch.wrapper(current)
-        return (
-            "wrapper",
-            id(current),
-            type(current),
-            _route_topology_node(
-                nested,
-                nested_ancestors,
-                provider,
-                provider_is_authoritative=provider_is_authoritative,
-                watch=watch,
-            ),
-        )
-    router = getattr(current, "router", None)
-    routed = router or current
-    current_provider, current_authoritative = _dependency_overrides_context(
-        current,
-        provider,
-        authoritative=provider_is_authoritative,
-    )
-    routed_provider, routed_authoritative = _dependency_overrides_context(
-        routed,
-        current_provider,
-        authoritative=current_authoritative,
-    )
-    routes = getattr(routed, "routes", None)
-    if routes is None:
-        return ("opaque", id(current), type(current))
-    if watch is not None:
-        watch.router(routed)
-    return (
-        "router",
-        id(current),
-        id(routed),
-        _middleware_topology(current, watch),
-        _middleware_topology(routed, watch),
-        _declared_dependency_topology(
-            current,
-            provider,
-            provider_is_authoritative=provider_is_authoritative,
-            watch=watch,
-        ),
-        _declared_dependency_topology(
-            routed,
-            current_provider,
-            provider_is_authoritative=current_authoritative,
-            watch=watch,
-        ),
-        tuple(
-            _route_topology_node(
-                route,
-                nested_ancestors,
-                routed_provider,
-                provider_is_authoritative=routed_authoritative,
-                watch=watch,
-            )
-            for route in routes or ()
-        ),
-    )
-
-
-def _route_topology(app: Any) -> tuple[Any, ...]:  # noqa: ANN401
-    """Return a cycle-safe snapshot that changes with routing policy."""
-    return _route_topology_node(app, frozenset())
 
 
 def walk_routes(

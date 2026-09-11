@@ -21,18 +21,17 @@ from starlette.middleware.exceptions import ExceptionMiddleware
 from starlette.routing import Mount, Route, Router, compile_path
 
 from grelmicro._paths import (
-    _dependency_topology,
     _is_starlette_routing_app,
     _middleware_boundaries,
     _nested_routing_app,
     _request_authority,
-    _route_topology,
-    _route_topology_node,
     _RouteTopologyState,
     _routing_root,
     _same_routing_root,
     _TopologyWatch,
     _transparent_routing_source,
+    _watch_dependency_topology,
+    _watch_topology_node,
     matches,
     names_route,
     walk_routes,
@@ -144,20 +143,28 @@ def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
     mounted = Mount("/api", app=Router())
     recursive = SimpleNamespace(routes=None)
     recursive.app = recursive
-    dependency = SimpleNamespace(call=None, dependencies=[])
-    dependency.dependencies.append(dependency)
 
     # Act / Assert
     assert not _is_starlette_routing_app(None)
     assert _is_starlette_routing_app(mounted)
     assert _nested_routing_app(recursive) is None
-    assert _route_topology(None) == ("none",)
-    assert _dependency_topology(dependency)[2] == (("cycle", id(dependency)),)
-    provider = SimpleNamespace()
-    assert _dependency_topology(dependency, provider)[4] == (id(provider),)
     assert _transparent_routing_source(None) is None
     broken_exception = ExceptionMiddleware(cast("Any", None))
     assert _transparent_routing_source(broken_exception) is broken_exception
+
+
+def test_dependency_walk_stops_a_cycle_instead_of_recursing() -> None:
+    """A dependency that reaches itself is registered once, not walked forever."""
+    dependency = SimpleNamespace(call=None, dependencies=[])
+    dependency.dependencies.append(dependency)
+    watch = _TopologyWatch()
+
+    _watch_dependency_topology(dependency, watch=watch)
+
+    entries = watch.signature()[5]
+    assert len(entries) == 1
+    assert entries[0][0] == id(dependency)
+    assert entries[0][3] == (id(dependency),)
 
 
 def test_routing_root_distinguishes_mount_coordinates_from_wrapped_sources() -> (
@@ -181,7 +188,7 @@ def test_topology_generation_collects_router_declared_dependencies() -> None:
     snapshot = _RouteTopologyState(router)
 
     assert not snapshot.changed()
-    assert _route_topology(router)
+    assert snapshot.value[5]
 
 
 def test_topology_generation_detects_same_length_replacement_and_reorder() -> (
@@ -258,24 +265,10 @@ def test_route_topology_reads_a_bound_router_as_its_router() -> None:
     """A bound `Router.app` describes the router it belongs to, not a wrapper."""
     router = Router(routes=[Route("/x", app)])
 
-    assert _route_topology(router.app) == _route_topology(router)
-
-
-def test_route_topology_names_an_asgi_wrapper_around_a_router() -> None:
-    """A wrapper is its own node, and the router below it keeps its snapshot."""
-
-    class Backend(AuthenticationBackend):
-        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
-            return None
-
-    router = Router(routes=[Route("/x", app)])
-    guarded = AuthenticationMiddleware(router, backend=Backend())
-
-    snapshot = _route_topology(guarded)
-
-    assert snapshot[0] == "wrapper"
-    assert snapshot[2] is AuthenticationMiddleware
-    assert snapshot[3] == _route_topology(router)
+    assert (
+        _RouteTopologyState(router.app).value
+        == _RouteTopologyState(router).value
+    )
 
 
 def test_snapshot_walk_watches_the_nodes_whose_later_edits_matter() -> None:
@@ -302,7 +295,7 @@ def test_snapshot_walk_watches_the_nodes_whose_later_edits_matter() -> None:
     guarded = AuthenticationMiddleware(web, backend=Backend())
 
     watch = _TopologyWatch()
-    _route_topology_node(guarded, frozenset(), watch=watch)
+    _watch_topology_node(guarded, frozenset(), watch=watch)
 
     # The wrapper, so replacing the application it delegates to is seen.
     before = watch.signature()
@@ -348,19 +341,19 @@ def test_route_topology_tracks_dependency_override_identities() -> None:
     async def unrelated() -> None:
         return None
 
-    original = _route_topology(web)
+    original = _RouteTopologyState(web).value
     web.dependency_overrides[marker.dependency] = first
-    first_override = _route_topology(web)
+    first_override = _RouteTopologyState(web).value
     web.dependency_overrides[marker.dependency] = second
-    second_override = _route_topology(web)
+    second_override = _RouteTopologyState(web).value
     web.dependency_overrides[unrelated] = first
-    unrelated_override = _route_topology(web)
+    unrelated_override = _RouteTopologyState(web).value
     web.dependency_overrides.clear()
 
     assert first_override != original
     assert second_override != first_override
     assert unrelated_override != second_override
-    assert _route_topology(web) == original
+    assert _RouteTopologyState(web).value == original
 
 
 def test_included_topology_inherits_an_empty_contexts_override_provider() -> (
@@ -380,17 +373,17 @@ def test_included_topology_inherits_an_empty_contexts_override_provider() -> (
     context = cast("Any", inclusion).include_context
     assert context.dependencies == []
 
-    original = _route_topology(web)
+    original = _RouteTopologyState(web).value
     replacement = SimpleNamespace(dependency_overrides={})
     context.dependency_overrides_provider = replacement
-    provider_changed = _route_topology(web)
+    provider_changed = _RouteTopologyState(web).value
     replacement.dependency_overrides[marker.dependency] = app
-    mapping_changed = _route_topology(web)
+    mapping_changed = _RouteTopologyState(web).value
     replacement.dependency_overrides.clear()
 
     assert provider_changed != original
     assert mapping_changed != provider_changed
-    assert _route_topology(web) == provider_changed
+    assert _RouteTopologyState(web).value == provider_changed
 
 
 def test_included_topology_ignores_shadowed_child_override_providers() -> None:
@@ -404,13 +397,13 @@ def test_included_topology_ignores_shadowed_child_override_providers() -> None:
 
     parent = FastAPI()
     parent.include_router(child.router)
-    original = _route_topology(parent)
+    original = _RouteTopologyState(parent).value
 
     async def child_override() -> None:
         return None
 
     child.dependency_overrides[marker.dependency] = child_override
-    child_changed = _route_topology(parent)
+    child_changed = _RouteTopologyState(parent).value
 
     async def parent_override() -> None:
         return None
@@ -418,7 +411,7 @@ def test_included_topology_ignores_shadowed_child_override_providers() -> None:
     parent.dependency_overrides[marker.dependency] = parent_override
 
     assert child_changed == original
-    assert _route_topology(parent) != original
+    assert _RouteTopologyState(parent).value != original
 
 
 @pytest.mark.parametrize(
@@ -643,9 +636,9 @@ def test_route_walker_stops_cycles_per_path_not_globally() -> None:
         f"{prefix}{route.path}"
         for prefix, route, _contexts in walk_routes(cyclic)
     ]
-    before = _route_topology(cyclic)
+    before = _RouteTopologyState(cyclic).value
     cyclic.add_api_route("/later", charge, methods=["POST"])
-    after = _route_topology(cyclic)
+    after = _RouteTopologyState(cyclic).value
 
     # Assert
     assert repeated_paths == ["/one/items", "/two/items"]
