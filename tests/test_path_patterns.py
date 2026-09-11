@@ -30,6 +30,7 @@ from grelmicro._paths import (
     _same_routing_root,
     _TopologyWatch,
     _transparent_routing_source,
+    _watch_dependency_topology,
     _watch_topology_node,
     matches,
     names_route,
@@ -142,6 +143,7 @@ def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
     mounted = Mount("/api", app=Router())
     recursive = SimpleNamespace(routes=None)
     recursive.app = recursive
+
     # Act / Assert
     assert not _is_starlette_routing_app(None)
     assert _is_starlette_routing_app(mounted)
@@ -149,6 +151,20 @@ def test_routing_shape_helpers_handle_mounts_and_broken_endpoints() -> None:
     assert _transparent_routing_source(None) is None
     broken_exception = ExceptionMiddleware(cast("Any", None))
     assert _transparent_routing_source(broken_exception) is broken_exception
+
+
+def test_dependency_walk_stops_a_cycle_instead_of_recursing() -> None:
+    """A dependency that reaches itself is registered once, not walked forever."""
+    dependency = SimpleNamespace(call=None, dependencies=[])
+    dependency.dependencies.append(dependency)
+    watch = _TopologyWatch()
+
+    _watch_dependency_topology(dependency, watch=watch)
+
+    entries = watch.signature()[5]
+    assert len(entries) == 1
+    assert entries[0][0] == id(dependency)
+    assert entries[0][3] == (id(dependency),)
 
 
 def test_routing_root_distinguishes_mount_coordinates_from_wrapped_sources() -> (
@@ -172,7 +188,7 @@ def test_topology_generation_collects_router_declared_dependencies() -> None:
     snapshot = _RouteTopologyState(router)
 
     assert not snapshot.changed()
-    assert snapshot.value
+    assert snapshot.value[5]
 
 
 def test_topology_generation_detects_same_length_replacement_and_reorder() -> (

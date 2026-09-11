@@ -839,7 +839,7 @@ class _TopologyWatch:
 
 
 class _RouteTopologyState:
-    """A full topology snapshot guarded by a cheap mutation signature."""
+    """A routing topology guarded by a cheap mutation signature."""
 
     __slots__ = ("_signature", "_watch", "app", "value")
 
@@ -871,15 +871,15 @@ def _watch_dependency_topology(
     provider_is_authoritative: bool = False,
     watch: _TopologyWatch,
 ) -> None:
-    """Register dependency nodes without constructing a nested snapshot."""
+    """Register every dependency node reachable from `dependency`."""
     if dependency is None or id(dependency) in ancestors:
         return
     watch.dependency(dependency)
     nested_ancestors = ancestors | {id(dependency)}
-    _call, _effective, provider = _effective_dependency_call(
+    provider, _authoritative = _dependency_overrides_context(
         dependency,
         provider,
-        provider_is_authoritative=provider_is_authoritative,
+        authoritative=provider_is_authoritative,
     )
     watch.provider(provider)
     for child in getattr(dependency, "dependencies", ()) or ():
@@ -995,35 +995,12 @@ def _watch_declared_dependencies(
     watch.provider(provider)
     for dependency in getattr(holder, "dependencies", ()) or ():
         watch.dependency(dependency)
-        _call, _effective, dependency_provider = _effective_dependency_call(
+        dependency_provider, _authoritative = _dependency_overrides_context(
             dependency,
             provider,
-            provider_is_authoritative=authoritative,
+            authoritative=authoritative,
         )
         watch.provider(dependency_provider)
-
-
-def _middleware_topology(
-    app: Any,  # noqa: ANN401
-    watch: _TopologyWatch,
-) -> tuple[Any, ...]:
-    """Return middleware declarations and the currently built stack."""
-    watch.middleware(app)
-    declared = tuple(
-        (
-            id(middleware),
-            id(getattr(middleware, "cls", middleware)),
-        )
-        for middleware in getattr(app, "user_middleware", ()) or ()
-    )
-    stack = getattr(app, "middleware_stack", None)
-    chain: list[tuple[int, type[Any]]] = []
-    seen: set[int] = set()
-    while stack is not None and id(stack) not in seen:
-        seen.add(id(stack))
-        chain.append((id(stack), type(stack)))
-        stack = _wrapped_app(stack)
-    return declared, tuple(chain)
 
 
 def _watch_topology_node(  # noqa: PLR0911
@@ -1130,8 +1107,8 @@ def _watch_topology_node(  # noqa: PLR0911
     if routes is None:
         return
     watch.router(routed)
-    _middleware_topology(current, watch)
-    _middleware_topology(routed, watch)
+    watch.middleware(current)
+    watch.middleware(routed)
     _watch_declared_dependencies(
         current,
         provider,
