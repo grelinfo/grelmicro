@@ -10,7 +10,7 @@ from pydantic_core import MultiHostUrl, Url
 
 MASK = "***"
 
-_USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:/?#]*:)([^/?#]+)(@)")
+_USERINFO_RE = re.compile(r"(\A//|\A|://|:/)([^:/?#]*:)([^/?#]+)(@)")
 _MULTI_HOST_USERINFO_RE = re.compile(
     r"(\A|://|:/|//|,)([^:,/?#]*:)"
     r"((?:(?!,[^:,/?#]*:)[^/?#])+)(@)"
@@ -45,6 +45,29 @@ _CREDENTIAL_QUERY_KEY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+_BENIGN_QUERY_KEYS = frozenset(
+    {
+        "cache_key",
+        "foreign_key",
+        "group_key",
+        "order_key",
+        "partition_key",
+        "primary_key",
+        "routing_key",
+        "shard_key",
+        "sort_key",
+    }
+)
+"""Names that read as credentials to the pattern and never carry one.
+
+`*_key` is matched broadly on purpose, because an unknown name that holds
+a secret costs more than a masked value that did not. These are the names
+where that trade is already settled: each one addresses a row, a shard, or
+an ordering, and masking them takes away what an operator reads the log
+for. Anything not listed here is still masked.
+"""
+
 _QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
 _PARAMETER_BOUNDARY = re.compile(r"[/?&;]|%(?:2f|3b|26|3f)", re.IGNORECASE)
 _ASSIGNMENT_SEPARATOR = re.compile(r"=|%3d", re.IGNORECASE)
@@ -65,6 +88,8 @@ def _is_credential_query_key(key: str) -> bool:
     normalized = _QUALIFIER_SEPARATOR.sub(
         "_", _CAMEL_CASE_BOUNDARY.sub("_", key)
     )
+    if normalized.lower() in _BENIGN_QUERY_KEYS:
+        return False
     return (
         lowered in _EXACT_CREDENTIAL_QUERY_KEYS
         or _CREDENTIAL_QUERY_KEY_PATTERN.search(normalized) is not None

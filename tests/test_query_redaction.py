@@ -10,7 +10,12 @@ from __future__ import annotations
 import pytest
 from pydantic_core import MultiHostUrl
 
-from grelmicro._redact import _redact_query, _redact_query_values, redact_url
+from grelmicro._redact import (
+    MASK,
+    _redact_query,
+    _redact_query_values,
+    redact_url,
+)
 
 
 def _postgres_url(value: str) -> str:
@@ -535,3 +540,46 @@ def test_url_assignment_separators_do_not_expose_credentials(
 ) -> None:
     """Query and path-like fragment assignments use the same key policy."""
     assert redact_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "sort_key",
+        "partition_key",
+        "routing_key",
+        "cache_key",
+        "shard_key",
+        "sortKey",
+        "partition.key",
+    ],
+)
+def test_a_key_that_addresses_a_row_is_not_a_credential(key: str) -> None:
+    """A name ending in `key` that holds no secret keeps its value.
+
+    These read as credentials to the broad `*_key` rule, and masking them
+    takes away the value an operator reads the log for.
+    """
+    assert redact_url(f"https://h/p?{key}=name") == f"https://h/p?{key}=name"
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["api_key", "session_key", "secret_key", "signing_key", "unknown_key"],
+)
+def test_an_unrecognised_key_name_is_still_masked(key: str) -> None:
+    """Only the settled names are let through, so a new one stays masked."""
+    assert redact_url(f"https://h/p?{key}=abc") == f"https://h/p?{key}={MASK}"
+
+
+def test_a_colon_in_the_path_is_not_userinfo() -> None:
+    """`//` inside a path carries no credential, so nothing is rewritten."""
+    assert (
+        redact_url("https://example.com//path:x@y")
+        == "https://example.com//path:x@y"
+    )
+
+
+def test_a_protocol_relative_url_still_masks_its_userinfo() -> None:
+    """A url that opens with `//` still has userinfo, and it is masked."""
+    assert redact_url("//user:pw@host/p") == f"//user:{MASK}@host/p"
