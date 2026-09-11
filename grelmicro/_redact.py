@@ -51,7 +51,7 @@ _ASSIGNMENT_SEPARATOR = re.compile(r"=|%3d", re.IGNORECASE)
 _QUERY_DELIMITER = re.compile(r"(&)")
 _FRAGMENT_DELIMITER = re.compile(r"(?!)")
 _NESTED_URL = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*:/|//)",
+    r"[\x00-\x20]*(?:[A-Za-z][A-Za-z0-9+.-]*:|//)",
 )
 _MAX_NESTED_URL_DECODE_DEPTH = 2
 _MAX_PORT = 65535

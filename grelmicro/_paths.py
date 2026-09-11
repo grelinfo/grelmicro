@@ -459,18 +459,26 @@ def _has_configured_middleware(app: Any) -> bool:  # noqa: ANN401
     return stack is not None and endpoint is not None and stack != endpoint
 
 
+def _route_methods(route: Any) -> frozenset[str] | None:  # noqa: ANN401
+    """Return one route's methods, or `None` when it accepts every method."""
+    methods = getattr(route, "methods", None)
+    if methods is None:
+        return None
+    return frozenset(method.upper() for method in methods)
+
+
 def _middleware_boundaries(
     app: Any,  # noqa: ANN401
     *,
     include_root: bool = False,
-) -> set[tuple[str, bool]]:
+) -> set[tuple[str, bool, frozenset[str] | None]]:
     """Return exact or nested paths a parent response cache must not cross."""
     app = _transparent_routing_source(app)
     if _wrapped_app(app) is not None:
-        return {("", True)}
+        return {("", True, None)}
     if include_root and _has_configured_middleware(app):
-        return {("", True)}
-    found: set[tuple[str, bool]] = set()
+        return {("", True, None)}
+    found: set[tuple[str, bool, frozenset[str] | None]] = set()
     _visit_middleware_boundaries(app, "", frozenset(), found)
     return found
 
@@ -479,7 +487,7 @@ def _visit_middleware_boundaries(
     current: Any,  # noqa: ANN401
     prefix: str,
     ancestors: frozenset[int],
-    found: set[tuple[str, bool]],
+    found: set[tuple[str, bool, frozenset[str] | None]],
 ) -> None:
     """Add middleware boundaries below one routing application."""
     current = _transparent_routing_source(current)
@@ -506,11 +514,11 @@ def _visit_boundary_app(
     app: Any,  # noqa: ANN401
     path: str,
     ancestors: frozenset[int],
-    found: set[tuple[str, bool]],
+    found: set[tuple[str, bool, frozenset[str] | None]],
 ) -> None:
     """Add or descend through an application-wide middleware boundary."""
     if _has_configured_middleware(app):
-        found.add((path, True))
+        found.add((path, True, None))
     else:
         _visit_middleware_boundaries(app, path, ancestors, found)
 
@@ -519,7 +527,7 @@ def _visit_boundary_route(
     route: Any,  # noqa: ANN401
     prefix: str,
     ancestors: frozenset[int],
-    found: set[tuple[str, bool]],
+    found: set[tuple[str, bool, frozenset[str] | None]],
 ) -> None:
     """Inspect one included router, mount, or leaf route for middleware."""
     included = getattr(route, "original_router", None)
@@ -537,18 +545,18 @@ def _visit_boundary_route(
     if getattr(route, "routes", None) is not None:
         _visit_boundary_app(nested, path, ancestors, found)
     elif _has_configured_middleware(nested):
-        found.add((path, False))
+        found.add((path, False, _route_methods(route)))
     else:
         routed = _nested_routing_app(route)
         if routed is None:
             return
-        nested_boundaries: set[tuple[str, bool]] = set()
+        nested_boundaries: set[tuple[str, bool, frozenset[str] | None]] = set()
         _visit_boundary_app(routed, "", ancestors, nested_boundaries)
         if nested_boundaries:
             # A Router used as a Route endpoint receives the outer route's
             # unchanged scope. Its own path cannot be composed with the
             # outer one the way a Mount's can, so refuse the exact path.
-            found.add((path, False))
+            found.add((path, False, _route_methods(route)))
 
 
 def _nested_routing_app(route: Any) -> Any | None:  # noqa: ANN401
@@ -669,20 +677,48 @@ def _walk_routes(
 class _TopologyWatch:
     """Objects whose cheap shape changes when routing policy may have changed."""
 
-    __slots__ = ("_middleware", "_providers", "_routers")
+    __slots__ = (
+        "_dependencies",
+        "_holders",
+        "_middleware",
+        "_providers",
+        "_routers",
+        "_routes",
+        "_wrappers",
+    )
 
     def __init__(self) -> None:
         self._routers: dict[int, Any] = {}
+        self._routes: dict[int, Any] = {}
+        self._wrappers: dict[int, Any] = {}
         self._middleware: dict[int, Any] = {}
+        self._holders: dict[int, Any] = {}
+        self._dependencies: dict[int, Any] = {}
         self._providers: dict[int, Any] = {}
 
     def router(self, router: Any) -> None:  # noqa: ANN401
-        """Watch one route collection without scanning its leaf routes again."""
+        """Watch one route collection and its ordered, shallow route entries."""
         self._routers[id(router)] = router
+
+    def route(self, route: Any) -> None:  # noqa: ANN401
+        """Watch policy-relevant state mutable on an existing route object."""
+        self._routes[id(route)] = route
+
+    def wrapper(self, wrapper: Any) -> None:  # noqa: ANN401
+        """Watch an ASGI wrapper whose delegated application can be replaced."""
+        self._wrappers[id(wrapper)] = wrapper
 
     def middleware(self, holder: Any) -> None:  # noqa: ANN401
         """Watch the small middleware declaration list on one routing holder."""
         self._middleware[id(holder)] = holder
+
+    def holder(self, holder: Any) -> None:  # noqa: ANN401
+        """Watch directly declared dependencies and their provider."""
+        self._holders[id(holder)] = holder
+
+    def dependency(self, dependency: Any) -> None:  # noqa: ANN401
+        """Watch one dependency node and the identities of its children."""
+        self._dependencies[id(dependency)] = dependency
 
     def provider(self, provider: Any) -> None:  # noqa: ANN401
         """Watch one dependency override mapping."""
@@ -690,15 +726,52 @@ class _TopologyWatch:
             self._providers[id(provider)] = provider
 
     def signature(self) -> tuple[Any, ...]:
-        """Return a lightweight generation signature for the watched topology."""
+        """Return a shallow generation signature for the watched topology.
+
+        Detecting in-place replacement or reordering requires an ordered scan
+        of each watched route list. The scan remains shallow: unchanged
+        requests never recurse through mounted applications or dependency
+        graphs, while route and dependency objects already discovered by the
+        last rebuild contribute only their directly mutable policy fields.
+        """
         routers = tuple(
             (
                 id(router),
                 id(routes := getattr(router, "routes", None)),
-                len(routes) if routes is not None else None,
+                (
+                    tuple(id(route) for route in routes)
+                    if routes is not None
+                    else None
+                ),
                 getattr(router, "_routes_version", None),
             )
             for router in self._routers.values()
+        )
+        routes = tuple(
+            (
+                id(route),
+                getattr(route, "path", None),
+                (
+                    tuple(sorted(methods))
+                    if (methods := getattr(route, "methods", None)) is not None
+                    else None
+                ),
+                id(getattr(route, "app", None)),
+                id(getattr(route, "routes", None)),
+                id(getattr(route, "original_router", None)),
+                id(getattr(route, "include_context", None)),
+                id(getattr(route, "dependant", None)),  # codespell:ignore
+                id(getattr(route, "dependency_overrides_provider", None)),
+            )
+            for route in self._routes.values()
+        )
+        wrappers = tuple(
+            (
+                id(wrapper),
+                type(wrapper),
+                id(_wrapped_app(wrapper)),
+            )
+            for wrapper in self._wrappers.values()
         )
         middleware = tuple(
             (
@@ -713,6 +786,31 @@ class _TopologyWatch:
                 ),
             )
             for holder in self._middleware.values()
+        )
+        holders = tuple(
+            (
+                id(holder),
+                id(declared := getattr(holder, "dependencies", None)),
+                tuple(id(item) for item in (declared or ())),
+                id(getattr(holder, "dependency_overrides_provider", None)),
+            )
+            for holder in self._holders.values()
+        )
+        dependencies = tuple(
+            (
+                id(dependency),
+                id(_dependency_callable(dependency)),
+                id(children := getattr(dependency, "dependencies", None)),
+                tuple(id(child) for child in (children or ())),
+                id(
+                    getattr(
+                        dependency,
+                        "dependency_overrides_provider",
+                        None,
+                    )
+                ),
+            )
+            for dependency in self._dependencies.values()
         )
         providers = tuple(
             (
@@ -729,7 +827,15 @@ class _TopologyWatch:
             for provider in self._providers.values()
             for overrides in (getattr(provider, "dependency_overrides", None),)
         )
-        return routers, middleware, providers
+        return (
+            routers,
+            routes,
+            wrappers,
+            middleware,
+            holders,
+            dependencies,
+            providers,
+        )
 
 
 class _RouteTopologyState:
@@ -749,11 +855,12 @@ class _RouteTopologyState:
         return self._watch.signature() != self._signature
 
     def rebuild(self) -> None:
-        """Walk the full topology once and publish its new generation."""
+        """Walk the topology once and publish its shallow mutation guards."""
         watch = _TopologyWatch()
-        self.value = _route_topology_node(self.app, frozenset(), watch=watch)
+        _watch_topology_node(self.app, frozenset(), watch=watch)
         self._watch = watch
         self._signature = watch.signature()
+        self.value = self._signature
 
 
 def _dependency_topology(
@@ -793,6 +900,35 @@ def _dependency_topology(
         id(effective),
         _dependency_overrides_topology(provider),
     )
+
+
+def _watch_dependency_topology(
+    dependency: Any,  # noqa: ANN401
+    provider: Any = None,  # noqa: ANN401
+    ancestors: frozenset[int] = frozenset(),
+    *,
+    provider_is_authoritative: bool = False,
+    watch: _TopologyWatch,
+) -> None:
+    """Register dependency nodes without constructing a nested snapshot."""
+    if dependency is None or id(dependency) in ancestors:
+        return
+    watch.dependency(dependency)
+    nested_ancestors = ancestors | {id(dependency)}
+    _call, _effective, provider = _effective_dependency_call(
+        dependency,
+        provider,
+        provider_is_authoritative=provider_is_authoritative,
+    )
+    watch.provider(provider)
+    for child in getattr(dependency, "dependencies", ()) or ():
+        _watch_dependency_topology(
+            child,
+            provider,
+            nested_ancestors,
+            provider_is_authoritative=provider_is_authoritative,
+            watch=watch,
+        )
 
 
 def _dependency_callable(dependency: Any) -> Any:  # noqa: ANN401
@@ -904,6 +1040,8 @@ def _declared_dependency_topology(
     watch: _TopologyWatch | None = None,
 ) -> tuple[Any, ...]:
     """Return a holder's provider and directly declared dependencies."""
+    if watch is not None:
+        watch.holder(holder)
     provider, authoritative = _dependency_overrides_context(
         holder,
         inherited_provider,
@@ -931,6 +1069,31 @@ def _declared_dependency_topology(
     return _dependency_overrides_topology(provider), tuple(found)
 
 
+def _watch_declared_dependencies(
+    holder: Any,  # noqa: ANN401
+    inherited_provider: Any = None,  # noqa: ANN401
+    *,
+    provider_is_authoritative: bool = False,
+    watch: _TopologyWatch,
+) -> None:
+    """Register one holder's declared dependencies and effective provider."""
+    watch.holder(holder)
+    provider, authoritative = _dependency_overrides_context(
+        holder,
+        inherited_provider,
+        authoritative=provider_is_authoritative,
+    )
+    watch.provider(provider)
+    for dependency in getattr(holder, "dependencies", ()) or ():
+        watch.dependency(dependency)
+        _call, _effective, dependency_provider = _effective_dependency_call(
+            dependency,
+            provider,
+            provider_is_authoritative=authoritative,
+        )
+        watch.provider(dependency_provider)
+
+
 def _middleware_topology(
     app: Any,  # noqa: ANN401
     watch: _TopologyWatch | None = None,
@@ -955,7 +1118,135 @@ def _middleware_topology(
     return declared, tuple(chain)
 
 
-def _route_topology_node(  # noqa: C901, PLR0911
+def _watch_topology_node(  # noqa: PLR0911
+    current: Any,  # noqa: ANN401
+    ancestors: frozenset[int],
+    provider: Any = None,  # noqa: ANN401
+    *,
+    provider_is_authoritative: bool = False,
+    watch: _TopologyWatch,
+) -> None:
+    """Discover shallow mutation guards without rebuilding a topology tuple."""
+    if current is None:
+        return
+    bound = _bound_router(current)
+    if bound is not None:
+        current = bound
+    if id(current) in ancestors:
+        return
+    nested_ancestors = ancestors | {id(current)}
+    included = getattr(current, "original_router", None)
+    if included is not None:
+        watch.route(current)
+        context = getattr(current, "include_context", None)
+        provider, authoritative = _dependency_overrides_context(
+            current,
+            provider,
+            authoritative=provider_is_authoritative,
+        )
+        context_provider, context_authoritative = _dependency_overrides_context(
+            context,
+            provider,
+            authoritative=authoritative,
+        )
+        _watch_declared_dependencies(
+            context,
+            provider,
+            provider_is_authoritative=authoritative,
+            watch=watch,
+        )
+        _watch_topology_node(
+            included,
+            nested_ancestors,
+            context_provider,
+            provider_is_authoritative=context_authoritative,
+            watch=watch,
+        )
+        return
+    if _is_mount(current):
+        watch.route(current)
+        _watch_topology_node(
+            getattr(current, "app", None),
+            nested_ancestors,
+            None,
+            watch=watch,
+        )
+        return
+    if _is_route(current):
+        watch.route(current)
+        dependency = getattr(current, "dependant", None)  # codespell:ignore
+        provider, authoritative = _dependency_overrides_context(
+            current,
+            provider,
+            authoritative=provider_is_authoritative,
+        )
+        watch.provider(provider)
+        _watch_dependency_topology(
+            dependency,
+            provider,
+            provider_is_authoritative=authoritative,
+            watch=watch,
+        )
+        _watch_topology_node(
+            getattr(current, "app", None),
+            nested_ancestors,
+            provider,
+            provider_is_authoritative=authoritative,
+            watch=watch,
+        )
+        return
+    nested = _wrapped_app(current)
+    if nested is not None:
+        watch.wrapper(current)
+        _watch_topology_node(
+            nested,
+            nested_ancestors,
+            provider,
+            provider_is_authoritative=provider_is_authoritative,
+            watch=watch,
+        )
+        return
+    router = getattr(current, "router", None)
+    routed = router or current
+    current_provider, current_authoritative = _dependency_overrides_context(
+        current,
+        provider,
+        authoritative=provider_is_authoritative,
+    )
+    routed_provider, routed_authoritative = _dependency_overrides_context(
+        routed,
+        current_provider,
+        authoritative=current_authoritative,
+    )
+    routes = getattr(routed, "routes", None)
+    if routes is None:
+        return
+    watch.router(routed)
+    _middleware_topology(current, watch)
+    _middleware_topology(routed, watch)
+    _watch_declared_dependencies(
+        current,
+        provider,
+        provider_is_authoritative=provider_is_authoritative,
+        watch=watch,
+    )
+    _watch_declared_dependencies(
+        routed,
+        current_provider,
+        provider_is_authoritative=current_authoritative,
+        watch=watch,
+    )
+    for route in routes or ():
+        _watch_topology_node(
+            route,
+            nested_ancestors,
+            routed_provider,
+            provider_is_authoritative=routed_authoritative,
+            watch=watch,
+        )
+
+
+def _route_topology_node(  # noqa: C901, PLR0911, PLR0912
     current: Any,  # noqa: ANN401
     ancestors: frozenset[int],
     provider: Any = None,  # noqa: ANN401
@@ -1004,6 +1295,8 @@ def _route_topology_node(  # noqa: C901, PLR0911
             ),
         )
     if _is_mount(current):
+        if watch is not None:
+            watch.route(current)
         return (
             "mount",
             id(current),
@@ -1016,6 +1309,8 @@ def _route_topology_node(  # noqa: C901, PLR0911
             ),
         )
     if _is_route(current):
+        if watch is not None:
+            watch.route(current)
         dependency = getattr(current, "dependant", None)  # codespell:ignore
         provider, authoritative = _dependency_overrides_context(
             current,
@@ -1046,6 +1341,8 @@ def _route_topology_node(  # noqa: C901, PLR0911
         )
     nested = _wrapped_app(current)
     if nested is not None:
+        if watch is not None:
+            watch.wrapper(current)
         return (
             "wrapper",
             id(current),
@@ -1253,17 +1550,20 @@ def _prefix_names(under: str, template: str) -> bool:
     matched against the URL rather than against a boundary, so
     `/products/co*` names `/products/cold`.
     """
+    boundary = under.endswith("/")
     parts = under.rstrip("/").split("/")
     declared = template.split("/")
-    if len(parts) > len(declared):
-        # Only a converter that spans separators reaches past the
-        # segments the template declares, `{rest:path}` and nothing else.
-        return declared[-1].startswith("{") and ":path}" in declared[-1]
     for index, part in enumerate(parts):
+        if index >= len(declared):
+            return False
         against = declared[index]
         if against.startswith("{"):
+            if ":path}" in against:
+                # A path converter absorbs every remaining segment, but only
+                # after the literal and typed segments before it agreed.
+                return True
             continue
-        if index == len(parts) - 1:
+        if index == len(parts) - 1 and not boundary:
             # The prefix may stop inside this one.
             if not against.startswith(part):
                 return False

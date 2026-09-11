@@ -695,6 +695,42 @@ def test_describe_idempotency_matches_authentication_boundaries(
     assert endpoints["/public/{item_id:int}"] == public_applies
 
 
+def test_describe_idempotency_keeps_route_authentication_method_local() -> None:
+    """Reported POST replay remains enabled beside an authenticated GET."""
+
+    async def endpoint(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    app = Starlette(
+        routes=[
+            Route(
+                "/same",
+                endpoint,
+                methods=["GET"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=_AnonymousAuthentication(),
+                    )
+                ],
+            ),
+            Route("/same", endpoint, methods=["POST"]),
+        ]
+    )
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()],
+        environment="development",
+    )
+
+    endpoints = {
+        (row.method, row.path): row.applies
+        for row in micro.describe(app).endpoints
+    }
+
+    assert endpoints[("GET", "/same")] == ()
+    assert endpoints[("POST", "/same")] == ("idempotent 86400s",)
+
+
 def test_describe_idempotency_refreshes_dynamic_auth_topology() -> None:
     """A late protected mount updates the report without hiding its sibling."""
 

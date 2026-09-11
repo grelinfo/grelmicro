@@ -27,9 +27,11 @@ from grelmicro._paths import (
     _nested_routing_app,
     _request_authority,
     _route_topology,
+    _route_topology_node,
     _RouteTopologyState,
     _routing_root,
     _same_routing_root,
+    _TopologyWatch,
     _transparent_routing_source,
     matches,
     names_route,
@@ -94,12 +96,12 @@ def test_route_walkers_treat_wrappers_and_middleware_as_boundaries() -> None:
     ]
 
     # Act / Assert
-    assert _middleware_boundaries(wrapped) == {("", True)}
+    assert _middleware_boundaries(wrapped) == {("", True, None)}
     assert _middleware_boundaries(builtin_exception) == set()
-    assert _middleware_boundaries(custom_exception) == {("", True)}
-    assert _middleware_boundaries(protected_exception) == {("", True)}
+    assert _middleware_boundaries(custom_exception) == {("", True, None)}
+    assert _middleware_boundaries(protected_exception) == {("", True, None)}
     assert walk_routes(wrapped) == []
-    assert _middleware_boundaries(root) == {("/api", True)}
+    assert _middleware_boundaries(root) == {("/api", True, None)}
     assert _middleware_boundaries(loop) == set()
 
 
@@ -180,6 +182,152 @@ def test_topology_generation_collects_router_declared_dependencies() -> None:
 
     assert not snapshot.changed()
     assert _route_topology(router)
+
+
+def test_topology_generation_detects_same_length_replacement_and_reorder() -> (
+    None
+):
+    """Ordered route identities catch mutations that preserve list length."""
+    first = Route("/first", app, methods=["GET"])
+    second = Route("/second", app, methods=["GET"])
+    router = Router(routes=[first, second])
+    snapshot = _RouteTopologyState(router)
+
+    router.routes[0] = Route("/replacement", app, methods=["GET"])
+    assert snapshot.changed()
+
+    snapshot.rebuild()
+    router.routes.reverse()
+    assert snapshot.changed()
+
+
+def test_topology_generation_detects_policy_mutation_on_existing_nodes() -> (
+    None
+):
+    """Dependency, method, authentication, and middleware edits invalidate."""
+
+    class Backend(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    web = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @web.get("/x")
+    async def x() -> None:
+        return None
+
+    route = cast("Any", web.routes[0])
+    snapshot = _RouteTopologyState(web)
+
+    route.methods.add("POST")
+    assert snapshot.changed()
+
+    snapshot.rebuild()
+    dependency = SimpleNamespace(
+        call=app,
+        dependencies=[],
+        dependency_overrides_provider=None,
+    )
+    route.dependant.dependencies.append(dependency)  # codespell:ignore
+    assert snapshot.changed()
+
+    snapshot.rebuild()
+    dependency.call = x
+    assert snapshot.changed()
+
+    snapshot.rebuild()
+    route.app = AuthenticationMiddleware(route.app, backend=Backend())
+    assert snapshot.changed()
+
+    snapshot.rebuild()
+    web.user_middleware.append(
+        Middleware(CORSMiddleware, allow_origins=["https://example.test"])
+    )
+    assert snapshot.changed()
+
+
+def test_topology_generation_watches_nothing_without_an_application() -> None:
+    """An entry point with no application holds a signature that never moves."""
+    snapshot = _RouteTopologyState(None)
+
+    assert not any(snapshot.value)
+    assert not snapshot.changed()
+
+
+def test_route_topology_reads_a_bound_router_as_its_router() -> None:
+    """A bound `Router.app` describes the router it belongs to, not a wrapper."""
+    router = Router(routes=[Route("/x", app)])
+
+    assert _route_topology(router.app) == _route_topology(router)
+
+
+def test_route_topology_names_an_asgi_wrapper_around_a_router() -> None:
+    """A wrapper is its own node, and the router below it keeps its snapshot."""
+
+    class Backend(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    router = Router(routes=[Route("/x", app)])
+    guarded = AuthenticationMiddleware(router, backend=Backend())
+
+    snapshot = _route_topology(guarded)
+
+    assert snapshot[0] == "wrapper"
+    assert snapshot[2] is AuthenticationMiddleware
+    assert snapshot[3] == _route_topology(router)
+
+
+def test_snapshot_walk_watches_the_nodes_whose_later_edits_matter() -> None:
+    """A snapshot walk handed a watch registers what a later edit can change."""
+
+    class Backend(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    child = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @child.get("/x")
+    async def x() -> None:
+        return None
+
+    web = FastAPI(
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        dependencies=[Depends(app)],
+    )
+    web.mount("/sub", child)
+    web.mount("/other", Router())
+    guarded = AuthenticationMiddleware(web, backend=Backend())
+
+    watch = _TopologyWatch()
+    _route_topology_node(guarded, frozenset(), watch=watch)
+
+    # The wrapper, so replacing the application it delegates to is seen.
+    before = watch.signature()
+    guarded.app = Router()
+    assert watch.signature() != before
+
+    # The mounted route, so swapping the application behind it is seen.
+    before = watch.signature()
+    cast("Any", web.routes[-1]).app = Router()
+    assert watch.signature() != before
+
+    # The leaf route, so widening the methods it answers is seen.
+    before = watch.signature()
+    cast("Any", child.routes[0]).methods.add("POST")
+    assert watch.signature() != before
+
+    # The router, so replacing a route in place is seen.
+    before = watch.signature()
+    child.router.routes[0] = Route("/replacement", app)
+    assert watch.signature() != before
+
+    # The override provider each holder and dependency resolved to.
+    before = watch.signature()
+    web.dependency_overrides[app] = x
+    assert watch.signature() != before
 
 
 def test_route_topology_tracks_dependency_override_identities() -> None:
@@ -451,9 +599,24 @@ def test_direct_route_authentication_flattens_nested_router_boundaries() -> (
     public = Router(routes=[Route("/public", app)])
 
     assert _authentication_paths(Route("/private", protected)) == {
-        ("/private", False)
+        ("/private", False, None)
     }
     assert _authentication_paths(Route("/public", public)) == set()
+
+
+def test_authentication_around_a_single_route_keeps_its_methods() -> None:
+    """Authentication over one route protects that path for its methods only."""
+
+    class Backend(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    route = Route("/private", app, methods=["GET"])
+    guarded = AuthenticationMiddleware(route, backend=Backend())
+
+    assert _authentication_paths(guarded) == {
+        ("/private", False, frozenset({"GET", "HEAD"}))
+    }
 
 
 def test_route_walker_stops_cycles_per_path_not_globally() -> None:
@@ -599,6 +762,30 @@ def test_a_tuple_of_patterns_is_taken_as_it_is() -> None:
             id="prefix-names-the-router",
         ),
         pytest.param(
+            "/api/*",
+            "/api-admin",
+            "/api-admin",
+            id="slash-prefix-does-not-name-sibling",
+        ),
+        pytest.param(
+            "/api-ad*",
+            "/api-admin",
+            "/api-admin",
+            id="partial-final-segment-still-names-sibling",
+        ),
+        pytest.param(
+            "/api-ad*",
+            "/api-other",
+            "/api-admin",
+            id="partial-final-segment-names-nothing",
+        ),
+        pytest.param(
+            "/orders/1/items/*",
+            "/orders/{oid}",
+            "/orders/1/items/x",
+            id="prefix-runs-past-what-the-template-declares",
+        ),
+        pytest.param(
             "/orders/*", "/users/{uid}", "/orders/1", id="another-router"
         ),
         pytest.param(
@@ -609,6 +796,12 @@ def test_a_tuple_of_patterns_is_taken_as_it_is() -> None:
             "/rest/{rest:path}",
             "/rest/a/b/c",
             id="past-a-path-converter",
+        ),
+        pytest.param(
+            "/other/a/b/*",
+            "/rest/{rest:path}",
+            "/other/a/b/c",
+            id="path-converter-validates-preceding-segments",
         ),
         pytest.param(
             "/users/*", "/products/{pid}", "/users/x", id="names-nothing"

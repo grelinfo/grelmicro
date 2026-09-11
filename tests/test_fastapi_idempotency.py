@@ -749,6 +749,62 @@ def test_route_or_router_authentication_runs_before_replay(
     assert "idempotent-replayed" not in anonymous.headers
 
 
+def test_get_authentication_does_not_disable_public_post_idempotency() -> None:
+    """An exact GET authentication boundary does not bleed onto a sibling POST."""
+    calls = 0
+
+    async def read(_request: Request) -> JSONResponse:
+        return JSONResponse({"read": True})
+
+    async def write(request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse(
+            {"user": request.headers["x-api-key"], "calls": calls}
+        )
+
+    app = Router(
+        routes=[
+            Route(
+                "/same",
+                read,
+                methods=["GET"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=_HeaderAuthentication(),
+                    )
+                ],
+            ),
+            Route("/same", write, methods=["POST"]),
+        ]
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "method-aware-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "alice"},
+        )
+        replayed = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "mallory"},
+        )
+
+    assert first.json() == replayed.json() == {"user": "alice", "calls": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+    assert calls == 1
+
+
 def test_leaf_router_authentication_runs_before_replay() -> None:
     """A Router used as a Route endpoint cannot hide authentication."""
     # Arrange
@@ -1080,6 +1136,69 @@ def test_idempotency_refreshes_gates_after_the_first_request() -> None:
     assert anonymous.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in bob.headers
     assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_idempotency_revalidates_same_length_route_replacement() -> None:
+    """Replacing one public route with an authenticated one drops stale gates."""
+    public_calls = 0
+    private_calls = 0
+
+    async def public(request: Request) -> JSONResponse:
+        nonlocal public_calls
+        public_calls += 1
+        return JSONResponse(
+            {"user": request.headers["x-api-key"], "calls": public_calls}
+        )
+
+    async def private(request: Request) -> JSONResponse:
+        nonlocal private_calls
+        private_calls += 1
+        return JSONResponse(
+            {"user": request.user.display_name, "calls": private_calls}
+        )
+
+    app = Router(routes=[Route("/same", public, methods=["POST"])])
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "route-replacement",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        alice = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "alice"},
+        )
+        replayed = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "mallory"},
+        )
+        app.routes[0] = Route(
+            "/same",
+            private,
+            methods=["POST"],
+            middleware=[
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=_HeaderAuthentication(),
+                )
+            ],
+        )
+        mallory = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "mallory"},
+        )
+
+    assert alice.json() == replayed.json() == {"user": "alice", "calls": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+    assert mallory.json() == {"user": "mallory", "calls": 1}
+    assert "idempotent-replayed" not in mallory.headers
+    assert public_calls == private_calls == 1
 
 
 def test_idempotency_topology_rebuilds_once_only_after_mutation(

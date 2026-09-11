@@ -46,9 +46,12 @@ from grelmicro.http import (
     StoredResponse,
 )
 from grelmicro.http._response_cache import (
+    _AUTH_MISSING,
+    _AUTH_UNREADABLE,
     _UNSTORABLE_LIMIT,
     _WARNED_LIMIT,
     UNSET,
+    _authentication_state,
     _declared_schemes,
     _has_non_cache_dependencies,
     _Policies,
@@ -464,6 +467,60 @@ def test_head_authentication_middleware_refuses_the_shared_cache_key() -> None:
     assert anonymous.status_code == HTTP_401_UNAUTHORIZED
     assert authorized.status_code == HTTP_200_OK
     assert calls == {"get": 2, "head": 1}
+
+
+def test_post_authentication_does_not_disable_public_get_caching() -> None:
+    """An exact POST middleware boundary does not bleed onto a sibling GET."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def read(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    async def write(_request: Request) -> Response:
+        return Response()
+
+    app = Router(
+        routes=[
+            Route("/same", read, methods=["GET"]),
+            Route(
+                "/same",
+                write,
+                methods=["POST"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            ),
+        ]
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/same": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.get("/same")
+        replayed = client.get("/same")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
 
 
 def test_a_marked_route_takes_the_components_ttl_when_it_names_none() -> None:
@@ -965,6 +1022,84 @@ def test_opaque_child_authentication_is_observed_before_storing() -> None:
     assert bob.text == "bob:2"
     assert anonymous.text == "anonymous:3"
     assert "age" not in bob.headers
+
+
+def test_opaque_child_replacing_outer_anonymous_auth_is_not_cached() -> None:
+    """An opaque child cannot upgrade an outer anonymous scope under the cache."""
+
+    class AnonymousAuthentication(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    calls = 0
+
+    async def child(
+        scope: Any,  # noqa: ANN401
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        nonlocal calls
+        calls += 1
+        identity = dict(scope["headers"])[b"x-api-key"].decode()
+        scope["auth"] = AuthCredentials(["authenticated"])
+        scope["user"] = SimpleUser(identity)
+        body = f"{scope['user'].display_name}:{calls}".encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [(b"content-length", str(len(body)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    parent = FastAPI()
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(
+            _OpaqueASGI(child),
+            cache=_cache(),
+            include={"/x": TTL},
+        ),
+    )
+    app = AuthenticationMiddleware(
+        parent,
+        backend=AnonymousAuthentication(),
+    )
+
+    with TestClient(app) as client:
+        alice = client.get("/sub/x", headers={"X-API-Key": "alice"})
+        bob = client.get("/sub/x", headers={"X-API-Key": "bob"})
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+def test_credential_scopes_are_read_without_trusting_the_backend() -> None:
+    """A backend's own credentials are snapshotted, never iterated on faith.
+
+    `scope["auth"]` is whatever the authentication backend returned. A
+    credentials object that does not model scopes as a sequence has to
+    snapshot as unreadable instead of raising out of the cache.
+    """
+
+    class Unusual:
+        """Credentials whose scopes are not a sequence."""
+
+        scopes = 1
+
+    undeclared = SimpleNamespace()
+
+    assert _authentication_state(Unusual(), user=False) == (
+        Unusual,
+        _AUTH_UNREADABLE,
+    )
+    assert _authentication_state(undeclared, user=False) == (
+        SimpleNamespace,
+        _AUTH_MISSING,
+    )
 
 
 def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
@@ -2298,6 +2433,62 @@ def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
         )
         with pytest.raises(TypeError, match="gated by APIKeyHeader"):
             client.get("/private", headers={"X-API-Key": "alice"})
+
+
+def test_cache_revalidates_same_length_route_replacement() -> None:
+    """Replacing one public route with an authenticated one drops stale policy."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    public_calls = 0
+    private_calls = 0
+
+    async def public(request: Request) -> Response:
+        nonlocal public_calls
+        public_calls += 1
+        return Response(f"{request.headers['x-api-key']}:{public_calls}")
+
+    async def private(request: Request) -> Response:
+        nonlocal private_calls
+        private_calls += 1
+        return Response(f"{request.user.display_name}:{private_calls}")
+
+    app = Router(routes=[Route("/same", public, methods=["GET"])])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/same": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        alice = client.get("/same", headers={"X-API-Key": "alice"})
+        replayed = client.get("/same", headers={"X-API-Key": "mallory"})
+        app.routes[0] = Route(
+            "/same",
+            private,
+            methods=["GET"],
+            middleware=[
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=HeaderAuthentication(),
+                )
+            ],
+        )
+        mallory = client.get("/same", headers={"X-API-Key": "mallory"})
+
+    assert alice.text == replayed.text == "alice:1"
+    assert replayed.headers["age"] == "0"
+    assert mallory.text == "mallory:1"
+    assert "age" not in mallory.headers
+    assert public_calls == private_calls == 1
 
 
 def test_cache_topology_rebuilds_once_only_after_mutation(

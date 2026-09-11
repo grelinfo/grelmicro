@@ -44,6 +44,7 @@ from grelmicro._paths import (
     _request_authority,
     _request_root_path,
     _request_scheme,
+    _route_methods,
     _RouteTopologyState,
     _routing_app,
     _same_routing_root,
@@ -210,7 +211,9 @@ class _GatedRoutes:
         """Remember the wrapped app and defer route discovery to a request."""
         self._wrapped = app
         self._apps: tuple[Any, ...] = ()
-        self._authenticated: tuple[tuple[str, re.Pattern[str]], ...] = ()
+        self._authenticated: tuple[
+            tuple[str, re.Pattern[str], frozenset[str] | None], ...
+        ] = ()
         self._routes: tuple[
             tuple[str, re.Pattern[str], frozenset[str]], ...
         ] = ()
@@ -224,7 +227,7 @@ class _GatedRoutes:
             root for app in apps if (root := _routing_app(app)) is not None
         ]
         authenticated = {
-            path for app in apps for path in _authentication_paths(app)
+            boundary for app in apps for boundary in _authentication_paths(app)
         }
         fastapi_roots = [root for root in roots if _contains_fastapi(root)]
         if not authenticated and not fastapi_roots:
@@ -233,10 +236,17 @@ class _GatedRoutes:
             return
         from starlette.routing import compile_path  # noqa: PLC0415
 
-        protected: list[tuple[str, re.Pattern[str]]] = []
-        for prefix, nested in sorted(authenticated):
+        protected: list[tuple[str, re.Pattern[str], frozenset[str] | None]] = []
+        for prefix, nested, methods in sorted(
+            authenticated,
+            key=lambda boundary: (
+                boundary[0],
+                boundary[1],
+                tuple(sorted(boundary[2] or ())),
+            ),
+        ):
             exact, _, _ = compile_path(prefix or "/")
-            protected.append((prefix or "/", exact))
+            protected.append((prefix or "/", exact, methods))
             if nested:
                 template = (
                     f"{prefix.rstrip('/')}/{{path:path}}"
@@ -244,7 +254,7 @@ class _GatedRoutes:
                     else "/{path:path}"
                 )
                 descendant, _, _ = compile_path(template)
-                protected.append((template, descendant))
+                protected.append((template, descendant, methods))
         self._authenticated = tuple(protected)
 
         found: list[tuple[str, re.Pattern[str], frozenset[str]]] = []
@@ -296,8 +306,9 @@ class _GatedRoutes:
         if any(snapshot.changed() for snapshot in self._topology):
             self.read(*self._apps)
         return any(
-            _gate_path_matches(template, regex, path)
-            for template, regex in self._authenticated
+            (methods is None or method in methods)
+            and _gate_path_matches(template, regex, path)
+            for template, regex, methods in self._authenticated
         ) or any(
             method in methods and _gate_path_matches(template, regex, path)
             for template, regex, methods in self._routes
@@ -404,30 +415,39 @@ def _authentication_chain(app: Any) -> bool:  # noqa: ANN401
     return False
 
 
-def _authentication_paths(  # noqa: C901
+def _authentication_paths(  # noqa: C901, PLR0915
     app: Any,  # noqa: ANN401
-) -> set[tuple[str, bool]]:
+) -> set[tuple[str, bool, frozenset[str] | None]]:
     """Return exact or nested paths protected by Starlette authentication."""
-    found: set[tuple[str, bool]] = set()
+    found: set[tuple[str, bool, frozenset[str] | None]] = set()
 
     def visit(  # noqa: C901, PLR0912
         current: Any,  # noqa: ANN401
         prefix: str,
         ancestors: frozenset[int],
-        target: set[tuple[str, bool]],
+        target: set[tuple[str, bool, frozenset[str] | None]],
     ) -> None:
         routed = _routing_app(current)
         if routed is None or id(routed) in ancestors:
             return
         if _authentication_here(current):
-            target.add((prefix, True))
+            if _is_route(routed):
+                target.add(
+                    (
+                        f"{prefix}{getattr(routed, 'path', '')}",
+                        False,
+                        _route_methods(routed),
+                    )
+                )
+            else:
+                target.add((prefix, True, None))
             return
         nested_ancestors = ancestors | {id(routed)}
         if _is_mount(routed):
             path = f"{prefix}{getattr(routed, 'path', '')}"
             nested = getattr(routed, "app", None)
             if _authentication_here(nested):
-                target.add((path, True))
+                target.add((path, True, None))
             else:
                 visit(nested, path, nested_ancestors, target)
             return
@@ -435,15 +455,15 @@ def _authentication_paths(  # noqa: C901
             path = f"{prefix}{getattr(routed, 'path', '')}"
             nested = getattr(routed, "app", None)
             if _authentication_here(nested):
-                target.add((path, False))
+                target.add((path, False, _route_methods(routed)))
                 return
             leaf = _nested_routing_app(routed)
             if leaf is None:
                 return
-            direct_found: set[tuple[str, bool]] = set()
+            direct_found: set[tuple[str, bool, frozenset[str] | None]] = set()
             visit(leaf, "", nested_ancestors, direct_found)
             if direct_found:
-                target.add((path, False))
+                target.add((path, False, _route_methods(routed)))
             return
         router = getattr(routed, "router", None)
         for route in getattr(router or routed, "routes", ()) or ():
@@ -460,7 +480,14 @@ def _authentication_paths(  # noqa: C901
             path = f"{prefix}{getattr(route, 'path', '')}"
             nested = getattr(route, "app", None)
             if _authentication_here(nested):
-                target.add((path, getattr(route, "routes", None) is not None))
+                nested_boundary = getattr(route, "routes", None) is not None
+                target.add(
+                    (
+                        path,
+                        nested_boundary,
+                        None if nested_boundary else _route_methods(route),
+                    )
+                )
                 continue
             if getattr(route, "routes", None) is not None:
                 visit(nested, path, nested_ancestors, target)
@@ -468,13 +495,13 @@ def _authentication_paths(  # noqa: C901
             leaf = _nested_routing_app(route)
             if leaf is None:
                 continue
-            nested_found: set[tuple[str, bool]] = set()
+            nested_found: set[tuple[str, bool, frozenset[str] | None]] = set()
             visit(leaf, "", nested_ancestors, nested_found)
             if nested_found:
                 # A leaf router receives the unchanged outer scope, unlike
                 # a Mount. Its protected inner paths therefore collapse to
                 # the exact path matched by the outer Route.
-                target.add((path, False))
+                target.add((path, False, _route_methods(route)))
 
     visit(app, "", frozenset(), found)
     return found

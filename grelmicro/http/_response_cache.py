@@ -102,6 +102,12 @@ _MARKER = "__grelmicro_response_cache__"
 _UNMARKED: Any = object()
 """Marks a route that declared nothing, which a `None` TTL cannot."""
 
+_AUTH_MISSING: Any = object()
+"""Marks an authentication field absent before child dispatch."""
+
+_AUTH_UNREADABLE: Any = object()
+"""Marks an authentication attribute that could not be inspected safely."""
+
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
 """Methods a response cache answers. Everything else passes through."""
 
@@ -137,6 +143,16 @@ _REPORT_INTERVAL = 60.0
 
 _WARNED_LIMIT = 128
 """How many distinct `Vary` refusals are remembered before warning again."""
+
+
+@dataclass(frozen=True)
+class _AuthenticationSnapshot:
+    """Authentication objects and identity state visible before dispatch."""
+
+    user: Any
+    auth: Any
+    user_state: tuple[Any, ...]
+    auth_state: tuple[Any, ...]
 
 
 class _Entry(TypedDict):
@@ -675,9 +691,11 @@ def _middleware_refusals(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[str, Pattern[str]]] = []
-    for boundary, nested in _middleware_boundaries(
+    for boundary, nested, methods in _middleware_boundaries(
         app, include_root=include_root
     ):
+        if methods is not None and methods.isdisjoint(_SAFE_METHODS):
+            continue
         exact = boundary or "/"
         exact_pattern, _, _ = compile_path(exact)
         found.append((exact, exact_pattern))
@@ -702,8 +720,10 @@ def _authentication_refusals(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[str, Pattern[str]]] = []
-    for boundary, nested in _authentication_paths(app):
+    for boundary, nested, methods in _authentication_paths(app):
         if not include_root and not boundary:
+            continue
+        if methods is not None and methods.isdisjoint(_SAFE_METHODS):
             continue
         exact = boundary or "/"
         exact_pattern, _, _ = compile_path(exact)
@@ -1350,7 +1370,7 @@ class CachedResponsesMiddleware:
         if matches(path, config.exclude):
             await self.app(scope, receive, send)
             return
-        authentication_visible = "user" in scope or "auth" in scope
+        authentication = _authentication_snapshot(scope)
         if _carries_credentials(scope) or _asks_for_part(scope):
             await self.app(scope, receive, send)
             return
@@ -1375,7 +1395,7 @@ class CachedResponsesMiddleware:
             key=built,
             ttl=ttl,
             path=path,
-            authentication_visible=authentication_visible,
+            authentication=authentication,
         )
 
     async def _answer(
@@ -1388,7 +1408,7 @@ class CachedResponsesMiddleware:
         key: str,
         ttl: float,
         path: str,
-        authentication_visible: bool,
+        authentication: _AuthenticationSnapshot,
     ) -> None:
         """Serve the stored response, or run the app and store what it said.
 
@@ -1423,7 +1443,7 @@ class CachedResponsesMiddleware:
                 state=state,
                 scope=scope,
                 path=path,
-                authentication_visible=authentication_visible,
+                authentication=authentication,
             )
             attempt.returned = True
             if attempt.entry is None:
@@ -1585,17 +1605,19 @@ class CachedResponsesMiddleware:
         state: _State,
         scope: Scope,
         path: str,
-        authentication_visible: bool,
+        authentication: _AuthenticationSnapshot,
     ) -> _Entry | None:
         """Return the entry this response is stored as, or `None` to skip it."""
         start = capture.start
         if start is None or capture.released or not capture.complete:
             return None
-        if not authentication_visible and ("user" in scope or "auth" in scope):
+        if _authentication_changed(authentication, scope):
             # An opaque wrapped application may run authentication below this
-            # middleware, where route inspection cannot discover it. Even an
-            # anonymous result cannot be stored: a later authenticated request
-            # would otherwise read it before that inner authentication runs.
+            # middleware, where route inspection cannot discover it. Added,
+            # replaced, or mutated authentication state proves that child
+            # dispatch crossed such a boundary. Even an anonymous result
+            # cannot be stored: a later authenticated request would otherwise
+            # read it before that inner authentication runs.
             return None
         if start["status"] != _HTTP_200_OK:
             return None
@@ -1918,6 +1940,62 @@ def _carries_credentials(scope: Scope) -> bool:
     """Return whether the request is one caller's, so no cache may answer it."""
     return _authenticated_scope(scope) or any(
         name.lower() in _PRIVATE_REQUEST_HEADERS for name, _ in scope["headers"]
+    )
+
+
+def _authentication_attribute(value: Any, name: str) -> Any:  # noqa: ANN401
+    """Read one conventional authentication attribute without trusting it."""
+    try:
+        return getattr(value, name, _AUTH_MISSING)
+    except Exception:  # noqa: BLE001
+        return _AUTH_UNREADABLE
+
+
+def _authentication_state(value: Any, *, user: bool) -> tuple[Any, ...]:  # noqa: ANN401
+    """Snapshot conventional user or credential state without object equality."""
+    if value is _AUTH_MISSING:
+        return ()
+    if user:
+        return (
+            type(value),
+            _authentication_attribute(value, "is_authenticated"),
+            _authentication_attribute(value, "identity"),
+            _authentication_attribute(value, "display_name"),
+            _authentication_attribute(value, "username"),
+        )
+    scopes = _authentication_attribute(value, "scopes")
+    if scopes is not _AUTH_MISSING and scopes is not _AUTH_UNREADABLE:
+        try:
+            scopes = tuple(scopes)
+        except (TypeError, ValueError):
+            scopes = _AUTH_UNREADABLE
+    return type(value), scopes
+
+
+def _authentication_snapshot(scope: Scope) -> _AuthenticationSnapshot:
+    """Remember authentication presence, object identity, and public state."""
+    user = scope.get("user", _AUTH_MISSING)
+    auth = scope.get("auth", _AUTH_MISSING)
+    return _AuthenticationSnapshot(
+        user=user,
+        auth=auth,
+        user_state=_authentication_state(user, user=True),
+        auth_state=_authentication_state(auth, user=False),
+    )
+
+
+def _authentication_changed(
+    before: _AuthenticationSnapshot,
+    scope: Scope,
+) -> bool:
+    """Return whether child dispatch added, replaced, or mutated auth state."""
+    user = scope.get("user", _AUTH_MISSING)
+    auth = scope.get("auth", _AUTH_MISSING)
+    return (
+        user is not before.user
+        or auth is not before.auth
+        or _authentication_state(user, user=True) != before.user_state
+        or _authentication_state(auth, user=False) != before.auth_state
     )
 
 
