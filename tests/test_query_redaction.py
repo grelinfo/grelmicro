@@ -552,6 +552,8 @@ def test_url_assignment_separators_do_not_expose_credentials(
         "shard_key",
         "sortKey",
         "partition.key",
+        "sort-key",
+        "partition-key",
     ],
 )
 def test_a_key_that_addresses_a_row_is_not_a_credential(key: str) -> None:
@@ -577,6 +579,50 @@ def test_a_colon_in_the_path_is_not_userinfo() -> None:
     assert (
         redact_url("https://example.com//path:x@y")
         == "https://example.com//path:x@y"
+    )
+    assert (
+        redact_url("https://example.com//path:x@y", multi_host=True)
+        == "https://example.com//path:x@y"
+    )
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param(
+            "https://h/p?next=%20//u:pw@h",
+            f"https://h/p?next={MASK}",
+            id="nested-behind-encoded-space",
+        ),
+        pytest.param(
+            "https://h/p#//u:pw@host",
+            f"https://h/p#//u:{MASK}@host",
+            id="fragment",
+        ),
+        pytest.param(
+            "https://h/p?next=//u:pw@h",
+            f"https://h/p?next={MASK}",
+            id="nested-in-query",
+        ),
+    ],
+)
+def test_userinfo_is_masked_wherever_a_component_opens(
+    url: str, expected: str
+) -> None:
+    """A `//` that opens a query, a fragment or a nested value still hides.
+
+    Only a `//` in path position carries no credential. Anchoring the
+    pattern to the very start of the text would let every one of these
+    through, which is a leak rather than a cosmetic difference.
+    """
+    assert redact_url(url) == expected
+
+
+def test_multi_host_userinfo_survives_the_path_exception() -> None:
+    """Every host in a multi-host DSN still has its password masked."""
+    assert (
+        redact_url("postgres://u:pw@a:1,v:pw2@b:2/d", multi_host=True)
+        == f"postgres://u:{MASK}@a:1,v:{MASK}@b:2/d"
     )
 
 

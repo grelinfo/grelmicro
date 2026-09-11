@@ -1,8 +1,11 @@
 """grelmicro Test Config."""
 
+import logging
 from collections.abc import AsyncIterator, Generator
 
 import pytest
+import structlog
+from loguru import logger as loguru_logger
 
 from grelmicro import _config, _environment
 from grelmicro.clock import VirtualClock
@@ -47,6 +50,34 @@ def _declare_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     `GREL_ENVIRONMENT` themselves or pass `environment=`.
     """
     monkeypatch.setenv("GREL_ENVIRONMENT", "test")
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_log_backend() -> Generator[None, None, None]:
+    """Take out a log sink bound to another test's stream.
+
+    A backend writes to the stream it was handed when it was configured,
+    and under `capsys` that stream belongs to the test that configured it.
+    Any test that calls `configure()` leaves one behind, and the next test
+    to assert on `capsys` reads nothing back, because the record went to a
+    stream pytest stopped capturing when the other test ended.
+
+    `tests/logging` asks for `reset_backend` and is safe. Every other
+    directory configures logging without it, which is most of the suite,
+    so the guard belongs here rather than in each of them.
+    """
+    loguru_logger.configure(handlers=[])
+    structlog.reset_defaults()
+    root = logging.getLogger()
+    handlers = root.handlers.copy()
+    root.handlers.clear()
+
+    yield
+
+    loguru_logger.remove()
+    structlog.reset_defaults()
+    root.handlers.clear()
+    root.handlers.extend(handlers)
 
 
 @pytest.fixture(autouse=True)
