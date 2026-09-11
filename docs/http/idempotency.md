@@ -218,32 +218,74 @@ Use it for a response that is technically replayable but should not be. The four
 
 ## Keys are scoped per route
 
-The stored key combines the method, the path, the query string, and the header value. The same client key on `POST /charge` and `POST /refund` stores two entries, so one route never replays another one's response.
+The stored key combines the canonical authority, scheme, root path, method,
+route path, query string, and header value. The same client key on
+`POST /charge` and `POST /refund`, on two host-routed tenants, or on two mounts
+stores separate entries. Equivalent authority spellings, such as host-name
+case or an explicit default port, still identify the same public resource.
+The fields use a typed, length-delimited encoding, so a decoded path or raw
+query containing control characters cannot move a value across field
+boundaries. The default then stores a SHA-256 digest of that serialization as
+`v3:` followed by 64 hexadecimal characters. Its 67-byte size is fixed even
+for a large path or query, so it remains suitable for an indexed PostgreSQL
+text key. A custom `key_maker` is not hashed or rewritten: its output remains
+the exact stored key.
 
-!!! warning "Set `key_maker` in a multi-tenant app"
-    Without it, any client that learns another client's key replays their response, body included. Fold the caller identity into the key.
+Without a custom `key_maker`, a request carrying `Authorization` or `Cookie`
+bypasses idempotency and runs the handler every time. This safe default keeps
+private responses out of a shared entry and ensures authentication inside the
+application still runs. On FastAPI, a route with any dependency also bypasses
+the default, including ordinary `Depends` authentication that reads an API key
+from a custom header. This applies when FastAPI is wrapped directly or mounted
+under another ASGI application. Dependency-free public requests continue to
+use the route-scoped default key. Required keys are validated before this
+bypass. The built-in key format is versioned, so an upgraded process cannot
+replay an unscoped entry written by an older release. Custom `key_maker` values
+remain unchanged.
+
+An authenticated Starlette scope bypasses the default too, including when
+`AuthenticationMiddleware` reads a custom header. Put authentication outside
+idempotency so it establishes `scope["user"]` first. A directly wrapped
+Starlette `AuthenticationMiddleware`, one configured lazily on the wrapped
+application, and one inside a mounted application are also detected and
+bypassed. Mounted detection follows the path, so authentication on one
+sub-application does not disable public idempotency on its siblings. An
+application-specific authentication middleware cannot be identified by class;
+keep it outside this middleware or configure an identity-aware `key_maker`.
+
+!!! warning "Set `key_maker` for authenticated replay"
+    To make authenticated requests idempotent, fold the caller identity into
+    the key. Without that identity, any client that learns another client's
+    key could replay their response, body included.
 
     Fold in an **authenticated** identity. Anything the client sends is chosen by the client, so a key built from a raw header lets a caller name the tenant whose entry they read.
 
     ```python
-    SEP = "\x1f"  # not a byte an identity can contain
+    import json
 
 
     def tenant_key(scope, key):
         user = scope.get("user")
         if user is None or not user.is_authenticated:
             raise PermissionError("idempotency needs an authenticated caller")
-        return SEP.join((str(user.tenant_id), scope["path"], key))
+        return json.dumps(
+            ["tenant-v1", str(user.tenant_id), scope["path"], key],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
 
 
     IdempotentRequests(key_maker=tenant_key)
     ```
 
-    Three things carry the isolation here. The identity comes from authentication rather than from the request. The separator is one an identity cannot contain, so `a` plus `b|c` cannot collide with `a|b` plus `c`. And a missing identity raises instead of returning a partial key.
+    Three things carry the isolation here. The identity comes from
+    authentication rather than from the request. The structured encoding
+    preserves every field boundary even when a value contains punctuation.
+    And a missing identity raises instead of returning a partial key.
 
     That last one is the general rule: **a key that is partly missing does not fail, it merges.** Callers whose key lost the same component land in one entry and replay each other, while the request still answers normally.
 
-    `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
+    `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. That ordering also ensures authentication runs before a replay is served. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
 
     ```python
     micro = Grelmicro(uses=[redis, IdempotentRequests(key_maker=tenant_key)])
@@ -352,7 +394,7 @@ A background task runs after the response is sent, so the response is stored and
 | `key_header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
 | `replay_header` | `"Idempotent-Replayed"` | Response header marking a replay. No standard names one, so pick what your clients read. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
-| `key_maker` | `None` | Build the stored key from the scope and the client key. Set it in any multi-tenant app. |
+| `key_maker` | `None` | Build the stored key from the scope and the client key. Required for authenticated replay and multi-tenant isolation. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |
 | `require_key` | `False` | Answer `400` when a matched method arrives without the header. |
 | `fingerprint_body` | `False` | Hash the request body and answer `422` on a reused key with a different body. |

@@ -270,6 +270,9 @@ def install_middleware(
     )
     _keep_watching_outside(app, watching)
     for component in components:
+        read_routes = getattr(component, "read_routes", None)
+        if read_routes is not None:
+            read_routes(app)
         _answer_for(app, component)
 
 

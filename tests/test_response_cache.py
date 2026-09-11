@@ -4,20 +4,39 @@ from __future__ import annotations
 
 import logging
 import math
+from contextlib import asynccontextmanager
 from inspect import iscoroutinefunction
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import anyio
 import pytest
-from fastapi import APIRouter, Depends, FastAPI, Response, Security
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    Security,
+)
 from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
+from starlette.authentication import (
+    AuthCredentials,
+    AuthenticationBackend,
+    SimpleUser,
+)
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
-from starlette.routing import Mount, Route
+from starlette.routing import Mount, Route, Router
 
 from grelmicro import Grelmicro
+from grelmicro._paths import _RouteTopologyState
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import SettingsValidationError
@@ -27,10 +46,19 @@ from grelmicro.http import (
     StoredResponse,
 )
 from grelmicro.http._response_cache import (
+    _AUTH_MISSING,
+    _AUTH_UNREADABLE,
     _UNSTORABLE_LIMIT,
     _WARNED_LIMIT,
+    UNSET,
+    _authentication_state,
     _declared_schemes,
+    _has_non_cache_dependencies,
+    _Policies,
+    _routing_dependencies,
+    _unique_policy_sources,
     declare_cached,
+    declared_ttl,
 )
 from grelmicro.integrations.fastapi import CachedResponse
 
@@ -46,14 +74,98 @@ pytestmark = [pytest.mark.timeout(5)]
 
 HTTP_200_OK = 200
 HTTP_304_NOT_MODIFIED = 304
+HTTP_401_UNAUTHORIZED = 401
 HTTP_404_NOT_FOUND = 404
 TTL = 60.0
 BIG = 2048
 TWICE = 2
 OTHER_TTL = 300.0
 READS = 3
+FOUR = 4
 SHARED_TTL = 50.0
-"""How many times the handler runs when nothing was stored."""
+BULK_ROUTES = 1000
+
+
+async def _header_principal(
+    x_api_key: Annotated[str | None, Header()] = None,
+) -> str:
+    """Return the caller named by a custom header."""
+    if x_api_key is None:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+    return x_api_key
+
+
+async def _request_principal(request: Request) -> str:
+    """Return the caller by reading the request directly."""
+    identity = request.headers.get("x-api-key")
+    if identity is None:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+    return identity
+
+
+async def _identity_override(request: Request) -> None:
+    """Authenticate an overridden cache marker through `X-Identity`."""
+    identity = request.headers.get("x-identity")
+    if identity is None:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+    request.state.identity = identity
+
+
+async def _prefixed_identity_override(request: Request) -> None:
+    """Authenticate through a distinct override callable."""
+    await _identity_override(request)
+    request.state.identity = f"changed:{request.state.identity}"
+
+
+async def _who_override(request: Request) -> None:
+    """Authenticate an overridden cache marker through `X-Who`."""
+    identity = request.headers.get("x-who")
+    if identity is None:
+        raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+    request.state.identity = identity
+
+
+async def _prefixed_who_override(request: Request) -> None:
+    """Authenticate through a distinct `X-Who` override callable."""
+    await _who_override(request)
+    request.state.identity = f"changed:{request.state.identity}"
+
+
+class _RoutingProxy:
+    """ASGI middleware exposing the routes of the application it wraps."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        self.app = app
+
+    @property
+    def routes(self) -> Any:  # noqa: ANN401
+        """Forward route introspection like a transparent middleware."""
+        return self.app.routes
+
+    async def __call__(
+        self,
+        scope: Any,  # noqa: ANN401
+        receive: Any,  # noqa: ANN401
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        """Pass the request through."""
+        await self.app(scope, receive, send)
+
+
+class _OpaqueASGI:
+    """Delegate without exposing a routing source to policy discovery."""
+
+    def __init__(self, target: Any) -> None:  # noqa: ANN401
+        self.target = target
+
+    async def __call__(
+        self,
+        scope: Any,  # noqa: ANN401
+        receive: Any,  # noqa: ANN401
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        """Pass the request through without publishing route metadata."""
+        await self.target(scope, receive, send)
 
 
 def _app(component: CachedResponses) -> FastAPI:
@@ -192,6 +304,225 @@ def test_a_head_never_fills_the_cache() -> None:
     assert read.content == b"ok"
 
 
+def test_a_protected_head_refuses_the_shared_get_head_cache_key() -> None:
+    """A cached GET cannot answer over a separate HEAD dependency."""
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+    calls = {"get": 0, "head": 0}
+
+    @app.head("/reads", dependencies=[Depends(api_key)])
+    async def head() -> Response:
+        calls["head"] += 1
+        return Response(headers={"X-Head-Calls": str(calls["head"])})
+
+    @app.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
+    async def reads() -> dict[str, int]:
+        calls["get"] += 1
+        return {"calls": calls["get"]}
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        first = client.get("/reads")
+        second = client.get("/reads")
+        anonymous = client.head("/reads")
+        authorized = client.head("/reads", headers={"X-API-Key": "alice"})
+
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert authorized.headers["x-head-calls"] == "1"
+    assert all(
+        "age" not in response.headers
+        for response in (second, anonymous, authorized)
+    )
+
+
+def test_separate_public_head_still_reads_the_cached_get() -> None:
+    """A dependency-free HEAD route does not make a public GET uncacheable."""
+    app = FastAPI()
+    calls = {"get": 0, "head": 0}
+
+    @app.head("/reads")
+    async def head() -> Response:
+        calls["head"] += 1
+        return Response(headers={"X-Head-Calls": str(calls["head"])})
+
+    @app.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
+    async def reads() -> dict[str, int]:
+        calls["get"] += 1
+        return {"calls": calls["get"]}
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        first = client.get("/reads")
+        head_response = client.head("/reads")
+        replayed = client.get("/reads")
+
+    assert first.json() == replayed.json() == {"calls": 1}
+    assert head_response.status_code == HTTP_200_OK
+    assert head_response.content == b""
+    assert head_response.headers["age"] == "0"
+    assert calls == {"get": 1, "head": 0}
+
+
+def test_nested_head_dependency_refuses_an_outer_shared_cache_key() -> None:
+    """A leaf router cannot hide a protected HEAD behind a public GET."""
+    api_key = APIKeyHeader(name="X-API-Key")
+    inner = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    calls = {"get": 0, "head": 0}
+
+    @inner.head("/reads", dependencies=[Depends(api_key)])
+    async def head() -> Response:
+        calls["head"] += 1
+        return Response()
+
+    async def reads(_request: Request) -> Response:
+        calls["get"] += 1
+        return Response(str(calls["get"]))
+
+    app = Router(
+        routes=[
+            Route("/reads", inner, methods=["HEAD"]),
+            Route("/reads", reads, methods=["GET"]),
+        ]
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/reads": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.get("/reads")
+        second = client.get("/reads")
+        anonymous = client.head("/reads")
+        authorized = client.head("/reads", headers={"X-API-Key": "alice"})
+
+    assert first.text == "1"
+    assert second.text == "2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert authorized.status_code == HTTP_200_OK
+    assert calls == {"get": 2, "head": 1}
+
+
+def test_head_authentication_middleware_refuses_the_shared_cache_key() -> None:
+    """Route-local HEAD authentication always runs before a cached GET."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = {"get": 0, "head": 0}
+
+    async def head(request: Request) -> Response:
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls["head"] += 1
+        return Response()
+
+    async def reads(_request: Request) -> Response:
+        calls["get"] += 1
+        return Response(str(calls["get"]))
+
+    app = Router(
+        routes=[
+            Route(
+                "/reads",
+                head,
+                methods=["HEAD"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            ),
+            Route("/reads", reads, methods=["GET"]),
+        ]
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/reads": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.get("/reads")
+        second = client.get("/reads")
+        anonymous = client.head("/reads")
+        authorized = client.head("/reads", headers={"X-API-Key": "alice"})
+
+    assert first.text == "1"
+    assert second.text == "2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert authorized.status_code == HTTP_200_OK
+    assert calls == {"get": 2, "head": 1}
+
+
+def test_post_authentication_does_not_disable_public_get_caching() -> None:
+    """An exact POST middleware boundary does not bleed onto a sibling GET."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def read(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    async def write(_request: Request) -> Response:
+        return Response()
+
+    app = Router(
+        routes=[
+            Route("/same", read, methods=["GET"]),
+            Route(
+                "/same",
+                write,
+                methods=["POST"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            ),
+        ]
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/same": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.get("/same")
+        replayed = client.get("/same")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
 def test_a_marked_route_takes_the_components_ttl_when_it_names_none() -> None:
     """`CachedResponse()` with no `ttl` is the component's."""
     # Arrange
@@ -233,6 +564,155 @@ def test_a_credentialed_request_neither_reads_nor_fills(
 
     # Assert
     assert first.json() != second.json()
+
+
+def test_component_cache_treats_starlette_authentication_as_private() -> None:
+    """App-level authentication keeps every caller out of the shared cache."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    app = Starlette(
+        routes=[Route("/private", private)],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=HeaderAuthentication(),
+            )
+        ],
+    )
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/private": TTL}),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as test_client:
+        alice = test_client.get("/private", headers={"X-API-Key": "alice"})
+        bob = test_client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = test_client.get("/private")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+    assert calls == TWICE
+
+
+def test_component_cache_treats_fastapi_authentication_as_private() -> None:
+    """A marked FastAPI route retains app-level authentication metadata."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    app = FastAPI(
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=HeaderAuthentication(),
+            )
+        ]
+    )
+    calls = 0
+
+    @app.get("/private", dependencies=[CachedResponse(ttl=TTL)])
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as test_client:
+        alice = test_client.get("/private", headers={"X-API-Key": "alice"})
+        bob = test_client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = test_client.get("/private")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+    assert calls == TWICE
+
+
+def test_component_cache_keeps_public_routes_under_optional_auth_cacheable() -> (
+    None
+):
+    """An anonymous public response is not private merely because auth ran."""
+
+    class OptionalAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    app = Starlette(
+        routes=[Route("/public", public)],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=OptionalAuthentication(),
+            )
+        ],
+    )
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/public": TTL}),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as test_client:
+        first = test_client.get("/public")
+        replayed = test_client.get("/public")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
 
 
 def test_the_requests_own_cache_control_is_not_read(
@@ -352,8 +832,995 @@ def test_a_mounted_route_is_read_with_its_prefix() -> None:
     assert calls == 1
 
 
-def test_a_route_with_other_dependencies_is_read_too() -> None:
-    """The declaration sits beside whatever else the route depends on."""
+@pytest.mark.parametrize("child_policy", ["public", "private"])
+def test_mounted_router_cache_does_not_merge_parent_local_coordinates(
+    child_policy: str,
+) -> None:
+    """A mounted cache reads its router, not an unrelated parent `/x`."""
+    private_child = child_policy == "private"
+    parent = FastAPI()
+
+    @parent.get("/x", dependencies=[CachedResponse(ttl=TTL)])
+    async def parent_x() -> dict[str, bool]:
+        return {"parent": True}
+
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    child_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @child_app.get(
+        "/x",
+        dependencies=[Depends(authenticate)] if private_child else None,
+    )
+    async def child_x() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    child = Router(
+        routes=child_app.router.routes,
+        middleware=[
+            Middleware(
+                CachedResponsesMiddleware,
+                cache=_cache(),
+            )
+        ],
+    )
+    parent.mount("/sub", child)
+
+    with TestClient(parent) as client:
+        headers = {"X-API-Key": "alice"} if private_child else {}
+        first = client.get("/sub/x", headers=headers)
+        second = client.get("/sub/x", headers=headers)
+        anonymous = client.get("/sub/x") if private_child else None
+
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
+    assert "age" not in second.headers
+    if anonymous is not None:
+        assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+
+
+def test_opaque_mounted_cache_does_not_adopt_parent_route_metadata() -> None:
+    """An opaque child cannot inherit an unrelated parent declaration."""
+    parent = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @parent.get("/x", dependencies=[CachedResponse(ttl=TTL)])
+    async def parent_x() -> dict[str, bool]:
+        return {"parent": True}
+
+    calls = 0
+
+    async def child(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        identity = dict(scope["headers"]).get(b"x-api-key", b"anonymous")
+        body = identity + f":{calls}".encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [(b"content-length", str(len(body)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(_OpaqueASGI(child), cache=_cache()),
+    )
+
+    with TestClient(parent) as client:
+        alice = client.get("/sub/x", headers={"X-API-Key": "alice"})
+        bob = client.get("/sub/x", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/sub/x")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.text == "anonymous:3"
+    assert "age" not in bob.headers
+
+
+def test_explicit_include_still_caches_an_opaque_mounted_child() -> None:
+    """Opaque sources retain the paths explicitly configured on their cache."""
+    calls = 0
+
+    async def child(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        body = str(calls).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [(b"content-length", str(len(body)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    parent = FastAPI()
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(
+            _OpaqueASGI(child),
+            cache=_cache(),
+            include={"/x": TTL},
+        ),
+    )
+
+    with TestClient(parent) as client:
+        first = client.get("/sub/x")
+        replayed = client.get("/sub/x")
+
+    assert first.text == replayed.text == "1"
+    assert calls == 1
+    assert "age" in replayed.headers
+
+
+def test_binding_does_not_replace_an_explicit_policy_source() -> None:
+    """A supplied policy keeps the routing root it already read."""
+    app = FastAPI()
+    policies = _Policies(())
+    policies.read(app)
+
+    policies.bind(object())
+
+    assert policies._app is app
+
+
+def test_opaque_child_authentication_is_observed_before_storing() -> None:
+    """Runtime authentication hidden by an opaque child keeps responses private."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+    child = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @child.get("/x")
+    async def child_x(request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        identity = (
+            request.user.display_name
+            if request.user.is_authenticated
+            else "anonymous"
+        )
+        return Response(f"{identity}:{calls}")
+
+    protected = AuthenticationMiddleware(
+        child,
+        backend=HeaderAuthentication(),
+    )
+    parent = FastAPI()
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(
+            _OpaqueASGI(protected),
+            cache=_cache(),
+            include={"/x": TTL},
+        ),
+    )
+
+    with TestClient(parent) as client:
+        alice = client.get("/sub/x", headers={"X-API-Key": "alice"})
+        bob = client.get("/sub/x", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/sub/x")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.text == "anonymous:3"
+    assert "age" not in bob.headers
+
+
+def test_opaque_child_replacing_outer_anonymous_auth_is_not_cached() -> None:
+    """An opaque child cannot upgrade an outer anonymous scope under the cache."""
+
+    class AnonymousAuthentication(AuthenticationBackend):
+        async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+            return None
+
+    calls = 0
+
+    async def child(
+        scope: Any,  # noqa: ANN401
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        nonlocal calls
+        calls += 1
+        identity = dict(scope["headers"])[b"x-api-key"].decode()
+        scope["auth"] = AuthCredentials(["authenticated"])
+        scope["user"] = SimpleUser(identity)
+        body = f"{scope['user'].display_name}:{calls}".encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [(b"content-length", str(len(body)).encode())],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    parent = FastAPI()
+    parent.mount(
+        "/sub",
+        CachedResponsesMiddleware(
+            _OpaqueASGI(child),
+            cache=_cache(),
+            include={"/x": TTL},
+        ),
+    )
+    app = AuthenticationMiddleware(
+        parent,
+        backend=AnonymousAuthentication(),
+    )
+
+    with TestClient(app) as client:
+        alice = client.get("/sub/x", headers={"X-API-Key": "alice"})
+        bob = client.get("/sub/x", headers={"X-API-Key": "bob"})
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+def test_credential_scopes_are_read_without_trusting_the_backend() -> None:
+    """A backend's own credentials are snapshotted, never iterated on faith.
+
+    `scope["auth"]` is whatever the authentication backend returned. A
+    credentials object that does not model scopes as a sequence has to
+    snapshot as unreadable instead of raising out of the cache.
+    """
+
+    class Unusual:
+        """Credentials whose scopes are not a sequence."""
+
+        scopes = 1
+
+    undeclared = SimpleNamespace()
+
+    assert _authentication_state(Unusual(), user=False) == (
+        Unusual,
+        _AUTH_UNREADABLE,
+    )
+    assert _authentication_state(undeclared, user=False) == (
+        SimpleNamespace,
+        _AUTH_MISSING,
+    )
+
+
+def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
+    """A parent cache cannot answer before a mounted middleware runs."""
+    # Arrange
+    calls = 0
+    inner = FastAPI()
+
+    @inner.get("/items", dependencies=[CachedResponse(ttl=TTL)])
+    async def items() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app = FastAPI()
+    app.mount(
+        "/shop",
+        CORSMiddleware(
+            inner,
+            allow_origins=["https://client.example"],
+        ),
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.get(
+            "/shop/items", headers={"Origin": "https://client.example"}
+        )
+        second = client.get(
+            "/shop/items", headers={"Origin": "https://client.example"}
+        )
+
+    # Assert
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
+    assert second.headers["access-control-allow-origin"] == (
+        "https://client.example"
+    )
+
+
+def test_route_middleware_refuses_an_explicit_parent_cache_rule() -> None:
+    """A parent cache cannot answer before route-local authentication."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        identity = (
+            request.user.display_name
+            if request.user.is_authenticated
+            else "anonymous"
+        )
+        return Response(f"{identity}:{calls}")
+
+    app = Starlette(
+        routes=[
+            Route(
+                "/private",
+                private,
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            )
+        ]
+    )
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/private": TTL}),
+        ]
+    )
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.text == "anonymous:3"
+
+
+def test_hand_wired_cache_reads_inner_application_middleware() -> None:
+    """Direct wrapping cannot answer before the app authenticates a caller."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    app = Starlette(
+        routes=[Route("/private", private)],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=HeaderAuthentication(),
+            )
+        ],
+    )
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+@pytest.mark.parametrize("entrypoint", ["route", "bound-router"])
+def test_hand_wired_cache_normalizes_starlette_entrypoints(
+    entrypoint: str,
+) -> None:
+    """A direct Route and bound Router endpoint retain route authentication."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    route = Route(
+        "/private",
+        private,
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=HeaderAuthentication(),
+            )
+        ],
+    )
+    router = Router(routes=[route])
+    app = route if entrypoint == "route" else router.app
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    client = TestClient(wrapped)
+    alice = client.get("/private", headers={"X-API-Key": "alice"})
+    bob = client.get("/private", headers={"X-API-Key": "bob"})
+    anonymous = client.get("/private")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+@pytest.mark.parametrize("entrypoint", ["route", "bound-router"])
+def test_hand_wired_public_starlette_entrypoints_remain_cacheable(
+    entrypoint: str,
+) -> None:
+    """Normalizing a routing entry point does not invent a private boundary."""
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    route = Route("/public", public)
+    router = Router(routes=[route])
+    app = route if entrypoint == "route" else router.app
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/public": TTL},
+    )
+
+    client = TestClient(wrapped)
+    first = client.get("/public")
+    replayed = client.get("/public")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
+def test_router_native_public_cache_ignores_its_own_stack_entry() -> None:
+    """A cache installed on a Router does not make itself a boundary."""
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    app = Router(
+        routes=[Route("/public", public)],
+        middleware=[
+            Middleware(
+                CachedResponsesMiddleware,
+                cache=_cache(),
+                include={"/public": TTL},
+            )
+        ],
+    )
+
+    with TestClient(app) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
+def test_router_native_cache_keeps_inner_authentication_as_a_boundary() -> None:
+    """Authentication below a Router-native cache still runs every time."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    app = Router(
+        routes=[Route("/private", private)],
+        middleware=[
+            Middleware(
+                CachedResponsesMiddleware,
+                cache=_cache(),
+                include={"/private": TTL},
+            ),
+            Middleware(
+                AuthenticationMiddleware,
+                backend=HeaderAuthentication(),
+            ),
+        ],
+    )
+
+    with TestClient(app) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+    assert calls == TWICE
+
+
+def test_router_native_cache_ignores_outer_authentication_topology() -> None:
+    """Authentication outside the cache is enforced before every cache read."""
+
+    class OptionalAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    app = Router(
+        routes=[Route("/public", public)],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware,
+                backend=OptionalAuthentication(),
+            ),
+            Middleware(
+                CachedResponsesMiddleware,
+                cache=_cache(),
+                include={"/public": TTL},
+            ),
+        ],
+    )
+
+    with TestClient(app) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
+def test_add_middleware_cache_ignores_builtin_exception_routing() -> None:
+    """Starlette's internal exception router is not a user auth boundary."""
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    app = Starlette(routes=[Route("/public", public)])
+    app.add_middleware(
+        CachedResponsesMiddleware,
+        cache=_cache(),
+        include={"/public": TTL},
+    )
+
+    with TestClient(app) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
+def test_fastapi_add_middleware_cache_ignores_framework_exit_stack() -> None:
+    """FastAPI's dependency cleanup wrapper is not a security boundary."""
+    calls = 0
+    app = FastAPI()
+
+    @app.get("/public")
+    async def public() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app.add_middleware(
+        CachedResponsesMiddleware,
+        cache=_cache(),
+        include={"/public": TTL},
+    )
+
+    with TestClient(app) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    assert first.json() == replayed.json() == {"calls": 1}
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
+def test_cache_policy_sources_deduplicate_identical_routing_roots() -> None:
+    """The same source keeps one entry and the strictest root boundary."""
+    app = FastAPI()
+    other = FastAPI()
+
+    same_object = _unique_policy_sources(((app, False), (app, True)))
+    wrapped_source = _unique_policy_sources(
+        ((app, False), (app.router.app, True))
+    )
+    after_unrelated = _unique_policy_sources(
+        ((other, False), (app, False), (app.router.app, True))
+    )
+
+    assert same_object == ((app, True),)
+    assert wrapped_source == ((app, True),)
+    assert after_unrelated == ((other, False), (app, True))
+    assert repr(UNSET) == "UNSET"
+
+
+def test_leaf_router_authentication_is_an_exact_cache_boundary() -> None:
+    """A Router used as a Route endpoint cannot hide route authentication."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    calls = 0
+
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        if not request.user.is_authenticated:
+            return Response(status_code=HTTP_401_UNAUTHORIZED)
+        calls += 1
+        return Response(f"{request.user.display_name}:{calls}")
+
+    inner = Router(
+        routes=[
+            Route(
+                "/private",
+                private,
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=HeaderAuthentication(),
+                    )
+                ],
+            )
+        ]
+    )
+    app = Router(routes=[Route("/private", inner)])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+def test_leaf_fastapi_dependency_is_an_exact_cache_boundary() -> None:
+    """A leaf FastAPI router cannot hide a dependency from a parent cache."""
+    # Arrange
+    calls = 0
+    inner = FastAPI()
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            from fastapi import HTTPException  # noqa: PLC0415
+
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @inner.get("/private", dependencies=[Depends(authenticate)])
+    async def private(request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(f"{request.headers['x-api-key']}:{calls}")
+
+    middle = Router(routes=[Route("/private", inner)])
+    app = Router(routes=[Route("/private", middle)])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    # Assert
+    assert alice.text == "alice:1"
+    assert bob.text == "bob:2"
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+    assert calls == TWICE
+
+
+def test_public_leaf_router_remains_cacheable() -> None:
+    """Only a protected leaf router makes its exact outer route a boundary."""
+    # Arrange
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    inner = FastAPI()
+    inner.add_api_route("/public", public, methods=["GET"])
+    app = Router(routes=[Route("/public", inner)])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/public": TTL},
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    # Assert
+    assert first.text == replayed.text == "1"
+    assert "age" in replayed.headers
+    assert calls == 1
+    assert not _routing_dependencies(None, "GET")
+
+
+def test_cache_marker_is_not_a_leaf_router_dependency_boundary() -> None:
+    """The marker alone does not make a nested public endpoint private."""
+    calls = 0
+
+    async def public(_request: Request) -> Response:
+        nonlocal calls
+        calls += 1
+        return Response(str(calls))
+
+    inner = FastAPI()
+    inner.add_api_route(
+        "/public",
+        public,
+        methods=["GET"],
+        dependencies=[CachedResponse(ttl=TTL)],
+    )
+    app = Router(routes=[Route("/public", inner)])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/public": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.get("/public")
+        replayed = client.get("/public")
+
+    assert first.text == replayed.text == "1"
+    assert replayed.headers["age"] == "0"
+    assert calls == 1
+
+
+def test_cache_marker_dependency_cycles_remain_public() -> None:
+    """A malformed marker cycle terminates without inventing a dependency."""
+    dependency = SimpleNamespace(call=declare_cached(TTL), dependencies=[])
+    dependency.dependencies.append(dependency)
+    route = SimpleNamespace()
+    dependency_tree = SimpleNamespace(dependencies=[dependency])
+    route.__dict__["dependant"] = dependency_tree  # codespell:ignore
+
+    assert not _has_non_cache_dependencies(route, ())
+
+
+@pytest.mark.parametrize(
+    "configuration",
+    ["constructor", "add-middleware", "router"],
+)
+@pytest.mark.parametrize("policy", ["declaration", "include"])
+def test_middleware_configured_inside_a_mount_is_a_cache_boundary(
+    configuration: str,
+    policy: str,
+) -> None:
+    """A parent cache cannot answer before lazily built child middleware."""
+
+    # Arrange
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    middleware = [
+        Middleware(AuthenticationMiddleware, backend=HeaderAuthentication())
+    ]
+    inner = FastAPI(
+        middleware=middleware if configuration == "constructor" else None
+    )
+    calls = 0
+
+    dependencies = (
+        [CachedResponse(ttl=TTL)] if policy == "declaration" else None
+    )
+
+    @inner.get("/items", dependencies=dependencies)
+    async def items(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        identity = (
+            request.user.display_name
+            if request.user.is_authenticated
+            else "anonymous"
+        )
+        return {"user": identity, "calls": calls}
+
+    mounted: Any = inner
+    if configuration == "add-middleware":
+        inner.add_middleware(
+            AuthenticationMiddleware, backend=HeaderAuthentication()
+        )
+    elif configuration == "router":
+        mounted = Router(routes=inner.router.routes, middleware=middleware)
+
+    app = FastAPI()
+    app.mount("/shop", mounted)
+    cached = (
+        CachedResponses()
+        if policy == "declaration"
+        else CachedResponses(include={"/shop/items": TTL})
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), cached])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.get("/shop/items", headers={"X-API-Key": "alice"})
+        bob = client.get("/shop/items", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/shop/items")
+
+    # Assert
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.json() == {"user": "anonymous", "calls": 3}
+
+
+@pytest.mark.parametrize("policy", ["declaration", "include"])
+def test_route_transparent_mounted_wrapper_is_a_cache_boundary(
+    policy: str,
+) -> None:
+    """Forwarded route attributes cannot hide an explicit ASGI boundary."""
+    # Arrange
+    calls = 0
+    inner = FastAPI()
+
+    dependencies = (
+        [CachedResponse(ttl=TTL)] if policy == "declaration" else None
+    )
+
+    @inner.get("/items", dependencies=dependencies)
+    async def items() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    app = FastAPI()
+    app.mount("/shop", _RoutingProxy(inner))
+    cached = (
+        CachedResponses()
+        if policy == "declaration"
+        else CachedResponses(include={"/shop/items": TTL})
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), cached])
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.get("/shop/items")
+        second = client.get("/shop/items")
+
+    # Assert
+    assert first.json() == {"calls": 1}
+    assert second.json() == {"calls": 2}
+
+
+def test_a_route_with_other_dependencies_is_not_cached() -> None:
+    """An ordinary dependency can vary a response without declaring `Vary`."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
     app = FastAPI()
@@ -372,13 +1839,527 @@ def test_a_route_with_other_dependencies_is_read_too() -> None:
         calls += 1
         return {"calls": calls}
 
+    route = next(
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/reads"
+    )
+    assert declared_ttl(route, (), "/reads") == (False, None)
+
     # Act
     with TestClient(app) as client:
         client.get("/reads")
         client.get("/reads")
 
     # Assert
-    assert calls == 1
+    assert calls == TWICE
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_cache_marker_override_before_first_request_is_private(
+    wiring: str,
+) -> None:
+    """An override replacing the marker is a dependency the cache cannot skip."""
+    app = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @app.get("/private", dependencies=[marker])
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    app.dependency_overrides[marker.dependency] = _identity_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/private", headers={"X-Identity": "alice"})
+        bob = client.get("/private", headers={"X-Identity": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_cache_marker_override_changes_invalidate_public_policy(
+    wiring: str,
+) -> None:
+    """Adding, changing, and removing an override refreshes cache privacy."""
+    app = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @app.get("/identity", dependencies=[marker])
+    async def identity(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": getattr(request.state, "identity", "public"),
+            "calls": calls,
+        }
+
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        public = client.get("/identity")
+        public_hit = client.get("/identity")
+
+        app.dependency_overrides[marker.dependency] = _identity_override
+        alice = client.get("/identity", headers={"X-Identity": "alice"})
+        bob = client.get("/identity", headers={"X-Identity": "bob"})
+
+        app.dependency_overrides[marker.dependency] = marker.dependency
+        same_marker = client.get("/identity", headers={"X-Identity": "ignored"})
+
+        app.dependency_overrides[marker.dependency] = (
+            _prefixed_identity_override
+        )
+        changed = client.get("/identity", headers={"X-Identity": "alice"})
+
+        del app.dependency_overrides[marker.dependency]
+        removed = client.get("/identity")
+
+    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
+    assert public_hit.headers["age"] == "0"
+    assert alice.json() == {"user": "alice", "calls": 2}
+    assert bob.json() == {"user": "bob", "calls": 3}
+    assert "age" not in alice.headers
+    assert "age" not in bob.headers
+    assert same_marker.json() == {"user": "public", "calls": 1}
+    assert same_marker.headers["age"] == "0"
+    assert changed.json() == {"user": "changed:alice", "calls": 4}
+    assert "age" not in changed.headers
+    assert removed.json() == {"user": "public", "calls": 1}
+    assert removed.headers["age"] == "0"
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+@pytest.mark.parametrize("placement", ["route", "include"])
+def test_included_cache_marker_override_before_first_request_is_private(
+    wiring: str,
+    placement: str,
+) -> None:
+    """An app override reaches route and include cache declarations."""
+    app = FastAPI()
+    router = APIRouter()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @router.get(
+        "/private",
+        dependencies=[marker] if placement == "route" else None,
+    )
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    app.include_router(
+        router,
+        dependencies=[marker] if placement == "include" else None,
+    )
+    app.dependency_overrides[marker.dependency] = _identity_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/private", headers={"X-Identity": "alice"})
+        bob = client.get("/private", headers={"X-Identity": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_included_cache_marker_override_changes_refresh_public_policy(
+    wiring: str,
+) -> None:
+    """Included routes track override mutation, replacement, and removal."""
+    app = FastAPI()
+    router = APIRouter()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @router.get("/identity", dependencies=[marker])
+    async def identity(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": getattr(request.state, "identity", "public"),
+            "calls": calls,
+        }
+
+    app.include_router(router)
+    app.include_router(router)
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        public = client.get("/identity")
+        public_hit = client.get("/identity")
+
+        app.dependency_overrides[marker.dependency] = _identity_override
+        alice = client.get("/identity", headers={"X-Identity": "alice"})
+        bob = client.get("/identity", headers={"X-Identity": "bob"})
+        anonymous = client.get("/identity")
+
+        app.dependency_overrides = {
+            marker.dependency: _prefixed_identity_override
+        }
+        changed = client.get("/identity", headers={"X-Identity": "alice"})
+
+        app.dependency_overrides.clear()
+        removed = client.get("/identity")
+
+    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
+    assert public_hit.headers["age"] == "0"
+    assert alice.json() == {"user": "alice", "calls": 2}
+    assert bob.json() == {"user": "bob", "calls": 3}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+    assert changed.json() == {"user": "changed:alice", "calls": 4}
+    assert "age" not in changed.headers
+    assert removed.json() == {"user": "public", "calls": 1}
+    assert removed.headers["age"] == "0"
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_included_fastapi_uses_outer_override_provider(wiring: str) -> None:
+    """A parent app override wins over the child app's conflicting provider."""
+    child = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @child.get("/private", dependencies=[marker])
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    child.dependency_overrides[marker.dependency] = marker.dependency
+    app = FastAPI()
+    app.include_router(child.router)
+    app.dependency_overrides[marker.dependency] = _who_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/private", headers={"X-Who": "alice"})
+        bob = client.get("/private", headers={"X-Who": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_included_fastapi_outer_override_changes_refresh_policy(
+    wiring: str,
+) -> None:
+    """Outer override mutation and removal preserve a public child marker."""
+    child = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @child.get("/identity", dependencies=[marker])
+    async def identity(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": getattr(request.state, "identity", "public"),
+            "calls": calls,
+        }
+
+    child.dependency_overrides[marker.dependency] = _identity_override
+    app = FastAPI()
+    app.include_router(child.router)
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        public = client.get("/identity")
+        public_hit = client.get("/identity")
+
+        app.dependency_overrides[marker.dependency] = _who_override
+        alice = client.get("/identity", headers={"X-Who": "alice"})
+        bob = client.get("/identity", headers={"X-Who": "bob"})
+
+        app.dependency_overrides = {marker.dependency: _prefixed_who_override}
+        changed = client.get("/identity", headers={"X-Who": "alice"})
+
+        app.dependency_overrides.clear()
+        removed = client.get("/identity")
+
+    assert public.json() == public_hit.json() == {"user": "public", "calls": 1}
+    assert public_hit.headers["age"] == "0"
+    assert alice.json() == {"user": "alice", "calls": 2}
+    assert bob.json() == {"user": "bob", "calls": 3}
+    assert "age" not in alice.headers
+    assert "age" not in bob.headers
+    assert changed.json() == {"user": "changed:alice", "calls": 4}
+    assert "age" not in changed.headers
+    assert removed.json() == {"user": "public", "calls": 1}
+    assert removed.headers["age"] == "0"
+
+
+@pytest.mark.parametrize("wiring", ["component", "hand-wired"])
+def test_nested_included_fastapi_keeps_outer_override_provider(
+    wiring: str,
+) -> None:
+    """Nested child providers cannot replace the outer inclusion provider."""
+    grandchild = FastAPI()
+    marker = CachedResponse(ttl=TTL)
+    calls = 0
+
+    @grandchild.get("/private", dependencies=[marker])
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.state.identity, "calls": calls}
+
+    grandchild.dependency_overrides[marker.dependency] = marker.dependency
+    child = FastAPI()
+    child.include_router(grandchild.router, prefix="/nested")
+    child.dependency_overrides[marker.dependency] = marker.dependency
+    app = FastAPI()
+    app.include_router(child.router, prefix="/api")
+    app.dependency_overrides[marker.dependency] = _who_override
+    if wiring == "component":
+        micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+        micro.install(app)
+        served: Any = app
+    else:
+        served = CachedResponsesMiddleware(app, cache=_cache())
+
+    with TestClient(served) as client:
+        alice = client.get("/api/nested/private", headers={"X-Who": "alice"})
+        bob = client.get("/api/nested/private", headers={"X-Who": "bob"})
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert "age" not in alice.headers
+    assert "age" not in bob.headers
+
+
+def test_multiple_nested_includes_keep_private_and_public_policies() -> None:
+    """Nested override inheritance leaves ordinary and public siblings safe."""
+    private_marker = CachedResponse(ttl=TTL)
+    public_marker = CachedResponse(ttl=TTL)
+    calls = {"direct": 0, "nested": 0, "ordinary": 0, "public": 0}
+
+    direct = APIRouter()
+
+    @direct.get("/direct", dependencies=[private_marker])
+    async def direct_private(request: Request) -> dict[str, str | int]:
+        calls["direct"] += 1
+        return {"user": request.state.identity, "calls": calls["direct"]}
+
+    inner = APIRouter()
+
+    @inner.get("/nested", dependencies=[private_marker])
+    async def nested_private(request: Request) -> dict[str, str | int]:
+        calls["nested"] += 1
+        return {"user": request.state.identity, "calls": calls["nested"]}
+
+    @inner.get("/ordinary", dependencies=[public_marker])
+    async def ordinary(
+        user: str = Depends(_header_principal),  # noqa: FAST002
+    ) -> dict[str, str | int]:
+        calls["ordinary"] += 1
+        return {"user": user, "calls": calls["ordinary"]}
+
+    @inner.get("/public", dependencies=[public_marker])
+    async def public() -> dict[str, int]:
+        calls["public"] += 1
+        return {"calls": calls["public"]}
+
+    middle = APIRouter()
+    middle.include_router(inner, prefix="/inner")
+    app = FastAPI()
+    app.include_router(direct, prefix="/one")
+    app.include_router(middle, prefix="/two")
+    app.dependency_overrides[private_marker.dependency] = _identity_override
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        direct_alice = client.get(
+            "/one/direct", headers={"X-Identity": "alice"}
+        )
+        direct_bob = client.get("/one/direct", headers={"X-Identity": "bob"})
+        nested_alice = client.get(
+            "/two/inner/nested", headers={"X-Identity": "alice"}
+        )
+        nested_bob = client.get(
+            "/two/inner/nested", headers={"X-Identity": "bob"}
+        )
+        ordinary_alice = client.get(
+            "/two/inner/ordinary", headers={"X-API-Key": "alice"}
+        )
+        ordinary_bob = client.get(
+            "/two/inner/ordinary", headers={"X-API-Key": "bob"}
+        )
+        public_first = client.get("/two/inner/public")
+        public_hit = client.get("/two/inner/public")
+
+    assert direct_alice.json() == {"user": "alice", "calls": 1}
+    assert direct_bob.json() == {"user": "bob", "calls": 2}
+    assert nested_alice.json() == {"user": "alice", "calls": 1}
+    assert nested_bob.json() == {"user": "bob", "calls": 2}
+    assert ordinary_alice.json() == {"user": "alice", "calls": 1}
+    assert ordinary_bob.json() == {"user": "bob", "calls": 2}
+    assert public_first.json() == public_hit.json() == {"calls": 1}
+    assert "age" not in direct_bob.headers
+    assert "age" not in nested_bob.headers
+    assert "age" not in ordinary_bob.headers
+    assert public_hit.headers["age"] == "0"
+
+
+@pytest.mark.parametrize(
+    "authenticate",
+    [_header_principal, _request_principal],
+    ids=["header", "request"],
+)
+def test_component_cache_does_not_replay_dependency_responses(
+    authenticate: Any,  # noqa: ANN401
+) -> None:
+    """A custom authentication dependency keeps each principal private."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/private", dependencies=[CachedResponse(ttl=TTL)])
+    async def private(
+        user: str = Depends(authenticate),  # noqa: FAST002
+    ) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": user, "calls": calls}
+
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert all(
+        "age" not in response.headers for response in (alice, bob, anonymous)
+    )
+
+
+@pytest.mark.parametrize("placement", ["router", "include"])
+def test_router_dependencies_make_declared_reads_uncacheable(
+    placement: str,
+) -> None:
+    """Router and include dependencies are both response cache boundaries."""
+    calls = 0
+    router = APIRouter(
+        dependencies=(
+            [Depends(_header_principal)] if placement == "router" else None
+        )
+    )
+
+    @router.get("/private", dependencies=[CachedResponse(ttl=TTL)])
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": request.headers["x-api-key"], "calls": calls}
+
+    app = FastAPI()
+    app.include_router(
+        router,
+        dependencies=(
+            [Depends(_request_principal)] if placement == "include" else None
+        ),
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+
+
+def test_hand_wired_include_does_not_replay_dependency_responses() -> None:
+    """An include policy cannot answer before an ordinary dependency."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/private")
+    async def private(
+        user: str = Depends(_header_principal),  # noqa: FAST002
+    ) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": user, "calls": calls}
+
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+    with TestClient(wrapped) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
 
 
 def test_a_declaration_on_a_write_is_refused_where_it_is_written() -> None:
@@ -417,6 +2398,174 @@ def test_a_route_added_after_install_is_read_when_the_app_starts() -> None:
 
     # Assert
     assert calls == 1
+
+
+def test_hand_wired_cache_revalidates_routes_added_after_a_request() -> None:
+    """A late FastAPI gate cannot inherit stale hand-wired cache policy."""
+    app = FastAPI()
+
+    @app.get("/public")
+    async def public() -> dict[str, bool]:
+        return {"public": True}
+
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    async def require_key(
+        key: str = Security(api_key),
+    ) -> str:
+        return key
+
+    async def private() -> dict[str, bool]:
+        return {"private": True}
+
+    with TestClient(wrapped) as client:
+        assert client.get("/public").status_code == HTTP_200_OK
+        app.add_api_route(
+            "/private",
+            private,
+            methods=["GET"],
+            dependencies=[Depends(require_key)],
+        )
+        with pytest.raises(TypeError, match="gated by APIKeyHeader"):
+            client.get("/private", headers={"X-API-Key": "alice"})
+
+
+def test_cache_revalidates_same_length_route_replacement() -> None:
+    """Replacing one public route with an authenticated one drops stale policy."""
+
+    class HeaderAuthentication(AuthenticationBackend):
+        async def authenticate(
+            self,
+            conn: Any,  # noqa: ANN401
+        ) -> tuple[AuthCredentials, SimpleUser] | None:
+            identity = conn.headers.get("x-api-key")
+            if identity is None:
+                return None
+            return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+    public_calls = 0
+    private_calls = 0
+
+    async def public(request: Request) -> Response:
+        nonlocal public_calls
+        public_calls += 1
+        return Response(f"{request.headers['x-api-key']}:{public_calls}")
+
+    async def private(request: Request) -> Response:
+        nonlocal private_calls
+        private_calls += 1
+        return Response(f"{request.user.display_name}:{private_calls}")
+
+    app = Router(routes=[Route("/same", public, methods=["GET"])])
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/same": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        alice = client.get("/same", headers={"X-API-Key": "alice"})
+        replayed = client.get("/same", headers={"X-API-Key": "mallory"})
+        app.routes[0] = Route(
+            "/same",
+            private,
+            methods=["GET"],
+            middleware=[
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=HeaderAuthentication(),
+                )
+            ],
+        )
+        mallory = client.get("/same", headers={"X-API-Key": "mallory"})
+
+    assert alice.text == replayed.text == "alice:1"
+    assert replayed.headers["age"] == "0"
+    assert mallory.text == "mallory:1"
+    assert "age" not in mallory.headers
+    assert public_calls == private_calls == 1
+
+
+def test_cache_topology_rebuilds_once_only_after_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unchanged request skips the full walker; one route addition rebuilds."""
+    app = FastAPI()
+
+    @app.get("/reads")
+    async def reads() -> dict[str, bool]:
+        return {"ok": True}
+
+    for index in range(BULK_ROUTES):
+        app.add_api_route(f"/bulk/{index}", reads, methods=["GET"])
+
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/reads": TTL},
+    )
+
+    with TestClient(wrapped) as client:
+        client.get("/reads")
+        rebuilds = 0
+        original = _RouteTopologyState.rebuild
+
+        def counted(snapshot: _RouteTopologyState) -> None:
+            nonlocal rebuilds
+            rebuilds += 1
+            original(snapshot)
+
+        monkeypatch.setattr(_RouteTopologyState, "rebuild", counted)
+        client.get("/reads")
+        assert rebuilds == 0
+
+        app.add_api_route("/later", reads, methods=["GET"])
+        client.get("/reads")
+        assert rebuilds == 1
+
+        client.get("/reads")
+        assert rebuilds == 1
+
+
+def test_hand_wired_cache_revalidates_a_lifespan_added_route() -> None:
+    """A route created during startup is validated before its first cache read."""
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    async def require_key(
+        key: str = Security(api_key),
+    ) -> str:
+        return key
+
+    async def private() -> dict[str, bool]:
+        return {"private": True}
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.add_api_route(
+            "/private",
+            private,
+            methods=["GET"],
+            dependencies=[Depends(require_key)],
+        )
+        yield
+
+    app = FastAPI(lifespan=lifespan)
+    wrapped = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/private": TTL},
+    )
+
+    with (
+        TestClient(wrapped) as client,
+        pytest.raises(TypeError, match="gated by APIKeyHeader"),
+    ):
+        client.get("/private", headers={"X-API-Key": "alice"})
 
 
 # --- What is not stored ---
@@ -469,6 +2618,36 @@ def _read_scope() -> MutableMapping[str, Any]:
         "headers": [],
         "query_string": b"",
     }
+
+
+def test_nonempty_auth_scopes_make_a_request_private() -> None:
+    """Authentication scopes bypass the cache even without an authenticated user."""
+    calls = 0
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+        nonlocal calls
+        calls += 1
+        await send(
+            {"type": "http.response.start", "status": 200, "headers": []}
+        )
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    middleware = CachedResponsesMiddleware(
+        app,
+        cache=_cache(),
+        include={"/reads": TTL},
+    )
+    scope = _read_scope()
+    scope["user"] = SimpleNamespace(is_authenticated=False)
+    scope["auth"] = SimpleNamespace(scopes=["authenticated"])
+
+    async def scenario() -> None:
+        await middleware(scope, _receive, _nowhere)
+        await middleware(dict(scope), _receive, _nowhere)
+
+    anyio.run(scenario)
+
+    assert calls == TWICE
 
 
 def _cache() -> TTLCache[Any]:
@@ -1417,6 +3596,144 @@ def test_a_bare_string_is_a_missing_comma() -> None:
     # Hand-wired ASGI refuses the same mistake as a wrong argument type.
     with pytest.raises(TypeError, match="is a string"):
         CachedResponsesMiddleware(_nothing, cache=_cache(), include="/reads")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_default_query_vary_preserves_repeated_value_order() -> None:
+    """Repeated values stay ordered while distinct names stay canonical."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/roles")
+    async def roles(request: Request) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {
+            "roles": request.query_params.getlist("role"),
+            "calls": calls,
+        }
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/roles",)),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as client:
+        first = client.get("/roles?role=admin&role=user&page=1")
+        reordered_names = client.get("/roles?page=1&role=admin&role=user")
+        reversed_roles = client.get("/roles?role=user&role=admin&page=1")
+
+    assert (
+        first.json()
+        == reordered_names.json()
+        == {
+            "roles": ["admin", "user"],
+            "calls": 1,
+        }
+    )
+    assert reordered_names.headers["age"] == "0"
+    assert reversed_roles.json() == {
+        "roles": ["user", "admin"],
+        "calls": 2,
+    }
+
+
+def test_selected_query_vary_decodes_names_and_distinguishes_absence() -> None:
+    """Selected repeated values, encoded names, and an absent key are distinct."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/users")
+    async def users(request: Request) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {
+            "users": request.query_params.getlist("user"),
+            "present": "user" in request.query_params,
+            "calls": calls,
+        }
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(
+                include=("/users",),
+                vary_by_query=("user",),
+            ),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as client:
+        encoded = client.get("/users?%75ser=alice&user=bob&utm=one")
+        ignored_changed = client.get("/users?user=alice&user=bob&utm=two")
+        reversed_users = client.get("/users?user=bob&user=alice")
+        absent = client.get("/users?utm=one")
+        empty = client.get("/users?user=")
+
+    assert (
+        encoded.json()
+        == ignored_changed.json()
+        == {
+            "users": ["alice", "bob"],
+            "present": True,
+            "calls": 1,
+        }
+    )
+    assert ignored_changed.headers["age"] == "0"
+    assert reversed_users.json()["calls"] == TWICE
+    assert absent.json() == {"users": [], "present": False, "calls": READS}
+    assert empty.json() == {"users": [""], "present": True, "calls": FOUR}
+
+
+def test_header_vary_distinguishes_absent_from_present_empty() -> None:
+    """An empty request header is observable and cannot alias its absence."""
+    app = FastAPI()
+    calls = 0
+
+    @app.get("/variant")
+    async def variant(request: Request) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {
+            "present": "x-variant" in request.headers,
+            "value": request.headers.get("x-variant"),
+            "calls": calls,
+        }
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(
+                include=("/variant",),
+                vary_by_headers=("x-variant",),
+            ),
+        ]
+    )
+    micro.install(app)
+
+    with TestClient(app) as client:
+        absent = client.get("/variant")
+        empty = client.get("/variant", headers={"X-Variant": ""})
+        empty_replayed = client.get("/variant", headers={"X-Variant": ""})
+
+    assert absent.json() == {
+        "present": False,
+        "value": None,
+        "calls": 1,
+    }
+    assert (
+        empty.json()
+        == empty_replayed.json()
+        == {
+            "present": True,
+            "value": "",
+            "calls": 2,
+        }
+    )
+    assert empty_replayed.headers["age"] == "0"
 
 
 def test_two_services_behind_one_gateway_are_two_resources() -> None:

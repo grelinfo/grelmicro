@@ -175,11 +175,12 @@ other key in the same file still applies.
 And a file never changes what the app is made of. It cannot register a
 component, choose a cache store, add a rate limiter, or supply a `key=`
 function. So a cache pattern arriving from a ConfigMap is checked against
-the same rules `micro.install(app)` checks: one naming a read behind a
-security scheme is refused and the running configuration is kept, and one
-written for a path that answers no `GET` is refused as the typo it is. A
-prefix is not, because a router holds writes beside its reads and those are
-simply left to their handlers.
+the same rules `micro.install(app)` checks: one naming a read behind a security
+scheme is refused and the running configuration is kept, one naming a read
+with an ordinary FastAPI dependency is left uncached, and one written for a
+path that answers no `GET` is refused as the typo it is. A prefix is not,
+because a router holds writes beside its reads and those are simply left to
+their handlers.
 
 The store refuses too, not only the check. A pattern names a URL and a route
 template stands for many, so no reading of the patterns alone can be trusted

@@ -412,6 +412,18 @@ class TestSafeUrl:
             == "postgresql://host/db?password=***&sslmode=require"
         )
 
+    def test_safe_url_ssl_password_is_redacted(self) -> None:
+        """The standard libpq certificate password never reaches displays."""
+        from grelmicro._redact import redact_url  # noqa: PLC0415
+
+        assert (
+            redact_url(
+                "postgresql://host/db?sslpassword=hunter2",
+                multi_host=True,
+            )
+            == "postgresql://host/db?sslpassword=***"
+        )
+
     def test_safe_url_query_without_credentials_passthrough(self) -> None:
         """A DSN with a query but no credential keys is returned unchanged."""
         from grelmicro._redact import redact_url  # noqa: PLC0415

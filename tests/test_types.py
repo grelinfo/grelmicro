@@ -8,6 +8,7 @@ from pydantic import (
     RedisDsn,
     ValidationError,
 )
+from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from grelmicro.types import SecretUrl
@@ -49,12 +50,95 @@ class TestDisplay:
 
         assert str(model.postgres) == POSTGRES_SAFE
 
+    def test_ipv6_multi_host_dsn_stays_parseable(self) -> None:
+        """A plain IPv6 host is not mistaken for malformed userinfo."""
+        model = Model(
+            postgres=("postgresql://[::1]:5432,user:pw@db.example:5433/app")
+        )
+
+        rendered = str(model.postgres)
+        assert rendered == (
+            "postgresql://[::1]:5432,user:***@db.example:5433/app"
+        )
+        assert MultiHostUrl(rendered).hosts()
+
     def test_query_credentials_redacted(self) -> None:
         """Credential-like query parameters are redacted."""
         model = Model(generic="https://otlp:4318/v1?api_key=abc&region=eu")
 
         assert (
             str(model.generic) == "https://otlp:4318/v1?api_key=***&region=eu"
+        )
+
+    def test_encoded_query_credential_continuation_is_fully_redacted(
+        self,
+    ) -> None:
+        """A structured URL masks ambiguous encoded credential continuation."""
+        model = Model(
+            generic=(
+                "https://example.test/callback?access_token=FIRST%26part=SECOND"
+            )
+        )
+
+        assert str(model.generic) == (
+            "https://example.test/callback?access_token=***"
+        )
+        assert "FIRST" not in repr(model.generic)
+        assert "SECOND" not in model.model_dump_json()
+
+    def test_nested_encoded_assignment_is_redacted_in_every_display(
+        self,
+    ) -> None:
+        """A credential inside a fully encoded redirect stays out of outputs."""
+        model = Model(
+            generic=(
+                "https://example.test/?redirect=https%3A%2F%2Fidp.test%2Fcb"
+                "%3Faccess_token%3DLEAKME%26state%3Dok"
+            )
+        )
+
+        displayed = str(model.generic)
+        assert "LEAKME" not in displayed
+        assert "LEAKME" not in repr(model.generic)
+        assert "LEAKME" not in model.model_dump_json()
+        assert "redirect=***" in displayed
+
+    @pytest.mark.parametrize(
+        "nested",
+        [
+            "https%3A%2F%2Finner.test%2F%23token%3DLEAKME",
+            "https%3A%2F%2Fuser%3ALEAKME%40inner.test%2F",
+        ],
+        ids=["fragment", "userinfo"],
+    )
+    def test_fully_encoded_nested_url_is_redacted_in_json(
+        self,
+        nested: str,
+    ) -> None:
+        """Encoded URL credentials stay out of every SecretUrl rendering."""
+        model = Model(generic=f"https://outer.test/?redirect={nested}&state=ok")
+
+        assert "LEAKME" not in str(model.generic)
+        assert "LEAKME" not in repr(model.model_dump())
+        assert "LEAKME" not in model.model_dump_json()
+        assert "redirect=***" in model.model_dump_json()
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "db_password",
+            "x-api-key",
+            "private_key",
+            "accessToken",
+            "clientSecret",
+        ],
+    )
+    def test_qualified_query_credentials_redacted(self, key: str) -> None:
+        """Qualified and camel-case credential names stay out of displays."""
+        model = Model(generic=f"https://otlp:4318/v1?{key}=sensitive&region=eu")
+
+        assert str(model.generic) == (
+            f"https://otlp:4318/v1?{key}=***&region=eu"
         )
 
     def test_url_without_credentials_stays_readable(self) -> None:
@@ -185,3 +269,178 @@ class TestFailClosed:
 
         assert "hunter2" not in repr(model)
         assert str(model.text) == "user:***@collector:4317"
+
+    def test_scheme_less_password_with_colons_is_fully_redacted(self) -> None:
+        """Every segment after the first userinfo colon is password material."""
+        model = Model(text="user:PART1:PART2@collector:4317")
+
+        assert "PART1" not in repr(model)
+        assert "PART2" not in repr(model)
+        assert str(model.text) == "user:***@collector:4317"
+
+    def test_scheme_less_endpoint_with_query_credential_is_redacted(
+        self,
+    ) -> None:
+        """A query on a non-URL endpoint is redacted by the fallback path."""
+        model = Model(text="collector/path?accessToken=sensitive")
+
+        assert "sensitive" not in repr(model)
+        assert str(model.text) == "collector/path?accessToken=***"
+
+    def test_scheme_less_userinfo_and_query_are_both_redacted(self) -> None:
+        """Structured query rebuilding cannot expose path-like userinfo."""
+        model = Model(
+            text="user:hunter2@collector:4317/path?accessToken=sensitive"
+        )
+
+        assert "hunter2" not in repr(model)
+        assert "sensitive" not in repr(model)
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (
+                "https://example/#/callback?state=x;token=SECRET",
+                "https://example/#/callback?state=x;token=***",
+            ),
+            (
+                "https://example/?state=x/access_token=SECRET",
+                "https://example/?state=x/access_token=***",
+            ),
+            (
+                "https://example/#/callback?state=x/access_token=SECRET",
+                "https://example/#/callback?state=x/access_token=***",
+            ),
+            (
+                "https://example/?state=x/access%5Ftoken=SECRET",
+                "https://example/?state=x/access_token=***",
+            ),
+            (
+                "https://example/?state=x;token=SECRET",
+                "https://example/?state=x;token=***",
+            ),
+            (
+                "https://example/#/callback/access%5Ftoken=SECRET",
+                "https://example/#/callback/access_token=***",
+            ),
+            (
+                "https://example.test/?state=x%2Faccess%5Ftoken=SECRET",
+                "https://example.test/?state=x%2Faccess_token=***",
+            ),
+            (
+                "https://example.test/#/callback?state=x%3btoken=SECRET",
+                "https://example.test/#/callback?state=x%3btoken=***",
+            ),
+            (
+                "https://example.test/#/callback?state=x%26token=SECRET",
+                "https://example.test/#/callback?state=x%26token=***",
+            ),
+        ],
+    )
+    def test_string_url_assignment_variants_are_redacted(
+        self, value: str, expected: str
+    ) -> None:
+        """String endpoints mask separator and encoded credential variants."""
+        model = Model(text=value)
+
+        assert str(model.text) == expected
+        assert "SECRET" not in repr(model.text)
+        assert "SECRET" not in model.model_dump_json()
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://example.test/callback?access_token=FIRST%26part=SECOND",
+            "https://example.test/#access_token=FIRST%3bpart=SECOND",
+            "https://example.test/#/callback?token=FIRST%2Fpart=SECOND",
+        ],
+    )
+    def test_encoded_credential_continuation_is_hidden_everywhere(
+        self, value: str
+    ) -> None:
+        """String, repr, and JSON mask the whole ambiguous credential value."""
+        model = Model(text=value)
+
+        assert "FIRST" not in str(model.text)
+        assert "SECOND" not in str(model.text)
+        assert "FIRST" not in repr(model.text)
+        assert "SECOND" not in repr(model.text)
+        assert "FIRST" not in model.model_dump_json()
+        assert "SECOND" not in model.model_dump_json()
+
+    @pytest.mark.parametrize(
+        ("value", "secret"),
+        [
+            (
+                "https://example.test/#state=ok%3Faccess_token=FRAGMENT_SECRET",
+                "FRAGMENT_SECRET",
+            ),
+            (
+                "https://example.test/?redirect=callback%3Faccess_token=QUERY_SECRET",
+                "QUERY_SECRET",
+            ),
+        ],
+    )
+    def test_encoded_question_mark_credentials_are_hidden_everywhere(
+        self, value: str, secret: str
+    ) -> None:
+        """Nested redirect credentials stay out of every display sink."""
+        model = Model(text=value)
+
+        assert secret not in str(model.text)
+        assert secret not in repr(model)
+        assert secret not in repr(model.model_dump())
+        assert secret not in model.model_dump_json()
+
+    def test_protocol_relative_userinfo_and_query_are_both_redacted(
+        self,
+    ) -> None:
+        """A network-path endpoint masks its password and query credential."""
+        model = Model(
+            text="//user:hunter2@collector:4317/path?accessToken=sensitive"
+        )
+
+        assert "hunter2" not in repr(model)
+        assert "sensitive" not in repr(model)
+
+    def test_malformed_scheme_userinfo_is_redacted(self) -> None:
+        """Malformed userinfo and parameters remain secret in every display."""
+        model = Model(
+            text=(
+                "http:/user:PART1@PART2@bad host/path"
+                "?accessToken=QUERYSECRET#access_token=FRAGSECRET"
+            )
+        )
+
+        rendered = str(model.text)
+        assert "PART1" not in repr(model)
+        assert "PART2" not in rendered
+        assert "QUERYSECRET" not in rendered
+        assert "FRAGSECRET" not in rendered
+        assert rendered == (
+            "http:/user:***@bad host/path?accessToken=***#access_token=***"
+        )
+
+    def test_malformed_username_at_sign_is_redacted(self) -> None:
+        """An extra at sign before the password cannot evade redaction."""
+        model = Model(text="http:/user@realm:PWSECRET@bad host/path")
+
+        assert "PWSECRET" not in repr(model)
+        assert str(model.text) == "http:/user@realm:***@bad host/path"
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "https://example.test/callback#access_token=TOKENVALUE",
+            "https://example.test/#access_token=TOKENVALUE?state=x",
+            "https://example.test/#/callback/token=TOKENVALUE?state=x",
+            "collector/path#accessToken=TOKENVALUE",
+            "collector/path#/callback?clientSecret=TOKENVALUE",
+        ],
+    )
+    def test_fragment_credential_is_redacted(self, endpoint: str) -> None:
+        """OAuth-style fragment parameters never appear in display output."""
+        model = Model(text=endpoint)
+
+        assert "TOKENVALUE" not in repr(model)
+        assert "TOKENVALUE" not in str(model.text)

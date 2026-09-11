@@ -445,6 +445,8 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
         config = state.config
         if endpoint.method not in {"GET", "HEAD"}:
             return None
+        if state.policies._refuses_template(endpoint.path):  # noqa: SLF001
+            return None
         declared, ttl = declared_ttl(
             endpoint.route, endpoint.contexts, endpoint.path
         )
@@ -514,6 +516,11 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
         reach = _selected(config, endpoint)
         if endpoint.method not in methods or reach is None:
             return None
+        if (
+            component._key_maker is None  # noqa: SLF001
+            and component.route_is_gated(endpoint.method, endpoint.path)
+        ):
+            return None
         window = component.idempotency.config.ttl
         return f"idempotent {window:g}s{reach}"
 
@@ -571,15 +578,24 @@ def _describe_endpoints(
 ) -> tuple[EndpointReport, ...]:
     """Return one row per endpoint the app declares, in path order.
 
-    Reads the routes off the application the same way the response cache
-    reads them, so a mounted app and an included router are walked too.
+    Endpoint enumeration crosses mounted middleware so the report does not
+    lose routes hidden behind a CORS or authentication wrapper. Component
+    readers still apply their own runtime boundaries to those routes.
     """
-    rules = _endpoint_rules(list(micro.components))
+    components = list(micro.components)
+    for component in components:
+        if getattr(component, "kind", None) == "cached_responses":
+            cached: Any = component
+            cached._live.state.policies.refresh(app)  # noqa: SLF001
+        refresh_routes = getattr(component, "refresh_routes", None)
+        if refresh_routes is not None:
+            refresh_routes(app)
+    rules = _endpoint_rules(components)
     if not rules:
         return ()
     compiled = dict(_declared_paths(app))
     found: list[EndpointReport] = []
-    for prefix, route, contexts in walk_routes(app):
+    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         path = f"{prefix}{getattr(route, 'path', '')}"
         for method in sorted(getattr(route, "methods", ()) or ()):
             if method == "HEAD":
@@ -622,7 +638,7 @@ def _declared_paths(app: object) -> list[tuple[str, Pattern[str] | None]]:
     except ImportError:  # pragma: no cover - starlette is in the test env
         compile_path = None  # type: ignore[assignment]
     found: list[tuple[str, Pattern[str] | None]] = []
-    for prefix, route, _ in walk_routes(app):
+    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{getattr(route, 'path', '')}"
         found.append((template, _compiled(compile_path, template)))
     return found

@@ -19,9 +19,15 @@ from grelmicro import (
     MiddlewarePlacementWarning,
     Usable,
 )
+from grelmicro._paths import _routing_app
 from grelmicro.errors import SettingsValidationError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
-from grelmicro.http._idempotency import _checked_key
+from grelmicro.http._idempotency import (
+    _authentication_paths,
+    _checked_key,
+    _contains_fastapi,
+    _GatedRoutes,
+)
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.starlette import install_middleware
@@ -696,7 +702,7 @@ class _RequireToken:
 
 
 def test_a_replay_never_skips_the_app_authentication() -> None:
-    """The stored response is behind whatever the app put in front of it.
+    """A private request runs through authentication and the app every time.
 
     A middleware of ours that answers without calling the app must never be
     the reason a request skipped authentication. Registering the component
@@ -706,10 +712,13 @@ def test_a_replay_never_skips_the_app_authentication() -> None:
     # Arrange
     micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
     app = FastAPI()
+    calls = 0
 
     @app.post("/charge")
     async def charge() -> dict[str, int]:
-        return {"amount": 100}
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
 
     app.add_middleware(_RequireToken)
     micro.install(app)
@@ -732,6 +741,49 @@ def test_a_replay_never_skips_the_app_authentication() -> None:
     # on a first request, and never sees the stored body.
     assert stolen.status_code == HTTP_401_UNAUTHORIZED
     assert stolen.content == b""
+    assert replayed.json() == {"call": 2}
+    assert "idempotent-replayed" not in replayed.headers
+
+
+def test_an_identity_aware_key_makes_private_requests_idempotent() -> None:
+    """A custom key explicitly opts authenticated requests into replay."""
+    # Arrange
+    micro = Grelmicro(
+        uses=[
+            MemoryProvider(),
+            IdempotentRequests(
+                key_maker=lambda scope, key: (
+                    f"verified-user\x1f{scope['path']}\x1f{key}"
+                )
+            ),
+        ]
+    )
+    app = FastAPI()
+    app.add_middleware(_RequireToken)
+    calls = 0
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post(
+            "/charge",
+            headers={HEADER: "abc", "Authorization": "token"},
+        )
+        replayed = client.post(
+            "/charge",
+            headers={HEADER: "abc", "Authorization": "token"},
+        )
+
+    # Assert
+    assert first.json() == {"call": 1}
+    assert replayed.json() == {"call": 1}
     assert replayed.headers["idempotent-replayed"] == "true"
 
 
@@ -784,6 +836,48 @@ def test_litestar_warns_when_the_wrap_sits_outside_app_middleware() -> None:
     # Act / Assert
     with pytest.warns(MiddlewarePlacementWarning, match="Litestar"):
         micro.install(app)
+
+
+def test_litestar_security_probe_needs_no_starlette(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-FastAPI app never imports FastAPI's Starlette route compiler."""
+    # Arrange
+    import sys  # noqa: PLC0415
+
+    app = Litestar(route_handlers=[])
+    monkeypatch.setitem(sys.modules, "starlette.routing", None)
+
+    # Act / Assert
+    _GatedRoutes().read(app)
+
+
+def test_security_probe_handles_repeated_mounted_application() -> None:
+    """The same mounted app is traversed once and cannot form a loop."""
+    # Arrange
+    child = Starlette()
+    app = Starlette()
+    app.mount("/one", child)
+    app.mount("/two", child)
+
+    # Act / Assert
+    assert not _contains_fastapi(app)
+
+
+def test_security_probe_handles_an_asgi_middleware_loop() -> None:
+    """A malformed middleware cycle terminates without inventing routes."""
+
+    # Arrange
+    class Loop:
+        app: Any
+
+    loop = Loop()
+    loop.app = loop
+
+    # Act / Assert
+    assert _routing_app(loop) is loop
+    assert not _contains_fastapi(None)
+    assert not _authentication_paths(None)
 
 
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:
@@ -894,7 +988,7 @@ async def test_a_key_holding_bytes_a_header_cannot_carry_is_refused() -> None:
 
     # Act
     async with micro:
-        for raw in (b"abc\x01def", b"key-\xff"):
+        for raw in (b"abc\x01def", b"abc\x1fdef", b"key-\xff"):
             sent.clear()
             await wrapped(
                 {

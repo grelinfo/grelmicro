@@ -303,6 +303,15 @@ class TestSafeUrl:
             == "redis://:***@bad host:6379/0"
         )
 
+    def test_safe_url_malformed_with_query_credential_is_redacted(self) -> None:
+        """A malformed URL still redacts credential-like query values."""
+        from grelmicro._redact import redact_url  # noqa: PLC0415
+
+        assert (
+            redact_url("redis://bad host?accessToken=sensitive")
+            == "redis://bad host?accessToken=***"
+        )
+
     def test_safe_url_query_credentials_redacted(self) -> None:
         """Credential-like query params (password, token, ...) are redacted."""
         from grelmicro._redact import redact_url  # noqa: PLC0415

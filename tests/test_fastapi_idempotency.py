@@ -7,25 +7,45 @@ import gzip
 import importlib
 import json
 import sys
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI, Header, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+)
+from fastapi.security import APIKeyHeader
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from starlette.applications import Starlette
+from starlette.authentication import (
+    AuthCredentials,
+    AuthenticationBackend,
+    SimpleUser,
+)
 from starlette.background import BackgroundTasks
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.base import (
     BaseHTTPMiddleware,
     RequestResponseEndpoint,
 )
-from starlette.responses import StreamingResponse
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse, StreamingResponse
+from starlette.routing import Host, Mount, Route, Router
 from starlette.status import (
     HTTP_200_OK,
     HTTP_201_CREATED,
     HTTP_204_NO_CONTENT,
     HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
     HTTP_409_CONFLICT,
     HTTP_413_CONTENT_TOO_LARGE,
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -33,10 +53,16 @@ from starlette.status import (
 )
 
 from grelmicro import Grelmicro
-from grelmicro.cache import Cache
+from grelmicro._paths import _RouteTopologyState
+from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.errors import DependencyNotFoundError, OutOfContextError
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
+from grelmicro.http._idempotency import (
+    _default_storage_key,
+    _dependency_methods,
+)
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.fastapi import document_idempotency
@@ -50,6 +76,8 @@ if TYPE_CHECKING:
         MutableMapping,
     )
 
+    from starlette.requests import HTTPConnection
+
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
     Receive = Callable[[], Awaitable[Message]]
@@ -59,6 +87,8 @@ pytestmark = [pytest.mark.timeout(10)]
 
 KEY = {"Idempotency-Key": "key-1"}
 LARGE_BODY = b"x" * 4096
+DEFAULT_STORAGE_KEY_LENGTH = 67
+POSTGRES_BTREE_INDEX_ITEM_LIMIT = 2704
 
 
 class _Forking(BaseHTTPMiddleware):
@@ -69,6 +99,49 @@ class _Forking(BaseHTTPMiddleware):
     ) -> Response:
         """Pass the request through untouched."""
         return await call_next(request)
+
+
+class _HeaderAuthentication(AuthenticationBackend):
+    """Authenticate the caller named by a custom API-key header."""
+
+    async def authenticate(
+        self, conn: HTTPConnection
+    ) -> tuple[AuthCredentials, SimpleUser] | None:
+        """Return a standard Starlette identity when the header is present."""
+        identity = conn.headers.get("x-api-key")
+        if identity is None:
+            return None
+        return AuthCredentials(["authenticated"]), SimpleUser(identity)
+
+
+class _RoutingProxy:
+    """ASGI middleware exposing the routes of the application it wraps."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        self.app = app
+
+    @property
+    def routes(self) -> Any:  # noqa: ANN401
+        """Forward route introspection like a transparent middleware."""
+        return self.app.routes
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        """Pass the request through."""
+        await self.app(scope, receive, send)
+
+
+async def _private_identity(request: Request) -> JSONResponse:
+    """Answer the authenticated identity or reject an anonymous request."""
+    if not request.user.is_authenticated:
+        return JSONResponse(
+            {"detail": "Unauthorized"}, status_code=HTTP_401_UNAUTHORIZED
+        )
+    return JSONResponse({"user": request.user.display_name})
 
 
 def _register_result_routes(app: FastAPI, calls: dict[str, int]) -> None:
@@ -217,6 +290,1194 @@ def test_middleware_repeated_key_replays_stored_response(
     assert second.headers["idempotent-replayed"] == "true"
 
 
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        pytest.param({"Authorization": "Bearer secret"}, id="authorization"),
+        pytest.param({"Cookie": "session=secret"}, id="cookie"),
+    ],
+)
+def test_middleware_unscoped_key_bypasses_private_requests(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+    credentials: dict[str, str],
+) -> None:
+    """A private response is never stored under the shared default key."""
+    # Arrange
+    client, calls = client_factory()
+    headers = {**KEY, **credentials}
+    # Act
+    first = client.post("/charge", headers=headers)
+    second = client.post("/charge", headers=headers)
+    # Assert
+    assert first.json() == {"call": 1}
+    assert second.json() == {"call": 2}
+    assert calls == {"count": 2}
+    assert "idempotent-replayed" not in second.headers
+
+
+def test_middleware_replay_never_skips_route_authentication() -> None:
+    """A cached response cannot turn an unauthenticated retry into a success."""
+    # Arrange
+    app = build_app()
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("authorization") != "Bearer secret":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"secret": "sensitive"}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/private",
+            headers={**KEY, "Authorization": "Bearer secret"},
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert authorized.json() == {"secret": "sensitive"}
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_custom_header_dependency_runs_before_every_response() -> None:
+    """An ordinary custom-header dependency cannot be skipped by a replay."""
+    # Arrange
+    app = build_app()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key != "expected":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/custom-private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/custom-private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/custom-private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_direct_wrapper_detects_fastapi_dependencies() -> None:
+    """A middleware directly wrapping FastAPI still sees its dependencies."""
+    # Arrange
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "direct",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        authorized = client.post(
+            "/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_route_transparent_wrapper_detects_fastapi_dependencies() -> None:
+    """Forwarded route attributes cannot hide a FastAPI dependency."""
+    # Arrange
+    app = FastAPI()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key != "expected":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    wrapped = IdempotencyMiddleware(
+        _RoutingProxy(app),
+        idempotency=Idempotency(
+            "transparent",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        authorized = client.post(
+            "/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_included_router_detects_authenticated_mount() -> None:
+    """An included router cannot hide authentication inside one of its mounts."""
+    # Arrange
+    router = APIRouter()
+    private = Starlette(
+        routes=[Route("/identity", _private_identity, methods=["POST"])],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    router.mount("/private", private)
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "included-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post(
+            "/api/private/identity",
+            headers={**KEY, "X-API-Key": "alice"},
+        )
+        bob = client.post(
+            "/api/private/identity",
+            headers={**KEY, "X-API-Key": "bob"},
+        )
+        anonymous = client.post("/api/private/identity", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_starlette_root_detects_mounted_fastapi_dependencies() -> None:
+    """A non-FastAPI root still finds dependencies in a FastAPI mount."""
+    # Arrange
+    root = Starlette()
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    root.mount("/api", app)
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "mounted-private",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(root) as client:
+        authorized = client.post(
+            "/api/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/api/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_middleware_wrapped_fastapi_mount_detects_dependencies() -> None:
+    """Middleware around a mounted FastAPI app cannot hide its dependencies."""
+    # Arrange
+    root = Starlette()
+    app = FastAPI()
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    root.mount("/api", CORSMiddleware(app, allow_origins=["*"]))
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "wrapped-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(root) as client:
+        authorized = client.post(
+            "/api/private", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/api/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+@pytest.mark.parametrize("placement", ["outside", "inside"])
+def test_authenticated_asgi_scope_never_replays_across_callers(
+    placement: str,
+) -> None:
+    """Standard ASGI authentication bypasses an unscoped default key."""
+
+    # Arrange
+    async def private(request: Request) -> JSONResponse:
+        return JSONResponse({"user": request.user.display_name})
+
+    app = Starlette(routes=[Route("/private", private, methods=["POST"])])
+
+    def add_idempotency() -> None:
+        app.add_middleware(
+            IdempotencyMiddleware,
+            idempotency=Idempotency(
+                "asgi-authentication",
+                ttl=60,
+                cache=TTLCache(
+                    backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+                ),
+            ),
+        )
+
+    if placement == "outside":
+        add_idempotency()
+        app.add_middleware(
+            AuthenticationMiddleware, backend=_HeaderAuthentication()
+        )
+    else:
+        app.add_middleware(
+            AuthenticationMiddleware, backend=_HeaderAuthentication()
+        )
+        add_idempotency()
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert "idempotent-replayed" not in bob.headers
+
+
+@pytest.mark.parametrize("configuration", ["lazy", "instantiated"])
+def test_wrapped_application_authentication_runs_before_replay(
+    configuration: str,
+) -> None:
+    """Authentication configured inside the wrapper cannot be skipped."""
+    # Arrange
+    route = Route("/private", _private_identity, methods=["POST"])
+    app = (
+        Starlette(
+            routes=[route],
+            middleware=[
+                Middleware(
+                    AuthenticationMiddleware, backend=_HeaderAuthentication()
+                )
+            ],
+        )
+        if configuration == "lazy"
+        else AuthenticationMiddleware(
+            Starlette(routes=[route]), backend=_HeaderAuthentication()
+        )
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "lazy-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_mounted_authentication_is_path_specific() -> None:
+    """A protected mount bypasses replay without disabling a public sibling."""
+    # Arrange
+    private = Starlette(
+        routes=[Route("/value", _private_identity, methods=["POST"])],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    calls = 0
+
+    async def public(_request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"call": calls})
+
+    root = Starlette()
+    root.mount("/private", private)
+    root.mount(
+        "/public",
+        Starlette(routes=[Route("/value", public, methods=["POST"])]),
+    )
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "mounted-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(root) as client:
+        alice = client.post(
+            "/private/value", headers={**KEY, "X-API-Key": "alice"}
+        )
+        anonymous = client.post("/private/value", headers=KEY)
+        public_first = client.post("/public/value", headers=KEY)
+        public_replay = client.post("/public/value", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in anonymous.headers
+    assert public_first.json() == {"call": 1}
+    assert public_replay.json() == {"call": 1}
+    assert public_replay.headers["idempotent-replayed"] == "true"
+
+
+@pytest.mark.parametrize("placement", ["route", "router"])
+def test_route_or_router_authentication_runs_before_replay(
+    placement: str,
+) -> None:
+    """Native Starlette authentication placements cannot be skipped."""
+    # Arrange
+    middleware = [
+        Middleware(AuthenticationMiddleware, backend=_HeaderAuthentication())
+    ]
+    route = Route(
+        "/private",
+        _private_identity,
+        methods=["POST"],
+        middleware=middleware if placement == "route" else None,
+    )
+    app = (
+        Starlette(routes=[route])
+        if placement == "route"
+        else Router(routes=[route], middleware=middleware)
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            f"{placement}-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_get_authentication_does_not_disable_public_post_idempotency() -> None:
+    """An exact GET authentication boundary does not bleed onto a sibling POST."""
+    calls = 0
+
+    async def read(_request: Request) -> JSONResponse:
+        return JSONResponse({"read": True})
+
+    async def write(request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse(
+            {"user": request.headers["x-api-key"], "calls": calls}
+        )
+
+    app = Router(
+        routes=[
+            Route(
+                "/same",
+                read,
+                methods=["GET"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=_HeaderAuthentication(),
+                    )
+                ],
+            ),
+            Route("/same", write, methods=["POST"]),
+        ]
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "method-aware-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        first = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "alice"},
+        )
+        replayed = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "mallory"},
+        )
+
+    assert first.json() == replayed.json() == {"user": "alice", "calls": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+    assert calls == 1
+
+
+def test_leaf_router_authentication_runs_before_replay() -> None:
+    """A Router used as a Route endpoint cannot hide authentication."""
+    # Arrange
+    inner = Router(
+        routes=[
+            Route(
+                "/private",
+                _private_identity,
+                methods=["POST"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=_HeaderAuthentication(),
+                    )
+                ],
+            )
+        ]
+    )
+    middle = Router(routes=[Route("/private", inner)])
+    app = Router(routes=[Route("/private", middle)])
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "leaf-router-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_leaf_fastapi_dependency_runs_before_replay() -> None:
+    """A FastAPI router used as a Route endpoint cannot hide a dependency."""
+    # Arrange
+    inner = FastAPI()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> str:
+        if x_api_key is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+        return x_api_key
+
+    @inner.post("/private", dependencies=[Depends(authenticate)])
+    async def private(request: Request) -> dict[str, str]:
+        return {"user": request.headers["x-api-key"]}
+
+    middle = Router(routes=[Route("/private", inner)])
+    app = Router(routes=[Route("/private", middle)])
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "leaf-fastapi-dependency",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_public_leaf_router_remains_replayable() -> None:
+    """A leaf router without a gate still uses default idempotency."""
+    # Arrange
+    calls = 0
+
+    async def public(_request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"call": calls})
+
+    inner = FastAPI()
+    inner.add_api_route("/charge", public, methods=["POST"])
+    app = Router(
+        routes=[
+            Route("/charge", inner),
+            Route("/other", public, methods=["POST"]),
+        ]
+    )
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "public-leaf-router",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(wrapped) as client:
+        first = client.post("/charge", headers=KEY)
+        replayed = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == replayed.json() == {"call": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+    assert calls == 1
+    assert _dependency_methods(None) == frozenset()
+
+
+def test_router_middleware_preserves_bound_route_context() -> None:
+    """A Router's bound endpoint still exposes route-local authentication."""
+    # Arrange
+    route = Route(
+        "/private",
+        _private_identity,
+        methods=["POST"],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    app = Router(
+        routes=[route],
+        middleware=[
+            Middleware(
+                IdempotencyMiddleware,
+                idempotency=Idempotency(
+                    "router-bound-method",
+                    ttl=60,
+                    cache=TTLCache(
+                        backend=MemoryCacheAdapter(),
+                        serializer=JsonSerializer(),
+                    ),
+                ),
+            )
+        ],
+    )
+
+    # Act
+    with TestClient(app) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_direct_mount_preserves_fastapi_dependency_prefix() -> None:
+    """Security discovery keeps a directly wrapped mount's path prefix."""
+    # Arrange
+    app = FastAPI()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key != "expected":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    wrapped = IdempotencyMiddleware(
+        Mount("/api", app=app),
+        idempotency=Idempotency(
+            "direct-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    client = TestClient(wrapped)
+    authorized = client.post(
+        "/api/private", headers={**KEY, "X-API-Key": "expected"}
+    )
+    anonymous = client.post("/api/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_direct_mount_preserves_authentication_prefix() -> None:
+    """A directly wrapped mount retains application-wide authentication."""
+    # Arrange
+    app = Starlette(
+        routes=[Route("/private", _private_identity, methods=["POST"])],
+        middleware=[
+            Middleware(
+                AuthenticationMiddleware, backend=_HeaderAuthentication()
+            )
+        ],
+    )
+    wrapped = IdempotencyMiddleware(
+        Mount("/api", app=app),
+        idempotency=Idempotency(
+            "direct-authenticated-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    client = TestClient(wrapped)
+    alice = client.post("/api/private", headers={**KEY, "X-API-Key": "alice"})
+    bob = client.post("/api/private", headers={**KEY, "X-API-Key": "bob"})
+    anonymous = client.post("/api/private", headers=KEY)
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_self_mount_does_not_break_default_idempotency_discovery() -> None:
+    """A cyclic mount stops discovery without disabling ordinary replay."""
+    # Arrange
+    calls = 0
+    app = FastAPI()
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    app.mount("/v1", app)
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "cyclic-mount",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(app) as client:
+        first = client.post("/charge", headers=KEY)
+        replayed = client.post("/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == replayed.json() == {"call": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+
+
+def test_idempotency_refreshes_gates_after_the_first_request() -> None:
+    """A route added to the same router cannot inherit an empty gate cache."""
+    app = FastAPI()
+
+    @app.post("/public")
+    async def public() -> dict[str, bool]:
+        return {"public": True}
+
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "dynamic-gates",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": request.headers["x-api-key"],
+            "calls": calls,
+        }
+
+    with TestClient(app) as client:
+        assert client.post("/public", headers=KEY).status_code == HTTP_200_OK
+        app.add_api_route(
+            "/private",
+            private,
+            methods=["POST"],
+            dependencies=[Depends(authenticate)],
+        )
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_idempotency_revalidates_same_length_route_replacement() -> None:
+    """Replacing one public route with an authenticated one drops stale gates."""
+    public_calls = 0
+    private_calls = 0
+
+    async def public(request: Request) -> JSONResponse:
+        nonlocal public_calls
+        public_calls += 1
+        return JSONResponse(
+            {"user": request.headers["x-api-key"], "calls": public_calls}
+        )
+
+    async def private(request: Request) -> JSONResponse:
+        nonlocal private_calls
+        private_calls += 1
+        return JSONResponse(
+            {"user": request.user.display_name, "calls": private_calls}
+        )
+
+    app = Router(routes=[Route("/same", public, methods=["POST"])])
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "route-replacement",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        alice = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "alice"},
+        )
+        replayed = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "mallory"},
+        )
+        app.routes[0] = Route(
+            "/same",
+            private,
+            methods=["POST"],
+            middleware=[
+                Middleware(
+                    AuthenticationMiddleware,
+                    backend=_HeaderAuthentication(),
+                )
+            ],
+        )
+        mallory = client.post(
+            "/same",
+            headers={**KEY, "X-API-Key": "mallory"},
+        )
+
+    assert alice.json() == replayed.json() == {"user": "alice", "calls": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+    assert mallory.json() == {"user": "mallory", "calls": 1}
+    assert "idempotent-replayed" not in mallory.headers
+    assert public_calls == private_calls == 1
+
+
+def test_idempotency_topology_rebuilds_once_only_after_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stable requests skip the walker and one dynamic route rebuilds once."""
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "topology-generation",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    @app.post("/charge")
+    async def charge() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        client.post("/charge", headers={"Idempotency-Key": "first"})
+        rebuilds = 0
+        original = _RouteTopologyState.rebuild
+
+        def counted(snapshot: _RouteTopologyState) -> None:
+            nonlocal rebuilds
+            rebuilds += 1
+            original(snapshot)
+
+        monkeypatch.setattr(_RouteTopologyState, "rebuild", counted)
+        client.post("/charge", headers={"Idempotency-Key": "second"})
+        assert rebuilds == 0
+
+        app.add_api_route("/later", charge, methods=["POST"])
+        client.post("/charge", headers={"Idempotency-Key": "third"})
+        assert rebuilds == 1
+
+        client.post("/charge", headers={"Idempotency-Key": "fourth"})
+        assert rebuilds == 1
+
+
+def test_idempotency_reads_routes_added_during_lifespan() -> None:
+    """A startup-added dependency is gated before the route first runs."""
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    async def private(request: Request) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {
+            "user": request.headers["x-api-key"],
+            "calls": calls,
+        }
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.add_api_route(
+            "/private",
+            private,
+            methods=["POST"],
+            dependencies=[Depends(authenticate)],
+        )
+        yield
+
+    app = FastAPI(lifespan=lifespan)
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "lifespan-gates",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(app) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+        anonymous = client.post("/private", headers=KEY)
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in bob.headers
+    assert "idempotent-replayed" not in anonymous.headers
+
+
+def test_middleware_replay_never_skips_api_key_security() -> None:
+    """A custom credential header cannot put a gated route in a shared entry."""
+    # Arrange
+    app = build_app()
+    api_key = APIKeyHeader(name="X-API-Key")
+    calls = 0
+
+    @app.post("/api-private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/api-private", headers={**KEY, "X-API-Key": "secret"}
+        )
+        unauthenticated = client.post("/api-private", headers=KEY)
+
+    # Assert
+    assert authorized.json() == {"call": 1}
+    assert "idempotent-replayed" not in authorized.headers
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_standalone_middleware_detects_api_key_security() -> None:
+    """Hand-added middleware reads security metadata from the request app."""
+    # Arrange
+    app = FastAPI()
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "standalone",
+            ttl=60,
+            cache=TTLCache(backend=MemoryCacheAdapter()),
+        ),
+    )
+    api_key = APIKeyHeader(name="X-API-Key")
+
+    @app.post("/private", dependencies=[Depends(api_key)])
+    async def private() -> dict[str, str]:
+        return {"secret": "sensitive"}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/private", headers={**KEY, "X-API-Key": "secret"}
+        )
+        unauthenticated = client.post("/private", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
+
+
+def test_parent_security_does_not_disable_public_mounted_idempotency() -> None:
+    """A parent's dependency is not enforced inside a mounted application."""
+    # Arrange
+    api_key = APIKeyHeader(name="X-API-Key")
+    root = FastAPI(dependencies=[Depends(api_key)])
+    root.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "mounted",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+    sub = FastAPI()
+    calls = 0
+
+    @sub.post("/charge")
+    async def charge() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"call": calls}
+
+    root.mount("/sub", sub)
+
+    # Act
+    with TestClient(root) as client:
+        first = client.post("/sub/charge", headers=KEY)
+        replayed = client.post("/sub/charge", headers=KEY)
+
+    # Assert
+    assert first.json() == {"call": 1}
+    assert replayed.json() == {"call": 1}
+    assert replayed.headers["idempotent-replayed"] == "true"
+
+
+@pytest.mark.parametrize("child_policy", ["public", "private"])
+def test_mounted_router_idempotency_does_not_merge_parent_local_coordinates(
+    child_policy: str,
+) -> None:
+    """A mounted `/x` reads its own gates, not the parent's unrelated `/x`."""
+    private_child = child_policy == "private"
+    parent = FastAPI()
+
+    async def parent_gate() -> None:
+        return None
+
+    @parent.post(
+        "/x",
+        dependencies=None if private_child else [Depends(parent_gate)],
+    )
+    async def parent_x() -> dict[str, bool]:
+        return {"parent": True}
+
+    calls = 0
+
+    async def authenticate(request: Request) -> None:
+        if request.headers.get("x-api-key") is None:
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    child_app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @child_app.post(
+        "/x",
+        dependencies=[Depends(authenticate)] if private_child else None,
+    )
+    async def child_x() -> dict[str, int]:
+        nonlocal calls
+        calls += 1
+        return {"calls": calls}
+
+    child = Router(
+        routes=child_app.router.routes,
+        middleware=[
+            Middleware(
+                IdempotencyMiddleware,
+                idempotency=Idempotency(
+                    "mounted-local",
+                    ttl=60,
+                    cache=TTLCache(
+                        backend=MemoryCacheAdapter(),
+                        serializer=JsonSerializer(),
+                    ),
+                ),
+            )
+        ],
+    )
+    parent.mount("/sub", child)
+
+    with TestClient(parent) as client:
+        headers = {
+            **KEY,
+            **({"X-API-Key": "alice"} if private_child else {}),
+        }
+        first = client.post("/sub/x", headers=headers)
+        second = client.post("/sub/x", headers=headers)
+        anonymous = (
+            client.post("/sub/x", headers=KEY) if private_child else None
+        )
+
+    if private_child:
+        assert first.json() == {"calls": 1}
+        assert second.json() == {"calls": 2}
+        assert "idempotent-replayed" not in second.headers
+        assert anonymous is not None
+        assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    else:
+        assert first.json() == second.json() == {"calls": 1}
+        assert second.headers["idempotent-replayed"] == "true"
+
+
+@pytest.mark.parametrize("credential", ["Authorization", "Cookie"])
+def test_private_header_does_not_bypass_required_key(
+    client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
+    credential: str,
+) -> None:
+    """Credentialed requests still obey the required-key contract."""
+    # Arrange
+    client, calls = client_factory(require_key=True)
+    # Act
+    response = client.post("/charge", headers={credential: "ignored"})
+    # Assert
+    assert response.status_code == HTTP_400_BAD_REQUEST
+    assert calls == {"count": 0}
+
+
 def test_middleware_request_without_key_passes_through(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
@@ -267,6 +1528,395 @@ def test_middleware_same_key_on_another_route_executes_again(
     other = client.post("/created", headers=KEY)
     # Assert
     assert other.status_code == HTTP_201_CREATED
+
+
+def test_default_storage_key_does_not_read_legacy_entries() -> None:
+    """An upgraded process never replays an entry from the unsafe key format."""
+    # Arrange
+    middleware = IdempotencyMiddleware(
+        FastAPI(), idempotency=Idempotency("http", ttl=60)
+    )
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/private",
+        "query_string": b"",
+    }
+    legacy_keys = {
+        "POST\x1f/private\x1fkey-1",
+        "v2\x1fPOST\x1f/private\x1fkey-1",
+    }
+
+    # Act
+    storage_key = middleware._storage_key(scope, "key-1")
+
+    # Assert
+    assert storage_key == (
+        "v3:c76e3d88ba132d35646eeed3c855df0be7d25bc0cc8b4787c94cb587ae1c5e22"
+    )
+    assert storage_key.startswith("v3:")
+    assert storage_key not in legacy_keys
+    assert storage_key.isascii()
+    assert len(storage_key) == DEFAULT_STORAGE_KEY_LENGTH
+
+
+def test_default_key_isolates_host_routed_tenants() -> None:
+    """The same path and client key cannot replay across Host routes."""
+    calls = {"alice": 0, "bob": 0}
+
+    def tenant(name: str) -> Router:
+        async def charge(_request: Request) -> JSONResponse:
+            calls[name] += 1
+            return JSONResponse({"tenant": name, "call": calls[name]})
+
+        return Router(routes=[Route("/charge", charge, methods=["POST"])])
+
+    routed = Router(
+        routes=[
+            Host("alice.example", app=tenant("alice")),
+            Host("bob.example", app=tenant("bob")),
+        ]
+    )
+    wrapped = IdempotencyMiddleware(
+        routed,
+        idempotency=Idempotency(
+            "host-tenants",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        alice = client.post("/charge", headers={**KEY, "Host": "alice.example"})
+        bob = client.post("/charge", headers={**KEY, "Host": "bob.example"})
+        alice_replay = client.post(
+            "/charge", headers={**KEY, "Host": "ALICE.EXAMPLE:80"}
+        )
+
+    assert (
+        alice.json()
+        == alice_replay.json()
+        == {
+            "tenant": "alice",
+            "call": 1,
+        }
+    )
+    assert bob.json() == {"tenant": "bob", "call": 1}
+    assert "idempotent-replayed" not in bob.headers
+    assert alice_replay.headers["idempotent-replayed"] == "true"
+
+
+def test_default_key_isolates_schemes_on_one_authority() -> None:
+    """HTTP and HTTPS never share an idempotency operation."""
+    calls = 0
+
+    async def charge(request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"scheme": request.scope["scheme"], "call": calls})
+
+    wrapped = IdempotencyMiddleware(
+        Router(routes=[Route("/charge", charge, methods=["POST"])]),
+        idempotency=Idempotency(
+            "schemes",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    with TestClient(wrapped) as client:
+        plain = client.post("http://same.example/charge", headers=KEY)
+        secure = client.post("https://same.example/charge", headers=KEY)
+        replay = client.post("http://same.example/charge", headers=KEY)
+
+    assert plain.json() == replay.json() == {"scheme": "http", "call": 1}
+    assert secure.json() == {"scheme": "https", "call": 2}
+    assert "idempotent-replayed" not in secure.headers
+    assert replay.headers["idempotent-replayed"] == "true"
+
+
+def test_default_key_isolates_mount_root_paths() -> None:
+    """One mounted app does not replay the same route across mount points."""
+    calls = 0
+
+    async def charge(_request: Request) -> JSONResponse:
+        nonlocal calls
+        calls += 1
+        return JSONResponse({"call": calls})
+
+    mounted = IdempotencyMiddleware(
+        Router(routes=[Route("/charge", charge, methods=["POST"])]),
+        idempotency=Idempotency(
+            "mounts",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+    root = Router(
+        routes=[Mount("/one", app=mounted), Mount("/two", app=mounted)]
+    )
+
+    with TestClient(root) as client:
+        one = client.post("/one/charge", headers=KEY)
+        two = client.post("/two/charge", headers=KEY)
+        one_replay = client.post("/one/charge", headers=KEY)
+        two_replay = client.post("/two/charge", headers=KEY)
+
+    assert one.json() == one_replay.json() == {"call": 1}
+    assert two.json() == two_replay.json() == {"call": 2}
+    assert one_replay.headers["idempotent-replayed"] == "true"
+    assert two_replay.headers["idempotent-replayed"] == "true"
+
+
+def test_default_key_canonicalizes_authority_and_route_path() -> None:
+    """Equivalent Host/server and rooted path spellings make the same key."""
+    host_scope: Scope = {
+        "type": "http",
+        "scheme": "HTTP",
+        "root_path": "/api/",
+        "method": "POST",
+        "path": "/api/charge",
+        "query_string": b"",
+        "headers": [(b"host", b"EXAMPLE.COM:080")],
+    }
+    server_scope: Scope = {
+        **host_scope,
+        "scheme": b"http",
+        "root_path": b"/api",
+        "method": b"POST",
+        "path": b"/charge",
+        "headers": [],
+        "server": (b"example.com", b"80"),
+    }
+
+    assert _default_storage_key(host_scope, "key-1") == _default_storage_key(
+        server_scope, "key-1"
+    )
+
+
+def test_default_key_serialization_has_no_delimiter_collisions() -> None:
+    """Control characters cannot move data between structured fields."""
+    base: Scope = {
+        "type": "http",
+        "scheme": "http",
+        "root_path": "",
+        "method": "POST",
+        "headers": [(b"host", b"example.test")],
+    }
+    path_then_query = _default_storage_key(
+        {**base, "path": "/a\x1fb", "query_string": b"c"}, "same"
+    )
+    path_before_query = _default_storage_key(
+        {**base, "path": "/a", "query_string": b"b\x1fc"}, "same"
+    )
+    query_then_key = _default_storage_key(
+        {**base, "path": "/a", "query_string": b"b"}, "c\x1fd"
+    )
+    query_before_key = _default_storage_key(
+        {**base, "path": "/a", "query_string": b"b\x1fc"}, "d"
+    )
+    unicode_bytes = _default_storage_key(
+        {
+            **base,
+            "path": "/coffee-\u00e9/\u2603",
+            "query_string": b"\xff\x1f",
+        },
+        "key-1",
+    )
+
+    assert path_then_query != path_before_query
+    assert query_then_key != query_before_key
+    assert unicode_bytes.isascii()
+    assert "\x00" not in unicode_bytes
+    assert "\x1f" not in unicode_bytes
+
+
+def test_default_key_has_fixed_postgres_compatible_size() -> None:
+    """Large request fields still produce one bounded backend storage key."""
+    authority = (
+        "".join(chr(33 + (index * 37) % 90) for index in range(4096))
+        .replace(":", "x")
+        .replace("[", "y")
+    )
+    path = "/" + "".join(
+        chr(0x80 + (index * 71) % 0x700) for index in range(4096)
+    )
+    query = bytes((index * 73) % 256 for index in range(4096))
+    client_key = "".join(chr(0x20 + (index * 43) % 95) for index in range(4096))
+    base: Scope = {
+        "type": "http",
+        "scheme": "https",
+        "root_path": "/gateway",
+        "method": "POST",
+        "path": "/charge",
+        "query_string": b"",
+        "headers": [(b"host", b"example.test")],
+    }
+
+    keys = (
+        _default_storage_key(
+            {**base, "headers": [(b"host", authority.encode("ascii"))]},
+            "key-1",
+        ),
+        _default_storage_key({**base, "path": path}, "key-1"),
+        _default_storage_key({**base, "query_string": query}, "key-1"),
+        _default_storage_key(base, client_key),
+        _default_storage_key(
+            {
+                **base,
+                "headers": [(b"host", authority.encode("ascii"))],
+                "path": path,
+                "query_string": query,
+            },
+            client_key,
+        ),
+    )
+
+    assert all(key.startswith("v3:") and key.isascii() for key in keys)
+    assert {len(key) for key in keys} == {DEFAULT_STORAGE_KEY_LENGTH}
+    assert len(set(keys)) == len(keys)
+    assert len(keys[-1].encode()) < POSTGRES_BTREE_INDEX_ITEM_LIMIT
+
+
+async def test_delimiter_injection_cannot_replay_another_request() -> None:
+    """A decoded path separator cannot absorb the raw query field."""
+    calls = 0
+
+    async def app(scope: Scope, _receive: Receive, send: Send) -> None:
+        nonlocal calls
+        calls += 1
+        body = json.dumps(
+            {
+                "call": calls,
+                "path": scope["path"],
+                "query": scope["query_string"].decode("latin-1"),
+            }
+        ).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": HTTP_200_OK,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    wrapped = IdempotencyMiddleware(
+        app,
+        idempotency=Idempotency(
+            "delimiter-injection",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    async def request(path: str, query: bytes) -> list[Message]:
+        sent: list[Message] = []
+
+        async def receive() -> Message:
+            return {
+                "type": "http.request",
+                "body": b"",
+                "more_body": False,
+            }
+
+        async def send(message: Message) -> None:
+            sent.append(message)
+
+        await wrapped(
+            {
+                "type": "http",
+                "scheme": "http",
+                "server": ("example.test", 80),
+                "root_path": "",
+                "method": "POST",
+                "path": path,
+                "query_string": query,
+                "headers": [(b"idempotency-key", b"same")],
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    first = await request("/a\x1fb", b"c")
+    second = await request("/a", b"b\x1fc")
+
+    first_body = json.loads(first[-1]["body"])
+    second_body = json.loads(second[-1]["body"])
+    assert first_body == {"call": 1, "path": "/a\x1fb", "query": "c"}
+    assert second_body == {"call": 2, "path": "/a", "query": "b\x1fc"}
+    assert all(
+        (b"idempotent-replayed", b"true") not in message.get("headers", ())
+        for message in second
+    )
+
+
+def test_default_key_represents_query_presence_and_exclusion_policy() -> None:
+    """Missing, empty, included, and deliberately excluded queries differ."""
+    base: Scope = {
+        "type": "http",
+        "scheme": "http",
+        "root_path": "",
+        "method": "POST",
+        "path": "/charge",
+        "headers": [],
+        "server": ("example.test", 80),
+    }
+    missing = _default_storage_key(base, "key-1")
+    empty = _default_storage_key(
+        {**base, "query_string": b""},
+        "key-1",
+    )
+    excluded_empty = _default_storage_key(
+        {**base, "query_string": b""},
+        "key-1",
+        include_query=False,
+    )
+    excluded_value = _default_storage_key(
+        {**base, "query_string": b"x=\x1f"},
+        "key-1",
+        include_query=False,
+    )
+    present_none = _default_storage_key(
+        {**base, "query_string": None},
+        "key-1",
+    )
+
+    assert missing != empty
+    assert present_none not in {missing, empty}
+    assert excluded_empty == excluded_value
+    assert excluded_empty not in {missing, empty, present_none}
+
+
+def test_custom_key_maker_output_remains_exactly_unchanged() -> None:
+    """Structured encoding applies only to the built-in key maker."""
+    custom = "tenant\x1froute\x1fkey-1"
+    middleware = IdempotencyMiddleware(
+        FastAPI(),
+        idempotency=Idempotency("custom"),
+        key_maker=lambda _scope, _key: custom,
+    )
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/charge",
+        "query_string": b"",
+        "headers": [],
+    }
+
+    assert middleware._storage_key(scope, "key-1") == custom
 
 
 def test_middleware_query_string_is_part_of_the_key(

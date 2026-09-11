@@ -8,6 +8,7 @@ so `micro.install(app)` adds it.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import logging
 import re
@@ -37,9 +38,22 @@ from grelmicro._paths import (
     BARE_METHOD_MESSAGE,
     MethodNames,
     PathPatterns,
+    _is_mount,
+    _is_route,
+    _nested_routing_app,
+    _request_authority,
+    _request_root_path,
+    _request_scheme,
+    _route_methods,
+    _RouteTopologyState,
+    _routing_app,
+    _same_routing_root,
+    _scope_text,
+    _wrapped_app,
     as_patterns,
     route_path,
     selects,
+    walk_routes,
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.http._component import ErrorResponses, send_error
@@ -174,8 +188,355 @@ _MIN_CONTENT_STATUS = 200
 """Lowest status that may carry content."""
 
 
-_KEY_SEPARATOR = "\x1f"
-"""Separator joining the parts of a stored key."""
+_DEFAULT_KEY_VERSION = "v3"
+"""Version isolating safe default keys from entries written before this policy."""
+
+
+_PRIVATE_REQUEST_HEADERS = frozenset({b"authorization", b"cookie"})
+"""Headers proving that a response was computed for one caller."""
+
+
+class _GatedRoutes:
+    """Routes whose dependencies or authentication must run before replay."""
+
+    __slots__ = (
+        "_apps",
+        "_authenticated",
+        "_routes",
+        "_topology",
+        "_wrapped",
+    )
+
+    def __init__(self, app: Any = None) -> None:  # noqa: ANN401
+        """Remember the wrapped app and defer route discovery to a request."""
+        self._wrapped = app
+        self._apps: tuple[Any, ...] = ()
+        self._authenticated: tuple[
+            tuple[str, re.Pattern[str], frozenset[str] | None], ...
+        ] = ()
+        self._routes: tuple[
+            tuple[str, re.Pattern[str], frozenset[str]], ...
+        ] = ()
+        self._topology: tuple[_RouteTopologyState, ...] = ()
+
+    def read(self, *apps: Any) -> None:  # noqa: ANN401
+        """Read dependency-bearing and authenticated routes from the apps."""
+        self._apps = apps
+        self._topology = tuple(_RouteTopologyState(app) for app in apps)
+        roots = [
+            root for app in apps if (root := _routing_app(app)) is not None
+        ]
+        authenticated = {
+            boundary for app in apps for boundary in _authentication_paths(app)
+        }
+        fastapi_roots = [root for root in roots if _contains_fastapi(root)]
+        if not authenticated and not fastapi_roots:
+            self._authenticated = ()
+            self._routes = ()
+            return
+        from starlette.routing import compile_path  # noqa: PLC0415
+
+        protected: list[tuple[str, re.Pattern[str], frozenset[str] | None]] = []
+        for prefix, nested, methods in sorted(
+            authenticated,
+            key=lambda boundary: (
+                boundary[0],
+                boundary[1],
+                tuple(sorted(boundary[2] or ())),
+            ),
+        ):
+            exact, _, _ = compile_path(prefix or "/")
+            protected.append((prefix or "/", exact, methods))
+            if nested:
+                template = (
+                    f"{prefix.rstrip('/')}/{{path:path}}"
+                    if prefix
+                    else "/{path:path}"
+                )
+                descendant, _, _ = compile_path(template)
+                protected.append((template, descendant, methods))
+        self._authenticated = tuple(protected)
+
+        found: list[tuple[str, re.Pattern[str], frozenset[str]]] = []
+        for root in fastapi_roots:
+            for prefix, route, contexts in walk_routes(
+                root, unwrap_middleware=True
+            ):
+                template = f"{prefix}{route.path}"
+                compiled, _, _ = compile_path(template)
+                methods = frozenset(
+                    method.upper()
+                    for method in (getattr(route, "methods", None) or ())
+                )
+                if _has_dependencies(route, contexts):
+                    found.append((template, compiled, methods))
+                leaf = _nested_routing_app(route)
+                if leaf is None:
+                    continue
+                nested_methods = _dependency_methods(
+                    leaf, frozenset({id(root)})
+                )
+                if nested_methods:
+                    # A Router used as a Route endpoint keeps the outer
+                    # route's exact match. Its inner paths cannot be safely
+                    # composed onto that path, so gate the exact outer route.
+                    found.append((template, compiled, nested_methods))
+        self._routes = tuple(found)
+
+    def refresh(self, *apps: Any) -> None:  # noqa: ANN401
+        """Refresh the gate classification from compatible routing sources."""
+        sources = _unique_apps((self._wrapped, *apps))
+        if (
+            len(sources) != len(self._apps)
+            or any(
+                app is not seen
+                for app, seen in zip(sources, self._apps, strict=True)
+            )
+            or any(snapshot.changed() for snapshot in self._topology)
+        ):
+            self.read(*sources)
+
+    def matches(self, scope: Scope) -> bool:
+        """Return whether authentication or a dependency guards the route."""
+        self.refresh(scope.get("app"))
+        return self.matches_route(scope["method"], route_path(scope))
+
+    def matches_route(self, method: str, path: str) -> bool:
+        """Return whether runtime replay is gated for this method and path."""
+        if any(snapshot.changed() for snapshot in self._topology):
+            self.read(*self._apps)
+        return any(
+            (methods is None or method in methods)
+            and _gate_path_matches(template, regex, path)
+            for template, regex, methods in self._authenticated
+        ) or any(
+            method in methods and _gate_path_matches(template, regex, path)
+            for template, regex, methods in self._routes
+        )
+
+
+def _gate_path_matches(
+    template: str,
+    regex: re.Pattern[str],
+    path: str,
+) -> bool:
+    """Match runtime URLs and the route templates used by endpoint reports."""
+    return template == path or regex.fullmatch(path) is not None
+
+
+def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Return sources from one routing root, preserving the wrapped source."""
+    found: list[Any] = []
+    for app in apps:
+        if app is None:
+            continue
+        if found and not any(_same_routing_root(app, seen) for seen in found):
+            continue
+        if not any(
+            app is seen or _same_routing_root(app, seen) for seen in found
+        ):
+            found.append(app)
+    return tuple(found)
+
+
+def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
+    """Return whether an application is FastAPI or mounts one."""
+    pending = [app]
+    seen: set[int] = set()
+    while pending:
+        current = _routing_app(pending.pop())
+        if current is None:
+            continue
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if any(
+            klass.__module__.partition(".")[0] == "fastapi"
+            for klass in type(current).__mro__
+        ):
+            return True
+        if _is_mount(current):
+            pending.append(getattr(current, "app", None))
+        router = getattr(current, "router", None)
+        for route in getattr(router or current, "routes", ()) or ():
+            if any(
+                klass.__module__.partition(".")[0] == "fastapi"
+                for klass in type(route).__mro__
+            ):
+                return True
+            nested = getattr(route, "app", None)
+            if nested is not None:
+                pending.append(nested)
+    return False
+
+
+def _authenticated_scope(scope: Scope) -> bool:
+    """Return whether authentication already established a caller identity."""
+    user = scope.get("user")
+    if user is not None and getattr(user, "is_authenticated", False):
+        return True
+    auth = scope.get("auth")
+    return bool(getattr(auth, "scopes", ()))
+
+
+def _is_authentication_middleware(value: Any) -> bool:  # noqa: ANN401
+    """Return whether a class or instance is Starlette authentication."""
+    classes = value.__mro__ if isinstance(value, type) else type(value).__mro__
+    return any(
+        klass.__module__ == "starlette.middleware.authentication"
+        and klass.__name__ == "AuthenticationMiddleware"
+        for klass in classes
+    )
+
+
+def _authentication_here(app: Any) -> bool:  # noqa: ANN401
+    """Return whether this application boundary authenticates requests."""
+    if _authentication_chain(app):
+        return True
+    routed = _routing_app(app)
+    if routed is None:
+        return False
+    if any(
+        _is_authentication_middleware(getattr(middleware, "cls", middleware))
+        for middleware in getattr(routed, "user_middleware", ())
+    ):
+        return True
+    return _authentication_chain(getattr(routed, "middleware_stack", None))
+
+
+def _authentication_chain(app: Any) -> bool:  # noqa: ANN401
+    """Return whether an instantiated ASGI chain contains authentication."""
+    seen: set[int] = set()
+    while app is not None and id(app) not in seen:
+        seen.add(id(app))
+        if _is_authentication_middleware(app):
+            return True
+        app = _wrapped_app(app)
+    return False
+
+
+def _authentication_paths(  # noqa: C901, PLR0915
+    app: Any,  # noqa: ANN401
+) -> set[tuple[str, bool, frozenset[str] | None]]:
+    """Return exact or nested paths protected by Starlette authentication."""
+    found: set[tuple[str, bool, frozenset[str] | None]] = set()
+
+    def visit(  # noqa: C901, PLR0912
+        current: Any,  # noqa: ANN401
+        prefix: str,
+        ancestors: frozenset[int],
+        target: set[tuple[str, bool, frozenset[str] | None]],
+    ) -> None:
+        routed = _routing_app(current)
+        if routed is None or id(routed) in ancestors:
+            return
+        if _authentication_here(current):
+            if _is_route(routed):
+                target.add(
+                    (
+                        f"{prefix}{getattr(routed, 'path', '')}",
+                        False,
+                        _route_methods(routed),
+                    )
+                )
+            else:
+                target.add((prefix, True, None))
+            return
+        nested_ancestors = ancestors | {id(routed)}
+        if _is_mount(routed):
+            path = f"{prefix}{getattr(routed, 'path', '')}"
+            nested = getattr(routed, "app", None)
+            if _authentication_here(nested):
+                target.add((path, True, None))
+            else:
+                visit(nested, path, nested_ancestors, target)
+            return
+        if _is_route(routed):
+            path = f"{prefix}{getattr(routed, 'path', '')}"
+            nested = getattr(routed, "app", None)
+            if _authentication_here(nested):
+                target.add((path, False, _route_methods(routed)))
+                return
+            leaf = _nested_routing_app(routed)
+            if leaf is None:
+                return
+            direct_found: set[tuple[str, bool, frozenset[str] | None]] = set()
+            visit(leaf, "", nested_ancestors, direct_found)
+            if direct_found:
+                target.add((path, False, _route_methods(routed)))
+            return
+        router = getattr(routed, "router", None)
+        for route in getattr(router or routed, "routes", ()) or ():
+            included = getattr(route, "original_router", None)
+            if included is not None:
+                context = getattr(route, "include_context", None)
+                visit(
+                    included,
+                    f"{prefix}{getattr(context, 'prefix', '')}",
+                    nested_ancestors,
+                    target,
+                )
+                continue
+            path = f"{prefix}{getattr(route, 'path', '')}"
+            nested = getattr(route, "app", None)
+            if _authentication_here(nested):
+                nested_boundary = getattr(route, "routes", None) is not None
+                target.add(
+                    (
+                        path,
+                        nested_boundary,
+                        None if nested_boundary else _route_methods(route),
+                    )
+                )
+                continue
+            if getattr(route, "routes", None) is not None:
+                visit(nested, path, nested_ancestors, target)
+                continue
+            leaf = _nested_routing_app(route)
+            if leaf is None:
+                continue
+            nested_found: set[tuple[str, bool, frozenset[str] | None]] = set()
+            visit(leaf, "", nested_ancestors, nested_found)
+            if nested_found:
+                # A leaf router receives the unchanged outer scope, unlike
+                # a Mount. Its protected inner paths therefore collapse to
+                # the exact path matched by the outer Route.
+                target.add((path, False, _route_methods(route)))
+
+    visit(app, "", frozenset(), found)
+    return found
+
+
+def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
+    """Return whether FastAPI runs dependencies before this route."""
+    dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
+    if getattr(dependency_tree, "dependencies", ()):
+        return True
+    return any(
+        getattr(context, "dependencies", ()) or () for context in contexts
+    )
+
+
+def _dependency_methods(
+    app: Any,  # noqa: ANN401
+    ancestors: frozenset[int] = frozenset(),
+) -> frozenset[str]:
+    """Return methods gated by dependencies below a leaf routing endpoint."""
+    routed = _routing_app(app)
+    if routed is None or id(routed) in ancestors:
+        return frozenset()
+    nested_ancestors = ancestors | {id(routed)}
+    found: set[str] = set()
+    for _prefix, route, contexts in walk_routes(routed, unwrap_middleware=True):
+        if _has_dependencies(route, contexts):
+            found.update(
+                method.upper()
+                for method in (getattr(route, "methods", None) or ())
+            )
+        nested = _nested_routing_app(route)
+        if nested is not None:
+            found.update(_dependency_methods(nested, nested_ancestors))
+    return frozenset(found)
 
 
 def _field_name(value: str, argument: str, example: str) -> str:
@@ -417,11 +778,16 @@ class IdempotencyMiddleware:
     that raises an unhandled exception stores nothing, so the framework's
     `500` never replays.
 
-    Four kinds of response are not stored, and each one lets a retry
-    re-run the handler: one carrying `Set-Cookie`, one carrying
-    `Content-Encoding`, one declaring trailers, and one whose body is
-    over `max_body_size`. All four are logged. Pass `skip` to add a rule
-    of your own.
+    Without a custom `key_maker`, a request carrying `Authorization` or
+    `Cookie` bypasses idempotency and runs the app. Its response cannot be
+    stored under a key shared across callers, and a replay cannot skip
+    authentication inside the app. Configure an identity-aware `key_maker`
+    to make authenticated requests idempotent.
+
+    Four kinds of response are not stored, and each one lets a retry re-run
+    the handler: one carrying `Set-Cookie`, one carrying `Content-Encoding`,
+    one declaring trailers, and one whose body is over `max_body_size`. All
+    four are logged. Pass `skip` to add a rule of your own.
 
     Background tasks run after the response is sent, so a replay can be
     served while the original request's background work is still in
@@ -474,11 +840,12 @@ class IdempotencyMiddleware:
                 """
                 Build the stored key from the ASGI scope and the client key.
 
-                Defaults to the method, the path, the query string, and
-                the client key, so two routes never replay each other.
-                **Set this in any multi-tenant app**, folding in the
-                caller identity. Without it a client that learns another
-                client's key replays their response.
+                Defaults to the authority, scheme, root path, method, route
+                path, query string, and client key, so two public resources
+                never replay each other. Requests carrying `Authorization`
+                or `Cookie` bypass that unscoped default. Set this to an
+                identity-aware key in a multi-tenant app that needs
+                authenticated replay.
                 """
             ),
         ] = None,
@@ -587,6 +954,7 @@ class IdempotencyMiddleware:
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
+        self._gated_routes = _GatedRoutes(app)
         self._replay_collision_logged = False
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
@@ -668,10 +1036,32 @@ class IdempotencyMiddleware:
             )
             return
 
+        if self._unscoped_private(scope):
+            await self.app(scope, receive, send)
+        else:
+            await self._execute_key(scope, receive, send, state, key)
+
+    def _unscoped_private(self, scope: Scope) -> bool:
+        """Return whether the default key cannot safely replay this request."""
+        return self._key_maker is None and (
+            _has_private_request_header(scope["headers"])
+            or _authenticated_scope(scope)
+            or self._gated_routes.matches(scope)
+        )
+
+    async def _execute_key(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        state: _State,
+        key: str,
+    ) -> None:
+        """Fingerprint the request when configured, then execute its key."""
         fingerprint = None
-        if config.fingerprint_body:
+        if state.config.fingerprint_body:
             body, too_large, receive = await _buffer_request(
-                receive, config.max_body_size
+                receive, state.config.max_body_size
             )
             if too_large:
                 await _refuse(send, scope, REQUEST_BODY_TOO_LARGE)
@@ -787,15 +1177,51 @@ class IdempotencyMiddleware:
         """Build the stored key, scoped by route unless `key_maker` says otherwise."""
         if self._key_maker is not None:
             return _checked_key(self._key_maker(scope, key), key)
-        # The whole path, where `include` and `exclude` read the route: two
-        # apps mounted side by side declare the same routes, and a key
-        # without the prefix would have them replay each other.
-        parts = [scope["method"], scope["path"]]
-        query = scope.get("query_string", b"")
-        if query:
-            parts.append(query.decode("latin-1"))
-        parts.append(key)
-        return _KEY_SEPARATOR.join(parts)
+        return _default_storage_key(scope, key)
+
+
+def _encoded_key_field(name: str, value: str | bytes | None) -> str:
+    """Encode one typed, length-delimited field as backend-safe ASCII."""
+    if value is None:
+        return f"{name}=n0:"
+    kind = "b" if isinstance(value, bytes) else "s"
+    raw = (
+        value
+        if isinstance(value, bytes)
+        else value.encode("utf-8", errors="surrogatepass")
+    )
+    encoded = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+    return f"{name}={kind}{len(raw)}:{encoded}"
+
+
+def _default_storage_key(
+    scope: Scope,
+    key: str,
+    *,
+    include_query: bool = True,
+) -> str:
+    """Build a fixed-size digest of the complete public request scope."""
+    query_present = include_query and "query_string" in scope
+    query = scope.get("query_string") if query_present else None
+    fields = (
+        _DEFAULT_KEY_VERSION,
+        _encoded_key_field("authority", _request_authority(scope)),
+        _encoded_key_field("scheme", _request_scheme(scope)),
+        _encoded_key_field("root_path", _request_root_path(scope)),
+        _encoded_key_field("method", _scope_text(scope["method"])),
+        _encoded_key_field("path", route_path(scope)),
+        _encoded_key_field(
+            "query_policy", "included" if include_query else "excluded"
+        ),
+        _encoded_key_field(
+            "query_present",
+            "yes" if query_present else ("no" if include_query else None),
+        ),
+        _encoded_key_field("query", query),
+        _encoded_key_field("client_key", key),
+    )
+    material = "|".join(fields).encode("ascii")
+    return f"{_DEFAULT_KEY_VERSION}:{hashlib.sha256(material).hexdigest()}"
 
 
 _UNRESOLVED_TOKEN = re.compile(r"(?:^|[^0-9A-Za-z_])None(?:$|[^0-9A-Za-z_])")
@@ -979,6 +1405,15 @@ def _header_value(
         if raw_name.lower() == name:
             return raw_value.decode("latin-1").strip()
     return None
+
+
+def _has_private_request_header(
+    headers: Sequence[tuple[bytes, bytes]],
+) -> bool:
+    """Return whether the request carries credentials for one caller."""
+    return any(
+        name.lower() in _PRIVATE_REQUEST_HEADERS for name, _value in headers
+    )
 
 
 async def _buffer_request(
@@ -1391,9 +1826,22 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self._idempotency = idempotency
         self._key_maker = key_maker
         self._skip = skip
+        self._gated_routes = _GatedRoutes()
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._live: Live[_State] = Live(_state_of(config))
+
+    def refresh_routes(
+        self,
+        app: Annotated[Any, Doc("The application whose routes are reported.")],  # noqa: ANN401
+    ) -> None:
+        """Refresh the same route gates the runtime middleware enforces."""
+        if self._key_maker is None:
+            self._gated_routes.refresh(app)
+
+    def route_is_gated(self, method: str, path: str) -> bool:
+        """Return whether a default key bypasses this route at runtime."""
+        return self._gated_routes.matches_route(method, path)
 
     async def _apply_reconfigure(
         self, new_config: IdempotentRequestsConfig

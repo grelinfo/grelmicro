@@ -173,17 +173,13 @@ def install_middleware(
 ) -> None:
     """Add each component's ASGI middleware and describe it in the schema.
 
-    The Starlette wiring, plus the two things a middleware cannot reach on
-    its own. It runs outside the routing layer, so a rule a route declares
-    only reaches it through `read_routes(app)`, and nothing it does
-    reaches the generated schema unless `document_openapi(app)` writes it
-    there. A component carrying neither is added silently.
+    The Starlette wiring reads route rules and adds the middleware. Nothing
+    the middleware does reaches the generated schema unless
+    `document_openapi(app)` writes it there. A component carrying no
+    documentation hook is added silently.
     """
     _install_middleware_starlette(app, components)
     for component in components:
-        read_routes = getattr(component, "read_routes", None)
-        if read_routes is not None:
-            read_routes(app)
         document = getattr(component, "document_openapi", None)
         if document is not None:
             document(app)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import math
 from collections import OrderedDict, abc
 
@@ -22,6 +23,7 @@ from typing import (
     TypedDict,
     cast,
 )
+from urllib.parse import parse_qsl, unquote_plus
 
 from pydantic import AfterValidator, BaseModel, PositiveInt
 from typing_extensions import Doc
@@ -38,6 +40,18 @@ from grelmicro._paths import (
     BARE_STRING_MESSAGE,
     FieldNames,
     PathPatterns,
+    _bound_router,
+    _effective_dependency_call,
+    _inherited_dependency_overrides_context,
+    _is_starlette_routing_app,
+    _middleware_boundaries,
+    _nested_routing_app,
+    _request_authority,
+    _request_root_path,
+    _request_scheme,
+    _RouteTopologyState,
+    _routing_app,
+    _same_routing_root,
     as_patterns,
     matches,
     names_route,
@@ -53,7 +67,11 @@ from grelmicro.http._conditional import (
     _tags,
     etag_of,
 )
-from grelmicro.http._idempotency import StoredResponse
+from grelmicro.http._idempotency import (
+    StoredResponse,
+    _authenticated_scope,
+    _authentication_paths,
+)
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -83,6 +101,12 @@ _MARKER = "__grelmicro_response_cache__"
 
 _UNMARKED: Any = object()
 """Marks a route that declared nothing, which a `None` TTL cannot."""
+
+_AUTH_MISSING: Any = object()
+"""Marks an authentication field absent before child dispatch."""
+
+_AUTH_UNREADABLE: Any = object()
+"""Marks an authentication attribute that could not be inspected safely."""
 
 _SAFE_METHODS = frozenset({"GET", "HEAD"})
 """Methods a response cache answers. Everything else passes through."""
@@ -119,6 +143,16 @@ _REPORT_INTERVAL = 60.0
 
 _WARNED_LIMIT = 128
 """How many distinct `Vary` refusals are remembered before warning again."""
+
+
+@dataclass(frozen=True)
+class _AuthenticationSnapshot:
+    """Authentication objects and identity state visible before dispatch."""
+
+    user: Any
+    auth: Any
+    user_state: tuple[Any, ...]
+    auth_state: tuple[Any, ...]
 
 
 class _Entry(TypedDict):
@@ -265,6 +299,21 @@ UNSET = _Unset()
 """The one instance of `_Unset`, so a caller can be told apart from a default."""
 
 
+def _unique_policy_sources(
+    sources: tuple[tuple[Any, bool], ...],
+) -> tuple[tuple[Any, bool], ...]:
+    """Return routing roots once each, retaining the strictest boundary."""
+    found: list[tuple[Any, bool]] = []
+    for app, include_root in sources:
+        for index, (seen, strict) in enumerate(found):
+            if app is seen or _same_routing_root(app, seen):
+                found[index] = (seen, strict or include_root)
+                break
+        else:
+            found.append((app, include_root))
+    return tuple(found)
+
+
 class _Policies:
     """The paths a middleware caches, and for how long.
 
@@ -276,11 +325,14 @@ class _Policies:
 
     __slots__ = (
         "_app",
+        "_base_sources",
         "_exclude",
         "_include",
         "_refused",
         "_refused_paths",
+        "_refused_templates",
         "_routes",
+        "_topology",
     )
 
     def __init__(
@@ -331,7 +383,10 @@ class _Policies:
         self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
         self._refused: tuple[Pattern[str], ...] = ()
         self._refused_paths: frozenset[str] = frozenset()
+        self._refused_templates: tuple[str, ...] = ()
         self._app: Any = None
+        self._base_sources: tuple[tuple[Any, bool], ...] = ()
+        self._topology: tuple[tuple[bool, _RouteTopologyState], ...] = ()
 
     def _is_refused(self, path: str) -> bool:
         """Return whether the app refuses to have this path cached.
@@ -344,9 +399,23 @@ class _Policies:
             regex.fullmatch(path) for regex in self._refused
         )
 
+    def _refuses_template(self, path: str) -> bool:
+        """Return whether a refusal covers a declared route template."""
+        for template in self._refused_templates:
+            if template == path:
+                return True
+            suffix = "/{path:path}"
+            if template.endswith(suffix):
+                prefix = template[: -len(suffix)]
+                if not prefix or path.startswith(f"{prefix}/"):
+                    return True
+        return False
+
     def read(
         self,
         app: Annotated[Any, Doc("The application to read the rules off.")],  # noqa: ANN401
+        *,
+        include_root_middleware: bool = False,
     ) -> None:
         """Read every route the app declares that asked to be cached.
 
@@ -354,11 +423,64 @@ class _Policies:
             TypeError: If a marked route answers a method other than `GET`.
         """
         self._app = app
-        found, refused = _marked_routes(
-            app,
-            tuple(pattern for pattern, _ in self._include),
-            self._exclude,
+        self._base_sources = ((app, include_root_middleware),)
+        self._refresh(self._base_sources)
+
+    def bind(
+        self,
+        app: Annotated[Any, Doc("The ASGI source the middleware wraps.")],  # noqa: ANN401
+    ) -> None:
+        """Remember an opaque source without pretending its routes are visible."""
+        if self._app is None:
+            self._app = app
+
+    def refresh(
+        self,
+        *apps: Any,  # noqa: ANN401
+        source: Any = None,  # noqa: ANN401
+    ) -> None:
+        """Refresh policy metadata when a request exposes changed routes."""
+        expected = self._app if source is None else source
+        observed = tuple(
+            (app, False)
+            for app in apps
+            if app is not None
+            and expected is not None
+            and _same_routing_root(app, expected)
         )
+        sources = _unique_policy_sources(
+            (
+                *self._base_sources,
+                *observed,
+            )
+        )
+        same_sources = len(sources) == len(self._topology) and all(
+            include_root == previous_root and app is snapshot.app
+            for (app, include_root), (previous_root, snapshot) in zip(
+                sources, self._topology, strict=True
+            )
+        )
+        if not same_sources or any(
+            snapshot.changed() for _include_root, snapshot in self._topology
+        ):
+            self._refresh(sources)
+
+    def _refresh(
+        self,
+        sources: tuple[tuple[Any, bool], ...],
+    ) -> None:
+        """Read and publish routes from one coherent topology snapshot."""
+        found: list[tuple[Pattern[str], float | None]] = []
+        refused: list[tuple[str, Pattern[str]]] = []
+        for app, include_root in sources:
+            app_found, app_refused = _marked_routes(
+                app,
+                tuple(pattern for pattern, _ in self._include),
+                self._exclude,
+                include_root_middleware=include_root,
+            )
+            found.extend(app_found)
+            refused.extend(app_refused)
         self._routes = tuple(found)
         # A route declared with no parameter answers one path, so it is
         # a set lookup. Only a template standing for many needs its
@@ -366,14 +488,19 @@ class _Policies:
         self._refused_paths = frozenset(
             template for template, _ in refused if "{" not in template
         )
+        self._refused_templates = tuple(template for template, _ in refused)
         self._refused = tuple(
             regex for template, regex in refused if "{" in template
+        )
+        self._topology = tuple(
+            (include_root, _RouteTopologyState(app))
+            for app, include_root in sources
         )
 
     def reread(self) -> None:
         """Read the app again, for the routes added since install."""
-        if self._app is not None:
-            self.read(self._app)
+        if self._base_sources:
+            self._refresh(self._base_sources)
 
     def pattern_ttl(
         self,
@@ -451,10 +578,9 @@ def declared_ttl(
 
     A declaration a route inherited from the router that holds it counts
     only where the cache may answer for it. A router holds more than
-    reads, so the write under it, and the read behind a security scheme,
-    are left to their handlers, and this says so too. Declared on the
-    route itself the same thing is refused outright, at install, so it
-    never reaches here.
+    reads, so the write under it, and a read with another dependency, are
+    left to their handlers, and this says so too. A security scheme
+    declared on the route itself is refused outright at install.
     """
     ttl = _declared_ttl(route, _declaring_above(contexts))
     for context in reversed(contexts):
@@ -463,7 +589,9 @@ def declared_ttl(
         ttl = _inherited_ttl(context)
     if ttl is _UNMARKED:
         return False, None
-    if _unreadable(route, contexts, declared) is not None:
+    if _unreadable(
+        route, contexts, declared
+    ) is not None or _has_non_cache_dependencies(route, contexts):
         return False, None
     return True, ttl
 
@@ -472,6 +600,8 @@ def _marked_routes(
     app: Any,  # noqa: ANN401
     named: tuple[str, ...] = (),
     excluded: tuple[str, ...] = (),
+    *,
+    include_root_middleware: bool = False,
 ) -> tuple[
     list[tuple[Pattern[str], float | None]], list[tuple[str, Pattern[str]]]
 ]:
@@ -496,7 +626,10 @@ def _marked_routes(
     from starlette.routing import compile_path  # noqa: PLC0415
 
     found: list[tuple[Pattern[str], float | None]] = []
-    refused: list[tuple[str, Pattern[str]]] = []
+    refused = [
+        *_middleware_refusals(app, include_root=include_root_middleware),
+        *_authentication_refusals(app, include_root=include_root_middleware),
+    ]
     answered: list[tuple[str, Pattern[str], frozenset[str]]] = []
     for prefix, route, contexts in walk_routes(app):
         above = _declaring_above(contexts)
@@ -517,12 +650,14 @@ def _marked_routes(
             # gated read with no way to keep the rest.
             is_named = named_exactly = False
         refusal = _unreadable(route, contexts, declared)
-        if _gated_read(route, contexts):
+        if _dependency_bearing_read(
+            route, contexts
+        ) or _nested_read_has_dependencies(route):
             # Kept whether a pattern named it or not, so the answer at
             # request time does not depend on how it was named. Only a
-            # gated read: a write is already passed through by the
-            # method guard, and one route's method must not speak for
-            # another declared on the same path.
+            # dependency-bearing read: a write is already passed through
+            # by the method guard, and one route's method must not speak
+            # for another declared on the same path.
             refused.append((declared, compiled))
         if named_exactly:
             answered.append((declared, compiled, _methods_of(route)))
@@ -545,6 +680,97 @@ def _marked_routes(
         found.append((compiled, cast("float | None", ttl)))
     _refuse_named_write(named, answered)
     return found, refused
+
+
+def _middleware_refusals(
+    app: Any,  # noqa: ANN401
+    *,
+    include_root: bool = False,
+) -> list[tuple[str, Pattern[str]]]:
+    """Compile exact and descendant refusals for every middleware boundary."""
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    found: list[tuple[str, Pattern[str]]] = []
+    for boundary, nested, methods in _middleware_boundaries(
+        app, include_root=include_root
+    ):
+        if methods is not None and methods.isdisjoint(_SAFE_METHODS):
+            continue
+        exact = boundary or "/"
+        exact_pattern, _, _ = compile_path(exact)
+        found.append((exact, exact_pattern))
+        if not nested:
+            continue
+        descendants = (
+            f"{boundary.rstrip('/')}/{{path:path}}"
+            if boundary
+            else "/{path:path}"
+        )
+        descendant_pattern, _, _ = compile_path(descendants)
+        found.append((descendants, descendant_pattern))
+    return found
+
+
+def _authentication_refusals(
+    app: Any,  # noqa: ANN401
+    *,
+    include_root: bool,
+) -> list[tuple[str, Pattern[str]]]:
+    """Compile exact and descendant refusals for authentication boundaries."""
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    found: list[tuple[str, Pattern[str]]] = []
+    for boundary, nested, methods in _authentication_paths(app):
+        if not include_root and not boundary:
+            continue
+        if methods is not None and methods.isdisjoint(_SAFE_METHODS):
+            continue
+        exact = boundary or "/"
+        exact_pattern, _, _ = compile_path(exact)
+        found.append((exact, exact_pattern))
+        if not nested:
+            continue
+        descendants = (
+            f"{boundary.rstrip('/')}/{{path:path}}"
+            if boundary
+            else "/{path:path}"
+        )
+        descendant_pattern, _, _ = compile_path(descendants)
+        found.append((descendants, descendant_pattern))
+    return found
+
+
+def _nested_read_has_dependencies(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a leaf routing endpoint gates a GET or HEAD."""
+    nested = _nested_routing_app(route)
+    return nested is not None and any(
+        _routing_dependencies(nested, method) for method in _SAFE_METHODS
+    )
+
+
+def _routing_dependencies(
+    app: Any,  # noqa: ANN401
+    method: str,
+    ancestors: frozenset[int] = frozenset(),
+) -> bool:
+    """Find a dependency below a routing endpoint without composing paths."""
+    routed = _routing_app(app)
+    if routed is None or id(routed) in ancestors:
+        return False
+    nested_ancestors = ancestors | {id(routed)}
+    for _prefix, route, contexts in walk_routes(routed, unwrap_middleware=True):
+        methods = {
+            candidate.upper()
+            for candidate in (getattr(route, "methods", None) or ())
+        }
+        if method in methods and _has_non_cache_dependencies(route, contexts):
+            return True
+        nested = _nested_routing_app(route)
+        if nested is not None and _routing_dependencies(
+            nested, method, nested_ancestors
+        ):
+            return True
+    return False
 
 
 def _inherited(ttl: object, contexts: tuple[Any, ...]) -> object:
@@ -579,24 +805,65 @@ def _named_by(
     return bool(hits), any(not pattern.endswith(_PREFIX) for pattern in hits)
 
 
-def _gated_read(
+def _dependency_bearing_read(
     route: Any,  # noqa: ANN401
     contexts: tuple[Any, ...],
 ) -> bool:
-    """Return whether this route is a read the caller has to be let past.
-
-    A hit answers before the app is routed, so the gate would not run
-    and one caller's response would go to whoever asks next. A write is
-    not one of these: the method guard passes it through already, and a
-    route is one of several a path may declare, so refusing the path for
-    a write would take the read declared beside it with it.
-    """
+    """Return whether a GET or HEAD runs a non-cache dependency."""
     methods = {
         method.upper() for method in (getattr(route, "methods", None) or ())
     }
-    if "GET" not in methods:
-        return False
-    return bool(_gating_schemes(route, contexts))
+    return bool(methods & _SAFE_METHODS) and _has_non_cache_dependencies(
+        route, contexts
+    )
+
+
+def _has_non_cache_dependencies(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+) -> bool:
+    """Return whether FastAPI resolves anything besides the cache marker."""
+    declared = getattr(route, "dependant", None)  # codespell:ignore
+    route_provider, provider_is_authoritative = (
+        _inherited_dependency_overrides_context(route, contexts)
+    )
+    pending = [
+        (dependency, route_provider, provider_is_authoritative)
+        for dependency in getattr(declared, "dependencies", ()) or ()
+    ]
+    seen: set[int] = set()
+    while pending:
+        dependency, provider, authoritative = pending.pop()
+        if id(dependency) in seen:
+            continue
+        seen.add(id(dependency))
+        call, effective, dependency_provider = _effective_dependency_call(
+            dependency,
+            provider,
+            provider_is_authoritative=authoritative,
+        )
+        if (
+            getattr(call, _MARKER, _UNMARKED) is _UNMARKED
+            or effective is not call
+        ):
+            return True
+        pending.extend(
+            (child, dependency_provider, authoritative)
+            for child in getattr(dependency, "dependencies", ()) or ()
+        )
+    for context in contexts:
+        for dependency in getattr(context, "dependencies", ()) or ():
+            call, effective, _ = _effective_dependency_call(
+                dependency,
+                route_provider,
+                provider_is_authoritative=provider_is_authoritative,
+            )
+            if (
+                getattr(call, _MARKER, _UNMARKED) is _UNMARKED
+                or effective is not call
+            ):
+                return True
+    return False
 
 
 def _methods_of(route: Any) -> frozenset[str]:  # noqa: ANN401
@@ -934,7 +1201,8 @@ class CachedResponsesMiddleware:
     status `200`, no `Set-Cookie`, no `Content-Encoding`, no
     `Cache-Control` refusing it, and a `Vary` naming nothing outside
     `vary_by_headers`. A request carrying `Authorization` or `Cookie`
-    never reads the cache and never fills it.
+    never reads the cache and never fills it. Neither does one an outer
+    ASGI authentication middleware has already marked as authenticated.
 
     A request's own `Cache-Control` is not read. This answers for the
     resource rather than for one caller, so a caller that could ask for
@@ -1046,36 +1314,42 @@ class CachedResponsesMiddleware:
         self._tag = tag
         # A middleware built by hand owns its cell and never sees a new
         # snapshot, so the two doors read exactly the same way.
-        self._live = (
-            live
-            if live is not None
-            else Live(
-                _state_of(
-                    build_config(
-                        CachedResponsesConfig,
-                        ttl=ttl,
-                        include=include or (),
-                        exclude=as_patterns(exclude, name="exclude"),
-                        vary_by_headers=as_patterns(
-                            vary_by_headers, name="vary_by_headers"
-                        ),
-                        vary_by_query=(
-                            None
-                            if vary_by_query is None
-                            else as_patterns(
-                                vary_by_query, name="vary_by_query"
-                            )
-                        ),
-                        max_body_size=max_body_size,
-                    ),
-                    policies
-                    if policies is not None
-                    else _Policies(
-                        include or {}, as_patterns(exclude, name="exclude")
-                    ),
+        if live is not None:
+            self._live = live
+        else:
+            config = build_config(
+                CachedResponsesConfig,
+                ttl=ttl,
+                include=include or (),
+                exclude=as_patterns(exclude, name="exclude"),
+                vary_by_headers=as_patterns(
+                    vary_by_headers, name="vary_by_headers"
+                ),
+                vary_by_query=(
+                    None
+                    if vary_by_query is None
+                    else as_patterns(vary_by_query, name="vary_by_query")
+                ),
+                max_body_size=max_body_size,
+            )
+            owned_policies = (
+                policies
+                if policies is not None
+                else _Policies(
+                    include or {}, as_patterns(exclude, name="exclude")
                 )
             )
-        )
+            owned_policies.bind(app)
+            if _is_starlette_routing_app(app):
+                # A bound Router.app is the entry point below that Router's
+                # own stack. Its current cache and any outer middleware do
+                # not run below this instance and therefore are not
+                # boundaries; route middleware still is.
+                owned_policies.read(
+                    app,
+                    include_root_middleware=_bound_router(app) is None,
+                )
+            self._live = Live(_state_of(config, owned_policies))
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()
@@ -1096,11 +1370,13 @@ class CachedResponsesMiddleware:
         if matches(path, config.exclude):
             await self.app(scope, receive, send)
             return
-        ttl = state.policies.ttl_for(path, config.ttl)
-        if ttl is None:
+        authentication = _authentication_snapshot(scope)
+        if _carries_credentials(scope) or _asks_for_part(scope):
             await self.app(scope, receive, send)
             return
-        if _carries_credentials(scope) or _asks_for_part(scope):
+        state.policies.refresh(scope.get("app"), source=self.app)
+        ttl = state.policies.ttl_for(path, config.ttl)
+        if ttl is None:
             await self.app(scope, receive, send)
             return
         built = (
@@ -1112,7 +1388,14 @@ class CachedResponsesMiddleware:
             await self.app(scope, receive, send)
             return
         await self._answer(
-            scope, receive, send, state=state, key=built, ttl=ttl, path=path
+            scope,
+            receive,
+            send,
+            state=state,
+            key=built,
+            ttl=ttl,
+            path=path,
+            authentication=authentication,
         )
 
     async def _answer(
@@ -1125,6 +1408,7 @@ class CachedResponsesMiddleware:
         key: str,
         ttl: float,
         path: str,
+        authentication: _AuthenticationSnapshot,
     ) -> None:
         """Serve the stored response, or run the app and store what it said.
 
@@ -1154,7 +1438,13 @@ class CachedResponsesMiddleware:
             attempt.ran = True
             await self.app(scope, receive, capture)
             await capture.flush()
-            attempt.entry = self._entry_of(capture, state=state, path=path)
+            attempt.entry = self._entry_of(
+                capture,
+                state=state,
+                scope=scope,
+                path=path,
+                authentication=authentication,
+            )
             attempt.returned = True
             if attempt.entry is None:
                 raise _NotStored
@@ -1294,9 +1584,9 @@ class CachedResponsesMiddleware:
         each other's responses.
         """
         parts = [
-            scope.get("scheme", "http"),
-            _header_of(scope, "host"),
-            scope.get("root_path", ""),
+            _request_scheme(scope),
+            _request_authority(scope),
+            _request_root_path(scope),
             path,
             _query_of(scope, state.config.vary_by_query),
         ]
@@ -1309,11 +1599,25 @@ class CachedResponsesMiddleware:
         return f"{self._tag}:{digest}"
 
     def _entry_of(
-        self, capture: _ResponseCapture, *, state: _State, path: str
+        self,
+        capture: _ResponseCapture,
+        *,
+        state: _State,
+        scope: Scope,
+        path: str,
+        authentication: _AuthenticationSnapshot,
     ) -> _Entry | None:
         """Return the entry this response is stored as, or `None` to skip it."""
         start = capture.start
         if start is None or capture.released or not capture.complete:
+            return None
+        if _authentication_changed(authentication, scope):
+            # An opaque wrapped application may run authentication below this
+            # middleware, where route inspection cannot discover it. Added,
+            # replaced, or mutated authentication state proves that child
+            # dispatch crossed such a boundary. Even an anonymous result
+            # cannot be stored: a later authenticated request would otherwise
+            # read it before that inner authentication runs.
             return None
         if start["status"] != _HTTP_200_OK:
             return None
@@ -1634,31 +1938,98 @@ def _split_field(value: bytes) -> list[str]:
 
 def _carries_credentials(scope: Scope) -> bool:
     """Return whether the request is one caller's, so no cache may answer it."""
-    return any(
+    return _authenticated_scope(scope) or any(
         name.lower() in _PRIVATE_REQUEST_HEADERS for name, _ in scope["headers"]
     )
 
 
+def _authentication_attribute(value: Any, name: str) -> Any:  # noqa: ANN401
+    """Read one conventional authentication attribute without trusting it."""
+    try:
+        return getattr(value, name, _AUTH_MISSING)
+    except Exception:  # noqa: BLE001
+        return _AUTH_UNREADABLE
+
+
+def _authentication_state(value: Any, *, user: bool) -> tuple[Any, ...]:  # noqa: ANN401
+    """Snapshot conventional user or credential state without object equality."""
+    if value is _AUTH_MISSING:
+        return ()
+    if user:
+        return (
+            type(value),
+            _authentication_attribute(value, "is_authenticated"),
+            _authentication_attribute(value, "identity"),
+            _authentication_attribute(value, "display_name"),
+            _authentication_attribute(value, "username"),
+        )
+    scopes = _authentication_attribute(value, "scopes")
+    if scopes is not _AUTH_MISSING and scopes is not _AUTH_UNREADABLE:
+        try:
+            scopes = tuple(scopes)
+        except (TypeError, ValueError):
+            scopes = _AUTH_UNREADABLE
+    return type(value), scopes
+
+
+def _authentication_snapshot(scope: Scope) -> _AuthenticationSnapshot:
+    """Remember authentication presence, object identity, and public state."""
+    user = scope.get("user", _AUTH_MISSING)
+    auth = scope.get("auth", _AUTH_MISSING)
+    return _AuthenticationSnapshot(
+        user=user,
+        auth=auth,
+        user_state=_authentication_state(user, user=True),
+        auth_state=_authentication_state(auth, user=False),
+    )
+
+
+def _authentication_changed(
+    before: _AuthenticationSnapshot,
+    scope: Scope,
+) -> bool:
+    """Return whether child dispatch added, replaced, or mutated auth state."""
+    user = scope.get("user", _AUTH_MISSING)
+    auth = scope.get("auth", _AUTH_MISSING)
+    return (
+        user is not before.user
+        or auth is not before.auth
+        or _authentication_state(user, user=True) != before.user_state
+        or _authentication_state(auth, user=False) != before.auth_state
+    )
+
+
 def _query_of(scope: Scope, selected: tuple[str, ...] | None) -> str:
-    """Return the query string the key reads, in one order whatever order it came in."""
+    """Return an injective query view with repeated-value order preserved."""
     raw = scope.get("query_string", b"").decode("latin-1")
-    if not raw:
-        return ""
-    pairs = sorted(part for part in raw.split("&") if part)
+    pairs = parse_qsl(raw, keep_blank_values=True)
     if selected is None:
-        return "&".join(pairs)
-    wanted = set(selected)
-    return "&".join(pair for pair in pairs if pair.split("=", 1)[0] in wanted)
+        grouped: dict[str, list[str]] = {}
+        for name, value in pairs:
+            grouped.setdefault(name, []).append(value)
+        material: list[tuple[str, list[str] | None]] = [
+            (name, grouped[name]) for name in sorted(grouped)
+        ]
+    else:
+        grouped = {}
+        for name, value in pairs:
+            grouped.setdefault(name, []).append(value)
+        material = [
+            (name, grouped.get(name))
+            for name in sorted({unquote_plus(name) for name in selected})
+        ]
+    return json.dumps(material, ensure_ascii=True, separators=(",", ":"))
 
 
 def _header_of(scope: Scope, name: str) -> str:
-    """Return one request header's value, empty when it is absent."""
+    """Return an injective view of all occurrences of one request header."""
     wanted = name.encode("latin-1")
-    return ",".join(
+    values = [
         value.decode("latin-1")
         for key, value in scope["headers"]
         if key.lower() == wanted
-    )
+    ]
+    return json.dumps(values or None, separators=(",", ":"))
 
 
 class CachedResponses(Reconfigurable[CachedResponsesConfig]):
@@ -1920,10 +2291,11 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         """Publish the snapshot the next request reads.
 
         The new patterns are read against the app's own routes first, the
-        same reading `micro.install(app)` does. A pattern naming a write,
-        or a read behind a security scheme, is refused at install, and it
-        has to be refused here too: a mounted file must not be able to
-        start caching what the static path would not.
+        same reading `micro.install(app)` does. A pattern naming a write
+        or a read behind a security scheme is refused at install, and a
+        read with another dependency is left uncached. Reload has to
+        preserve both decisions: a mounted file must not be able to start
+        caching what the static path would not.
         """
         policies = _Policies(new_config.include, new_config.exclude)
         app = self._policies._app  # noqa: SLF001

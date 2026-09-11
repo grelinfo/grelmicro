@@ -7,7 +7,16 @@ import sys
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Security
+from fastapi.security import APIKeyHeader
+from fastapi.testclient import TestClient
+from starlette.applications import Starlette
+from starlette.authentication import AuthenticationBackend
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route, Router
 
 from grelmicro import Grelmicro
 from grelmicro.__main__ import TargetError, load_target, main
@@ -21,6 +30,12 @@ from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.describe import AppReport as PublicAppReport
 from grelmicro.health import HealthChecks
+from grelmicro.http import (
+    CachedResponses,
+    CachedResponsesConfig,
+    IdempotentRequests,
+)
+from grelmicro.integrations.fastapi import CachedResponse
 from grelmicro.providers._base import Provider
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.redis import RedisProvider
@@ -222,6 +237,97 @@ _PASSING_APP = Grelmicro(uses=[HealthChecks()], environment="development")
 _FAILING_APP = Grelmicro(uses=[MemoryProvider()], environment="production")
 
 
+async def _cli_endpoint(_request: Any) -> JSONResponse:  # noqa: ANN401
+    """Return the endpoint the CLI report must enumerate."""
+    return JSONResponse({"x": True})
+
+
+_CLI_CHILD = Starlette(routes=[Route("/x", _cli_endpoint)])
+_CLI_APP = FastAPI()
+_CLI_APP.mount(
+    "/api",
+    CORSMiddleware(_CLI_CHILD, allow_origins=["https://client.example"]),
+)
+_CLI_MICRO = Grelmicro(
+    uses=[
+        Cache(MemoryCacheAdapter()),
+        CachedResponses.from_config(CachedResponsesConfig(include=("/api/*",))),
+    ],
+    environment="development",
+)
+_CLI_MICRO.install(_CLI_APP)
+
+
+async def _report_dependency() -> None:
+    """Stand in for a gate the endpoint report must not skip."""
+
+
+_CLI_POLICY_ROUTER = APIRouter()
+
+
+@_CLI_POLICY_ROUTER.get(
+    "/users/{uid:int}",
+    dependencies=[Depends(_report_dependency)],
+)
+async def _cli_policy_user(uid: int) -> dict[str, int]:
+    """Return one typed route for the CLI endpoint table."""
+    return {"uid": uid}
+
+
+_CLI_POLICY_APP = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+_CLI_POLICY_MICRO = Grelmicro(
+    uses=[
+        Cache(MemoryCacheAdapter()),
+        CachedResponses.from_config(
+            CachedResponsesConfig(include=("/api/users/*",))
+        ),
+    ],
+    environment="development",
+)
+_CLI_POLICY_MICRO.install(_CLI_POLICY_APP)
+_CLI_POLICY_APP.include_router(_CLI_POLICY_ROUTER, prefix="/api")
+
+
+def test_cli_lists_middleware_wrapped_mounted_endpoints(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The `--app` endpoint table sees routes behind mounted middleware."""
+    code = main(
+        [
+            "check",
+            "tests.test_describe:_CLI_MICRO",
+            "--app",
+            "tests.test_describe:_CLI_APP",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "GET    /api/x" in output
+    assert "path-patterns" not in output
+
+
+def test_cli_reports_typed_dependency_route_as_uncached(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`check --app` uses the route template's refusal, not a concrete match."""
+    code = main(
+        [
+            "check",
+            "tests.test_describe:_CLI_POLICY_MICRO",
+            "--app",
+            "tests.test_describe:_CLI_POLICY_APP",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    line = next(
+        row for row in output.splitlines() if "/api/users/{uid:int}" in row
+    )
+    assert code == 0
+    assert line.rstrip().endswith("-")
+
+
 def test_describe_flags_a_forgotten_install() -> None:
     """An app that never called `micro.install(app)` fails the ambient check.
 
@@ -251,6 +357,410 @@ def test_describe_passes_after_install() -> None:
     report = micro.describe(app)
 
     assert report.ok
+
+
+class _AnonymousAuthentication(AuthenticationBackend):
+    """Authentication boundary that leaves anonymous requests alone."""
+
+    async def authenticate(self, conn: Any) -> None:  # noqa: ANN401, ARG002
+        return None
+
+
+@pytest.mark.parametrize("framework", ["starlette", "fastapi"])
+@pytest.mark.parametrize("middleware", ["cors", "authentication"])
+def test_describe_lists_middleware_wrapped_mounted_endpoints(
+    framework: str,
+    middleware: str,
+) -> None:
+    """Endpoint reports cross middleware without crossing cache boundaries."""
+
+    async def x(_request: Any = None) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"x": True})
+
+    if framework == "starlette":
+        child: Any = Starlette(routes=[Route("/x", x)])
+    else:
+        child = FastAPI()
+        child.get("/x")(x)
+    wrapped = (
+        CORSMiddleware(child, allow_origins=["https://client.example"])
+        if middleware == "cors"
+        else AuthenticationMiddleware(child, backend=_AnonymousAuthentication())
+    )
+    app = FastAPI()
+    app.mount("/api", wrapped)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/api/*",)),
+        ],
+        environment="development",
+    )
+    micro.install(app)
+
+    report = micro.describe(app)
+
+    endpoint = next(row for row in report.endpoints if row.path == "/api/x")
+    assert endpoint.method == "GET"
+    assert endpoint.applies == ()
+    assert not any(
+        check.name == "path-patterns" and "/api/*" in check.detail
+        for check in report.checks
+    )
+
+
+def test_describe_does_not_apply_parent_cache_to_child_declaration() -> None:
+    """A child marker remains behind its mounted middleware boundary."""
+    child = FastAPI()
+
+    @child.get("/x", dependencies=[CachedResponse()])
+    async def x() -> dict[str, bool]:
+        return {"x": True}
+
+    app = FastAPI()
+    app.mount(
+        "/api",
+        CORSMiddleware(child, allow_origins=["https://client.example"]),
+    )
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), CachedResponses()],
+        environment="development",
+    )
+    micro.install(app)
+
+    endpoint = next(
+        row for row in micro.describe(app).endpoints if row.path == "/api/x"
+    )
+
+    assert endpoint.applies == ()
+
+
+def test_describe_does_not_apply_cache_before_an_ordinary_dependency() -> None:
+    """The endpoint table preserves the cache's dependency privacy rule."""
+    app = FastAPI()
+    marker = CachedResponse()
+
+    async def audit() -> None:
+        return None
+
+    @app.get("/x", dependencies=[marker, Depends(audit)])
+    async def x() -> dict[str, bool]:
+        return {"x": True}
+
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), CachedResponses()],
+        environment="development",
+    )
+    micro.install(app)
+
+    endpoint = next(
+        row for row in micro.describe(app).endpoints if row.path == "/x"
+    )
+
+    assert endpoint.applies == ()
+
+
+def test_dynamic_typed_dependency_report_is_stable_around_traffic() -> None:
+    """A late included typed route is uncached before and after a request."""
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/api/users/*",)),
+        ],
+        environment="development",
+    )
+    micro.install(app)
+    router = APIRouter()
+
+    @router.get(
+        "/users/{uid:int}",
+        dependencies=[Depends(_report_dependency)],
+    )
+    async def user(uid: int) -> dict[str, int]:
+        return {"uid": uid}
+
+    app.include_router(router, prefix="/api")
+    before = next(
+        row
+        for row in micro.describe(app).endpoints
+        if row.path == "/api/users/{uid:int}"
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/api/users/7").json() == {"uid": 7}
+
+    after = next(
+        row
+        for row in micro.describe(app).endpoints
+        if row.path == "/api/users/{uid:int}"
+    )
+
+    assert before.applies == after.applies == ()
+
+
+@pytest.mark.parametrize("key_kind", ["default", "custom"])
+def test_describe_idempotency_matches_dependency_gate_policy(
+    key_kind: str,
+) -> None:
+    """Default keys bypass dependency routes; custom identity keys may replay."""
+    component = IdempotentRequests(
+        key_maker=(lambda scope, key: f"{scope['path']}:{key}")
+        if key_kind == "custom"
+        else None
+    )
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.post("/charge", dependencies=[Depends(_report_dependency)])
+    async def charge() -> dict[str, bool]:
+        return {"charged": True}
+
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), component],
+        environment="development",
+    )
+    micro.install(app)
+
+    endpoint = next(
+        row for row in micro.describe(app).endpoints if row.path == "/charge"
+    )
+
+    assert endpoint.applies == (
+        ("idempotent 86400s",) if key_kind == "custom" else ()
+    )
+
+
+@pytest.mark.parametrize("key_kind", ["default", "custom"])
+def test_describe_idempotency_matches_nested_runtime_gates(
+    key_kind: str,
+) -> None:
+    """Mounted auth and nested dependency gates use runtime's path policy."""
+    component = IdempotentRequests(
+        key_maker=(lambda scope, key: f"{scope['path']}:{key}")
+        if key_kind == "custom"
+        else None
+    )
+
+    async def post(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    authenticated = Starlette(
+        routes=[Route("/charge/{item_id:int}", post, methods=["POST"])]
+    )
+    mounted = AuthenticationMiddleware(
+        authenticated,
+        backend=_AnonymousAuthentication(),
+    )
+
+    dependency_leaf = FastAPI(
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    @dependency_leaf.post(
+        "/nested-dep/{item_id:int}",
+        dependencies=[Depends(_report_dependency)],
+    )
+    async def nested_dep(item_id: int) -> dict[str, int]:
+        return {"item_id": item_id}
+
+    api_key = APIKeyHeader(name="X-API-Key")
+    security_leaf = FastAPI(
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    @security_leaf.post(
+        "/nested-security/{item_id:int}",
+        dependencies=[Security(api_key)],
+    )
+    async def nested_security(item_id: int) -> dict[str, int]:
+        return {"item_id": item_id}
+
+    app = Starlette(
+        routes=[
+            Mount("/auth", app=mounted),
+            Route(
+                "/nested-dep/{item_id:int}",
+                dependency_leaf,
+                methods=["POST"],
+            ),
+            Route(
+                "/nested-security/{item_id:int}",
+                security_leaf,
+                methods=["POST"],
+            ),
+            Route("/public/{item_id:int}", post, methods=["POST"]),
+        ]
+    )
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), component],
+        environment="development",
+    )
+
+    endpoints = {row.path: row.applies for row in micro.describe(app).endpoints}
+    applied = ("idempotent 86400s",)
+
+    assert endpoints["/public/{item_id:int}"] == applied
+    expected_private = applied if key_kind == "custom" else ()
+    assert endpoints["/auth/charge/{item_id:int}"] == expected_private
+    assert endpoints["/nested-dep/{item_id:int}"] == expected_private
+    assert endpoints["/nested-security/{item_id:int}"] == expected_private
+
+
+@pytest.mark.parametrize(
+    ("boundary", "private_path", "public_applies"),
+    [
+        ("application", "/private/{item_id:int}", ()),
+        ("router", "/group/private/{item_id:int}", ("idempotent 86400s",)),
+        ("route", "/private/{item_id:int}", ("idempotent 86400s",)),
+        ("mount", "/private/{item_id:int}", ("idempotent 86400s",)),
+    ],
+)
+def test_describe_idempotency_matches_authentication_boundaries(
+    boundary: str,
+    private_path: str,
+    public_applies: tuple[str, ...],
+) -> None:
+    """App, router, route, and mount authentication match runtime bypass."""
+
+    async def post(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    private = Route(
+        "/private/{item_id:int}",
+        post,
+        methods=["POST"],
+    )
+    public = Route("/public/{item_id:int}", post, methods=["POST"])
+    auth = Middleware(
+        AuthenticationMiddleware,
+        backend=_AnonymousAuthentication(),
+    )
+    if boundary == "application":
+        app = Starlette(routes=[private, public], middleware=[auth])
+    elif boundary == "router":
+        app = Starlette(
+            routes=[
+                Mount(
+                    "/group",
+                    app=Router(routes=[private], middleware=[auth]),
+                ),
+                public,
+            ]
+        )
+    elif boundary == "route":
+        app = Starlette(
+            routes=[
+                Route(
+                    "/private/{item_id:int}",
+                    post,
+                    methods=["POST"],
+                    middleware=[auth],
+                ),
+                public,
+            ]
+        )
+    else:
+        child = Starlette(
+            routes=[
+                Route("/{item_id:int}", post, methods=["POST"]),
+            ]
+        )
+        app = Starlette(
+            routes=[
+                Mount(
+                    "/private",
+                    app=AuthenticationMiddleware(
+                        child,
+                        backend=_AnonymousAuthentication(),
+                    ),
+                ),
+                public,
+            ]
+        )
+
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(),
+        ],
+        environment="development",
+    )
+    endpoints = {row.path: row.applies for row in micro.describe(app).endpoints}
+
+    assert endpoints[private_path] == ()
+    assert endpoints["/public/{item_id:int}"] == public_applies
+
+
+def test_describe_idempotency_keeps_route_authentication_method_local() -> None:
+    """Reported POST replay remains enabled beside an authenticated GET."""
+
+    async def endpoint(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    app = Starlette(
+        routes=[
+            Route(
+                "/same",
+                endpoint,
+                methods=["GET"],
+                middleware=[
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=_AnonymousAuthentication(),
+                    )
+                ],
+            ),
+            Route("/same", endpoint, methods=["POST"]),
+        ]
+    )
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()],
+        environment="development",
+    )
+
+    endpoints = {
+        (row.method, row.path): row.applies
+        for row in micro.describe(app).endpoints
+    }
+
+    assert endpoints[("GET", "/same")] == ()
+    assert endpoints[("POST", "/same")] == ("idempotent 86400s",)
+
+
+def test_describe_idempotency_refreshes_dynamic_auth_topology() -> None:
+    """A late protected mount updates the report without hiding its sibling."""
+
+    async def post(_request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse({"ok": True})
+
+    app = Starlette(routes=[Route("/public", post, methods=["POST"])])
+    component = IdempotentRequests()
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), component],
+        environment="development",
+    )
+    before = {row.path: row.applies for row in micro.describe(app).endpoints}
+
+    private = Starlette(routes=[Route("/charge", post, methods=["POST"])])
+    app.router.routes.append(
+        Mount(
+            "/private",
+            app=AuthenticationMiddleware(
+                private,
+                backend=_AnonymousAuthentication(),
+            ),
+        )
+    )
+    assert component.route_is_gated("POST", "/private/charge")
+    after = {row.path: row.applies for row in micro.describe(app).endpoints}
+
+    assert before == {"/public": ("idempotent 86400s",)}
+    assert after["/public"] == ("idempotent 86400s",)
+    assert after["/private/charge"] == ()
 
 
 def test_describe_warns_on_unknown_framework() -> None:
