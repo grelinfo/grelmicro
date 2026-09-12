@@ -684,10 +684,24 @@ fixed cadence.
 - **Resolve every conversation** before merge.
 - Merges are **squash** only, so `main` keeps a linear history.
 
-CI is tiered to keep feedback fast. A pull request or push that touches
-code runs the unit, slow, and integration tiers on the current Python and
-enforces the 100 % coverage total. A docs-only change skips the test job
-entirely. The nightly schedule and every release add the Python matrix and
+CI is tiered to keep feedback fast, and a pull request runs only the jobs
+its paths call for:
+
+| A pull request that changes | Runs |
+| --- | --- |
+| Python only | Lint, then the unit, slow and integration tiers with the 100 % coverage total |
+| `rust/` only | Rust formatting and clippy, then the unit tier against the crate built from the change |
+| Python and `rust/` | All of the above |
+| Docs only | The docs build |
+| A workflow or `.github/actions/` | Every job |
+
+An untouched crate is never compiled. When `rust/grelmicro-core` is
+identical to the tree its `core-*` release was built from, CI installs that
+published wheel. Any edit, or a version bump that has no release yet, builds
+it from the checkout instead.
+
+Pushes to `main`, the nightly schedule and every release run every job
+whatever the paths. The nightly and releases also add the Python matrix and
 the demo tier, so a release is always tested against everything before it
 publishes.
 

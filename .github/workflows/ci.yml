@@ -25,7 +25,8 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      python: ${{ steps.filter.outputs.python }}
+      rust: ${{ steps.filter.outputs.rust }}
       docs: ${{ steps.filter.outputs.docs }}
       workflows: ${{ steps.filter.outputs.workflows }}
     steps:
@@ -37,10 +38,13 @@ jobs:
         id: filter
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
-          # A workflow change re-runs every tier. Code includes the snippet
-          # and README tests, which live under tests/ and run in the test job.
+          # A workflow or CI action change re-runs every tier. Python
+          # includes the snippet and README tests, which live under tests/
+          # and run in the test job. Rust is the compiled core, whose
+          # behaviour the Python suite covers, so a change to either runs
+          # the tests.
           filters: |
-            code:
+            python:
               - 'grelmicro/**'
               - 'tests/**'
               - 'examples/**'
@@ -48,13 +52,21 @@ jobs:
               - 'uv.lock'
               - '.python-version'
               - '.github/workflows/**'
+              - '.github/actions/**'
+            rust:
+              - 'rust/**'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/**'
+              - '.github/actions/**'
             docs:
               - 'docs/**'
               - 'mkdocs.yml'
               - 'README.md'
               - '.github/workflows/**'
+              - '.github/actions/**'
             workflows:
               - '.github/workflows/**'
+              - '.github/actions/**'
 
   lint:
     name: Lint
@@ -62,7 +74,7 @@ jobs:
     # Path filtering applies to pull requests only. Pushes, the nightly
     # schedule, and manual dispatch always run, so a mis-filtered PR is still
     # covered once it lands on main.
-    if: ${{ needs.changes.outputs.code == 'true' || github.event_name != 'pull_request' }}
+    if: ${{ needs.changes.outputs.python == 'true' || github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -78,7 +90,9 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Install dependencies
-        run: uv sync --all-extras
+        uses: ./.github/actions/uv-sync
+        with:
+          args: --all-extras
 
       - name: Run Ty
         # Single-threaded so cycle resolution is deterministic. ty resolves
@@ -86,10 +100,10 @@ jobs:
         # flip a diagnostic on unchanged code (astral-sh/ty#1670).
         env:
           TY_MAX_PARALLELISM: "1"
-        run: uv run ty check
+        run: uv run --no-sync ty check
 
       - name: Run Mypy
-        run: uv run mypy
+        run: uv run --no-sync mypy
 
   docs:
     name: Docs
@@ -110,12 +124,14 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Install dependencies
-        run: uv sync --group docs
+        # The docs read the source statically and never import the compiled
+        # core, so it is left out rather than built.
+        run: uv sync --group docs --no-install-package grelmicro-core
       - name: Build docs (strict)
         # --strict fails on broken links and missing nav; check_paths in
         # mkdocs.yml fails on missing snippet includes. Together they catch
         # doc and snippet drift that the snippet-execution tests cannot see.
-        run: uv run mkdocs build --strict
+        run: uv run --no-sync mkdocs build --strict
 
   workflow-lint:
     name: Workflow Lint
@@ -137,19 +153,50 @@ jobs:
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
 
+  rust:
+    name: Rust
+    needs: changes
+    # Formatting and clippy for the compiled core, only when it changed. Its
+    # behaviour is covered by the Python suite, which the tests job runs
+    # against the crate built from this change.
+    if: ${{ needs.changes.outputs.rust == 'true' || github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: rust/grelmicro-core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        # rustup reads rust-toolchain.toml at the repository root.
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Run clippy
+        run: cargo clippy --release --all-targets --locked -- -D warnings
+
   tests:
     name: Tests
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' || github.event_name != 'pull_request' }}
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.rust == 'true' || github.event_name != 'pull_request' }}
     # PRs and pushes to main run the unit tier on Python 3.12, plus the slow
-    # and integration tiers whenever code changed, because the 100% coverage
-    # total is only measurable once all three have run. The nightly schedule
+    # and integration tiers whenever Python changed, because the 100%
+    # coverage total is only measurable once all three have run. A change to
+    # the Rust core alone runs the unit tier, which holds the security suite
+    # that exercises it. The nightly schedule
     # and manual dispatch run the full tier (matrix, demo). Release runs the
     # full tier before publishing.
     uses: ./.github/workflows/reusable-tests.yml
     with:
       full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-      coverage: ${{ needs.changes.outputs.code == 'true' }}
+      coverage: ${{ needs.changes.outputs.python == 'true' }}
     permissions:
       contents: read
     secrets:
@@ -167,6 +214,7 @@ jobs:
       - lint
       - docs
       - workflow-lint
+      - rust
       - tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -176,4 +224,4 @@ jobs:
         uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: lint, docs, workflow-lint, tests
+          allowed-skips: lint, docs, workflow-lint, rust, tests

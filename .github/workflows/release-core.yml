@@ -130,6 +130,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install the pinned toolchain
+        # rustup reads rust-toolchain.toml at the repository root. Installing
+        # it before cargo runs keeps the build off first-use installation,
+        # which rustup has deprecated.
+        run: rustup toolchain install
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -160,6 +165,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install the pinned toolchain
+        # rustup reads rust-toolchain.toml at the repository root. Installing
+        # it before cargo runs keeps the build off first-use installation,
+        # which rustup has deprecated.
+        run: rustup toolchain install
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -184,6 +194,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install the pinned toolchain
+        # rustup reads rust-toolchain.toml at the repository root. Installing
+        # it before cargo runs keeps the build off first-use installation,
+        # which rustup has deprecated.
+        run: rustup toolchain install
       - name: Build sdist
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -222,6 +237,7 @@ jobs:
         # security tests against the artifact that would be published, not
         # against a core rebuilt from the working tree.
         run: |
+          rustup toolchain install
           uv sync --all-extras --group dev
           uv pip install --reinstall --no-deps dist/grelmicro_core-*-cp312-cp312-manylinux*_x86_64*.whl
           uv run --no-sync pytest tests/security -q

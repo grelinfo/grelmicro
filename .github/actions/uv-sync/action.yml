@@ -1,0 +1,41 @@
+name: Sync dependencies
+description: >-
+  Run uv sync, taking grelmicro-core from PyPI when rust/grelmicro-core is
+  identical to the tree its release was built from, so an untouched crate is
+  never compiled.
+inputs:
+  args:
+    description: Extra arguments passed to uv sync, such as --all-extras.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Sync, reusing the released core when the crate is unchanged
+      shell: bash
+      env:
+        SYNC_ARGS: ${{ inputs.args }}
+      run: |
+        read -ra args <<< "$SYNC_ARGS"
+        version="$(sed -n '/^\[package\]/,/^\[/s/^version = "\(.*\)"/\1/p' rust/grelmicro-core/Cargo.toml)"
+        tag="core-${version}"
+
+        # Git tree ids are content hashes, so equal ids mean the crate is
+        # byte-for-byte what the release built. A missing tag, an unreleased
+        # version bump, or any edit under rust/grelmicro-core all fall through
+        # to building from this checkout.
+        if git fetch --quiet --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}" 2>/dev/null \
+          && [ "$(git rev-parse "${tag}:rust/grelmicro-core")" = "$(git rev-parse HEAD:rust/grelmicro-core)" ]; then
+          echo "rust/grelmicro-core matches ${tag}: installing the published wheel"
+          uv sync "${args[@]}" --no-install-package grelmicro-core
+          # Wheels only. Falling back to the sdist would compile the crate,
+          # which is the one thing this path exists to avoid.
+          uv pip install --no-deps --only-binary grelmicro-core "grelmicro-core==${version}"
+        else
+          echo "rust/grelmicro-core differs from ${tag} or is unreleased: building it"
+          # Install the toolchain rust-toolchain.toml pins before cargo asks
+          # for it. rustup still installs a missing pinned toolchain on first
+          # use, but has deprecated doing so.
+          rustup toolchain install
+          uv sync "${args[@]}"
+        fi
