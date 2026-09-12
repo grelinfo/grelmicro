@@ -30,11 +30,13 @@ from grelmicro.errors import (
     OutOfContextError,
     SettingsValidationError,
 )
+from grelmicro.security.bans import ClientBannedError, ClientBans
 from grelmicro.security.jwt import (
     JWTConfig,
     JWTPolicy,
     JWTVerifier,
     TokenRejectedError,
+    _responsible,
 )
 
 if TYPE_CHECKING:
@@ -243,9 +245,17 @@ class JWKSVerifier:
             JWKSFetcher | None,
             Doc("Fetcher to use. Defaults to one built on `httpx`."),
         ] = None,
+        bans: Annotated[
+            ClientBans | None,
+            Doc(
+                "Opt in to refusing callers that keep presenting tokens that"
+                " do not verify. Pass `client=` to every call once set."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the verifier. Keys are loaded by the first `refresh`."""
         self._config = config
+        self._bans = bans
         self._fetch: JWKSFetcher = fetch or fetch_with_httpx
         self._verifier: JWTVerifier | None = None
         self._document: bytes | None = None
@@ -316,18 +326,45 @@ class JWKSVerifier:
     def verify(
         self,
         token: Annotated[str, Doc("The encoded JWT, with no scheme prefix.")],
+        *,
+        client: Annotated[
+            str | None, Doc("The address to hold responsible, when banning.")
+        ] = None,
     ) -> JWTClaims:
         """Return the claims of `token`, or raise `TokenRejectedError`."""
-        return self._checked(self._loaded().verify, token)
+        return self._guarded(self._loaded().verify, token, client)
 
     def verify_header(
         self,
         header: Annotated[
             str | None, Doc("The `Authorization` header value, or `None`.")
         ],
+        *,
+        client: Annotated[
+            str | None, Doc("The address to hold responsible, when banning.")
+        ] = None,
     ) -> JWTClaims:
         """Return the claims of the bearer token in `header`."""
-        return self._checked(self._loaded().verify_header, header)
+        return self._guarded(self._loaded().verify_header, header, client)
+
+    def _guarded(
+        self,
+        verify: Callable[[Any], JWTClaims],
+        value: Any,  # noqa: ANN401
+        client: str | None,
+    ) -> JWTClaims:
+        """Apply the ban table around a verification, when one is configured."""
+        bans = self._bans
+        if bans is None:
+            return self._checked(verify, value)
+        responsible = _responsible(client)
+        if bans.banned(responsible):
+            raise ClientBannedError
+        try:
+            return self._checked(verify, value)
+        except TokenRejectedError as error:
+            bans.record(responsible, error.reason)
+            raise
 
     def unverified_header(
         self,

@@ -909,6 +909,9 @@
     "ClientAddressReason": {
       "()": "(*values)"
     },
+    "ClientBannedError": {
+      "()": "() -> 'None'"
+    },
     "ClientBans": {
       "()": "(config=None, *, reasons=None) -> 'None'"
     },
@@ -923,7 +926,7 @@
     },
     "JWKSUnavailableError": null,
     "JWKSVerifier": {
-      "()": "(config, *, fetch=None) -> 'None'"
+      "()": "(config, *, fetch=None, bans=None) -> 'None'"
     },
     "JWTClaims": {
       "()": "(raw, subject, issuer, audience, expires_at, issued_at, token_id) -> None"
@@ -940,7 +943,7 @@
       "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
     },
     "JWTVerifier": {
-      "()": "(config) -> 'None'"
+      "()": "(config, *, bans=None) -> 'None'"
     },
     "TokenRejectedError": {
       "()": "(reason) -> 'None'"

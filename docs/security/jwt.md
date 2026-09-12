@@ -273,25 +273,39 @@ sending forged tokens therefore buys real work per request. `ClientBans`
 counts those failures and refuses the caller for a while, which turns that
 cost into a dictionary lookup.
 
+It is off unless you ask for it. Pass a `ClientBans` to the verifier, and
+give every call the address to hold responsible:
+
 ```python
-from grelmicro.security import ClientBans
+from grelmicro.security import ClientBans, ClientBannedError
 
-bans = ClientBans()
-
-if bans.banned(client_ip):
-    raise HTTPException(status_code=429)
+verifier = JWTVerifier(config, bans=ClientBans())
 
 try:
-    claims = verifier.verify_header(authorization)
+    claims = verifier.verify_header(authorization, client=client_ip)
+except ClientBannedError:
+    raise HTTPException(status_code=429) from None
 except TokenRejectedError as error:
-    bans.record(client_ip, error.reason)
-    raise
+    raise HTTPException(status_code=401, detail=error.reason) from None
 ```
+
+Counting the failure and refusing the client happen for you, so the
+protection cannot be half wired. A verifier built with `bans` and then called
+without a `client` raises rather than quietly counting nothing.
+
+`ClientBannedError` is not a `TokenRejectedError`. It says nothing about the
+token, so answer it with `429` and not `401`: a fresh token would not change
+the answer.
+
+`JWKSVerifier` takes the same argument and behaves the same way.
 
 The address has to be one the caller cannot choose. Pass what
 [`resolve_client_address`](clientip.md) returns, never a raw
 `X-Forwarded-For`, or an attacker sets a header and gets somebody else
 refused.
+
+The table is also usable on its own, through `banned()` and `record()`, for
+an authentication scheme this module does not handle.
 
 ### Why not rate limit instead
 

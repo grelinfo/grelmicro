@@ -23,3 +23,4 @@
         - JWKSUnavailableError
         - ClientBans
         - ClientBansConfig
+        - ClientBannedError

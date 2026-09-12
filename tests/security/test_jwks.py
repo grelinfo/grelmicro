@@ -18,8 +18,15 @@ import httpx2
 import pytest
 from pydantic import ValidationError
 
-from grelmicro.errors import DependencyNotFoundError, OutOfContextError
+from grelmicro.errors import (
+    DependencyNotFoundError,
+    OutOfContextError,
+    SettingsValidationError,
+)
 from grelmicro.security import (
+    ClientBannedError,
+    ClientBans,
+    ClientBansConfig,
     JWKSConfig,
     JWKSUnavailableError,
     JWKSVerifier,
@@ -48,6 +55,7 @@ OVERSIZED = 5000
 
 SIGNER = Signer()
 ROTATED = Signer()
+CLIENT = "203.0.113.9"
 
 
 def document(signer: Signer = SIGNER, kid: str = "k1", **extra: Any) -> bytes:  # noqa: ANN401
@@ -376,6 +384,71 @@ class TestInterchangeable:
 
         with pytest.raises(OutOfContextError, match="refresh"):
             verifier.unverified_header(token())
+
+
+class TestBans:
+    """The same opt-in ban table, on a verifier fed from an endpoint."""
+
+    async def subject(self) -> JWKSVerifier:
+        """Return a loaded verifier that bans after two forged tokens."""
+        built = JWKSVerifier(
+            config(),
+            fetch=Endpoint(document()),
+            bans=ClientBans(
+                ClientBansConfig(failures=2, window=60.0, duration=60.0)
+            ),
+        )
+        await built.refresh()
+        return built
+
+    async def test_repeated_forgery_bans_the_client(self) -> None:
+        """A forger is shed here exactly as it is with a static key."""
+        verifier = await self.subject()
+        forged = token()[:-3] + "AAA"
+
+        for _ in range(2):
+            with pytest.raises(TokenRejectedError):
+                verifier.verify(forged, client=CLIENT)
+
+        with pytest.raises(ClientBannedError):
+            verifier.verify(token(), client=CLIENT)
+
+    async def test_the_header_path_bans_too(self) -> None:
+        """Both doors count against the same client."""
+        verifier = await self.subject()
+        forged = f"Bearer {token()[:-3]}AAA"
+
+        for _ in range(2):
+            with pytest.raises(TokenRejectedError):
+                verifier.verify_header(forged, client=CLIENT)
+
+        with pytest.raises(ClientBannedError):
+            verifier.verify_header(f"Bearer {token()}", client=CLIENT)
+
+    async def test_a_rotation_never_bans(self) -> None:
+        """`unknown-key` is what a rotation looks like, so it cannot ban."""
+        verifier = await self.subject()
+        rotated = token(ROTATED, kid="k2")
+
+        for _ in range(20):
+            with pytest.raises(TokenRejectedError):
+                verifier.verify(rotated, client=CLIENT)
+
+        assert verifier.verify(token(), client=CLIENT).subject == "user-1"
+
+    async def test_a_missing_client_is_refused_loudly(self) -> None:
+        """Protection that counts nothing must not look configured."""
+        verifier = await self.subject()
+
+        with pytest.raises(SettingsValidationError, match="client="):
+            verifier.verify(token())
+
+    async def test_without_bans_a_client_is_not_required(self) -> None:
+        """The default verifier is unchanged."""
+        verifier = JWKSVerifier(config(), fetch=Endpoint(document()))
+        await verifier.refresh()
+
+        assert verifier.verify(token()).subject == "user-1"
 
 
 class TestDocumentLimits:

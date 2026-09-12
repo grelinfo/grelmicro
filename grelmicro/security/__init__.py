@@ -13,6 +13,7 @@ Read more in the [Security](../security/index.md) docs.
 
 from grelmicro.security.bans import (
     ABUSIVE_REASONS,
+    ClientBannedError,
     ClientBans,
     ClientBansConfig,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "ClientAddress",
     "ClientAddressMiddleware",
     "ClientAddressReason",
+    "ClientBannedError",
     "ClientBans",
     "ClientBansConfig",
     "JWKSConfig",

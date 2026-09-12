@@ -38,8 +38,11 @@ from typing import Annotated, Any, Final
 from pydantic import BaseModel, field_validator
 from typing_extensions import Doc
 
+from grelmicro.errors import GrelmicroError
+
 __all__ = [
     "ABUSIVE_REASONS",
+    "ClientBannedError",
     "ClientBans",
     "ClientBansConfig",
 ]
@@ -59,6 +62,19 @@ client whose token needs refreshing, which is ordinary. `not-yet-valid` is a
 clock that disagrees. `audience` and `issuer` are a token meant for a
 neighbouring service, which is a misrouted client rather than an attacker.
 """
+
+
+class ClientBannedError(GrelmicroError, RuntimeError):
+    """The caller is banned, so its token was not looked at.
+
+    Distinct from `TokenRejectedError` because it says nothing about the
+    token. Answer it with `429`, not `401`: the caller is being refused for
+    what it did before this request, and a fresh token would not change it.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the error."""
+        super().__init__("Too many rejected tokens from this client.")
 
 
 class ClientBansConfig(BaseModel):

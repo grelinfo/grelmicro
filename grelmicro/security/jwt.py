@@ -24,6 +24,7 @@ from grelmicro.errors import (
     GrelmicroError,
     SettingsValidationError,
 )
+from grelmicro.security.bans import ClientBannedError, ClientBans
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -411,6 +412,10 @@ class TokenVerifier(Protocol):
     def verify(
         self,
         token: Annotated[str, Doc("The encoded JWT, with no scheme prefix.")],
+        *,
+        client: Annotated[
+            str | None, Doc("The address to hold responsible, when banning.")
+        ] = None,
     ) -> JWTClaims:
         """Return the claims of `token`, or raise `TokenRejectedError`."""
         ...  # pragma: no cover
@@ -420,6 +425,10 @@ class TokenVerifier(Protocol):
         header: Annotated[
             str | None, Doc("The `Authorization` header value, or `None`.")
         ],
+        *,
+        client: Annotated[
+            str | None, Doc("The address to hold responsible, when banning.")
+        ] = None,
     ) -> JWTClaims:
         """Return the claims of the bearer token in `header`."""
         ...  # pragma: no cover
@@ -454,8 +463,18 @@ class JWTVerifier:
     def __init__(
         self,
         config: Annotated[JWTConfig, Doc("Keys and claim policy to enforce.")],
+        *,
+        bans: Annotated[
+            ClientBans | None,
+            Doc(
+                "Opt in to refusing callers that keep presenting tokens that"
+                " do not verify. Pass `client=` to every call once set, so"
+                " the protection cannot be half wired."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the verifier, parsing every key."""
+        self._bans = bans
         core = _core()
         self._error = core.CoreVerificationError
         self._unverified_header = core.unverified_header
@@ -493,13 +512,39 @@ class JWTVerifier:
     def verify(
         self,
         token: Annotated[str, Doc("The encoded JWT, with no scheme prefix.")],
+        *,
+        client: Annotated[
+            str | None,
+            Doc(
+                "The address to hold responsible. Required when `bans` is"
+                " set, and it must be one the caller cannot choose: pass"
+                " what `resolve_client_address` returned."
+            ),
+        ] = None,
     ) -> JWTClaims:
         """Return the claims of `token`, or raise `TokenRejectedError`.
 
         A token verified earlier in this process is answered from the cache
         until `cache_ttl` or its own `exp` passes, whichever comes first, so a
         cache hit is never staler than a full verification.
+
+        With `bans` set, a caller already banned raises `ClientBannedError`
+        before the token is looked at, and a rejection is counted against it.
         """
+        bans = self._bans
+        if bans is not None:
+            client = _responsible(client)
+            if bans.banned(client):
+                raise ClientBannedError
+            try:
+                return self._verified(token)
+            except TokenRejectedError as error:
+                bans.record(client, error.reason)
+                raise
+        return self._verified(token)
+
+    def _verified(self, token: str) -> JWTClaims:
+        """Return the claims of `token`, with no ban bookkeeping."""
         key = self._key(token)
         cached = self._cache.get(key)
         if cached is not None:
@@ -524,12 +569,16 @@ class JWTVerifier:
         header: Annotated[
             str | None, Doc("The `Authorization` header value, or `None`.")
         ],
+        *,
+        client: Annotated[
+            str | None, Doc("The address to hold responsible, when banning.")
+        ] = None,
     ) -> JWTClaims:
         """Return the claims of the bearer token in `header`."""
         if not header or not header.startswith(BEARER_PREFIX):
             reason = "scheme"
             raise TokenRejectedError(reason)
-        return self.verify(header[len(BEARER_PREFIX) :])
+        return self.verify(header[len(BEARER_PREFIX) :], client=client)
 
     def unverified_header(
         self,
@@ -578,6 +627,23 @@ class JWTVerifier:
             cache.pop(oldest, None)
         cache[key] = (deadline, claims)
         order.append(key)
+
+
+def _responsible(client: str | None) -> str:
+    """Return the address to hold responsible, refusing to guess.
+
+    A verifier that was given a ban table and then called without a client
+    would count nothing and refuse nobody, which reads as protection and is
+    not. Failing here is loud on the first request rather than quiet forever.
+    """
+    if not client:
+        msg = (
+            "client= is required once bans are configured, and must be an"
+            " address the caller cannot choose. Pass what"
+            " resolve_client_address returned."
+        )
+        raise SettingsValidationError(msg)
+    return client
 
 
 def _core() -> Any:  # noqa: ANN401

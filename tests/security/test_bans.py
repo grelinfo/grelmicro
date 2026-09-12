@@ -17,11 +17,23 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from grelmicro.errors import SettingsValidationError
 from grelmicro.security import (
     ABUSIVE_REASONS,
+    ClientBannedError,
     ClientBans,
     ClientBansConfig,
+    JWTConfig,
+    JWTKey,
+    JWTVerifier,
+    TokenRejectedError,
 )
+from tests.security.jwt_signing import Signer
+
+SIGNER = Signer()
+AUDIENCE = "grelmicro-api"
+ISSUER = "https://auth.grel.info/"
+HOUR = 3600
 
 CLIENT = "203.0.113.9"
 OTHER = "203.0.113.10"
@@ -299,3 +311,129 @@ class TestUnderThreads:
         table.record(OTHER, "signature")
 
         assert len(table._clients) >= 1
+
+
+def token(**claims: Any) -> str:  # noqa: ANN401
+    """Return a token the suite's verifier accepts."""
+    now = int(time.time())
+    payload = {
+        "iss": ISSUER,
+        "sub": "user-1",
+        "aud": AUDIENCE,
+        "exp": now + HOUR,
+    }
+    payload.update(claims)
+    return SIGNER.token(payload, algorithm="RS256")
+
+
+def verifier(**overrides: Any) -> JWTVerifier:  # noqa: ANN401
+    """Return a verifier that bans after `FAILURES` forged tokens."""
+    return JWTVerifier(
+        JWTConfig(
+            keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+            audience=[AUDIENCE],
+            issuer=[ISSUER],
+        ),
+        bans=ClientBans(
+            ClientBansConfig(
+                failures=FAILURES, window=60.0, duration=60.0, **overrides
+            )
+        ),
+    )
+
+
+class TestOptIn:
+    """Bans are wired into a verifier, or they are not there at all."""
+
+    def test_a_verifier_without_bans_is_unchanged(self) -> None:
+        """The default path does no ban bookkeeping."""
+        plain = JWTVerifier(
+            JWTConfig(
+                keys=[
+                    JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
+                ],
+                audience=[AUDIENCE],
+                issuer=[ISSUER],
+            )
+        )
+
+        assert plain.verify(token()).subject == "user-1"
+        assert plain.verify_header(f"Bearer {token()}").subject == "user-1"
+
+    def test_a_client_without_bans_needs_no_address(self) -> None:
+        """`client=` is accepted and ignored when nothing counts it."""
+        plain = JWTVerifier(
+            JWTConfig(
+                keys=[
+                    JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
+                ],
+                audience=[AUDIENCE],
+            )
+        )
+
+        assert plain.verify(token(), client=CLIENT).subject == "user-1"
+
+    def test_repeated_forgery_bans_the_client(self) -> None:
+        """The whole point: a forger stops being verified."""
+        subject = verifier()
+        forged = token()[:-3] + "AAA"
+
+        for _ in range(FAILURES):
+            with pytest.raises(TokenRejectedError):
+                subject.verify(forged, client=CLIENT)
+
+        with pytest.raises(ClientBannedError):
+            subject.verify(token(), client=CLIENT)
+
+    def test_a_banned_client_is_refused_before_the_token_is_read(self) -> None:
+        """Even a perfectly good token does not get it back in."""
+        subject = verifier()
+        forged = token()[:-3] + "AAA"
+        for _ in range(FAILURES):
+            with pytest.raises(TokenRejectedError):
+                subject.verify(forged, client=CLIENT)
+
+        with pytest.raises(ClientBannedError):
+            subject.verify_header(f"Bearer {token()}", client=CLIENT)
+
+    def test_other_clients_are_untouched(self) -> None:
+        """One caller misbehaving does not close the service."""
+        subject = verifier()
+        forged = token()[:-3] + "AAA"
+        for _ in range(FAILURES):
+            with pytest.raises(TokenRejectedError):
+                subject.verify(forged, client=CLIENT)
+
+        assert subject.verify(token(), client=OTHER).subject == "user-1"
+
+    def test_an_expired_token_never_bans(self) -> None:
+        """A client that needs to refresh is not an attacker."""
+        subject = verifier()
+        stale = token(exp=int(time.time()) - HOUR)
+
+        for _ in range(FAILURES * 5):
+            with pytest.raises(TokenRejectedError):
+                subject.verify(stale, client=CLIENT)
+
+        assert subject.verify(token(), client=CLIENT).subject == "user-1"
+
+    def test_bans_without_a_client_are_refused_loudly(self) -> None:
+        """Configured protection that counts nothing must not look configured."""
+        subject = verifier()
+
+        with pytest.raises(SettingsValidationError, match="client="):
+            subject.verify(token())
+
+    def test_the_header_path_also_refuses_a_missing_client(self) -> None:
+        """Both doors into the verifier insist on the same thing."""
+        subject = verifier()
+
+        with pytest.raises(SettingsValidationError, match="client="):
+            subject.verify_header(f"Bearer {token()}")
+
+    def test_an_empty_client_is_refused(self) -> None:
+        """An address nobody vouched for is not an address."""
+        subject = verifier()
+
+        with pytest.raises(SettingsValidationError, match="client="):
+            subject.verify(token(), client="")
