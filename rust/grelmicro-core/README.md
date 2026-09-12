@@ -2,8 +2,8 @@
 
 The compiled hot paths behind grelmicro.
 
-Only work that earns the crossing lives here. A call into Rust costs roughly
-20 to 30 nanoseconds, so anything doing less than about a microsecond of real
+Only work that earns the crossing lives here. A call into Rust costs 55
+nanoseconds measured, so anything doing less than about a microsecond of real
 work belongs in Python. The token cache and the ban table were measured both
 ways and stayed there.
 

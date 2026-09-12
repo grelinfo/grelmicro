@@ -1,9 +1,9 @@
 //! Compiled hot paths for grelmicro.
 //!
-//! Only work that earns the crossing lives here. A call into Rust costs
-//! roughly 20 to 30 nanoseconds, so anything doing less than about a
-//! microsecond of real work belongs in Python, which is where the token
-//! cache and the ban table stayed after being measured both ways.
+//! Only work that earns the crossing lives here. A call into Rust costs 55
+//! nanoseconds measured, so anything doing less than about a microsecond of
+//! real work belongs in Python, which is where the token cache and the ban
+//! table stayed after being measured both ways.
 //!
 //! What is here today is JWT verification, where a signature check is some
 //! twelve microseconds and the crossing is rounding error. The Python layer
