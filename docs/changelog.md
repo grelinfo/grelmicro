@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.41.0 - 2026-09-11
+## 0.41.0 - 2026-09-12
 
 ### Breaking
 * 💥 Every metric attribute grelmicro sets is namespaced. `outcome`, `result` and `decision` are one word, `grelmicro.outcome`, and `task.name`, `check.name`, `retry.name`, `circuit_breaker.name`, `bulkhead.name`, `timeout.name`, `rate_limiter.name`, `idempotency.name` and `topic` gain the same prefix. `error.type` is unchanged, because the semantic conventions own it. A dashboard or an alert rule reading the old label matches nothing and raises no error, so sweep your queries: in Prometheus the labels are now `grelmicro_outcome` and `grelmicro_task_name`. ([#691](https://github.com/grelinfo/grelmicro/issues/691))
