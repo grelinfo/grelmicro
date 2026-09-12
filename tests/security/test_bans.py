@@ -112,6 +112,23 @@ class TestBanning:
         assert table.record(CLIENT, "signature") is False
         assert table.banned(CLIENT) is False
 
+    def test_the_window_rolling_over_does_not_lift_a_ban(self) -> None:
+        """A client cannot serve out its ban by carrying on failing.
+
+        The counting window is shorter than a ban, so a banned client that
+        keeps sending forged tokens rolls its window over while still banned.
+        Starting the count again must not take the ban with it.
+        """
+        table = bans(window=0.05, duration=30.0)
+        for _ in range(FAILURES):
+            table.record(CLIENT, "signature")
+        assert table.banned(CLIENT) is True
+
+        time.sleep(0.1)
+        table.record(CLIENT, "signature")
+
+        assert table.banned(CLIENT) is True
+
     def test_forget_clears_a_ban(self) -> None:
         """An operator can let a client back in."""
         table = bans()
@@ -430,6 +447,17 @@ class TestOptIn:
 
         with pytest.raises(SettingsValidationError, match="client="):
             subject.verify_header(f"Bearer {token()}")
+
+    def test_a_bad_scheme_refuses_a_missing_client_too(self) -> None:
+        """The scheme is judged after the client, so neither hides the other.
+
+        A header that never reaches `verify` would otherwise report the bad
+        scheme and leave the missing address unnoticed.
+        """
+        subject = verifier()
+
+        with pytest.raises(SettingsValidationError, match="client="):
+            subject.verify_header("Basic abc")
 
     def test_an_empty_client_is_refused(self) -> None:
         """An address nobody vouched for is not an address."""

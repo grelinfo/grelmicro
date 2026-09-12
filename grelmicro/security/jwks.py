@@ -315,16 +315,30 @@ class JWKSVerifier:
             timeout=self._config.timeout,
             max_bytes=self._config.max_bytes,
         )
-        self._loaded_at = monotonic()
-        self._wants_keys = False
         if document == self._document:
+            # Same bytes, so the keys already loaded are the current ones.
+            self._loaded_at = monotonic()
+            self._wants_keys = False
             return False
 
-        verifier = JWTVerifier(self._build(document))
+        try:
+            verifier = JWTVerifier(self._build(document))
+        except SettingsValidationError as error:
+            # A document can parse and still hold a key the core refuses.
+            # `refresh` promises one error, so it raises that one.
+            msg = f"jwks document holds no usable key: {error}"
+            raise JWKSUnavailableError(msg) from None
+
         # One assignment, so a thread reading it gets the old keys or the new
         # ones and never a half-built verifier.
         self._verifier = verifier
         self._document = document
+        # Marked current only now. Doing it when the fetch returned would
+        # call a document that failed to build a successful refresh, so a
+        # provider serving a broken key set would stop the next attempt for a
+        # whole `ttl` and clear the rotation signal that asked for it.
+        self._loaded_at = monotonic()
+        self._wants_keys = False
         return True
 
     def verify(

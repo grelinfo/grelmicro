@@ -900,6 +900,7 @@
   },
   "grelmicro.security": {
     "ABUSIVE_REASONS": null,
+    "ALGORITHMS": null,
     "ClientAddress": {
       "()": "(ip, port, reason, hops) -> None"
     },

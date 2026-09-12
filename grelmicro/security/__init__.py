@@ -32,6 +32,7 @@ from grelmicro.security.jwks import (
     fetch_with_httpx,
 )
 from grelmicro.security.jwt import (
+    ALGORITHMS,
     JWTClaims,
     JWTConfig,
     JWTKey,
@@ -43,6 +44,7 @@ from grelmicro.security.jwt import (
 
 __all__ = [
     "ABUSIVE_REASONS",
+    "ALGORITHMS",
     "ClientAddress",
     "ClientAddressMiddleware",
     "ClientAddressReason",

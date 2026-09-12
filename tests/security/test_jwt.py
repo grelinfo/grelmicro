@@ -424,6 +424,24 @@ class TestJWKS:
 
         assert [key.kid for key in config.keys] == ["sig-1"]
 
+    def test_a_key_that_cannot_be_read_is_skipped(self) -> None:
+        """One unreadable key must not take the whole key set down.
+
+        A provider is free to publish a key type this does not read. Failing
+        the document would stop authentication over a key nothing was going
+        to be verified with anyway.
+        """
+        jwks = {
+            "keys": [
+                {"kty": "EC", "use": "sig", "kid": "no-curve"},
+                SIGNER.public_jwk("RS256", kid="sig-1"),
+            ]
+        }
+
+        config = JWTConfig.from_jwks(jwks, audience=[AUDIENCE])
+
+        assert [key.kid for key in config.keys] == ["sig-1"]
+
     def test_a_jwks_with_no_usable_key_is_refused(self) -> None:
         """A verifier with no key can verify nothing."""
         with pytest.raises(ValidationError):
@@ -437,9 +455,16 @@ class TestAuthorizationHeader:
         """The scheme is stripped and the token behind it is verified."""
         assert build().verify_header(f"{BEARER_PREFIX}{issue()}").subject
 
+    @pytest.mark.parametrize("scheme", ["bearer", "BEARER", "BeArEr"])
+    def test_the_scheme_is_read_without_regard_to_case(
+        self, scheme: str
+    ) -> None:
+        """RFC 7235 makes the scheme case-insensitive, and proxies rewrite it."""
+        assert build().verify_header(f"{scheme} {issue()}").subject
+
     @pytest.mark.parametrize(
         "header",
-        [None, "", "Basic abc", "bearer lowercase", "Bearer", "BearerX token"],
+        [None, "", "Basic abc", "Bearer", "BearerX token", "Bearer\ttoken"],
     )
     def test_anything_else_is_rejected(self, header: str | None) -> None:
         """Only `Bearer <token>` carries a token."""

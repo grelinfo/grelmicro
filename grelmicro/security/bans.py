@@ -196,6 +196,11 @@ class ClientBans:
 
         A reason outside the configured set is not counted at all, so a key
         rotation or a batch of expired tokens never bans anyone.
+
+        A ban already running is never shortened. The counting window is
+        shorter than a ban, so a client that keeps failing rolls its window
+        over while still banned, and taking the new count at face value would
+        let it clear its own ban by carrying on. `forget` is what lifts a ban.
         """
         if reason not in self._reasons:
             return False
@@ -206,6 +211,8 @@ class ClientBans:
         else:
             started, count = seen[0], seen[1] + 1
         banned_until = now + self._duration if count >= self._failures else 0.0
+        if seen is not None:
+            banned_until = max(banned_until, seen[2])
         self._make_room()
         if client not in self._clients:
             self._order.append(client)

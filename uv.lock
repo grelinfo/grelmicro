@@ -935,7 +935,6 @@ mutation = [{ name = "mutmut", specifier = ">=3" }]
 
 [[package]]
 name = "grelmicro-core"
-version = "0.1.0"
 source = { directory = "rust/grelmicro-core" }
 
 [[package]]

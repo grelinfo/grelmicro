@@ -172,16 +172,23 @@ pub struct Verifier {
 ///
 /// A claim that is absent still passes. An AWS Cognito access token carries no
 /// `aud` at all, and `required` is what insists on one.
-fn audience_matches(claim: Option<&Value>, accepted: &HashSet<String>) -> bool {
+///
+/// `accepted` being `None` means the service answers to no audience, which
+/// RFC 7519 says must refuse a token that carries one. That is checked here
+/// rather than left to the crate, because the crate reads a wrongly typed
+/// `aud` as absent and would let `aud: 1` through where it refuses
+/// `aud: "other"`.
+fn audience_matches(claim: Option<&Value>, accepted: Option<&HashSet<String>>) -> bool {
+    let matches = |name: &str| accepted.is_some_and(|names| names.contains(name));
     match claim {
         None | Some(Value::Null) => true,
-        Some(Value::String(value)) => accepted.contains(value.as_str()),
+        Some(Value::String(value)) => matches(value.as_str()),
         Some(Value::Array(values)) => {
             !values.is_empty()
                 && values.iter().all(|value| matches!(value, Value::String(_)))
                 && values
                     .iter()
-                    .any(|value| value.as_str().is_some_and(|name| accepted.contains(name)))
+                    .any(|value| value.as_str().is_some_and(&matches))
         }
         Some(_) => false,
     }
@@ -190,11 +197,12 @@ fn audience_matches(claim: Option<&Value>, accepted: &HashSet<String>) -> bool {
 /// Check the `iss` claim, which RFC 7519 defines as a single `StringOrURI`.
 ///
 /// An array is not a valid issuer, so a token carrying one is refused rather
-/// than matched against its members.
-fn issuer_matches(claim: Option<&Value>, accepted: &HashSet<String>) -> bool {
+/// than matched against its members. A wrongly typed `iss` is refused whether
+/// or not an issuer is configured, for the same reason the audience is.
+fn issuer_matches(claim: Option<&Value>, accepted: Option<&HashSet<String>>) -> bool {
     match claim {
         None | Some(Value::Null) => true,
-        Some(Value::String(value)) => accepted.contains(value.as_str()),
+        Some(Value::String(value)) => accepted.is_none_or(|names| names.contains(value.as_str())),
         Some(_) => false,
     }
 }
@@ -246,15 +254,14 @@ impl Verifier {
                 ));
             }
         }
-        if let Some(accepted) = &self.audience {
-            if !audience_matches(claims.get("aud"), accepted) {
-                return Err(rejected("audience", "InvalidAudience".to_string()));
-            }
+        // Run unconditionally. A token carrying a wrongly typed `aud` or
+        // `iss` must be refused whether or not a policy names one, because
+        // the crate reads such a claim as absent.
+        if !audience_matches(claims.get("aud"), self.audience.as_ref()) {
+            return Err(rejected("audience", "InvalidAudience".to_string()));
         }
-        if let Some(accepted) = &self.issuer {
-            if !issuer_matches(claims.get("iss"), accepted) {
-                return Err(rejected("issuer", "InvalidIssuer".to_string()));
-            }
+        if !issuer_matches(claims.get("iss"), self.issuer.as_ref()) {
+            return Err(rejected("issuer", "InvalidIssuer".to_string()));
         }
         Ok(claims)
     }

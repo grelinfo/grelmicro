@@ -50,7 +50,6 @@ _JWK_ALGORITHM: Final[Mapping[tuple[str, str], str]] = {
     ("EC", "P-256"): "ES256",
     ("EC", "P-384"): "ES384",
     ("OKP", "Ed25519"): "EdDSA",
-    ("oct", ""): "HS256",
 }
 """Algorithm assumed for a JWK that names none, by key type and curve.
 
@@ -78,7 +77,23 @@ ALGORITHMS: Final = frozenset(
 """Signature algorithms a verifier accepts. `none` is not one of them."""
 
 BEARER_PREFIX: Final = "Bearer "
-"""Scheme an `Authorization` header must carry, per RFC 6750."""
+"""Scheme an `Authorization` header must carry, per RFC 6750.
+
+Matched without regard to case, because RFC 7235 makes the scheme token
+case-insensitive and clients and proxies do normalise it.
+"""
+
+_BEARER_LOWER: Final = BEARER_PREFIX.lower()
+_BEARER_LENGTH: Final = len(BEARER_PREFIX)
+
+_ASYMMETRIC_KEY_TYPES: Final = frozenset({"EC", "OKP", "RSA"})
+"""Key types a JWKS may publish for verifying a signature.
+
+A JWKS is served to anyone who asks, so a symmetric key in one is a secret
+that is not secret: whoever can read the document can mint tokens with it.
+A key of any other type is skipped. Configure a shared secret with
+`JWTKey(algorithm="HS256", key=...)`, from somewhere that is not published.
+"""
 
 _REASONS: Final[Mapping[str, str]] = {
     "algorithm": "The token uses an algorithm this verifier does not accept.",
@@ -233,14 +248,12 @@ class JWTPolicy(BaseModel):
     cache_key: Annotated[
         str,
         Doc(
-            "What the cache holds as its key. `token` keeps the encoded"
-            " token, which is the fastest and what an in-process cache"
-            " normally does. `sha256` keeps a SHA-256 digest instead, so a"
+            "What the cache holds as its key. `sha256` keeps a digest, so a"
             " live bearer token is not held in memory for the lifetime of"
-            " the entry. The digest is computed in the core, so it costs"
-            " around 80 ns on a hit, under 1% of a verification. `token`"
-            " keeps the encoded token as the key, which is what an"
-            " in-process cache normally does and is the faster of the two."
+            " the entry. It is computed in the core and costs around 80 ns"
+            " on a hit, under 1% of a verification. `token` keeps the"
+            " encoded token instead, which is what an in-process cache"
+            " normally does and is the faster of the two."
         ),
     ] = "sha256"
     cache_ttl: Annotated[
@@ -317,8 +330,10 @@ class JWTConfig(JWTPolicy):
     ) -> JWTConfig:
         """Build a config from a JWKS document.
 
-        Keys marked for encryption are skipped: a signature is never verified
-        with one. Everything else in `policy` is passed through.
+        Keys marked for encryption are skipped, and so are symmetric keys: a
+        signature is never verified with the first, and the second would be a
+        shared secret published to anyone who can read the document.
+        Everything else in `policy` is passed through.
 
         Example:
             ```python
@@ -397,14 +412,21 @@ def _usable_for_signatures(
     A key says so with `use`, with `key_ops`, or by saying nothing at all,
     which RFC 7517 leaves open and every provider uses for a signing key.
     A key that names another purpose is not one a signature is checked with.
+
+    A symmetric key is refused whatever it says about itself, because a JWKS
+    is a public document and a shared secret in one is not a secret.
     """
+    if jwk.get("kty") not in _ASYMMETRIC_KEY_TYPES:
+        return False
     use = jwk.get("use")
     if use is not None:
         return bool(use == "sig")
     operations = jwk.get("key_ops")
     if operations is None:
         return True
-    return "verify" in operations
+    # A provider serving this as a string rather than the array RFC 7517
+    # asks for would otherwise match on a substring.
+    return isinstance(operations, list) and "verify" in operations
 
 
 def _claims_of(raw: dict[str, Any]) -> JWTClaims:
@@ -595,10 +617,14 @@ class JWTVerifier:
         ] = None,
     ) -> JWTClaims:
         """Return the claims of the bearer token in `header`."""
-        if not header or not header.startswith(BEARER_PREFIX):
+        if not header or header[:_BEARER_LENGTH].lower() != _BEARER_LOWER:
+            # Resolved before the scheme is judged, so a verifier built with
+            # bans reports the misconfiguration rather than the bad header.
+            if self._bans is not None:
+                _responsible_client(client)
             reason = "scheme"
             raise TokenRejectedError(reason)
-        return self.verify(header[len(BEARER_PREFIX) :], client=client)
+        return self.verify(header[_BEARER_LENGTH:], client=client)
 
     def unverified_header(
         self,

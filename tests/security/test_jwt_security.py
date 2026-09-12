@@ -278,6 +278,32 @@ class TestClaimTypeConfusion:
 
         assert refuses(token) == "audience"
 
+    @pytest.mark.parametrize(
+        "aud", [1, True, {"aud": AUDIENCE}, [], [1, 2], "somewhere-else"]
+    )
+    def test_an_audience_is_refused_when_we_answer_to_none(
+        self,
+        aud: Any,  # noqa: ANN401
+    ) -> None:
+        """RFC 7519 refuses a token whose `aud` we do not identify with.
+
+        Naming no audience means identifying with none, so every `aud` is
+        somebody else's. A wrongly typed one reads as absent to the crate, so
+        this is the case where it would otherwise be waved through.
+        """
+        open_ = verifier(audience=[], required=["exp"])
+
+        assert refuses(SIGNER.token(claims(aud=aud)), open_) == "audience"
+
+    def test_a_token_without_an_audience_passes_when_we_answer_to_none(
+        self,
+    ) -> None:
+        """An AWS Cognito access token carries no `aud`, and is not forged."""
+        open_ = verifier(audience=[], required=["exp"])
+        token = SIGNER.token({**claims(), "aud": None})
+
+        assert open_.verify(token).subject == "victim"
+
     def test_a_far_future_expiry_is_still_checked(self) -> None:
         """A huge `exp` is accepted, but every other claim still applies."""
         token = SIGNER.token(claims(exp=2**53, aud="somewhere-else"))

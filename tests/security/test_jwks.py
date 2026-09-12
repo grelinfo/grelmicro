@@ -497,6 +497,41 @@ class TestDocumentLimits:
         with pytest.raises(JWKSUnavailableError, match="no usable key"):
             await verifier.refresh()
 
+    async def test_a_key_the_core_refuses_leaves_the_document_unloaded(
+        self,
+    ) -> None:
+        """A JWK can read as a key here and still be refused by the core.
+
+        `refresh` promises one error, and the document must not be recorded
+        as loaded, or the next refresh would see no change and skip the
+        rebuild for a whole `ttl`.
+        """
+        body = json.dumps(
+            {
+                "keys": [
+                    {
+                        "kty": "RSA",
+                        "kid": "broken",
+                        "alg": "RS256",
+                        "n": "!!!!",
+                        "e": "AQAB",
+                    }
+                ]
+            }
+        ).encode()
+        endpoint = Endpoint(body)
+        verifier = JWKSVerifier(config(retry_interval=0.01), fetch=endpoint)
+
+        with pytest.raises(JWKSUnavailableError, match="no usable key"):
+            await verifier.refresh()
+        assert verifier.stale is True
+
+        endpoint.body = document()
+        await anyio.sleep(0.02)
+        await verifier.refresh()
+
+        assert verifier.verify(token()).subject == "user-1"
+
     async def test_encryption_keys_are_skipped(self) -> None:
         """A signature is never verified with an encryption key."""
         body = json.dumps(
