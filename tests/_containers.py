@@ -19,5 +19,12 @@ the container that never came up.
 
 from __future__ import annotations
 
-CONTAINER_LOG_TIMEOUT = 90
-"""Seconds a test waits for a container's startup line, under full load."""
+CONTAINER_LOG_TIMEOUT = 180
+"""Seconds a test waits for a container's startup line, under full load.
+
+The release matrix is the case this has to survive: the integration tier
+runs once per Python version, so the same images are started and torn down
+three times over, and a daemon already holding the long-lived containers
+the suite keeps takes far longer over the last of those than the first. A
+generous bound costs nothing on a healthy run and only delays the report
+when a container is genuinely never coming up, which the wait names."""
