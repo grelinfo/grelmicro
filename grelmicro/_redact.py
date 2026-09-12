@@ -10,7 +10,7 @@ from pydantic_core import MultiHostUrl, Url
 
 MASK = "***"
 
-_USERINFO_RE = re.compile(r"(\A//|\A|://|:/)([^:/?#]*:)([^/?#]+)(@)")
+_USERINFO_RE = re.compile(r"(\A|://|:/|//)([^:/?#]*:)([^/?#]+)(@)")
 _MULTI_HOST_USERINFO_RE = re.compile(
     r"(\A|://|:/|//|,)([^:,/?#]*:)"
     r"((?:(?!,[^:,/?#]*:)[^/?#])+)(@)"
@@ -49,11 +49,7 @@ _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _BENIGN_QUERY_KEYS = frozenset(
     {
         "cache_key",
-        "foreign_key",
-        "group_key",
-        "order_key",
         "partition_key",
-        "primary_key",
         "routing_key",
         "shard_key",
         "sort_key",
@@ -68,7 +64,7 @@ an ordering, and masking them takes away what an operator reads the log
 for. Anything not listed here is still masked.
 """
 
-_QUALIFIER_SEPARATOR = re.compile(r"[./\[\]]")
+_QUALIFIER_SEPARATOR = re.compile(r"[-./\[\]]")
 _PARAMETER_BOUNDARY = re.compile(r"[/?&;]|%(?:2f|3b|26|3f)", re.IGNORECASE)
 _ASSIGNMENT_SEPARATOR = re.compile(r"=|%3d", re.IGNORECASE)
 _QUERY_DELIMITER = re.compile(r"(&)")

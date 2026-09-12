@@ -299,7 +299,10 @@ def configure(config: LogConfig | None = None) -> None:
         )
         logger.configure(patcher=patcher)
     else:
-        logger.configure()
+        # `configure()` replaces the patcher only when it is given one, so
+        # reconfiguring from a format that needed a patcher to one that
+        # does not would leave the old patcher serializing every record.
+        logger.configure(patcher=lambda _record: None)
 
     logger.remove()
     logger.add(

@@ -552,6 +552,8 @@ def test_url_assignment_separators_do_not_expose_credentials(
         "shard_key",
         "sortKey",
         "partition.key",
+        "sort-key",
+        "partition-key",
     ],
 )
 def test_a_key_that_addresses_a_row_is_not_a_credential(key: str) -> None:
@@ -565,18 +567,100 @@ def test_a_key_that_addresses_a_row_is_not_a_credential(key: str) -> None:
 
 @pytest.mark.parametrize(
     "key",
-    ["api_key", "session_key", "secret_key", "signing_key", "unknown_key"],
+    [
+        "api_key",
+        "api-key",
+        "x-api-key",
+        "session_key",
+        "secret_key",
+        "signing_key",
+        "unknown_key",
+        "idempotency_key",
+        "idempotency-key",
+        "foreign_key",
+        "group_key",
+        "order_key",
+        "primary_key",
+    ],
 )
 def test_an_unrecognised_key_name_is_still_masked(key: str) -> None:
-    """Only the settled names are let through, so a new one stays masked."""
+    """Only the settled names are let through, so a new one stays masked.
+
+    `idempotency_key` is here on purpose: a leaked one can replay a
+    request, so it is masked whatever the issue that raised it said. The
+    four ending in `key` that are not credentials are here too, because
+    which names stopped being redacted is the whole risk of this rule.
+    """
     assert redact_url(f"https://h/p?{key}=abc") == f"https://h/p?{key}={MASK}"
 
 
-def test_a_colon_in_the_path_is_not_userinfo() -> None:
-    """`//` inside a path carries no credential, so nothing is rewritten."""
+def test_a_colon_after_a_double_slash_is_masked_wherever_it_sits() -> None:
+    """A path colon is masked too, because narrowing the rule leaked.
+
+    `//path:x@y` carries no credential and reading it as one costs a
+    diagnostic. Every attempt to exempt it missed a position where a `//`
+    really does open one, `?a=1&//u:pw@h` and `#cb//u:pw@h` among them, so
+    the rule stays wide. Masking too much is recoverable, printing a
+    password is not.
+    """
     assert (
         redact_url("https://example.com//path:x@y")
-        == "https://example.com//path:x@y"
+        == f"https://example.com//path:{MASK}@y"
+    )
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param(
+            "https://h/p?next=%20//u:pw@h",
+            f"https://h/p?next={MASK}",
+            id="nested-behind-encoded-space",
+        ),
+        pytest.param(
+            "https://h/p#//u:pw@host",
+            f"https://h/p#//u:{MASK}@host",
+            id="fragment",
+        ),
+        pytest.param(
+            "https://h/p?next=//u:pw@h",
+            f"https://h/p?next={MASK}",
+            id="nested-in-query",
+        ),
+        pytest.param(
+            "https://h/p?a=1&//u:pw@host",
+            f"https://h/p?a=1&//u:{MASK}@host",
+            id="after-a-query-separator",
+        ),
+        pytest.param(
+            "https://h/p#cb//u:pw@host",
+            f"https://h/p#cb//u:{MASK}@host",
+            id="inside-a-fragment",
+        ),
+        pytest.param(
+            "https://h/p#/callback//u:pw@host",
+            f"https://h/p#/callback//u:{MASK}@host",
+            id="deeper-in-a-fragment",
+        ),
+    ],
+)
+def test_userinfo_is_masked_wherever_a_component_opens(
+    url: str, expected: str
+) -> None:
+    """A `//` that opens a query, a fragment or a nested value still hides.
+
+    Only a `//` in path position carries no credential. Anchoring the
+    pattern to the very start of the text would let every one of these
+    through, which is a leak rather than a cosmetic difference.
+    """
+    assert redact_url(url) == expected
+
+
+def test_multi_host_userinfo_survives_the_path_exception() -> None:
+    """Every host in a multi-host DSN still has its password masked."""
+    assert (
+        redact_url("postgres://u:pw@a:1,v:pw2@b:2/d", multi_host=True)
+        == f"postgres://u:{MASK}@a:1,v:{MASK}@b:2/d"
     )
 
 
