@@ -30,13 +30,16 @@ from grelmicro.errors import (
     OutOfContextError,
     SettingsValidationError,
 )
-from grelmicro.security.bans import ClientBannedError, ClientBans
+from grelmicro.security.bans import (
+    ClientBannedError,
+    ClientBans,
+    _responsible_client,
+)
 from grelmicro.security.jwt import (
     JWTConfig,
     JWTPolicy,
     JWTVerifier,
     TokenRejectedError,
-    _responsible,
 )
 
 if TYPE_CHECKING:
@@ -49,6 +52,7 @@ __all__ = [
     "JWKSFetcher",
     "JWKSUnavailableError",
     "JWKSVerifier",
+    "fetch_with_httpx",
 ]
 
 _ONE_MIB: Final = 1_048_576
@@ -357,7 +361,7 @@ class JWKSVerifier:
         bans = self._bans
         if bans is None:
             return self._checked(verify, value)
-        responsible = _responsible(client)
+        responsible = _responsible_client(client)
         if bans.banned(responsible):
             raise ClientBannedError
         try:

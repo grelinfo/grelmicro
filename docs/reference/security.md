@@ -21,6 +21,7 @@
         - JWKSConfig
         - JWKSFetcher
         - JWKSUnavailableError
+        - fetch_with_httpx
         - ClientBans
         - ClientBansConfig
         - ClientBannedError

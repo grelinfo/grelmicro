@@ -954,6 +954,9 @@
     "TrustedProxies": {
       "()": "(networks, /, *, max_hops=None, max_entries=64, max_header_bytes=8192) -> 'None'"
     },
+    "fetch_with_httpx": {
+      "()": "(url, *, timeout, max_bytes) -> 'bytes'"
+    },
     "resolve_client_address": {
       "()": "(scope, trusted) -> 'ClientAddress | None'"
     }

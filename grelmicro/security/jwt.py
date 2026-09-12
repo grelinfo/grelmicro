@@ -24,7 +24,11 @@ from grelmicro.errors import (
     GrelmicroError,
     SettingsValidationError,
 )
-from grelmicro.security.bans import ClientBannedError, ClientBans
+from grelmicro.security.bans import (
+    ClientBannedError,
+    ClientBans,
+    _responsible_client,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -318,7 +322,7 @@ class JWTConfig(JWTPolicy):
         """
         keys = []
         for jwk in jwks.get("keys", []):
-            if not usable_for_signatures(jwk):
+            if not _usable_for_signatures(jwk):
                 continue
             try:
                 keys.append(JWTKey.from_jwk(jwk, algorithm=algorithm))
@@ -369,7 +373,7 @@ class JWTClaims:
         )
 
 
-def usable_for_signatures(
+def _usable_for_signatures(
     jwk: Annotated[Mapping[str, Any], Doc("One key from a JWKS document.")],
 ) -> bool:
     """Whether a JWK is published for verifying signatures.
@@ -533,7 +537,7 @@ class JWTVerifier:
         """
         bans = self._bans
         if bans is not None:
-            client = _responsible(client)
+            client = _responsible_client(client)
             if bans.banned(client):
                 raise ClientBannedError
             try:
@@ -627,23 +631,6 @@ class JWTVerifier:
             cache.pop(oldest, None)
         cache[key] = (deadline, claims)
         order.append(key)
-
-
-def _responsible(client: str | None) -> str:
-    """Return the address to hold responsible, refusing to guess.
-
-    A verifier that was given a ban table and then called without a client
-    would count nothing and refuse nobody, which reads as protection and is
-    not. Failing here is loud on the first request rather than quiet forever.
-    """
-    if not client:
-        msg = (
-            "client= is required once bans are configured, and must be an"
-            " address the caller cannot choose. Pass what"
-            " resolve_client_address returned."
-        )
-        raise SettingsValidationError(msg)
-    return client
 
 
 def _core() -> Any:  # noqa: ANN401

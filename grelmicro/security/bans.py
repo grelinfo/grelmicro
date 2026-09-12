@@ -38,7 +38,7 @@ from typing import Annotated, Any, Final
 from pydantic import BaseModel, field_validator
 from typing_extensions import Doc
 
-from grelmicro.errors import GrelmicroError
+from grelmicro.errors import GrelmicroError, SettingsValidationError
 
 __all__ = [
     "ABUSIVE_REASONS",
@@ -232,3 +232,20 @@ class ClientBans:
             except IndexError:
                 break
             clients.pop(oldest, None)
+
+
+def _responsible_client(client: str | None) -> str:
+    """Return the address to hold responsible, refusing to guess.
+
+    A verifier that was given a ban table and then called without a client
+    would count nothing and refuse nobody, which reads as protection and is
+    not. Failing here is loud on the first request rather than quiet forever.
+    """
+    if not client:
+        msg = (
+            "client= is required once bans are configured, and must be an"
+            " address the caller cannot choose. Pass what"
+            " resolve_client_address returned."
+        )
+        raise SettingsValidationError(msg)
+    return client

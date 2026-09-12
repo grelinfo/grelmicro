@@ -29,6 +29,7 @@ from grelmicro.security.jwks import (
     JWKSFetcher,
     JWKSUnavailableError,
     JWKSVerifier,
+    fetch_with_httpx,
 )
 from grelmicro.security.jwt import (
     JWTClaims,
@@ -60,5 +61,6 @@ __all__ = [
     "TokenRejectedError",
     "TokenVerifier",
     "TrustedProxies",
+    "fetch_with_httpx",
     "resolve_client_address",
 ]
