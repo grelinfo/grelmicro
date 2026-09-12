@@ -42,7 +42,9 @@ jobs:
           # includes the snippet and README tests, which live under tests/
           # and run in the test job. Rust is the compiled core, whose
           # behaviour the Python suite covers, so a change to either runs
-          # the tests.
+          # the tests. Docs renders the API reference from the docstrings
+          # under grelmicro/, so a Python change can break the strict build
+          # and runs it too. Rust never reaches the docs.
           filters: |
             python:
               - 'grelmicro/**'
@@ -60,8 +62,10 @@ jobs:
               - '.github/actions/**'
             docs:
               - 'docs/**'
+              - 'grelmicro/**'
               - 'mkdocs.yml'
               - 'README.md'
+              - 'THIRD_PARTY_NOTICES.md'
               - '.github/workflows/**'
               - '.github/actions/**'
             workflows:

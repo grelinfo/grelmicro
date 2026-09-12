@@ -689,11 +689,15 @@ its paths call for:
 
 | A pull request that changes | Runs |
 | --- | --- |
-| Python only | Lint, then the unit, slow and integration tiers with the 100 % coverage total |
+| Python only | Lint, the docs build, then the unit, slow and integration tiers with the 100 % coverage total |
 | `rust/` only | Rust formatting and clippy, then the unit tier against the crate built from the change |
 | Python and `rust/` | All of the above |
 | Docs only | The docs build |
 | A workflow or `.github/actions/` | Every job |
+
+A Python change runs the docs build because the API reference is rendered
+from its docstrings, so a broken cross-reference fails the pull request
+rather than `main`.
 
 An untouched crate is never compiled. When `rust/grelmicro-core` is
 identical to the tree its `core-*` release was built from, CI installs that

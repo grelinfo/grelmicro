@@ -116,7 +116,7 @@ repos:
     entry: uv run --group docs mkdocs build --strict
     language: system
     pass_filenames: false
-    files: '(^docs/|^mkdocs\.yml$|^README\.md$|^THIRD_PARTY_NOTICES\.md$)'
+    files: '(^docs/|^grelmicro/|^mkdocs\.yml$|^README\.md$|^THIRD_PARTY_NOTICES\.md$)'
 
 
 ci:
