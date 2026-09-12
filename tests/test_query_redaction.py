@@ -594,15 +594,18 @@ def test_an_unrecognised_key_name_is_still_masked(key: str) -> None:
     assert redact_url(f"https://h/p?{key}=abc") == f"https://h/p?{key}={MASK}"
 
 
-def test_a_colon_in_the_path_is_not_userinfo() -> None:
-    """`//` inside a path carries no credential, so nothing is rewritten."""
+def test_a_colon_after_a_double_slash_is_masked_wherever_it_sits() -> None:
+    """A path colon is masked too, because narrowing the rule leaked.
+
+    `//path:x@y` carries no credential and reading it as one costs a
+    diagnostic. Every attempt to exempt it missed a position where a `//`
+    really does open one, `?a=1&//u:pw@h` and `#cb//u:pw@h` among them, so
+    the rule stays wide. Masking too much is recoverable, printing a
+    password is not.
+    """
     assert (
         redact_url("https://example.com//path:x@y")
-        == "https://example.com//path:x@y"
-    )
-    assert (
-        redact_url("https://example.com//path:x@y", multi_host=True)
-        == "https://example.com//path:x@y"
+        == f"https://example.com//path:{MASK}@y"
     )
 
 
@@ -623,6 +626,21 @@ def test_a_colon_in_the_path_is_not_userinfo() -> None:
             "https://h/p?next=//u:pw@h",
             f"https://h/p?next={MASK}",
             id="nested-in-query",
+        ),
+        pytest.param(
+            "https://h/p?a=1&//u:pw@host",
+            f"https://h/p?a=1&//u:{MASK}@host",
+            id="after-a-query-separator",
+        ),
+        pytest.param(
+            "https://h/p#cb//u:pw@host",
+            f"https://h/p#cb//u:{MASK}@host",
+            id="inside-a-fragment",
+        ),
+        pytest.param(
+            "https://h/p#/callback//u:pw@host",
+            f"https://h/p#/callback//u:{MASK}@host",
+            id="deeper-in-a-fragment",
         ),
     ],
 )
