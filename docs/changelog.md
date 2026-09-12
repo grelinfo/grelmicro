@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+* 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
+
 ## 0.41.1 - 2026-09-12
 
 ### Added
