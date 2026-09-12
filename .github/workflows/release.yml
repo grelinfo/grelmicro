@@ -23,7 +23,7 @@ jobs:
     # the point of a dry run is to validate a version before its tag exists.
     # `github.ref` is used rather than an empty string, which an expression
     # would treat as false and fall through to the version.
-    uses: ./.github/workflows/reusable-tests.yml
+    uses: $/.github/workflows/reusable-tests.yml
     with:
       full: true
       ref: ${{ github.event.release.tag_name || (inputs.dry_run && github.ref || inputs.version) }}
@@ -104,7 +104,7 @@ jobs:
     # `publish-pypi` is skipped on a dry run, and a skipped need would take
     # this with it, so the result is read rather than assumed.
     if: ${{ !cancelled() && needs.build-dist.result == 'success' && needs.publish-pypi.result != 'failure' }}
-    uses: ./.github/workflows/reusable-docs.yml
+    uses: $/.github/workflows/reusable-docs.yml
     with:
       ref: ${{ github.event.release.tag_name || (inputs.dry_run && github.ref || inputs.version) }}
       deploy: ${{ github.event.inputs.dry_run != 'true' }}
