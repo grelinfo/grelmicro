@@ -94,7 +94,7 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Install dependencies
-        uses: ./.github/actions/uv-sync
+        uses: $/.github/actions/uv-sync
         with:
           args: --all-extras
 
@@ -197,7 +197,7 @@ jobs:
     # that exercises it. The nightly schedule
     # and manual dispatch run the full tier (matrix, demo). Release runs the
     # full tier before publishing.
-    uses: ./.github/workflows/reusable-tests.yml
+    uses: $/.github/workflows/reusable-tests.yml
     with:
       full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       coverage: ${{ needs.changes.outputs.python == 'true' }}

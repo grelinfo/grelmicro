@@ -49,7 +49,7 @@ jobs:
           activate-environment: true
           python-version: ${{ matrix.python }}
       - name: Install dependencies
-        uses: ./.github/actions/uv-sync
+        uses: $/.github/actions/uv-sync
       - name: Run Unit Tests
         run: pytest -x -m "not integration and not slow" --cov --junitxml=junit.xml -o junit_family=legacy
       - name: Upload Unit Test Coverage to Codecov
