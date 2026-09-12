@@ -899,6 +899,7 @@
     }
   },
   "grelmicro.security": {
+    "ABUSIVE_REASONS": null,
     "ClientAddress": {
       "()": "(ip, port, reason, hops) -> None"
     },
@@ -907,6 +908,12 @@
     },
     "ClientAddressReason": {
       "()": "(*values)"
+    },
+    "ClientBans": {
+      "()": "(config=None, *, reasons=None) -> 'None'"
+    },
+    "ClientBansConfig": {
+      "()": "(*, failures=10, window=60.0, duration=300.0, max_clients=10000) -> None"
     },
     "JWKSConfig": {
       "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, url, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None) -> None"

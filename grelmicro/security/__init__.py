@@ -11,6 +11,11 @@ returns the address one of them vouched for, so a spoofed
 Read more in the [Security](../security/index.md) docs.
 """
 
+from grelmicro.security.bans import (
+    ABUSIVE_REASONS,
+    ClientBans,
+    ClientBansConfig,
+)
 from grelmicro.security.clientip import (
     ClientAddress,
     ClientAddressMiddleware,
@@ -35,9 +40,12 @@ from grelmicro.security.jwt import (
 )
 
 __all__ = [
+    "ABUSIVE_REASONS",
     "ClientAddress",
     "ClientAddressMiddleware",
     "ClientAddressReason",
+    "ClientBans",
+    "ClientBansConfig",
     "JWKSConfig",
     "JWKSFetcher",
     "JWKSUnavailableError",

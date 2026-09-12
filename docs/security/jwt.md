@@ -265,6 +265,71 @@ that 94 nanoseconds and is what an in-process cache normally does.
 JWTConfig(keys=[...], audience=["my-api"], cache_key="token")
 ```
 
+## Shedding a caller that keeps forging
+
+Verifying a forged token costs about what verifying a real one costs, because
+the signature has to be checked before any claim can be trusted. A caller
+sending forged tokens therefore buys real work per request. `ClientBans`
+counts those failures and refuses the caller for a while, which turns that
+cost into a dictionary lookup.
+
+```python
+from grelmicro.security import ClientBans
+
+bans = ClientBans()
+
+if bans.banned(client_ip):
+    raise HTTPException(status_code=429)
+
+try:
+    claims = verifier.verify_header(authorization)
+except TokenRejectedError as error:
+    bans.record(client_ip, error.reason)
+    raise
+```
+
+The address has to be one the caller cannot choose. Pass what
+[`resolve_client_address`](clientip.md) returns, never a raw
+`X-Forwarded-For`, or an attacker sets a header and gets somebody else
+refused.
+
+### Why not rate limit instead
+
+Rate limiting every request ahead of verification also sheds the load, and
+costs more. Measured on one machine, per request:
+
+| Step | ns |
+| --- | ---: |
+| `banned()` on an honest caller | 55 |
+| Verify a token already seen | 299 |
+| Rate limiter, in memory | 906 |
+| Verify a token for the first time | 11,619 |
+| Rate limiter, over Redis | 243,059 |
+
+A limiter in front of verification charges every honest request to shed
+traffic that is usually not there, and a distributed one charges twenty times
+what the verification it protects costs. Counting failures charges nothing
+until a caller has already proven itself, and then charges 88 ns to refuse it.
+
+### What counts as abuse
+
+Only `signature`, `malformed` and `algorithm` are counted by default. Each
+means the token was never issued by anyone the service trusts.
+
+The reasons left out matter more. `unknown-key` is what every client sees for
+a moment when the provider rotates its signing keys. Counting it bans a
+service's own users on every rotation: with five hundred clients retrying
+while a rotation lands, counting rejections by reason bans none of them, and
+counting every `401` bans all five hundred.
+
+`expired` is a client that needs to refresh. `not-yet-valid` is a clock that
+disagrees. `audience` and `issuer` are a token meant for a neighbouring
+service. None of them is an attack.
+
+Pass `reasons=` to choose a different set, and keep `duration` short. An
+address is shared behind NAT, so a ban reaches more people than the one caller
+that earned it.
+
 ## Routing on an untrusted header
 
 `unverified_header` reads `alg` and `kid` without checking the signature. Use

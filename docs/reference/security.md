@@ -21,3 +21,5 @@
         - JWKSConfig
         - JWKSFetcher
         - JWKSUnavailableError
+        - ClientBans
+        - ClientBansConfig
