@@ -32,6 +32,11 @@ keywords = [
     "asyncio",
     "async",
     "pydantic",
+    "jwt",
+    "jwks",
+    "oidc",
+    "security",
+    "rust",
 ]
 
 classifiers = [

@@ -10,7 +10,7 @@ A pattern you already use should reach the wire without hand-written glue. Every
 
 ## Checks on the request you were handed
 
-A microservice validates what arrives. It does not run the login. [Client IP](security/clientip.md) is the first check that lives by that line, and token validation is the next one: an OpenID Connect discovery document, a JWKS endpoint whose keys rotate under you, and signature, expiry, issuer, and audience checked before the handler runs. Issuing tokens, storing users, and running a login flow stay out.
+A microservice validates what arrives. It does not run the login. [Client IP](security/clientip.md) and [JWT verification](security/jwt.md) live by that line: signature, expiry, issuer, and audience are checked against a JWKS endpoint whose keys rotate under you. Next is discovery from an OpenID Connect issuer, and authenticating requests in the HTTP layer. Issuing tokens, storing users, and running a login flow stay out.
 
 ## Resilience that composes and coordinates
 

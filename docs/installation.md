@@ -51,6 +51,7 @@ grelmicro is modular. Install only the extras you need.
 | `instrumentation` | OpenTelemetry instrumentation packages (FastAPI, Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
 | `structlog` | `structlog` as an alternative logging backend. | All platforms. |
 | `yaml` | `pyyaml` for YAML sources in `ExternalConfig`. | All platforms. |
+| `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.12 to 3.14, free-threaded 3.14t included. Elsewhere it builds from source and needs a Rust toolchain. |
 
 === "pip"
     ```bash
@@ -68,6 +69,7 @@ grelmicro is modular. Install only the extras you need.
     pip install "grelmicro[instrumentation]"
     pip install "grelmicro[structlog]"
     pip install "grelmicro[yaml]"
+    pip install "grelmicro[jwt]"
     ```
 
 === "uv"
@@ -86,6 +88,7 @@ grelmicro is modular. Install only the extras you need.
     uv add "grelmicro[instrumentation]"
     uv add "grelmicro[structlog]"
     uv add "grelmicro[yaml]"
+    uv add "grelmicro[jwt]"
     ```
 
 === "poetry"
@@ -104,6 +107,7 @@ grelmicro is modular. Install only the extras you need.
     poetry add "grelmicro[instrumentation]"
     poetry add "grelmicro[structlog]"
     poetry add "grelmicro[yaml]"
+    poetry add "grelmicro[jwt]"
     ```
 
 Combine multiple extras in one call, for example `pip install "grelmicro[redis,valkey,opentelemetry,structlog]"`.

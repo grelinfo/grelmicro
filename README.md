@@ -46,7 +46,7 @@ It ships them as small, composable modules with pluggable backends, alongside id
 It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.
 
 - **Micro**: one focused primitive per module. Each covers a microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).
-- **Fast**: small footprint by design. We keep the layers thin so your code stays quick.
+- **Fast**: small footprint by design. We keep the layers thin so your code stays quick, and the hot paths that do real work run in a compiled Rust core: a JWT signature check is about four times faster than in a pure-Python library.
 - **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any asyncio-based stack.
 - **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
 - **Framework-agnostic**: every pattern behaves the same on FastAPI, Starlette, Litestar, and FastStream. `micro.install(app)` handles the difference, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim.
@@ -70,7 +70,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | [**Tracing**](https://grelmicro.grel.info/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
 | [**Metrics**](https://grelmicro.grel.info/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
 | [**Health**](https://grelmicro.grel.info/health/) | Health checks with concurrent runners and FastAPI liveness / readiness integration. |
-| [**Client IP**](https://grelmicro.grel.info/security/clientip/) | Resolve the real caller behind a reverse proxy, trusting only the `X-Forwarded-For` entries your own proxies appended. |
+| [**Security**](https://grelmicro.grel.info/security/) | [JWT verification](https://grelmicro.grel.info/security/jwt/) ![Rust powered](https://img.shields.io/badge/Rust-powered-b7410e?logo=rust&logoColor=white) checks the bearer token a caller presents against a key or a JWKS endpoint whose keys rotate. [Client IP](https://grelmicro.grel.info/security/clientip/) resolves the real caller behind a reverse proxy, trusting only your own proxies. |
 | [**Configuration**](https://grelmicro.grel.info/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
 
 ## Installation
@@ -79,7 +79,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 pip install grelmicro
 ```
 
-See the [Installation guide](https://grelmicro.grel.info/installation/) for `uv` and `poetry` commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, and structlog.
+See the [Installation guide](https://grelmicro.grel.info/installation/) for `uv` and `poetry` commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, structlog, and JWT verification.
 
 ## Example
 
