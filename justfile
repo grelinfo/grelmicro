@@ -35,6 +35,14 @@ mutation:
 mutation-results:
     uv run python -m mutmut results
 
+# Check the compiled JWT core the way the Python gates check the package.
+# clippy runs with pedantic and nursery on and warnings denied, which is the
+# Rust equivalent of ruff with every rule selected.
+[doc("Format-check and lint the Rust JWT core")]
+rust-check:
+    cargo fmt --manifest-path rust/grelmicro-core/Cargo.toml --check
+    cargo clippy --manifest-path rust/grelmicro-core/Cargo.toml --release --all-targets -- -D warnings
+
 # Run the full test tier the Release workflow runs, the way it runs it.
 # The PR tier skips the slow marker, so this is the first place it runs
 # locally. Coverage is appended across the three tiers because the 100%

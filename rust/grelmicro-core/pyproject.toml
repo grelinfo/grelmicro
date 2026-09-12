@@ -1,0 +1,26 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "grelmicro-core"
+description = "Compiled hot paths for grelmicro"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com" }]
+requires-python = ">=3.12"
+# The version lives in Cargo.toml, which is also what Cargo.lock records.
+# Release Core refuses to publish unless the tag names that same version.
+dynamic = ["version"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Security :: Cryptography",
+]
+
+[project.urls]
+Repository = "https://github.com/grelinfo/grelmicro"
+
+[tool.maturin]
+module-name = "grelmicro_core"
+features = ["pyo3/extension-module"]

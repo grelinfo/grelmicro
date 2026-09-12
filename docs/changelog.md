@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+* ✨ `JWTVerifier` verifies the bearer token a caller presents, against a fixed key set and claim policy. Signature, `exp`, `nbf`, `aud` and `iss` are checked in a compiled core, so a verification costs about 12 microseconds where a pure-Python library costs 46. Install it with `pip install "grelmicro[jwt]"`, which pulls the compiled `grelmicro-core` wheel.
+* ✨ `JWTConfig.from_jwks()` builds a verifier from the JWKS an OIDC provider publishes, reading the `kid` and `alg` off each key and skipping the ones published for encryption. AWS Cognito and Microsoft Entra ID both work, including Entra keys that carry no `alg`.
+* ✨ `JWKSVerifier` fetches the JWKS itself and follows the provider when it rotates. `refresh()` is a coroutine you schedule and `verify()` stays synchronous, so no request waits on the provider. A token naming a key the verifier does not hold is refused and marks the key set stale, and `retry_interval` stops invented `kid` values from making the service hammer its provider. The endpoint must be `https`, bodies are abandoned past `max_bytes`, redirects are not followed, and a failed refresh leaves the loaded keys in place.
+* ✨ A verified token is cached until its own `exp` or `cache_ttl` passes, whichever comes first, so a client that resends one token is answered in about 320 nanoseconds instead of 12 microseconds. The cache keys on a SHA-256 digest computed in the core, so a process holds no live bearer token beyond the request that presented it. `cache_key="token"` keys on the encoded token and is 94 nanoseconds faster.
+* ✨ `required` covers any claim, not only the ones RFC 7519 registers, so `required=["exp", "tenant"]` refuses a token that carries no tenant.
+* ✨ `ClientBans` refuses a caller that keeps presenting tokens that do not verify, so a forged-token flood costs a dictionary lookup instead of a signature check. It is off unless you pass one to `JWTVerifier(config, bans=...)` or `JWKSVerifier(config, bans=...)`, and a verifier built with bans refuses a call that gives it no `client` rather than quietly counting nothing. Only `signature`, `malformed` and `algorithm` are counted by default, because counting `unknown-key` or `expired` would ban a service's own users whenever the provider rotates its keys.
+* 🔒 `required` only ever adds to what is enforced. Naming a claim used to replace the expiry requirement rather than extend it, so `required=["tenant"]` read as tightening a policy and in fact turned the `exp` check off, and a token carrying no expiry was then accepted for as long as its key stayed published. `exp` is now enforced whether or not it is named, and a claim written as `null` no longer counts as present.
+* 🔒 `JWTClaims.raw` is read-only. A verified claim set is shared by every request presenting that token while it is cached, so writing into it changed what a later request was authorized as.
+* 🔒 Naming an `audience` or an `issuer` requires that claim. A token that omits `aud` no longer satisfies a configured audience, which would have applied the check to the tokens carrying the claim and waved through the ones that did not. Leave `audience` empty for a provider whose tokens carry none, such as an AWS Cognito access token.
+
 ## 0.41.0 - 2026-09-12
 
 ### Breaking

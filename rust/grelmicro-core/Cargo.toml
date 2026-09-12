@@ -1,0 +1,57 @@
+[package]
+name = "grelmicro-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Compiled hot paths for grelmicro"
+repository = "https://github.com/grelinfo/grelmicro"
+readme = "README.md"
+keywords = ["jwt", "jose", "authentication", "security", "python"]
+categories = ["authentication", "cryptography", "api-bindings"]
+
+[lib]
+name = "grelmicro_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.29", features = ["extension-module"] }
+# aws-lc-rs is the only crypto provider enabled, so the backend cannot be
+# selected by accident. AWS-LC is a BoringSSL fork and is what rustls uses by
+# default. Its `fips` feature is deliberately not enabled: this is the ordinary
+# build and claims no validation.
+jsonwebtoken = { version = "11", features = ["use_pem", "aws_lc_rs"] }
+serde_json = "1"
+# Already linked through jsonwebtoken. Used directly for the cache digest, so
+# a token is hashed with the accelerated implementation rather than through
+# Python, where the call overhead costs more than the hashing.
+aws-lc-rs = "1"
+
+# The Python side runs ruff with every rule on, ty and mypy. The Rust side
+# holds the same bar: pedantic and nursery clippy, documented items, and no
+# unsafe code at all in a module that decides whether a credential is valid.
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+indexing_slicing = "warn"
+# Two allows, each for a reason rather than to silence a finding.
+# `multiple_crate_versions` is about the dependency tree, not this code.
+# `option_if_let_else` is a nursery lint that would turn the two-branch key
+# selection into nested closures, which reads worse than the match does.
+multiple_crate_versions = "allow"
+option_if_let_else = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

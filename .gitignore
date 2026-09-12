@@ -33,3 +33,10 @@ todo.md
 mutants/
 .mutmut-cache
 html/
+
+# Rust build output for the JWT verification core
+rust/*/target/
+rust/*/dist*/
+
+# Added by ggshield
+.cache_ggshield

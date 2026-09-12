@@ -52,6 +52,22 @@ repos:
     language: system
     pass_filenames: false
 
+  - id: rust-fmt
+    name: rust-fmt
+    description: "Check the JWT core's formatting with 'cargo fmt'"
+    entry: cargo fmt --manifest-path rust/grelmicro-core/Cargo.toml --check
+    language: system
+    pass_filenames: false
+    files: '^rust/'
+
+  - id: rust-clippy
+    name: rust-clippy
+    description: "Lint the JWT core with clippy pedantic and nursery, warnings denied"
+    entry: cargo clippy --manifest-path rust/grelmicro-core/Cargo.toml --release --all-targets -- -D warnings
+    language: system
+    pass_filenames: false
+    files: '^rust/'
+
   - id: ty-check
     name: ty-check
     description: "Run 'ty check' for static type checking"
@@ -106,4 +122,4 @@ repos:
 ci:
   autofix_commit_msg: 🎨 [pre-commit.ci] Auto format from pre-commit.com hooks
   autoupdate_commit_msg: ⬆ [pre-commit.ci] pre-commit autoupdate
-  skip: [uv-lock, ty-check, mypy-check, pytest-unit, pytest-integration, coverage-report, mkdocs-build]
+  skip: [uv-lock, rust-fmt, rust-clippy, ty-check, mypy-check, pytest-unit, pytest-integration, coverage-report, mkdocs-build]
