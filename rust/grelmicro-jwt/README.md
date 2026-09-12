@@ -16,8 +16,8 @@ pip install "grelmicro[jwt]"
 ## Design notes
 
 - `aws-lc-rs` is the only crypto provider enabled, so the slower pure-Rust
-  backend cannot be selected by accident. AWS-LC is a fork of BoringSSL with a
-  FIPS 140-3 validated module.
+  backend cannot be selected by accident. AWS-LC is a fork of BoringSSL. Its
+  `fips` feature is not enabled, so this build claims no FIPS validation.
 - Verification releases the GIL, so a thread pool verifies in parallel.
 - The module declares `gil_used = false`, so importing it does not turn the
   GIL back on under a free-threaded interpreter.

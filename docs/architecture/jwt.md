@@ -43,10 +43,20 @@ rewrite that is slower than the Python it replaced is an easy mistake to make
 silently, so the crate enables `aws_lc_rs` and nothing else. The backend cannot
 be selected by accident.
 
-Speed is not the only reason it wins. [AWS-LC](https://github.com/aws/aws-lc-rs)
-is a fork of BoringSSL with a FIPS 140-3 validated module, and it is what
-[rustls](https://docs.rs/rustls/latest/rustls/manual/_06_fips/index.html) uses
-by default.
+Speed is not the only reason it wins, and it is not the first one. The first
+is that it verifies what providers actually sign with. The core accepts twelve
+algorithms, covering the RSA, ECDSA, RSA-PSS and Ed25519 families, so a token
+from any of the providers the suite tests against verifies without the caller
+choosing anything.
+
+The second is that the implementation is one worth trusting.
+[AWS-LC](https://github.com/aws/aws-lc-rs) is a fork of BoringSSL maintained
+by a team that does this full time, it is what
+[rustls](https://docs.rs/rustls/latest/rustls/) uses by default, and it
+carries a FIPS 140-3 validated module. That last one is cited as evidence of
+how the code is reviewed and tested, not as a goal: the `fips` feature is not
+enabled here and this build claims no validation. Enabling it would cost
+EdDSA, which is a reason not to rather than a reason to.
 
 ## One implementation, no fallback
 

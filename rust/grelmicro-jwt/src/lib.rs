@@ -228,7 +228,12 @@ impl Verifier {
             .map(|data| data.claims)
             .map_err(|error| rejected(reason_of(&error), error.to_string()))?;
         for name in &self.extra_required {
-            if claims.get(name).is_none() {
+            // A claim written as `null` is absent, not present with no
+            // value. The registered claims are read this way by the crate,
+            // so reading these any other way would make `required` a weaker
+            // promise for the claims a caller adds than for the ones the
+            // RFC names.
+            if !matches!(claims.get(name), Some(value) if !value.is_null()) {
                 return Err(rejected(
                     "missing-claim",
                     format!("missing required claim {name}"),

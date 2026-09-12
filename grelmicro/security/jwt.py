@@ -14,6 +14,7 @@ import json
 from collections import deque
 from dataclasses import dataclass
 from time import time
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Final, Protocol
 
 from pydantic import BaseModel, Field, field_validator
@@ -215,9 +216,10 @@ class JWTPolicy(BaseModel):
     required: Annotated[
         list[str],
         Doc(
-            "Claims that must be present, beyond the ones naming a policy"
-            " implies. `exp` is required by default, and naming an"
-            " `audience` or an `issuer` requires that claim too."
+            "Further claims that must be present. `exp` is always required"
+            " and does not need naming, and naming an `audience` or an"
+            " `issuer` requires that claim too, so this only ever adds to"
+            " what is enforced."
         ),
     ] = Field(default_factory=lambda: ["exp"])
     cache_size: Annotated[
@@ -279,7 +281,13 @@ class JWTPolicy(BaseModel):
         provider whose tokens carry none, such as an AWS Cognito access
         token.
         """
-        enforced = list(self.required)
+        # `exp` is seeded rather than defaulted, so naming any other claim
+        # adds to the policy instead of replacing it. Without this,
+        # `required=["tenant"]` would read as tightening the policy and
+        # would in fact drop the expiry check, and a token carrying no
+        # `exp` would then be accepted for as long as its key is published.
+        enforced = ["exp"]
+        enforced += [claim for claim in self.required if claim != "exp"]
         for claim, configured in (("aud", self.audience), ("iss", self.issuer)):
             if configured and claim not in enforced:
                 enforced.append(claim)
@@ -356,7 +364,15 @@ class JWTClaims:
     claims lifted out of it, so the common path needs no dict lookups.
     """
 
-    raw: Annotated[dict[str, Any], Doc("Every claim the token carries.")]
+    raw: Annotated[
+        Mapping[str, Any],
+        Doc(
+            "Every claim the token carries, read-only. A verified claim set"
+            " is shared by every request presenting that token while it is"
+            " cached, so writing into it would change what a later request"
+            " is authorized as."
+        ),
+    ]
     subject: Annotated[str | None, Doc("The `sub` claim.")]
     issuer: Annotated[str | None, Doc("The `iss` claim.")]
     audience: Annotated[str | list[str] | None, Doc("The `aud` claim.")]
@@ -395,7 +411,7 @@ def _claims_of(raw: dict[str, Any]) -> JWTClaims:
     """Wrap a verified claim set, lifting the registered claims out of it."""
     get = raw.get
     return JWTClaims(
-        raw=raw,
+        raw=MappingProxyType(raw),
         subject=get("sub"),
         issuer=get("iss"),
         audience=get("aud"),

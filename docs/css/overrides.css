@@ -112,3 +112,34 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* Pattern tags. A small pill under a page title saying what a pattern is
+   built on, so the answer is visible without reading the architecture
+   notes. Written as an ordinary link with `attr_list`, so it stays a link
+   when stylesheets do not load and screen readers announce it as one. */
+.md-typeset .grel-tag {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+.md-typeset .grel-tag:hover {
+  text-decoration: none;
+  filter: brightness(1.08);
+}
+
+.md-typeset .grel-tag--rust {
+  color: #ffffff;
+  background-color: #b7410e;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grel-tag--rust {
+  color: #1b1b1b;
+  background-color: #ff8a5c;
+}

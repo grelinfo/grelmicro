@@ -1,5 +1,7 @@
 # JWT
 
+[Rust powered](../architecture/jwt.md){ .grel-tag .grel-tag--rust }
+
 A caller presents a bearer token. `JWTVerifier` decides whether to believe it.
 
 grelmicro never issues tokens. It checks the one that arrives: the signature,
@@ -54,9 +56,9 @@ the message reaches your logs.
 Every verification checks the signature against the key the `kid` names, then
 `exp`, `nbf`, and any `aud` and `iss` you configured.
 
-`exp` is required by default. A token with no expiry is rejected rather than
-trusted forever. Set `leeway` to allow clock skew between the issuer and your
-service.
+`exp` is always required. A token with no expiry is rejected rather than
+trusted forever, and there is no setting that turns that off. Set `leeway` to
+allow clock skew between the issuer and your service.
 
 The algorithm is pinned to the key. A token asking for a different one is
 rejected before its signature is checked, so `none` and the HMAC confusion
@@ -84,11 +86,16 @@ empty `audience` rejects any token that does carry one.
 
 ### Required claims
 
-`required` covers any claim, not only the ones the RFC registers:
+`required` covers any claim, not only the ones the RFC registers. It only ever
+adds: `exp` is enforced whether or not you name it, and so is any `audience`
+or `issuer` you configured.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], required=["exp", "tenant"])
+JWTConfig(keys=[...], audience=["my-api"], required=["tenant"])
 ```
+
+That rejects a token with no `tenant`, a token whose `tenant` is `null`, and
+a token with no `exp`.
 
 ## Keys
 
@@ -189,7 +196,7 @@ verifier = JWKSVerifier(
     JWKSConfig(
         url=f"{issuer}/.well-known/jwks.json",
         issuer=[issuer],
-        required=["exp", "token_use"],
+        required=["token_use"],
     )
 )
 await verifier.refresh()

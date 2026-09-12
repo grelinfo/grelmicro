@@ -160,6 +160,51 @@ def test_leeway_forgives_a_clock_that_runs_ahead() -> None:
     assert build(leeway=SKEW).verify(token).subject == "user-1"
 
 
+def test_naming_a_claim_does_not_drop_the_expiry_requirement() -> None:
+    """`required` adds to the policy, it never replaces what it already has.
+
+    Reading it the other way would mean an operator tightening a policy by
+    naming a claim had quietly turned the expiry check off, and a token
+    carrying no `exp` would then be accepted for as long as its key is
+    published.
+    """
+    policy = JWTConfig(
+        keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+        audience=[AUDIENCE],
+        required=["tenant"],
+    )
+
+    assert policy.enforced_claims() == ["exp", "tenant", "aud"]
+
+    with pytest.raises(TokenRejectedError) as caught:
+        JWTVerifier(policy).verify(issue(exp=None, tenant="acme"))
+    assert caught.value.reason == "missing-claim"
+
+
+def test_an_empty_required_list_still_requires_an_expiry() -> None:
+    """There is no spelling of `required` that turns the expiry check off."""
+    policy = JWTConfig(
+        keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+        audience=[AUDIENCE],
+        required=[],
+    )
+
+    assert policy.enforced_claims() == ["exp", "aud"]
+
+    with pytest.raises(TokenRejectedError):
+        JWTVerifier(policy).verify(issue(exp=None))
+
+
+def test_a_required_claim_written_as_null_is_absent() -> None:
+    """`null` is not a value, and the registered claims are read that way."""
+    verifier = build(required=["tenant"])
+
+    with pytest.raises(TokenRejectedError) as caught:
+        verifier.verify(issue(tenant=None))
+
+    assert caught.value.reason == "missing-claim"
+
+
 def test_a_claim_outside_the_registered_set_can_be_required() -> None:
     """`required` covers any claim, not only the ones RFC 7519 registers."""
     verifier = build(required=["exp", "tenant"])
@@ -424,6 +469,29 @@ class TestUnverifiedHeader:
 class TestCache:
     """The verified-token cache, which must never outlive what it caches."""
 
+    def test_the_claims_handed_back_cannot_be_written_into(self) -> None:
+        """A cached claim set is shared, so writing into it would reach others.
+
+        Every request presenting the token gets the same object while it is
+        cached, so a caller enriching or narrowing `raw` would change what a
+        later request is authorized as.
+        """
+        verifier = build()
+        token = issue()
+        claims = verifier.verify(token)
+
+        with pytest.raises(TypeError):
+            # Both checkers refuse this, which is the point: the claim set
+            # is read-only in the types as well as at runtime. The runtime
+            # check stays, because a caller without a type checker is
+            # exactly who this protects.
+            claims.raw["scope"] = "admin"  # type: ignore[index]  # ty: ignore[invalid-assignment]
+
+        assert verifier.verify(token).scopes == {
+            "orders:read",
+            "orders:write",
+        }
+
     def test_a_repeated_token_is_served_from_the_cache(self) -> None:
         """The second verification returns the very same claims object."""
         verifier = build()
@@ -504,10 +572,25 @@ class TestCache:
         assert verifier.verify(issue(sub="alice")).subject == "alice"
         assert verifier.verify(issue(sub="bob")).subject == "bob"
 
-    def test_a_token_without_an_expiry_is_never_cached(self) -> None:
-        """Nothing would bound how long the entry stays valid."""
-        verifier = build(required=[])
-        verifier.verify(issue(exp=None))
+    def test_a_claim_set_without_an_expiry_is_never_cached(self) -> None:
+        """Nothing would bound how long the entry stays valid.
+
+        No token reaches this now, because `exp` is always enforced. The
+        guard stays because it is what makes the entry deadline safe, so it
+        is checked directly rather than left to be true by accident.
+        """
+        verifier = build()
+        undated = JWTClaims(
+            raw={},
+            subject="nobody",
+            issuer=None,
+            audience=None,
+            expires_at=None,
+            issued_at=None,
+            token_id=None,
+        )
+
+        verifier._store("any-key", undated)
 
         assert verifier._cache == {}
 
