@@ -55,7 +55,7 @@ repos:
   - id: rust-fmt
     name: rust-fmt
     description: "Check the JWT core's formatting with 'cargo fmt'"
-    entry: cargo fmt --manifest-path rust/grelmicro-jwt/Cargo.toml --check
+    entry: cargo fmt --manifest-path rust/grelmicro-core/Cargo.toml --check
     language: system
     pass_filenames: false
     files: '^rust/'
@@ -63,7 +63,7 @@ repos:
   - id: rust-clippy
     name: rust-clippy
     description: "Lint the JWT core with clippy pedantic and nursery, warnings denied"
-    entry: cargo clippy --manifest-path rust/grelmicro-jwt/Cargo.toml --release --all-targets -- -D warnings
+    entry: cargo clippy --manifest-path rust/grelmicro-core/Cargo.toml --release --all-targets -- -D warnings
     language: system
     pass_filenames: false
     files: '^rust/'

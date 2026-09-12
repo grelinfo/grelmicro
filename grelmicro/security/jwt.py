@@ -655,7 +655,7 @@ def _core() -> Any:  # noqa: ANN401
         # Imported here so the module loads without the core installed, and
         # the failure names the extra instead of breaking the import of
         # anything that reads `grelmicro.security`.
-        import grelmicro_jwt_core  # noqa: PLC0415
+        import grelmicro_core  # noqa: PLC0415
     except ImportError:
-        raise DependencyNotFoundError(module="grelmicro-jwt-core") from None
-    return grelmicro_jwt_core
+        raise DependencyNotFoundError(module="grelmicro-core") from None
+    return grelmicro_core

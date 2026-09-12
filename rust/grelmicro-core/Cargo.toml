@@ -1,16 +1,16 @@
 [package]
-name = "grelmicro-jwt-core"
+name = "grelmicro-core"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Compiled JWT verification core for grelmicro.security.jwt"
+description = "Compiled hot paths for grelmicro"
 repository = "https://github.com/grelinfo/grelmicro"
 readme = "README.md"
 keywords = ["jwt", "jose", "authentication", "security", "python"]
 categories = ["authentication", "cryptography", "api-bindings"]
 
 [lib]
-name = "grelmicro_jwt_core"
+name = "grelmicro_core"
 crate-type = ["cdylib"]
 
 [dependencies]

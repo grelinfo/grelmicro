@@ -183,7 +183,7 @@ instrumentation = [
 # one through pydantic-core, so this adds no platform that was not already
 # required, and a single implementation keeps one behaviour to verify.
 jwt = [
-    "grelmicro-jwt-core>=0.1.0",
+    "grelmicro-core>=0.1.0",
 ]
 structlog = [
     "structlog>=24.1.0",
@@ -198,7 +198,7 @@ yaml = [
 
 [dependency-groups]
 dev = [
-    "grelmicro-jwt-core",
+    "grelmicro-core",
     # The security suite signs its own tokens, including the malformed and
     # confused ones a JWT library refuses to produce. grelmicro never issues
     # a token, so this is a test dependency only.
@@ -293,7 +293,7 @@ replacement = '\1="https://raw.githubusercontent.com/grelinfo/grelmicro/main/doc
 # the version range in the `jwt` extra: uv sources are development metadata
 # and never reach the built distribution.
 [tool.uv.sources]
-grelmicro-jwt-core = { path = "rust/grelmicro-jwt" }
+grelmicro-core = { path = "rust/grelmicro-core" }
 
 [tool.ruff]
 target-version = "py312"

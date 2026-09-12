@@ -3,9 +3,9 @@ requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
 [project]
-name = "grelmicro-jwt-core"
+name = "grelmicro-core"
 version = "0.1.0"
-description = "Compiled JWT verification core for grelmicro.security.jwt"
+description = "Compiled hot paths for grelmicro"
 license = "MIT"
 requires-python = ">=3.12"
 classifiers = [
@@ -18,5 +18,5 @@ classifiers = [
 Repository = "https://github.com/grelinfo/grelmicro"
 
 [tool.maturin]
-module-name = "grelmicro_jwt_core"
+module-name = "grelmicro_core"
 features = ["pyo3/extension-module"]

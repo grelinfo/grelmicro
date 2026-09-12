@@ -1,8 +1,8 @@
-name: Release JWT Core
-# `grelmicro-jwt-core` is the compiled verification core behind
-# `grelmicro.security.jwt`. It is a distribution of its own, released on its
-# own tag, because it is a per-platform wheel where grelmicro is pure Python
-# and because it changes far less often.
+name: Release Core
+# `grelmicro-core` holds grelmicro's compiled hot paths, JWT verification
+# today. It is a distribution of its own, released on its own tag, because it
+# is a per-platform wheel where grelmicro is pure Python and because it changes
+# far less often.
 #
 # The wheel matrix tracks pydantic-core, which grelmicro already requires.
 # Anywhere pydantic-core has a wheel and this does not, `grelmicro[jwt]` falls
@@ -11,7 +11,7 @@ name: Release JWT Core
 on:
   push:
     tags:
-      - 'jwt-core-*'
+      - 'core-*'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -21,7 +21,7 @@ on:
 permissions: {}
 
 env:
-  CRATE_DIR: rust/grelmicro-jwt
+  CRATE_DIR: rust/grelmicro-core
   # No build cache anywhere in this workflow. A cache is writable by any job
   # that can run on the repository, and everything built here is signed and
   # published, so a poisoned cache would reach users as an attested artifact.
@@ -181,13 +181,13 @@ jobs:
         # against a core rebuilt from the working tree.
         run: |
           uv sync --all-extras --group dev
-          uv pip install --reinstall --no-deps dist/grelmicro_jwt_core-*-cp312-cp312-manylinux*_x86_64*.whl
+          uv pip install --reinstall --no-deps dist/grelmicro_core-*-cp312-cp312-manylinux*_x86_64*.whl
           uv run --no-sync pytest tests/security -q
 
   publish:
     name: Publish to PyPI
     needs: [linux, macos, windows, sdist, smoke]
-    if: ${{ startsWith(github.ref, 'refs/tags/jwt-core-') && inputs.dry_run != true }}
+    if: ${{ startsWith(github.ref, 'refs/tags/core-') && inputs.dry_run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

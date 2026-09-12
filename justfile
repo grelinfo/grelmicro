@@ -40,8 +40,8 @@ mutation-results:
 # Rust equivalent of ruff with every rule selected.
 [doc("Format-check and lint the Rust JWT core")]
 rust-check:
-    cargo fmt --manifest-path rust/grelmicro-jwt/Cargo.toml --check
-    cargo clippy --manifest-path rust/grelmicro-jwt/Cargo.toml --release --all-targets -- -D warnings
+    cargo fmt --manifest-path rust/grelmicro-core/Cargo.toml --check
+    cargo clippy --manifest-path rust/grelmicro-core/Cargo.toml --release --all-targets -- -D warnings
 
 # Run the full test tier the Release workflow runs, the way it runs it.
 # The PR tier skips the slow marker, so this is the first place it runs

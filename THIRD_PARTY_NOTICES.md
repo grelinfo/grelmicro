@@ -9,7 +9,7 @@ outlines of the Funnel Display typeface under the SIL Open Font License
 1.1. Full license texts appear at the end of this file.
 
 The `grelmicro` wheel itself is pure Python and links nothing. The
-optional `grelmicro-jwt-core` wheel is different: it is a compiled
+optional `grelmicro-core` wheel is different: it is a compiled
 extension that statically links its Rust dependencies, so their notices
 travel inside it. They are listed below.
 
@@ -53,12 +53,12 @@ missing `__module__` / `__qualname__`, lambdas, and nested functions
 Copyright (c) Alex Grönholm
 Licensed under the [MIT License](#mit-license).
 
-## grelmicro-jwt-core (Rust dependencies)
+## grelmicro-core (Rust dependencies)
 
-`grelmicro-jwt-core` is the compiled verification core behind
-`grelmicro.security.jwt`, shipped as its own wheel and installed by the
-`grelmicro[jwt]` extra. It statically links 54 Rust crates, so that wheel
-redistributes their code and carries their notices.
+`grelmicro-core` holds grelmicro's compiled hot paths, JWT verification
+today. It ships as its own wheel, installed by the `grelmicro[jwt]` extra, and
+statically links 54 Rust crates, so that wheel redistributes their code and
+carries their notices.
 
 Its direct dependencies:
 

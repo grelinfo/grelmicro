@@ -1,9 +1,15 @@
-//! Compiled JWT verification core for `grelmicro.security.jwt`.
+//! Compiled hot paths for grelmicro.
 //!
-//! The Python layer owns configuration, error taxonomy and framework wiring.
-//! This crate owns the hot path: key selection, base64 decode, signature
-//! verification, registered claim checks and claim materialisation, all in one
-//! call across the boundary.
+//! Only work that earns the crossing lives here. A call into Rust costs
+//! roughly 20 to 30 nanoseconds, so anything doing less than about a
+//! microsecond of real work belongs in Python, which is where the token
+//! cache and the ban table stayed after being measured both ways.
+//!
+//! What is here today is JWT verification, where a signature check is some
+//! twelve microseconds and the crossing is rounding error. The Python layer
+//! owns configuration, error taxonomy and framework wiring. This crate owns
+//! key selection, base64 decode, signature verification, registered claim
+//! checks and claim materialisation, all in one call across the boundary.
 //!
 //! Verification releases the GIL for the work that touches no Python object.
 
@@ -19,7 +25,7 @@ use pyo3::types::{PyBytes, PyDict, PyList};
 use serde_json::Value;
 
 create_exception!(
-    grelmicro_jwt_core,
+    grelmicro_core,
     CoreVerificationError,
     PyException,
     "Raised when a token fails verification, carrying (reason, detail)."
@@ -148,7 +154,7 @@ fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
 const SPEC_CLAIMS: [&str; 5] = ["aud", "exp", "iss", "nbf", "sub"];
 
 /// A verifier holding one key per `kid` plus an optional default key.
-#[pyclass(frozen, module = "grelmicro_jwt_core")]
+#[pyclass(frozen, module = "grelmicro_core")]
 pub struct Verifier {
     keys: HashMap<String, (DecodingKey, Validation)>,
     fallback: Option<(DecodingKey, Validation)>,
@@ -363,7 +369,7 @@ fn unverified_header(py: Python<'_>, token: &str) -> PyResult<Py<PyAny>> {
 // holds only what construction put in it, and is never mutated afterwards,
 // which the `frozen` attribute makes the compiler enforce.
 #[pymodule(gil_used = false)]
-fn grelmicro_jwt_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn grelmicro_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Verifier>()?;
     module.add_function(wrap_pyfunction!(unverified_header, module)?)?;
     module.add_function(wrap_pyfunction!(sha256_digest, module)?)?;

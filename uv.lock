@@ -742,7 +742,7 @@ instrumentation = [
     { name = "opentelemetry-instrumentation-redis" },
 ]
 jwt = [
-    { name = "grelmicro-jwt-core" },
+    { name = "grelmicro-core" },
 ]
 kubernetes = [
     { name = "lightkube" },
@@ -794,7 +794,7 @@ dev = [
     { name = "fastapi-cli" },
     { name = "faststream" },
     { name = "freezegun" },
-    { name = "grelmicro-jwt-core" },
+    { name = "grelmicro-core" },
     { name = "httpx" },
     { name = "httpx2" },
     { name = "hypothesis" },
@@ -851,7 +851,7 @@ requires-dist = [
     { name = "fast-depends", specifier = ">=2.0.0" },
     { name = "fastapi", marker = "extra == 'fastapi'", specifier = ">=0.137.0" },
     { name = "faststream", marker = "extra == 'faststream'", specifier = ">=0.7.0" },
-    { name = "grelmicro-jwt-core", marker = "extra == 'jwt'", directory = "rust/grelmicro-jwt" },
+    { name = "grelmicro-core", marker = "extra == 'jwt'", directory = "rust/grelmicro-core" },
     { name = "lightkube", marker = "extra == 'kubernetes'", specifier = ">=0.15.0" },
     { name = "litestar", marker = "extra == 'litestar'", specifier = ">=2.24.0" },
     { name = "opentelemetry-api", marker = "extra == 'opentelemetry'", specifier = ">=1.20.0" },
@@ -885,7 +885,7 @@ dev = [
     { name = "fastapi-cli", specifier = ">=0.0.5" },
     { name = "faststream", specifier = ">=0.7.0" },
     { name = "freezegun", specifier = ">=1.5.2" },
-    { name = "grelmicro-jwt-core", directory = "rust/grelmicro-jwt" },
+    { name = "grelmicro-core", directory = "rust/grelmicro-core" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx2", specifier = ">=2.7.0" },
     { name = "hypothesis", specifier = ">=6.100.0" },
@@ -934,9 +934,9 @@ docs = [
 mutation = [{ name = "mutmut", specifier = ">=3" }]
 
 [[package]]
-name = "grelmicro-jwt-core"
+name = "grelmicro-core"
 version = "0.1.0"
-source = { directory = "rust/grelmicro-jwt" }
+source = { directory = "rust/grelmicro-core" }
 
 [[package]]
 name = "griffe-typingdoc"

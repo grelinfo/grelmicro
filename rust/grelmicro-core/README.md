@@ -1,11 +1,17 @@
-# grelmicro-jwt-core
+# grelmicro-core
 
-The compiled verification core behind `grelmicro.security.jwt`.
+The compiled hot paths behind grelmicro.
 
-It owns the hot path of checking an inbound JWT: selecting the key the token's
-`kid` names, verifying the signature, checking the registered claims, and
-decoding the claim set, all in one call across the boundary. Configuration,
-the claim wrapper, the cache and the error taxonomy stay in Python.
+Only work that earns the crossing lives here. A call into Rust costs roughly
+20 to 30 nanoseconds, so anything doing less than about a microsecond of real
+work belongs in Python. The token cache and the ban table were measured both
+ways and stayed there.
+
+What is here today is JWT verification, where a signature check is some twelve
+microseconds: selecting the key the token's `kid` names, verifying the
+signature, checking the registered claims, and decoding the claim set, all in
+one call. Configuration, the claim wrapper, the cache and the error taxonomy
+stay in Python.
 
 Install it through grelmicro rather than on its own:
 

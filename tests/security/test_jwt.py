@@ -804,9 +804,9 @@ class TestErrors:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The extra is named, so the fix is in the message."""
-        monkeypatch.setitem(sys.modules, "grelmicro_jwt_core", None)
+        monkeypatch.setitem(sys.modules, "grelmicro_core", None)
 
-        with pytest.raises(DependencyNotFoundError, match="grelmicro-jwt-core"):
+        with pytest.raises(DependencyNotFoundError, match="grelmicro-core"):
             build()
 
 

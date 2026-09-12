@@ -326,9 +326,18 @@ does, and which works whether the tokens repeat or not.
 
 ## Shipping the wheel
 
-The core is its own distribution, `grelmicro-jwt-core`, released on its own
-tag. grelmicro stays a pure Python wheel built by hatchling, and the extra
-pulls the compiled one in.
+The core is its own distribution, `grelmicro-core`, released on its own tag.
+grelmicro stays a pure Python wheel built by hatchling, and the extra pulls the
+compiled one in.
+
+It is named for what it is rather than for JWT, because the crossing it pays
+for is not unique to tokens. Six places already hash with `hashlib`, for cache
+keys, ETags, idempotency fingerprints and shield keys, and `sha256_digest` in
+this crate is 164 ns against `hashlib`'s 272 ns on the same input, most of that
+difference being call overhead rather than hashing. If any of those ever moves,
+it belongs in this wheel rather than in a second one that would duplicate
+BoringSSL on disk. A pattern needing no crypto is the case for a separate
+crate, because the binary here is 2.38 MB and almost all of it is AWS-LC.
 
 Its wheel matrix has to track pydantic-core, which grelmicro already requires
 through pydantic. Anywhere pydantic-core has a wheel and this does not,
