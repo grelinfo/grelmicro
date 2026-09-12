@@ -18,11 +18,37 @@ from grelmicro.security.clientip import (
     TrustedProxies,
     resolve_client_address,
 )
+from grelmicro.security.jwks import (
+    JWKSConfig,
+    JWKSFetcher,
+    JWKSUnavailableError,
+    JWKSVerifier,
+)
+from grelmicro.security.jwt import (
+    JWTClaims,
+    JWTConfig,
+    JWTKey,
+    JWTPolicy,
+    JWTVerifier,
+    TokenRejectedError,
+    TokenVerifier,
+)
 
 __all__ = [
     "ClientAddress",
     "ClientAddressMiddleware",
     "ClientAddressReason",
+    "JWKSConfig",
+    "JWKSFetcher",
+    "JWKSUnavailableError",
+    "JWKSVerifier",
+    "JWTClaims",
+    "JWTConfig",
+    "JWTKey",
+    "JWTPolicy",
+    "JWTVerifier",
+    "TokenRejectedError",
+    "TokenVerifier",
     "TrustedProxies",
     "resolve_client_address",
 ]

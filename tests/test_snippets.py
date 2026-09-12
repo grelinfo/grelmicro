@@ -21,6 +21,8 @@ import re
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 _DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 _SNIPPETS_DIR = _DOCS_DIR / "snippets"
@@ -53,6 +55,24 @@ _ENV = {
         "REDIS_URL": "redis://localhost:6379/0",
     },
 }
+
+
+# The JWT snippet loads its verification key the way an application does,
+# from the environment. A key is generated here so the snippet runs against
+# real material rather than a placeholder that would never parse.
+def _public_key_pem() -> str:
+    generated = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return (
+        generated.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+
+
+_ENV["security/jwt.py"] = {"JWT_PUBLIC_KEY": _public_key_pem()}
 
 _ALL = sorted(
     p.relative_to(_SNIPPETS_DIR).as_posix() for p in _SNIPPETS_DIR.rglob("*.py")

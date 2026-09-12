@@ -908,6 +908,39 @@
     "ClientAddressReason": {
       "()": "(*values)"
     },
+    "JWKSConfig": {
+      "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, url, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None) -> None"
+    },
+    "JWKSFetcher": {
+      "()": "(*args, **kwargs)"
+    },
+    "JWKSUnavailableError": null,
+    "JWKSVerifier": {
+      "()": "(config, *, fetch=None) -> 'None'"
+    },
+    "JWTClaims": {
+      "()": "(raw, subject, issuer, audience, expires_at, issued_at, token_id) -> None"
+    },
+    "JWTConfig": {
+      "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, keys) -> None",
+      ".from_jwks": "(jwks, *, algorithm=None, **policy) -> 'JWTConfig'"
+    },
+    "JWTKey": {
+      "()": "(*, algorithm, key, kid=None, format='pem') -> None",
+      ".from_jwk": "(jwk, *, algorithm=None) -> 'JWTKey'"
+    },
+    "JWTPolicy": {
+      "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
+    },
+    "JWTVerifier": {
+      "()": "(config) -> 'None'"
+    },
+    "TokenRejectedError": {
+      "()": "(reason) -> 'None'"
+    },
+    "TokenVerifier": {
+      "()": "(*args, **kwargs)"
+    },
     "TrustedProxies": {
       "()": "(networks, /, *, max_hops=None, max_entries=64, max_header_bytes=8192) -> 'None'"
     },

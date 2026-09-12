@@ -107,6 +107,7 @@ nav:
     - Security:
         - security/index.md
         - security/clientip.md
+        - security/jwt.md
     - Logging:
         - logging/index.md
         - logging/integrations.md
@@ -158,6 +159,7 @@ nav:
     - architecture/config.md
     - architecture/reconfigure.md
     - architecture/http.md
+    - architecture/jwt.md
     - architecture/imports.md
     - architecture/plugins.md
     - architecture/multiple-apps.md
