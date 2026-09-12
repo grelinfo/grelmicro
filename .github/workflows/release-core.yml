@@ -8,6 +8,10 @@ name: Release Core
 # Anywhere pydantic-core has a wheel and this does not, `grelmicro[jwt]` falls
 # back to building from the sdist and needs a Rust toolchain, so a gap here is
 # a gap in what the extra can be installed on.
+#
+# Free-threaded builds start at 3.14t. pydantic-core ships no cp313t either,
+# and maturin refuses a free-threaded interpreter below 3.14, so 3.13t is a
+# wheel nobody can install rather than one we are choosing not to build.
 on:
   push:
     tags:
@@ -89,7 +93,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.12 3.13 3.14 3.13t 3.14t'
+          args: --release --out dist --interpreter '3.12 3.13 3.14 3.14t'
           manylinux: auto
           working-directory: ${{ env.CRATE_DIR }}
       - name: Build musllinux wheels
@@ -99,7 +103,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.12 3.13 3.14 3.13t 3.14t'
+          args: --release --out dist --interpreter '3.12 3.13 3.14 3.14t'
           manylinux: musllinux_1_2
           working-directory: ${{ env.CRATE_DIR }}
       - name: Upload wheels
@@ -130,7 +134,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.12 3.13 3.14 3.13t 3.14t'
+          args: --release --out dist --interpreter '3.12 3.13 3.14 3.14t'
           working-directory: ${{ env.CRATE_DIR }}
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -160,7 +164,7 @@ jobs:
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --interpreter '3.12 3.13 3.14 3.13t 3.14t'
+          args: --release --out dist --interpreter '3.12 3.13 3.14 3.14t'
           working-directory: ${{ env.CRATE_DIR }}
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
