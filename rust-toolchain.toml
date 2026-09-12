@@ -1,0 +1,8 @@
+# One compiler everywhere the core is built: the pre-commit hooks, the CI Rust
+# job, and the release wheels. Clippy runs pedantic and nursery with warnings
+# denied, so a floating stable would start failing on unchanged code whenever
+# a new release adds a lint. Bump this on purpose, in its own pull request.
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

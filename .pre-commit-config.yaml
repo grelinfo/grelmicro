@@ -58,7 +58,7 @@ repos:
     entry: cargo fmt --manifest-path rust/grelmicro-core/Cargo.toml --check
     language: system
     pass_filenames: false
-    files: '^rust/'
+    files: '^(rust/|rust-toolchain\.toml$)'
 
   - id: rust-clippy
     name: rust-clippy
@@ -66,7 +66,7 @@ repos:
     entry: cargo clippy --manifest-path rust/grelmicro-core/Cargo.toml --release --all-targets -- -D warnings
     language: system
     pass_filenames: false
-    files: '^rust/'
+    files: '^(rust/|rust-toolchain\.toml$)'
 
   - id: ty-check
     name: ty-check
@@ -116,7 +116,7 @@ repos:
     entry: uv run --group docs mkdocs build --strict
     language: system
     pass_filenames: false
-    files: '(^docs/|^mkdocs\.yml$|^README\.md$|^THIRD_PARTY_NOTICES\.md$)'
+    files: '(^docs/|^grelmicro/|^mkdocs\.yml$|^README\.md$|^THIRD_PARTY_NOTICES\.md$)'
 
 
 ci:
