@@ -4,6 +4,9 @@ Verifying a bearer token is on the path of every authenticated request, so the
 cost of getting it wrong is paid per request forever. Every choice below was
 measured before it was made.
 
+This is the worked example for [Rust](rust.md), which has the rule the
+measurements here produced, and what else does and does not clear it.
+
 Numbers come from an Apple M4, macOS arm64, CPython 3.12.12, RS256 with a
 2048-bit key, best of seven runs with the garbage collector off. Treat the
 ratios as the result and the absolute figures as one machine's.

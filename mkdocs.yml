@@ -160,6 +160,7 @@ nav:
     - architecture/reconfigure.md
     - architecture/http.md
     - architecture/jwt.md
+    - architecture/rust.md
     - architecture/imports.md
     - architecture/plugins.md
     - architecture/multiple-apps.md
