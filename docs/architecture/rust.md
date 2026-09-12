@@ -84,17 +84,37 @@ replaced, so the crate enables `aws_lc_rs` and nothing else.
 
 ## What is next, and what is not
 
-Two candidates have been measured and are worth doing:
+One candidate has been measured and is worth doing:
 
 | | Python | Rust | |
 | --- | ---: | ---: | --- |
 | `sha256` of a short key | 252 ns | 77 ns | Six call sites already hash this way |
-| `ip_address()`, IPv4 | 694 ns | | Parsed once per request |
-| `ip_address()`, IPv6 | 1,302 ns | | Parsed once per request |
 
-Hashing a large body is not among them. At 64 KiB `hashlib` takes 19,082 ns
-and is already at hardware speed, so this is for keys and fingerprints rather
-than for request bodies.
+Only 12 ns of that 252 is hashing. The rest is object machinery: `hashlib`
+offers no one-shot call, so eighty bytes cost a hasher object, a digest
+object, and a string. Rust returns the digest from one call.
+
+Hashing a large body is not a candidate. At 64 KiB `hashlib` takes 19,082 ns
+at 3.44 GB/s, which is the same accelerated primitive, so this is for keys and
+fingerprints rather than for request bodies.
+
+### Address parsing, which looked like a candidate and is not
+
+`resolve_client_address` parses an address per request, and the standard
+library is slow at it: 680 ns for IPv4 and 1,269 ns for IPv6. That reads like
+twelve to twenty times the crossing, so it was proposed.
+
+Measuring where the time goes killed it. The cost is constructing the Python
+`ipaddress` object, not reading the string. pydantic was checked first, since
+`pydantic-core` is already a Rust dependency, and it is no faster: 864 ns for
+IPv4 against the standard library's 680, because it returns the same
+`ipaddress.IPv6Address` and adds validation dispatch on top of building it.
+
+A Rust parser meets the same wall unless it stops returning an `ipaddress`
+object, which means `clientip.py` working in canonical strings and a prebuilt
+matcher instead. That is a restructuring of security-sensitive parsing to save
+about a microsecond on a request that spends forty to sixty microseconds in
+Python. The standard library is correct, well tested, and stays.
 
 Measured and rejected:
 
@@ -104,6 +124,7 @@ Measured and rejected:
 | Client ban check | 55 ns | Equal to the crossing |
 | Rate limiter, in memory | 906 ns | Not the bottleneck it sheds |
 | Rate limiter, over Redis | 243,059 ns | Network bound |
+| Address parsing | 680 to 1,269 ns | The cost is the Python object, not the parse |
 | Redis, Postgres, HTTP clients | | Not ours, and the library is 5.6% of the cost |
 | JSON | | `orjson` exists and is already the optional path |
 
