@@ -83,7 +83,7 @@ repos:
   - id: pytest-integration
     name: pytest-integration
     description: "Run 'pytest' for integration testing"
-    entry: uv run pytest -m "integration" --cov --cov-append
+    entry: uv run pytest -m "integration" --cov --cov-append -n 4
     language: system
     pass_filenames: false
 

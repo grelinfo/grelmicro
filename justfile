@@ -46,7 +46,10 @@ test-full:
     uv run pytest -x -m "not integration and not slow" --cov
     # Exit 5 is "no tests collected", which is fine while the tier is empty.
     uv run pytest -x -m "slow and not integration" --cov --cov-append || [ $? -eq 5 ]
-    uv run pytest -x -m integration --cov --cov-append
+    # Container tests wait on the Docker daemon rather than on cores, so a
+    # worker per core only means more images starting at once. That is what
+    # leaves a Sentinel pair unable to converge, which no wait can fix.
+    uv run pytest -x -m integration --cov --cov-append -n "${GREL_INTEGRATION_WORKERS:-4}"
     uv run coverage report --fail-under=100
 
 # Bring the demo stack up, probe it the way CI does, and tear it down.
@@ -83,10 +86,24 @@ test-matrix:
             continue
         fi
         echo "== Python $version"
+        # CI runs the stock interpreter, so the matrix has to as well. uv
+        # prefers a managed build, and a free-threaded one is the only
+        # managed build on some machines, which silently tests an ABI no
+        # wheel is published for: orjson then builds from Rust and fails.
+        uv python install "$version" >/dev/null
+        if uv run --isolated --python "$version" --no-project python -c \
+            'import sysconfig, sys; sys.exit(sysconfig.get_config_var("Py_GIL_DISABLED") == 1)'; then
+            :
+        else
+            echo "Python $version resolved to a free-threaded build." >&2
+            echo "The matrix mirrors CI, which runs the stock one." >&2
+            echo "Run 'uv python install $version' and try again." >&2
+            exit 1
+        fi
         uv run --isolated --python "$version" --all-extras --group dev \
             pytest -x -m "not integration and not slow"
         uv run --isolated --python "$version" --all-extras --group dev \
-            pytest -x -m integration
+            pytest -x -m integration -n "${GREL_INTEGRATION_WORKERS:-4}"
     done
 
 # Everything the Release workflow will run, before the tag exists.
