@@ -32,6 +32,7 @@ Read more in the [JWT](../security/jwt.md) docs.
 from __future__ import annotations
 
 import asyncio
+import itertools
 from collections import deque
 from time import monotonic
 from typing import Annotated, Any, Final, Self
@@ -259,13 +260,15 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         self._reconfigure_lock = asyncio.Lock()
         self._take(config)
         self._reasons = ABUSIVE_REASONS if reasons is None else reasons
-        # `(window_started, count, banned_until)` per client. Kept beside a
-        # queue of the order clients were first seen, so making room never
-        # walks the table. Every operation on either is one the interpreter
-        # applies whole, so this is safe to share across a thread pool and
-        # under a free-threaded interpreter, with no lock on the read path.
-        self._clients: dict[str, tuple[float, int, float]] = {}
-        self._order: deque[str] = deque()
+        # `(window_started, count, banned_until, inserted)` per client. Kept
+        # beside a queue of `(client, inserted)` in the order clients were
+        # first seen, so making room never walks the table. Every operation on
+        # either is one the interpreter applies whole, so this is safe to share
+        # across a thread pool and under a free-threaded interpreter, with no
+        # lock on the read path.
+        self._clients: dict[str, tuple[float, int, float, int]] = {}
+        self._order: deque[tuple[str, int]] = deque()
+        self._insertions = itertools.count()
 
     def _take(self, config: ClientBansConfig) -> None:
         """Read the thresholds a request is judged against."""
@@ -334,12 +337,16 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         else:
             started, count = seen[0], seen[1] + 1
         banned_until = now + self._duration if count >= self._failures else 0.0
-        if seen is not None:
+        if seen is not None and seen[2] > now:
             banned_until = max(banned_until, seen[2])
         self._make_room()
-        if client not in self._clients:
-            self._order.append(client)
-        self._clients[client] = (started, count, banned_until)
+        current = self._clients.get(client)
+        if current is None:
+            inserted = next(self._insertions)
+            self._order.append((client, inserted))
+        else:
+            inserted = current[3]
+        self._clients[client] = (started, count, banned_until, inserted)
         return banned_until > 0.0
 
     def forget(
@@ -351,14 +358,21 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
     def _make_room(self) -> None:
         """Drop the oldest entries so the table stays bounded.
 
+        The queue is what is bounded. Every entry in the table has a record
+        in it, so the table never holds more than the queue. A record `forget`
+        left behind names an entry that is gone, or one recorded again since
+        under a newer insertion, and is dropped without evicting anything.
+
         Taken from the end the queue was written at, so nothing reads the
         table while another thread is writing to it.
         """
         clients = self._clients
         order = self._order
-        while len(clients) >= self._max_clients:
+        while len(order) >= self._max_clients:
             try:
-                oldest = order.popleft()
+                oldest, inserted = order.popleft()
             except IndexError:
                 break
-            clients.pop(oldest, None)
+            entry = clients.get(oldest)
+            if entry is not None and entry[3] == inserted:
+                clients.pop(oldest, None)

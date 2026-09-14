@@ -31,6 +31,10 @@
 
 ### Fixed
 * 🐛 A JWKS endpoint that cannot be reached, or times out, raises `SigningKeysUnavailableError` instead of a raw `httpx` error. `async with verifier:` then opens without keys as documented, and the background refresh keeps retrying instead of stopping for good. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A JWKS entry that is not a key object, or names its `kty` with anything but a string, is skipped instead of raising, so it no longer stops `async with verifier:` or ends the background refresh. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A missing `httpx` raises `DependencyNotFoundError` from `async with verifier:` instead of being retried forever, and an unexpected error in the background refresh is logged without ending it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 `ClientBans.record()` no longer reports a ban that has already run out. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A client `ClientBans.forget()` cleared and recorded again is no longer evicted early, and forgetting clients no longer grows the table's queue without bound. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))

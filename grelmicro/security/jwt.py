@@ -754,7 +754,7 @@ class JWTClaims:
 
 
 def _usable_for_signatures(
-    jwk: Annotated[Mapping[str, Any], Doc("One key from a JWKS document.")],
+    jwk: Annotated[object, Doc("One entry from a JWKS document's `keys`.")],
 ) -> bool:
     """Whether a JWK is published for verifying signatures.
 
@@ -764,8 +764,15 @@ def _usable_for_signatures(
 
     A symmetric key is refused whatever it says about itself, because a JWKS
     is a public document and a shared secret in one is not a secret.
+
+    An entry that is not a JSON object, or names its `kty` with anything but
+    a string, is not a key. The document comes from outside this process, so
+    its shape is checked before anything is read from it.
     """
-    if jwk.get("kty") not in _ASYMMETRIC_KEY_TYPES:
+    if not isinstance(jwk, dict):
+        return False
+    key_type = jwk.get("kty")
+    if not isinstance(key_type, str) or key_type not in _ASYMMETRIC_KEY_TYPES:
         return False
     use = jwk.get("use")
     if use is not None:
@@ -1427,7 +1434,9 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
             document = await self._fetch(
                 source.url, timeout=source.timeout, max_bytes=source.max_bytes
             )
-        except SigningKeysUnavailableError:
+        except (SigningKeysUnavailableError, DependencyNotFoundError):
+            # A missing dependency is a broken install, not an outage, so it
+            # stops the app at startup instead of being retried forever.
             raise
         except Exception as error:
             # A fetcher of the caller's own can fail in its own way. Left
@@ -1493,9 +1502,9 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         for task in (self._task, self._inflight):
             if task is not None:
                 task.cancel()
-                with suppress(
-                    asyncio.CancelledError, SigningKeysUnavailableError
-                ):
+                # Whatever an abandoned fetch failed with, closing still
+                # succeeds: nothing is waiting on that result any more.
+                with suppress(asyncio.CancelledError, Exception):
                     await task
         self._task = None
         self._inflight = None
@@ -1518,6 +1527,13 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
                     "signing keys could not be refreshed, keeping the loaded"
                     " keys: %s",
                     error,
+                )
+            except Exception:
+                # Logged, never raised: an error nobody foresaw must not end
+                # the refresh for good and leave the keys to go stale.
+                logger.exception(
+                    "signing keys could not be refreshed, keeping the loaded"
+                    " keys"
                 )
 
     async def _apply_reconfigure(

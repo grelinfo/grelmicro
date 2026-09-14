@@ -455,6 +455,20 @@ class TestJWKS:
 
         assert [key.kid for key in config.keys] == ["sig-1"]
 
+    def test_an_entry_that_is_not_a_key_is_skipped(self) -> None:
+        """A document is untrusted input, so its shape is checked first."""
+        jwks = {
+            "keys": [
+                "not-a-key",
+                {"kty": ["RSA"], "kid": "listed-type"},
+                SIGNER.public_jwk("RS256", kid="sig-1"),
+            ]
+        }
+
+        config = JWTKeysConfig.from_jwks(jwks, audience=[AUDIENCE])
+
+        assert [key.kid for key in config.keys] == ["sig-1"]
+
     def test_a_jwks_with_no_usable_key_is_refused(self) -> None:
         """A verifier with no key can verify nothing."""
         with pytest.raises(ValidationError):

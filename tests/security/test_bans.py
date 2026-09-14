@@ -145,6 +145,29 @@ class TestBanning:
         """Clearing what was never there is not an error."""
         bans().forget(CLIENT)
 
+    def test_an_expired_ban_is_not_reported_again(self) -> None:
+        """A failure after a ban ran out bans nobody until the count does."""
+        table = bans(duration=0.05, window=0.05)
+        for _ in range(FAILURES):
+            table.record(CLIENT, "signature")
+
+        time.sleep(0.1)
+
+        assert table.record(CLIENT, "signature") is False
+        assert table.banned(CLIENT) is False
+
+    def test_a_client_recorded_after_forget_keeps_its_place(self) -> None:
+        """The record `forget` left behind never evicts the new entry."""
+        table = bans(max_clients=2)
+        table.record(CLIENT, "signature")
+        table.forget(CLIENT)
+        table.record(CLIENT, "signature")
+
+        table.record(OTHER, "signature")
+
+        assert CLIENT in table._clients
+        assert OTHER in table._clients
+
 
 class TestRetryAfter:
     """How long a banned client is told to wait."""
@@ -285,6 +308,17 @@ class TestMemoryIsBounded:
 
         assert "first" not in table._clients
         assert "third" in table._clients
+
+    def test_forgetting_clients_leaves_the_queue_bounded(self) -> None:
+        """Records `forget` leaves behind are dropped, never piled up."""
+        table = bans(max_clients=TRACKED)
+
+        for index in range(FLOOD):
+            client = f"2001:db8::{index:x}"
+            table.record(client, "signature")
+            table.forget(client)
+
+        assert len(table._order) <= TRACKED
 
 
 class TestConfiguration:

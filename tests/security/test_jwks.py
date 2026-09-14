@@ -571,6 +571,48 @@ class TestLifecycle:
         with pytest.raises(SigningKeysUnavailableError, match="OSError"):
             await verifier.refresh()
 
+    async def test_a_document_of_malformed_keys_does_not_stop_the_app(
+        self,
+    ) -> None:
+        """Keys nothing can read leave the verifier open and retrying."""
+        body = json.dumps({"keys": ["not-a-key", {"kty": ["RSA"]}]}).encode()
+        endpoint = Endpoint(body)
+
+        async with JWTVerifier.from_config(
+            config(retry_interval=0.01), fetch=endpoint
+        ) as verifier:
+            assert verifier.ready is False
+
+            endpoint.body = document()
+            await until(lambda: verifier.ready)
+
+    async def test_a_missing_dependency_stops_the_app(self) -> None:
+        """A broken install is not an outage, so it is not retried."""
+        endpoint = Endpoint(DependencyNotFoundError(module="httpx"))
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
+
+        with pytest.raises(DependencyNotFoundError):
+            await verifier.__aenter__()
+
+        assert verifier._task is None
+
+    async def test_an_unforeseen_error_never_ends_the_background_refresh(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """It is logged, and the next pass still follows a rotation."""
+        endpoint = Endpoint(document())
+
+        with caplog.at_level(logging.ERROR, logger="grelmicro.security.jwt"):
+            async with JWTVerifier.from_config(
+                config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+            ) as verifier:
+                endpoint.body = DependencyNotFoundError(module="httpx")
+                await until(lambda: "could not be refreshed" in caplog.text)
+
+                endpoint.body = document(ROTATED, kid="k2")
+                rotated = token(ROTATED, kid="k2")
+                await until(lambda: verifies(verifier, rotated))
+
     async def test_a_background_refresh_follows_a_rotation(self) -> None:
         """A token naming a new key verifies once the next pass runs."""
         endpoint = Endpoint(document())
