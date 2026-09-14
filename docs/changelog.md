@@ -42,6 +42,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 On Litestar, an `include` or `exclude` pattern matches the path its router serves, with a trailing slash or a doubled slash dropped, whether or not the app has a root path. `exclude=("/livez",)` covers `/livez/` too. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 A request's route path is read exactly as the framework's router reads it, a `root_path` ending in a slash or equal to the path included, so authentication, the response cache, idempotency and the other components never check a route other than the one that answers. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 The response cache and idempotent replays read a URL ending in a newline as the route Starlette serves it with, so a gated read is never cached, and a gated write never replayed, through that spelling. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🐛 `CachedResponses` and `IdempotentRequests` serve an app that mounts routes naming a parameter the mount names too, such as `/members/{id}` under `/orgs/{id}`. They failed with `ValueError` where Starlette serves it. ([#839](https://github.com/grelinfo/grelmicro/issues/839))

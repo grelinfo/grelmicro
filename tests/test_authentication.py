@@ -1946,6 +1946,17 @@ def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401
 class TestLitestar:
     """Handler declarations on Litestar."""
 
+    def test_exclude_matches_the_path_litestar_routes(self) -> None:
+        """A trailing slash Litestar's router drops is dropped here too."""
+        with LitestarTestClient(
+            litestar_app(
+                AuthenticatedRequests(verifier(), exclude=("/catalog/7",))
+            )
+        ) as client:
+            response = client.post("/catalog/7/")
+
+        assert response.json() == {"item": 7}
+
     def test_an_anonymous_handler_needs_no_credential(self) -> None:
         """A public read is served, typed path parameter and all."""
         with LitestarTestClient(

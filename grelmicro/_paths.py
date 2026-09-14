@@ -257,12 +257,13 @@ def route_path(
     that answers. Starlette takes `root_path` off whole and as given, so a
     `root_path` of `/api` leaves `/apikeys` alone and shortens `/api/keys`,
     and a path equal to it reads as empty. Litestar takes it off where it
-    first appears and normalizes what is left.
+    first appears, and normalizes the path whether it had one or not.
     """
     path = _scope_text(scope["path"])
     root = _scope_text(scope.get("root_path", ""))
-    if root and "litestar_app" in scope:
-        return _litestar_normalize()(path.split(root, maxsplit=1)[-1])
+    if "litestar_app" in scope:
+        routed = path.split(root, maxsplit=1)[-1] if root else path
+        return _litestar_normalize()(routed)
     return starlette_route_path(path, root)
 
 

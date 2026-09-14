@@ -872,12 +872,14 @@ def test_the_route_path_is_read_as_starlette_routes_it(
         ("/api//x", "/api", "/x"),
         ("/v1/api/x", "/api", "/x"),
         ("/api", "/api", "/"),
+        ("/livez/", "", "/livez"),
+        ("//orders//7", "", "/orders/7"),
     ],
 )
 def test_the_route_path_is_read_as_litestar_routes_it(
     path: str, root_path: str, expected: str
 ) -> None:
-    """Litestar takes the root path off where it first appears, then normalizes."""
+    """Litestar takes the root path off where it first appears, and normalizes either way."""
     scope = {"path": path, "root_path": root_path, "litestar_app": object()}
 
     assert route_path(scope) == expected
