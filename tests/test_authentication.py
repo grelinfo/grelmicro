@@ -1033,6 +1033,25 @@ class TestOpenAPI:
             SCHEME,
         }
 
+    def test_the_schemas_own_root_requirement_is_joined(self) -> None:
+        """An operation inheriting the app's requirement keeps it, beside ours."""
+
+        def declare(app: FastAPI) -> None:
+            generated = app.openapi
+
+            def with_root_security() -> dict[str, Any]:
+                schema = generated()
+                schema["security"] = [{"ApiKey": []}]
+                return schema
+
+            app.openapi = with_root_security  # ty: ignore[invalid-assignment]
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        paths = app.openapi()["paths"]
+
+        assert paths["/me"]["get"]["security"] == [{"ApiKey": [], SCHEME: []}]
+        assert "security" not in paths["/catalog"]["get"]
+
     def test_openapi_false_leaves_the_schema_alone(self) -> None:
         """The component can stay out of the document."""
         schema = fastapi_app(

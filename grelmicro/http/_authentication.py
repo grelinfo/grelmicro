@@ -860,6 +860,7 @@ def document_operations(
     schema.setdefault("components", {}).setdefault(
         "securitySchemes", {}
     ).setdefault(SECURITY_SCHEME, security_scheme(verifier))
+    inherited = schema.get("security")
     for path, item in (schema.get("paths") or {}).items():
         for method, operation in item.items():
             if (
@@ -873,6 +874,7 @@ def document_operations(
                 scopes.get((path, method), []),
                 content,
                 bans=bans,
+                inherited=inherited,
             )
 
 
@@ -882,13 +884,23 @@ def _require_scheme(
     content: dict[str, Any],
     *,
     bans: bool,
+    inherited: list[dict[str, list[str]]] | None,
 ) -> None:
-    """Require the scheme on one operation, and describe what it answers."""
+    """Require the scheme on one operation, and describe what it answers.
+
+    An operation naming no requirement of its own inherits the schema's, so
+    that one is written onto it before ours is joined, rather than replaced
+    by ours.
+    """
     # OpenAPI lists alternatives, each naming what is required together.
     # The middleware requires the bearer token whichever alternative the
     # route checks itself, so it joins every one of them rather than
     # standing beside them as a way around them.
     security = operation.get("security")
+    if security is None and inherited:
+        security = operation["security"] = [
+            dict(alternative) for alternative in inherited
+        ]
     if security:
         for alternative in security:
             alternative.setdefault(SECURITY_SCHEME, required)
