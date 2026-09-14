@@ -349,6 +349,22 @@ class TestDiscovery:
         assert verifier.verify(rotated_token()).subject == "user-1"
         assert "last named" in caplog.text
 
+    async def test_an_unreachable_host_is_not_retried_on_every_refresh(
+        self,
+    ) -> None:
+        """Between retries, a rotation refresh fetches the key set alone."""
+        provider = Provider({OIDC: metadata(), JWKS: key_set()})
+        verifier = discovering(provider, ttl=SHORT_TTL, retry_interval=HOUR)
+        await verifier.refresh()
+        await anyio.sleep(SHORT_TTL * 2)
+        del provider.documents[OIDC]
+        await verifier.refresh(force=True)
+        provider.calls.clear()
+
+        await verifier.refresh(force=True)
+
+        assert provider.calls == [JWKS]
+
     async def test_opening_the_verifier_discovers_its_keys(self) -> None:
         """`async with` finds the keys before the first request."""
         provider = Provider({OIDC: metadata(), JWKS: key_set()})

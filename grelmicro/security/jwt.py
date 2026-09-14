@@ -1503,6 +1503,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         self._inflight: asyncio.Task[bool] | None = None
         self._task: asyncio.Task[None] | None = None
         self._metadata_url: str | None = None
+        # When the metadata is read again, and the JWKS URL it named.
         self._discovered: tuple[float, str] | None = None
         if isinstance(config, JWTKeysConfig):
             self._source: JWKSConfig | DiscoveryConfig | None = None
@@ -1701,7 +1702,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 `https` key set.
         """
         discovered = self._discovered
-        if discovered is not None and monotonic() - discovered[0] < source.ttl:
+        if discovered is not None and monotonic() < discovered[0]:
             return discovered[1]
         issuer = source.issuer[0]
         failures: list[str] = []
@@ -1719,17 +1720,22 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 failures.append(f"{url}: {error}")
                 continue
             self._metadata_url = url
-            self._discovered = (monotonic(), jwks_uri)
+            self._discovered = (monotonic() + source.ttl, jwks_uri)
             return jwks_uri
         if discovered is not None:
             # The metadata only says where the keys are, so its endpoint being
             # down says nothing about the key set. The last one it named is
             # fetched, rather than holding a rotation up until the metadata is
-            # back, and the metadata is tried again on the next refresh.
+            # back. The metadata is tried again once `retry_interval` has
+            # passed, so an unreachable host does not slow every refresh.
             logger.warning(
                 "issuer metadata could not be read, refreshing the key set"
                 " it last named: %s",
                 ", ".join(failures),
+            )
+            self._discovered = (
+                monotonic() + source.retry_interval,
+                discovered[1],
             )
             return discovered[1]
         msg = f"no issuer metadata could be read: {', '.join(failures)}"

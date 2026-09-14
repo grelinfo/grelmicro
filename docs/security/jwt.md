@@ -266,7 +266,7 @@ carry the issuer in `iss`.
 The metadata is read again once per `ttl`. A refresh asked for by a token
 naming a new key fetches the key set alone. A metadata endpoint that cannot be
 reached never holds a rotation up: the key set it last named is fetched, and
-the metadata is tried again on the next refresh.
+the metadata is tried again once `retry_interval` has passed.
 
 ## Configure from the deployment
 
