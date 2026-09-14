@@ -21,7 +21,7 @@ Two things say otherwise:
 
 - `exclude` names the paths served without a credential, such as health probes.
   The patterns are the ones every other component takes: an exact path, or a
-  prefix ending in `*`.
+  prefix ending in `*`. A pattern matching every path, `*` or `/*`, is refused.
 - `Anonymous()` declared on a route serves that route without one. It applies
   per method, so a public read keeps the writes on the same path
   authenticated. A URL another route could also answer stays authenticated,

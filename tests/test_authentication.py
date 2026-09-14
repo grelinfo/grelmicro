@@ -590,6 +590,24 @@ class TestWebSocket:
 class TestConstruction:
     """What the component refuses where it is written."""
 
+    @pytest.mark.parametrize("pattern", ["/*", "*"])
+    def test_an_exclude_that_matches_every_path_is_refused(
+        self, pattern: str
+    ) -> None:
+        """It would serve every request without a credential."""
+        with pytest.raises(ValueError, match="every path"):
+            AuthenticatedRequests(verifier(), exclude=(pattern,))
+        with pytest.raises(ValueError, match="every path"):
+            AuthenticatedRequestsMiddleware(
+                app_with(), verifier=verifier(), exclude=("/livez", pattern)
+            )
+
+    def test_an_exclude_under_a_prefix_is_kept(self) -> None:
+        """A prefix narrower than the whole app is what `exclude` is for."""
+        component = AuthenticatedRequests(verifier(), exclude=("/internal/*",))
+
+        assert component.config.exclude == ("/internal/*",)
+
     def test_exclude_written_as_one_string_is_refused(self) -> None:
         """A missing comma would otherwise exclude by single characters."""
         with pytest.raises(TypeError, match="string"):

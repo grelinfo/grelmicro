@@ -1067,6 +1067,7 @@ class AuthenticatedRequestsMiddleware:
         Raises:
             TypeError: If `exclude` is a single string, or `bans` is given
                 without `trusted`.
+            ValueError: If a pattern in `exclude` matches every path.
         """
         if bans is not None and trusted is None:
             msg = (
@@ -1078,7 +1079,9 @@ class AuthenticatedRequestsMiddleware:
             raise TypeError(msg)
         self.app = app
         self._verifier = verifier
-        self._exclude = as_patterns(exclude, name="exclude")
+        self._exclude = _narrower_than_everything(
+            as_patterns(exclude, name="exclude")
+        )
         self._bans = bans
         self._trusted = trusted
         self._public = public
@@ -1161,6 +1164,28 @@ class AuthenticatedRequestsMiddleware:
         if self._bans is None:
             return None
         return bucket_of(scope, key=None, trusted=self._trusted).key
+
+
+def _narrower_than_everything(exclude: tuple[str, ...]) -> tuple[str, ...]:
+    """Return `exclude`, refusing a pattern that matches every path.
+
+    Raises:
+        ValueError: If a pattern is `*` or `/*`, which would serve every
+            request without a credential.
+    """
+    for pattern in exclude:
+        if pattern in _EVERY_PATH:
+            msg = (
+                f"exclude={exclude!r} matches every path, so no request would "
+                f"be authenticated. Leave AuthenticatedRequests unregistered "
+                f"to serve the app without a credential."
+            )
+            raise ValueError(msg)
+    return exclude
+
+
+_EVERY_PATH: Final = frozenset({"*", "/*"})
+"""The patterns that match every path an app serves."""
 
 
 def _bearer_token(scope: Scope) -> str:
