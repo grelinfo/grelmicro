@@ -61,6 +61,7 @@ from grelmicro._paths import (
 from grelmicro.cache._stampede import compute_with_stampede
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
+from grelmicro.http._authentication import is_anonymous_declaration
 from grelmicro.http._conditional import (
     _KEPT_ON_304,
     _matches_weak,
@@ -822,7 +823,11 @@ def _has_non_cache_dependencies(
     route: Any,  # noqa: ANN401
     contexts: tuple[Any, ...],
 ) -> bool:
-    """Return whether FastAPI resolves anything besides the cache marker."""
+    """Return whether FastAPI resolves anything besides a declaration.
+
+    `CachedResponse()` and `Anonymous()` compute nothing, so resolving either
+    first gates nothing a cached response would skip.
+    """
     declared = getattr(route, "dependant", None)  # codespell:ignore
     route_provider, provider_is_authoritative = (
         _inherited_dependency_overrides_context(route, contexts)
@@ -844,8 +849,8 @@ def _has_non_cache_dependencies(
         )
         if (
             getattr(call, _MARKER, _UNMARKED) is _UNMARKED
-            or effective is not call
-        ):
+            and not is_anonymous_declaration(call)
+        ) or effective is not call:
             return True
         pending.extend(
             (child, dependency_provider, authoritative)
@@ -860,8 +865,8 @@ def _has_non_cache_dependencies(
             )
             if (
                 getattr(call, _MARKER, _UNMARKED) is _UNMARKED
-                or effective is not call
-            ):
+                and not is_anonymous_declaration(call)
+            ) or effective is not call:
                 return True
     return False
 

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any
 
 import pytest
@@ -28,16 +30,23 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import Grelmicro
+from grelmicro._describe import _Endpoint, _reads_idempotent
+from grelmicro._paths import walk_routes
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
     AuthenticatedRequestsMiddleware,
+    CachedResponses,
     ErrorResponses,
     RateLimitedRequests,
 )
+from grelmicro.http._idempotency import _has_dependencies
 from grelmicro.integrations.fastapi import (
     Anonymous,
     Authenticated,
+    CachedResponse,
     Claims,
     CurrentPrincipal,
     document_authenticated_requests,
@@ -192,7 +201,9 @@ def app_with(*uses: Any) -> Starlette:  # noqa: ANN401
             WebSocketRoute("/ws", greet),
         ]
     )
-    Grelmicro(uses=[ErrorResponses(), *uses]).install(app)
+    micro = Grelmicro(uses=[ErrorResponses(), *uses])
+    micro.install(app)
+    app.state.micro = micro
     return app
 
 
@@ -646,6 +657,10 @@ def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401
     async def add_to_catalog() -> dict[str, bool]:
         return {"added": True}
 
+    @app.get("/feed")
+    async def feed() -> dict[str, list[str]]:
+        return {"feed": []}
+
     reports = APIRouter(dependencies=[Authenticated(scopes=["reports:read"])])
 
     @reports.get(
@@ -665,7 +680,9 @@ def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401
     app.include_router(reports)
     if declare is not None:
         declare(app)
-    Grelmicro(uses=[ErrorResponses(), *uses]).install(app)
+    micro = Grelmicro(uses=[ErrorResponses(), *uses])
+    micro.install(app)
+    app.state.micro = micro
     return app
 
 
@@ -995,7 +1012,9 @@ def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401
     app = Litestar(
         route_handlers=[read_item, write_item, read_file, status, cancel]
     )
-    Grelmicro(uses=[ErrorResponses(), *uses]).install(app)
+    micro = Grelmicro(uses=[ErrorResponses(), *uses])
+    micro.install(app)
+    app.state.micro = micro
     return app
 
 
@@ -1084,3 +1103,130 @@ class TestLitestar:
         """One string would otherwise read as one scope per character."""
         with pytest.raises(TypeError, match="not a single string"):
             LitestarAuthenticated(scopes="orders:write")
+
+
+class TestReport:
+    """What `grelmicro check` says about each endpoint."""
+
+    @staticmethod
+    def applies(app: Any, method: str, path: str) -> tuple[str, ...]:  # noqa: ANN401
+        """Return what the report says applies to one endpoint."""
+        report = app.state.micro.describe(app)
+        return next(
+            row.applies
+            for row in report.endpoints
+            if row.method == method and row.path == path
+        )
+
+    def test_each_fastapi_endpoint_says_how_it_is_authenticated(self) -> None:
+        """Authenticated with its scopes, anonymous, or left alone."""
+        app = fastapi_app(
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/feed",)),
+            AuthenticatedRequests(verifier(), exclude=("/claims",)),
+        )
+
+        assert self.applies(app, "GET", "/me") == ("authenticated",)
+        assert self.applies(app, "DELETE", "/orders/{order_id}") == (
+            "authenticated orders:write",
+        )
+        assert self.applies(app, "GET", "/reports/export") == (
+            "authenticated reports:read reports:export",
+        )
+        assert self.applies(app, "GET", "/catalog") == ("anonymous",)
+        assert self.applies(app, "GET", "/claims") == ()
+
+    def test_an_authenticated_read_is_never_reported_as_cached(self) -> None:
+        """The cache answers an authenticated request from its handler."""
+        app = fastapi_app(
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include=("/feed",)),
+            AuthenticatedRequests(verifier()),
+        )
+
+        assert self.applies(app, "GET", "/feed") == ("authenticated",)
+
+    def test_each_litestar_endpoint_says_how_it_is_authenticated(self) -> None:
+        """A guard's scopes and a public handler read the same way."""
+        app = litestar_app(AuthenticatedRequests(verifier()))
+
+        assert self.applies(app, "GET", "/catalog/{item_id:int}") == (
+            "anonymous",
+        )
+        assert self.applies(app, "POST", "/catalog/{item_id:int}") == (
+            "authenticated",
+        )
+        assert self.applies(app, "DELETE", "/orders/{order_id:int}") == (
+            "authenticated orders:write",
+        )
+
+    def test_an_authenticated_endpoint_reports_no_idempotent_replay(
+        self,
+    ) -> None:
+        """A replay is skipped for a request that carries a caller."""
+        idempotent = SimpleNamespace(
+            config=SimpleNamespace(methods=("POST",), include=(), exclude=()),
+            _key_maker=None,
+            route_is_gated=lambda method, path: False,  # noqa: ARG005
+            idempotency=SimpleNamespace(config=SimpleNamespace(ttl=3600.0)),
+        )
+        read = _reads_idempotent(idempotent)
+        public = _Endpoint(
+            method="POST", path="/signup", route=None, contexts=()
+        )
+
+        assert read(public) == "idempotent 3600s"
+        assert read(replace(public, authenticated=True)) is None
+
+
+class TestDeclarationsElsewhere:
+    """`Anonymous()` computes nothing, so nothing else treats it as a gate."""
+
+    def test_an_anonymous_route_is_still_served_from_the_cache(self) -> None:
+        """A public read declared cacheable is answered from the store."""
+        calls: list[int] = []
+
+        def declare(app: FastAPI) -> None:
+            @app.get(
+                "/prices", dependencies=[Anonymous(), CachedResponse(ttl=60)]
+            )
+            async def prices() -> dict[str, int]:
+                calls.append(1)
+                return {"price": len(calls)}
+
+        app = fastapi_app(
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(),
+            AuthenticatedRequests(verifier()),
+            declare=declare,
+        )
+
+        with TestClient(app) as client:
+            first = client.get("/prices")
+            second = client.get("/prices")
+
+        assert first.json() == second.json() == {"price": 1}
+        assert len(calls) == 1
+
+    def test_an_anonymous_route_gates_no_idempotent_replay(self) -> None:
+        """Declared on the route or on its router, it is not a dependency."""
+        app = FastAPI()
+
+        @app.post("/signup", dependencies=[Anonymous()])
+        async def signup() -> dict[str, bool]:
+            return {"ok": True}
+
+        public = APIRouter(dependencies=[Anonymous()])
+
+        @public.post("/newsletter")
+        async def newsletter() -> dict[str, bool]:
+            return {"ok": True}
+
+        app.include_router(public)
+        routes = {
+            route.path: (route, contexts)
+            for _, route, contexts in walk_routes(app)
+        }
+
+        assert not _has_dependencies(*routes["/signup"])
+        assert not _has_dependencies(*routes["/newsletter"])

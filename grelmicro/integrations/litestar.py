@@ -15,7 +15,7 @@ from grelmicro.errors import (
     _scope_tokens,
 )
 from grelmicro.http import ErrorResponses, merge_headers
-from grelmicro.http._authentication import ANONYMOUS_OPT
+from grelmicro.http._authentication import ANONYMOUS_OPT, AUTHENTICATED_MARKER
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._openapi import add_error_schema
 
@@ -271,6 +271,7 @@ def Authenticated(  # noqa: N802
         if not set(required) <= set(getattr(caller, "scopes", ())):
             raise InsufficientScopeError(scopes=required)
 
+    setattr(authenticated, AUTHENTICATED_MARKER, required)
     return authenticated
 
 

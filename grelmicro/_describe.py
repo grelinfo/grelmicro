@@ -11,7 +11,7 @@ binding in `Grelmicro.check_ambient_binding`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from typing_extensions import Doc
@@ -348,6 +348,7 @@ class _Endpoint:
     route: Any
     contexts: tuple[Any, ...]
     regex: Any = None
+    authenticated: bool = False
 
 
 SOME_PATHS = " (some paths)"
@@ -443,7 +444,8 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
     def read(endpoint: _Endpoint) -> str | None:
         state = component._live.state  # noqa: SLF001
         config = state.config
-        if endpoint.method not in {"GET", "HEAD"}:
+        # An authenticated request is answered by its handler, never the cache.
+        if endpoint.method not in {"GET", "HEAD"} or endpoint.authenticated:
             return None
         if state.policies._refuses_template(endpoint.path):  # noqa: SLF001
             return None
@@ -516,15 +518,53 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
         reach = _selected(config, endpoint)
         if endpoint.method not in methods or reach is None:
             return None
-        if (
-            component._key_maker is None  # noqa: SLF001
-            and component.route_is_gated(endpoint.method, endpoint.path)
+        if component._key_maker is None and (  # noqa: SLF001
+            endpoint.authenticated
+            or component.route_is_gated(endpoint.method, endpoint.path)
         ):
             return None
         window = component.idempotency.config.ttl
         return f"idempotent {window:g}s{reach}"
 
     return read
+
+
+def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
+    """Return what an `AuthenticatedRequests` does to one endpoint."""
+    from grelmicro.http._authentication import (  # noqa: PLC0415
+        route_is_public,
+        route_scopes,
+    )
+
+    def read(endpoint: _Endpoint) -> str | None:
+        reach = _reach(endpoint, (), tuple(component.config.exclude))
+        if reach is None:
+            return None
+        if route_is_public(endpoint.route, endpoint.method):
+            return "anonymous"
+        scopes = " ".join(route_scopes(endpoint.route, endpoint.method))
+        return (
+            f"authenticated {scopes}{reach}"
+            if scopes
+            else f"authenticated{reach}"
+        )
+
+    return read
+
+
+def _authenticated_by(components: Sequence[Any], endpoint: _Endpoint) -> bool:
+    """Return whether an authentication middleware covers this endpoint.
+
+    A covered request carries a caller, so the cache answers it from its
+    handler and an idempotent replay is skipped.
+    """
+    from grelmicro.http._authentication import route_is_public  # noqa: PLC0415
+
+    return any(
+        _reach(endpoint, (), tuple(component.config.exclude)) is not None
+        and not route_is_public(endpoint.route, endpoint.method)
+        for component in components
+    )
 
 
 def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
@@ -559,6 +599,7 @@ def _reads_access_log(component: Any) -> Callable[[_Endpoint], str | None]:  # n
 _ENDPOINT_READERS: Mapping[
     str, Callable[[Any], Callable[[_Endpoint], str | None]]
 ] = {
+    "authenticated_requests": _reads_authenticated,
     "cached_responses": _reads_cache,
     "conditional_requests": _reads_conditional,
     "idempotent_requests": _reads_idempotent,
@@ -591,6 +632,11 @@ def _describe_endpoints(
         if refresh_routes is not None:
             refresh_routes(app)
     rules = _endpoint_rules(components)
+    authenticating = [
+        component
+        for component in components
+        if getattr(component, "kind", None) == "authenticated_requests"
+    ]
     if not rules:
         return ()
     compiled = dict(_declared_paths(app))
@@ -606,6 +652,10 @@ def _describe_endpoints(
                 route=route,
                 contexts=contexts,
                 regex=compiled.get(path),
+            )
+            endpoint = replace(
+                endpoint,
+                authenticated=_authenticated_by(authenticating, endpoint),
             )
             found.append(
                 EndpointReport(
@@ -712,8 +762,9 @@ def _pattern_checks(
         # deliberate: the probe paths a service names are served by
         # `OpsServer` on a port of its own, and a router may be mounted
         # after this ran. A pattern that turns a rule *on* and matches
-        # nothing is the one that silently does nothing.
-        patterns = tuple(config.include)
+        # nothing is the one that silently does nothing. A component with
+        # no `include` at all, such as `AuthenticatedRequests`, has none.
+        patterns = tuple(getattr(config, "include", ()))
         missing = sorted(
             pattern for pattern in patterns if not _names_any(pattern, declared)
         )

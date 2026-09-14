@@ -56,6 +56,7 @@ from grelmicro._paths import (
     walk_routes,
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.http._authentication import is_anonymous_declaration
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
@@ -508,12 +509,21 @@ def _authentication_paths(  # noqa: C901, PLR0915
 
 
 def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
-    """Return whether FastAPI runs dependencies before this route."""
+    """Return whether FastAPI runs dependencies before this route.
+
+    `Anonymous()` computes nothing, so a route declaring only that gates no
+    replay.
+    """
     dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
-    if getattr(dependency_tree, "dependencies", ()):
+    if any(
+        not is_anonymous_declaration(dependency.call)
+        for dependency in getattr(dependency_tree, "dependencies", ()) or ()
+    ):
         return True
     return any(
-        getattr(context, "dependencies", ()) or () for context in contexts
+        not is_anonymous_declaration(getattr(dependency, "dependency", None))
+        for context in contexts
+        for dependency in getattr(context, "dependencies", ()) or ()
     )
 
 

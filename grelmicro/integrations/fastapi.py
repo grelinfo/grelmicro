@@ -58,9 +58,11 @@ from grelmicro.http import (
     check_freshness,
 )
 from grelmicro.http._authentication import (
+    AUTHENTICATED_MARKER,
     AuthenticatedRequestsMiddleware,
     _declares_anonymous,
     declare_anonymous,
+    route_scopes,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
@@ -432,14 +434,6 @@ async def _current_claims(request: "_Request") -> Any:  # noqa: ANN401
     return caller
 
 
-_AUTHENTICATED_MARKER: Final = "__grelmicro_authenticated__"
-"""Set on the dependency `Authenticated` declares, so the schema finds it.
-
-Read by attribute rather than by identity, so a declaration made before
-this module was imported again is still recognised as one.
-"""
-
-
 async def _authenticated(
     request: "_Request", security_scopes: "_SecurityScopes"
 ) -> Any:  # noqa: ANN401
@@ -453,7 +447,7 @@ async def _authenticated(
     return caller
 
 
-setattr(_authenticated, _AUTHENTICATED_MARKER, True)
+setattr(_authenticated, AUTHENTICATED_MARKER, True)
 
 
 CurrentPrincipal = Annotated[
@@ -1141,25 +1135,10 @@ def _route_authentication(
         if _declares_anonymous(route):
             public.update((path, method) for method in methods)
             continue
-        required = _scopes_declared(route)
+        required = list(route_scopes(route, ""))
         for method in methods:
             scopes[(path, method)] = required
     return public, scopes
-
-
-def _scopes_declared(route: Any) -> list[str]:  # noqa: ANN401
-    """Return every scope an `Authenticated` in the route's tree requires."""
-    found: list[str] = []
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    pending = list(getattr(declared, "dependencies", ()))
-    while pending:
-        dependency = pending.pop(0)
-        if getattr(dependency.call, _AUTHENTICATED_MARKER, False):
-            for scope in getattr(dependency, "own_oauth_scopes", None) or ():
-                if scope not in found:
-                    found.append(scope)
-        pending.extend(dependency.dependencies)
-    return found
 
 
 _RATE_LIMIT_HEADERS: Final = {

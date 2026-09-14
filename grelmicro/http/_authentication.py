@@ -240,6 +240,67 @@ def _declares_anonymous(route: Any) -> bool:  # noqa: ANN401
     )
 
 
+AUTHENTICATED_MARKER = "__grelmicro_authenticated__"
+"""Set on what a route declares `Authenticated` with, so a reader finds it.
+
+Read by attribute rather than by identity, so a declaration made before its
+module was imported again is still recognised as one. The FastAPI
+dependency carries `True`, and its scopes come from the dependency tree. A
+Litestar guard carries the scopes it requires.
+"""
+
+
+def is_anonymous_declaration(call: object) -> bool:
+    """Return whether a dependency is `Anonymous()`, which computes nothing.
+
+    Resolving it first gates nothing, so a route declaring it stays as
+    cacheable and as replayable as one declaring no dependency at all.
+    """
+    return bool(getattr(call, _ANONYMOUS_MARKER, False))
+
+
+def route_is_public(
+    route: Any,  # noqa: ANN401
+    method: str,
+) -> bool:
+    """Return whether a route serves this method without a credential."""
+    handlers = getattr(route, "route_handlers", None)
+    if handlers is not None:
+        return any(
+            handler.opt.get(ANONYMOUS_OPT) and method in handler.http_methods
+            for handler in handlers
+        )
+    return _declares_anonymous(route)
+
+
+def route_scopes(
+    route: Any,  # noqa: ANN401
+    method: str,
+) -> tuple[str, ...]:
+    """Return every scope an `Authenticated` on this route requires, in order.
+
+    A FastAPI route declares them through its dependency tree, a router's
+    included. A Litestar handler declares them as guards, a router's and
+    the app's included.
+    """
+    found: list[str] = []
+    handlers = getattr(route, "route_handlers", None)
+    if handlers is not None:
+        for handler in handlers:
+            if method in handler.http_methods:
+                for guard in handler.resolve_guards():
+                    found.extend(getattr(guard, AUTHENTICATED_MARKER, ()))
+        return tuple(dict.fromkeys(found))
+    declared = getattr(route, "dependant", None)  # codespell:ignore
+    pending = list(getattr(declared, "dependencies", ()))
+    while pending:
+        dependency = pending.pop(0)
+        if getattr(dependency.call, AUTHENTICATED_MARKER, False):
+            found.extend(getattr(dependency, "own_oauth_scopes", None) or ())
+        pending.extend(dependency.dependencies)
+    return tuple(dict.fromkeys(found))
+
+
 class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
     """Authenticated Requests Config.
 
