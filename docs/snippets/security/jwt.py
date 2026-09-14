@@ -18,9 +18,9 @@ app = FastAPI()
 verifier = JWTVerifier(
     JWTConfig(
         keys=[
-            JWTKey(
+            JWTKey.pem(
+                os.environ["JWT_PUBLIC_KEY"],
                 algorithm="RS256",
-                key=os.environ["JWT_PUBLIC_KEY"].encode(),
                 kid="2026-09",
             )
         ],

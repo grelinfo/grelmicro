@@ -125,8 +125,8 @@ header names it, and a key without one serves tokens that carry no `kid`.
 ```python
 JWTConfig(
     keys=[
-        JWTKey(algorithm="RS256", key=current_pem, kid="2026-09"),
-        JWTKey(algorithm="RS256", key=previous_pem, kid="2026-06"),
+        JWTKey.pem(current_pem, algorithm="RS256", kid="2026-09"),
+        JWTKey.pem(previous_pem, algorithm="RS256", kid="2026-06"),
     ],
     audience=["grelmicro-api"],
 )

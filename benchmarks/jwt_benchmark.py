@@ -119,7 +119,7 @@ def _verifier(algorithm: str, **options: Any) -> JWTVerifier:  # noqa: ANN401
     """Return a verifier for `algorithm` with the benchmark's policy."""
     return JWTVerifier(
         JWTConfig(
-            keys=[JWTKey(algorithm=algorithm, key=VERIFYING[algorithm])],
+            keys=[JWTKey(algorithm=algorithm, key=VERIFYING[algorithm])],  # ty: ignore[invalid-argument-type]
             audience=[AUDIENCE],
             issuer=[ISSUER],
             **options,

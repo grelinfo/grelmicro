@@ -937,8 +937,10 @@
       ".from_jwks": "(jwks, *, algorithm=None, **policy) -> 'JWTConfig'"
     },
     "JWTKey": {
-      "()": "(*, algorithm, key, kid=None, format='pem') -> None",
-      ".from_jwk": "(jwk, *, algorithm=None) -> 'JWTKey'"
+      "()": "(*, algorithm, key, kid=None, format=None) -> None",
+      ".jwk": "(jwk, *, algorithm=None) -> 'Self'",
+      ".pem": "(key, *, algorithm, kid=None) -> 'Self'",
+      ".secret": "(key, *, algorithm, kid=None) -> 'Self'"
     },
     "JWTPolicy": {
       "()": "(*, audience=[], issuer=[], leeway=0, token_type=None, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"

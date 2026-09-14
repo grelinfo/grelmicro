@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from pydantic import ValidationError
@@ -78,7 +78,7 @@ def build(
         JWTConfig(
             keys=[
                 JWTKey(
-                    algorithm=algorithm,
+                    algorithm=algorithm,  # ty: ignore[invalid-argument-type]
                     key=signer.public_pem(algorithm),
                     kid=kid,
                 )
@@ -372,7 +372,7 @@ class TestJWKS:
 
     def test_a_jwk_carrying_its_alg_is_used(self) -> None:
         """AWS Cognito publishes `alg` on every key."""
-        key = JWTKey.from_jwk(SIGNER.public_jwk("RS256", kid="cognito-1"))
+        key = JWTKey.jwk(SIGNER.public_jwk("RS256", kid="cognito-1"))
 
         assert key.algorithm == "RS256"
         assert key.kid == "cognito-1"
@@ -380,7 +380,7 @@ class TestJWKS:
 
     def test_a_jwk_without_an_alg_infers_one(self) -> None:
         """Entra ID publishes signing keys with no `alg`."""
-        key = JWTKey.from_jwk(
+        key = JWTKey.jwk(
             SIGNER.public_jwk(alg=None, kid="entra-1", x5t="thumbprint")
         )
 
@@ -389,7 +389,7 @@ class TestJWKS:
 
     def test_an_explicit_algorithm_fills_the_gap(self) -> None:
         """A caller can pin the algorithm the provider left out."""
-        key = JWTKey.from_jwk(
+        key = JWTKey.jwk(
             SIGNER.public_jwk(alg=None, kid="entra-1"), algorithm="PS256"
         )
 
@@ -398,7 +398,12 @@ class TestJWKS:
     def test_a_jwk_of_an_unknown_type_is_refused(self) -> None:
         """Nothing can be inferred, so the caller has to say."""
         with pytest.raises(SettingsValidationError):
-            JWTKey.from_jwk({"kty": "unheard-of", "kid": "x"})
+            JWTKey.jwk({"kty": "unheard-of", "kid": "x"})
+
+    def test_a_symmetric_jwk_is_refused(self) -> None:
+        """A JWK is a published key, so it never carries a shared secret."""
+        with pytest.raises(ValidationError):
+            JWTKey.jwk({"kty": "oct", "alg": "HS256", "k": "c2VjcmV0"})
 
     def test_a_jwks_builds_a_verifier(self) -> None:
         """A fetched JWKS document goes straight into a config."""
@@ -446,6 +451,95 @@ class TestJWKS:
         """A verifier with no key can verify nothing."""
         with pytest.raises(ValidationError):
             JWTConfig.from_jwks({"keys": []})
+
+
+class TestKeys:
+    """Building keys, and the key material a key refuses."""
+
+    def test_a_pem_key_verifies(self) -> None:
+        """A PEM given as text is read the same as one given as bytes."""
+        key = JWTKey.pem(SIGNER.public_pem("ES256").decode(), algorithm="ES256")
+        verifier = JWTVerifier(
+            JWTConfig(keys=[key], audience=[AUDIENCE], issuer=[ISSUER])
+        )
+
+        assert key.format == "pem"
+        assert verifier.verify(issue("ES256")).subject == "user-1"
+
+    def test_a_secret_key_verifies(self) -> None:
+        """A shared secret verifies the tokens it signed."""
+        key = JWTKey.secret(SIGNER.secret, algorithm="HS512", kid="shared")
+        verifier = JWTVerifier(
+            JWTConfig(keys=[key], audience=[AUDIENCE], issuer=[ISSUER])
+        )
+
+        assert key.format == "secret"
+        token = issue("HS512", header={"kid": "shared"})
+        assert verifier.verify(token).subject == "user-1"
+
+    @pytest.mark.parametrize(
+        ("algorithm", "size"), [("HS256", 32), ("HS384", 48), ("HS512", 64)]
+    )
+    def test_a_secret_as_long_as_its_hash_is_accepted(
+        self, algorithm: Literal["HS256", "HS384", "HS512"], size: int
+    ) -> None:
+        """The hash output is the floor RFC 7518 sets, and it is enough."""
+        assert JWTKey.secret(b"s" * size, algorithm=algorithm).kid is None
+
+    @pytest.mark.parametrize(
+        ("algorithm", "size"), [("HS256", 32), ("HS384", 48), ("HS512", 64)]
+    )
+    def test_a_secret_shorter_than_its_hash_is_refused(
+        self, algorithm: Literal["HS256", "HS384", "HS512"], size: int
+    ) -> None:
+        """One byte short is a secret RFC 7518 forbids."""
+        with pytest.raises(ValidationError, match="RFC 7518"):
+            JWTKey.secret(b"s" * (size - 1), algorithm=algorithm)
+
+    def test_a_pem_is_never_read_as_a_secret(self) -> None:
+        """The HMAC confusion, refused where the key is written."""
+        with pytest.raises(ValidationError, match="takes a secret"):
+            JWTKey(
+                algorithm="HS256",
+                key=SIGNER.public_pem("RS256"),
+                format="pem",
+            )
+
+    def test_a_secret_never_verifies_an_asymmetric_algorithm(self) -> None:
+        """A secret goes with an `HS*` algorithm and nothing else."""
+        with pytest.raises(ValidationError, match="takes a secret"):
+            JWTKey(algorithm="RS256", key=SIGNER.secret, format="secret")
+
+    @pytest.mark.parametrize("algorithm", ["HS256", "RS256"])
+    def test_the_constructor_reads_the_format_from_the_algorithm(
+        self, algorithm: Literal["HS256", "RS256"]
+    ) -> None:
+        """A key that arrives as data needs no format for the common case."""
+        key = JWTKey(algorithm=algorithm, key=SIGNER.public_pem(algorithm))
+        verifier = JWTVerifier(JWTConfig(keys=[key], audience=[AUDIENCE]))
+
+        assert key.format is None
+        assert verifier.verify(issue(algorithm)).subject == "user-1"
+
+    def test_the_key_never_appears_in_a_repr_or_a_dump(self) -> None:
+        """Key material is a secret wherever the key is rendered."""
+        secret = b"never-print-this-secret-0123456789abcdef"
+        key = JWTKey.secret(secret, algorithm="HS256")
+
+        for rendered in (
+            repr(key),
+            str(key),
+            key.model_dump_json(),
+            repr(JWTConfig(keys=[key])),
+        ):
+            assert secret.decode() not in rendered
+
+    def test_a_key_cannot_be_changed_once_built(self) -> None:
+        """A verified policy never changes under a verifier holding it."""
+        key = JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256")
+
+        with pytest.raises(ValidationError):
+            key.kid = "other"  # ty: ignore[invalid-assignment]
 
 
 class TestAuthorizationHeader:
@@ -731,12 +825,12 @@ class TestConfiguration:
     def test_an_unsupported_algorithm_is_refused(self) -> None:
         """`none` is not a signature algorithm."""
         with pytest.raises(ValidationError):
-            JWTKey(algorithm="none", key=SIGNER.public_pem("RS256"))
+            JWTKey(algorithm="none", key=SIGNER.public_pem("RS256"))  # ty: ignore[invalid-argument-type]
 
     def test_an_unknown_key_format_is_refused(self) -> None:
         """The core reads PEM and JWK, nothing else."""
         with pytest.raises(ValidationError):
-            JWTKey(algorithm="RS256", key=b"x", format="der")
+            JWTKey(algorithm="RS256", key=b"x", format="der")  # ty: ignore[invalid-argument-type]
 
     def test_an_unknown_cache_key_strategy_is_refused(self) -> None:
         """The verifier keys by the token or by a digest, nothing else."""

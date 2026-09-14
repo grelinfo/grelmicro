@@ -15,9 +15,24 @@ from collections import deque
 from dataclasses import dataclass
 from time import time
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Final,
+    Literal,
+    Protocol,
+    Self,
+    get_args,
+)
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    SecretBytes,
+    field_validator,
+    model_validator,
+)
 from typing_extensions import Doc
 
 from grelmicro.errors import (
@@ -58,23 +73,38 @@ algorithm per key either way, so a token asking for a different one is
 refused whether the algorithm was published or inferred.
 """
 
-ALGORITHMS: Final = frozenset(
-    {
-        "EdDSA",
-        "ES256",
-        "ES384",
-        "HS256",
-        "HS384",
-        "HS512",
-        "PS256",
-        "PS384",
-        "PS512",
-        "RS256",
-        "RS384",
-        "RS512",
-    }
-)
+_SecretAlgorithm = Literal["HS256", "HS384", "HS512"]
+"""Algorithms that verify with a shared secret."""
+
+_AsymmetricAlgorithm = Literal[
+    "EdDSA",
+    "ES256",
+    "ES384",
+    "PS256",
+    "PS384",
+    "PS512",
+    "RS256",
+    "RS384",
+    "RS512",
+]
+"""Algorithms that verify with a public key."""
+
+_Algorithm = Literal[_SecretAlgorithm, _AsymmetricAlgorithm]
+"""Every algorithm a key may verify."""
+
+ALGORITHMS: Final = frozenset(get_args(_Algorithm))
 """Signature algorithms a verifier accepts. `none` is not one of them."""
+
+_SECRET_BYTES: Final[Mapping[str, int]] = {
+    "HS256": 32,
+    "HS384": 48,
+    "HS512": 64,
+}
+"""Shortest secret each `HS*` algorithm accepts, its hash output in bytes.
+
+RFC 7518 section 3.2 requires a key at least as long as the hash. A shorter
+secret can be recovered by brute force from a single token signed with it.
+"""
 
 BEARER_PREFIX: Final = "Bearer "
 """Scheme an `Authorization` header must carry, per RFC 6750.
@@ -92,7 +122,7 @@ _ASYMMETRIC_KEY_TYPES: Final = frozenset({"EC", "OKP", "RSA"})
 A JWKS is served to anyone who asks, so a symmetric key in one is a secret
 that is not secret: whoever can read the document can mint tokens with it.
 A key of any other type is skipped. Configure a shared secret with
-`JWTKey(algorithm="HS256", key=...)`, from somewhere that is not published.
+`JWTKey.secret(...)`, from somewhere that is not published.
 """
 
 _REASONS: Final[Mapping[str, str]] = {
@@ -130,41 +160,104 @@ class TokenRejectedError(GrelmicroError, ValueError):
         super().__init__(_REASONS.get(reason, _REASONS["invalid"]))
 
 
-class JWTKey(BaseModel):
-    """One verification key and the algorithm it verifies."""
+class JWTKey(BaseModel, frozen=True):
+    """One verification key and the algorithm it verifies.
+
+    Build one with `pem`, `secret` or `jwk`. The constructor takes the same
+    fields, for a key that arrives as data, such as from a settings file.
+
+    The key material is held as a secret, so it never appears in a `repr`, a
+    log line or a dumped configuration.
+
+    Example:
+        ```python
+        JWTKey.pem(public_pem, algorithm="RS256", kid="2026-09")
+        ```
+    """
 
     algorithm: Annotated[
-        str,
+        _Algorithm,
         Doc("Signature algorithm this key verifies, such as `RS256`."),
     ]
     key: Annotated[
-        bytes,
-        Doc("PEM public key, or the shared secret for the `HS*` family."),
+        SecretBytes,
+        Doc(
+            "The key material: a PEM public key, an `HS*` secret, or one JWK"
+            " written as JSON."
+        ),
     ]
     kid: Annotated[
         str | None,
         Doc("Key id this key answers to. `None` serves tokens with no `kid`."),
     ] = None
     format: Annotated[
-        str,
-        Doc("`pem` for PEM or an `HS*` secret, `jwk` for a JSON Web Key."),
-    ] = "pem"
+        Literal["jwk", "pem", "secret"] | None,
+        Doc(
+            "How `key` is written. `None` reads a secret for an `HS*`"
+            " algorithm and a PEM for every other one."
+        ),
+    ] = None
 
     @classmethod
-    def from_jwk(
+    def pem(
+        cls,
+        key: Annotated[bytes | str, Doc("The PEM public key.")],
+        *,
+        algorithm: Annotated[
+            _AsymmetricAlgorithm,
+            Doc("Signature algorithm this key verifies, such as `RS256`."),
+        ],
+        kid: Annotated[
+            str | None,
+            Doc("Key id this key answers to. `None` serves tokens with none."),
+        ] = None,
+    ) -> Self:
+        """Build a key from a PEM public key."""
+        return cls(
+            algorithm=algorithm, key=_material(key), kid=kid, format="pem"
+        )
+
+    @classmethod
+    def secret(
+        cls,
+        key: Annotated[bytes | str, Doc("The shared secret.")],
+        *,
+        algorithm: Annotated[
+            _SecretAlgorithm,
+            Doc("`HS256`, `HS384` or `HS512`."),
+        ],
+        kid: Annotated[
+            str | None,
+            Doc("Key id this key answers to. `None` serves tokens with none."),
+        ] = None,
+    ) -> Self:
+        """Build a key from a shared secret, for tokens your own service signs.
+
+        The secret must be at least as long as the algorithm's hash: 32 bytes
+        for `HS256`, 48 for `HS384` and 64 for `HS512`, as RFC 7518 requires.
+        Load it from a secret store or a mounted file, never from a document
+        that is published, which is why a JWKS never supplies one.
+        """
+        return cls(
+            algorithm=algorithm, key=_material(key), kid=kid, format="secret"
+        )
+
+    @classmethod
+    def jwk(
         cls,
         jwk: Annotated[Mapping[str, Any], Doc("One key from a JWKS document.")],
         *,
         algorithm: Annotated[
-            str | None,
+            _AsymmetricAlgorithm | None,
             Doc("Algorithm to pin when the JWK names none."),
         ] = None,
-    ) -> JWTKey:
+    ) -> Self:
         """Build a key from one JWK, as published at a JWKS endpoint.
 
         The `kid` and `alg` are read from the JWK. A provider that publishes
         no `alg`, as Entra ID does, needs one here or gets the algorithm its
-        key type implies.
+        key type implies. A symmetric JWK is refused, because a published
+        key cannot be a shared secret.
         """
         named = jwk.get("alg") or algorithm
         if not named:
@@ -178,29 +271,42 @@ class JWTKey(BaseModel):
             )
             raise SettingsValidationError(msg)
         return cls(
-            algorithm=str(named),
+            algorithm=str(named),  # ty: ignore[invalid-argument-type]
             key=json.dumps(dict(jwk)).encode(),
             kid=jwk.get("kid"),
             format="jwk",
         )
 
-    @field_validator("format")
-    @classmethod
-    def _check_format(cls, value: Any) -> Any:  # noqa: ANN401
-        """Refuse a key format the core cannot read."""
-        if value not in {"jwk", "pem"}:
-            msg = "format must be 'pem' or 'jwk'"
-            raise ValueError(msg)
-        return value
+    @model_validator(mode="after")
+    def _check_material(self) -> Self:
+        """Refuse key material that does not fit its algorithm.
 
-    @field_validator("algorithm")
-    @classmethod
-    def _check_algorithm(cls, value: Any) -> Any:  # noqa: ANN401
-        """Refuse an algorithm the core cannot verify."""
-        if value not in ALGORITHMS:
-            msg = "algorithm is not one of the accepted signature algorithms"
+        A secret goes with an `HS*` algorithm and nothing else, so a PEM can
+        never be read as an HMAC secret, and a secret must be as long as the
+        hash RFC 7518 sizes it by.
+        """
+        secret = self.algorithm in _SECRET_BYTES
+        written = self.format or ("secret" if secret else "pem")
+        if secret != (written == "secret"):
+            msg = (
+                "an HS* algorithm takes a secret, and a secret takes only an"
+                " HS* algorithm"
+            )
             raise ValueError(msg)
-        return value
+        if secret and (
+            len(self.key.get_secret_value()) < _SECRET_BYTES[self.algorithm]
+        ):
+            msg = (
+                "the secret is shorter than the hash output of its algorithm,"
+                " which RFC 7518 forbids"
+            )
+            raise ValueError(msg)
+        return self
+
+
+def _material(key: bytes | str) -> bytes:
+    """Return key material as bytes, encoding a PEM or secret given as text."""
+    return key.encode() if isinstance(key, str) else key
 
 
 class JWTPolicy(BaseModel):
@@ -336,7 +442,8 @@ class JWTConfig(JWTPolicy):
         ],
         *,
         algorithm: Annotated[
-            str | None, Doc("Algorithm to pin for keys that name none.")
+            _AsymmetricAlgorithm | None,
+            Doc("Algorithm to pin for keys that name none."),
         ] = None,
         **policy: Annotated[Any, Doc("Any other `JWTConfig` setting.")],  # noqa: ANN401
     ) -> JWTConfig:
@@ -360,7 +467,7 @@ class JWTConfig(JWTPolicy):
             if not _usable_for_signatures(jwk):
                 continue
             try:
-                keys.append(JWTKey.from_jwk(jwk, algorithm=algorithm))
+                keys.append(JWTKey.jwk(jwk, algorithm=algorithm))
             except (SettingsValidationError, ValueError):
                 # A provider is free to publish a key type this does not read.
                 # Skipping it keeps the keys that do work, where failing the
@@ -535,7 +642,14 @@ class JWTVerifier:
         try:
             self._verify = core.Verifier(
                 [
-                    (key.kid, key.algorithm, key.key, key.format)
+                    (
+                        key.kid,
+                        key.algorithm,
+                        key.key.get_secret_value(),
+                        # The core reads a secret and a PEM through the same
+                        # door, telling them apart by the algorithm.
+                        "jwk" if key.format == "jwk" else "pem",
+                    )
                     for key in config.keys
                 ],
                 audience=config.audience or None,

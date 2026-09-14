@@ -56,7 +56,7 @@ def verifier(algorithm: str = "RS256", **options: Any) -> JWTVerifier:  # noqa: 
     return JWTVerifier(
         JWTConfig(
             keys=[
-                JWTKey(algorithm=algorithm, key=SIGNER.public_pem(algorithm))
+                JWTKey(algorithm=algorithm, key=SIGNER.public_pem(algorithm))  # ty: ignore[invalid-argument-type]
             ],
             **options,
         )

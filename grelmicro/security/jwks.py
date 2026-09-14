@@ -40,6 +40,7 @@ from grelmicro.security.jwt import (
     JWTPolicy,
     JWTVerifier,
     TokenRejectedError,
+    _AsymmetricAlgorithm,
 )
 
 if TYPE_CHECKING:
@@ -132,7 +133,7 @@ class JWKSConfig(JWTPolicy):
         Doc("Most keys accepted from one document."),
     ] = 32
     algorithm: Annotated[
-        str | None,
+        _AsymmetricAlgorithm | None,
         Doc("Algorithm to pin for keys that publish none, as Entra ID does."),
     ] = None
 

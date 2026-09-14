@@ -168,7 +168,7 @@ class TestProviders:
                 url="https://idp.example.com/jwks.json",
                 audience=["my-api"],
                 issuer=[issuer],
-                algorithm=algorithm,
+                algorithm=algorithm,  # ty: ignore[invalid-argument-type]
             ),
             fetch=served(document),
         )

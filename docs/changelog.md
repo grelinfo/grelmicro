@@ -6,6 +6,8 @@
 * 💥 A token declaring a `typ` other than `JWT`, `JOSE` or `at+jwt` is rejected with `type`, so a DPoP proof or a logout token signed by the same keys no longer passes as an access token. `token_type="at+jwt"` requires the RFC 9068 type. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 A token carrying a `cnf` claim is rejected with `binding`, because nothing checks the proof of possession it depends on. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 The `subject` rejection reason is gone. No policy ever set a subject, so nothing produced it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWTKey.pem()`, `JWTKey.secret()` and `JWTKey.jwk()` build a key, and `JWTKey.from_jwk()` is gone. A secret goes with an `HS*` algorithm and nothing else, so a PEM can no longer be read as an HMAC secret, and a secret shorter than its hash output is refused, as RFC 7518 requires. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🔒 `JWTKey` holds its key material as a secret, so a `repr`, a log line or a dumped configuration never shows it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
