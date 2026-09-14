@@ -306,40 +306,38 @@ sending forged tokens therefore buys real work per request. `ClientBans`
 counts those failures and refuses the caller for a while, which turns that
 cost into a dictionary lookup.
 
-It is off unless you ask for it. Pass a `ClientBans` to the verifier, and
-give every call the address to hold responsible:
+It is off unless you ask for it. Check the table before verifying, and record
+a rejection after:
 
 ```python
-from grelmicro.security import ClientBans, ClientBannedError
+from grelmicro.security import ClientBannedError, ClientBans, TokenRejectedError
 
-verifier = JWTVerifier.from_config(config, bans=ClientBans())
+bans = ClientBans()
 
+if bans.banned(client_ip):
+    raise ClientBannedError(retry_after=bans.banned_for(client_ip))
 try:
-    claims = verifier.verify_header(authorization, client=client_ip)
-except ClientBannedError:
-    raise HTTPException(status_code=429) from None
+    claims = verifier.verify_header(authorization)
 except TokenRejectedError as error:
-    raise HTTPException(status_code=401, detail=error.reason) from None
+    bans.record(client_ip, error.reason)
+    raise
 ```
 
-Counting the failure and refusing the client happen for you, so the
-protection cannot be half wired. A verifier built with `bans` and then called
-without a `client` raises rather than quietly counting nothing.
+`banned()` is one dictionary lookup, the only cost an honest request pays.
+`record()` runs only once a token was already refused, and `banned_for()` only
+once a client is refused.
 
 `ClientBannedError` is not a `TokenRejectedError`. It says nothing about the
 token, so answer it with `429` and not `401`: a fresh token would not change
-the answer.
-
-A verifier built with `JWTVerifier.jwks` takes the same argument and behaves
-the same way.
+the answer. `retry_after` says how long the ban has left.
 
 The address has to be one the caller cannot choose. Pass what
 [`resolve_client_address`](clientip.md) returns, never a raw
 `X-Forwarded-For`, or an attacker sets a header and gets somebody else
 refused.
 
-The table is also usable on its own, through `banned()` and `record()`, for
-an authentication scheme this module does not handle.
+Settings go in as keywords, `ClientBans(failures=10, window=60, duration=300)`,
+or whole, through `ClientBans.from_config(ClientBansConfig(...))`.
 
 ### Why not rate limit instead
 
@@ -361,8 +359,9 @@ until a caller has already proven itself, and then charges 88 ns to refuse it.
 
 ### What counts as abuse
 
-Only `signature`, `malformed` and `algorithm` are counted by default. Each
-means the token was never issued by anyone the service trusts.
+Only `signature` and `algorithm` are counted by default. Each means a token
+was built to pass as one the service trusts, and each costs a full verification
+to refuse.
 
 The reasons left out matter more. `unknown-key` is what every client sees for
 a moment when the provider rotates its signing keys. Counting it bans a
@@ -370,9 +369,11 @@ service's own users on every rotation: with five hundred clients retrying
 while a rotation lands, counting rejections by reason bans none of them, and
 counting every `401` bans all five hundred.
 
-`expired` is a client that needs to refresh. `not-yet-valid` is a clock that
-disagrees. `audience` and `issuer` are a token meant for a neighbouring
-service. None of them is an attack.
+`malformed` is refused for almost nothing, before any signature is checked,
+and a legitimate client sending an opaque token lands there. `expired` is a
+client that needs to refresh. `not-yet-valid` is a clock that disagrees.
+`audience` and `issuer` are a token meant for a neighbouring service. None of
+them is an attack.
 
 Pass `reasons=` to choose a different set, and keep `duration` short. An
 address is shared behind NAT, so a ban reaches more people than the one caller
@@ -385,5 +386,7 @@ it to route a token to the right verifier, never to decide whether a token is
 valid.
 
 ```python
-kid = verifier.unverified_header(token)["kid"]
+from grelmicro.security import unverified_header
+
+kid = unverified_header(token)["kid"]
 ```

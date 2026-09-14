@@ -25,6 +25,7 @@ from grelmicro.security import (
     JWTVerifier,
     TokenRejectedError,
     TokenRejectedReason,
+    unverified_header,
 )
 from grelmicro.security.jwt import ALGORITHMS, BEARER_PREFIX
 from tests.security.jwt_signing import Signer, loaded
@@ -579,14 +580,14 @@ class TestUnverifiedHeader:
 
     def test_it_returns_alg_and_kid(self) -> None:
         """The header names the algorithm and the key."""
-        header = build().unverified_header(issue(header={"kid": "current"}))
+        header = unverified_header(issue(header={"kid": "current"}))
 
         assert header == {"alg": "RS256", "kid": "current"}
 
     def test_a_malformed_token_is_rejected(self) -> None:
         """There is no header to read."""
         with pytest.raises(TokenRejectedError) as caught:
-            build().unverified_header("nonsense")
+            unverified_header("nonsense")
 
         assert caught.value.reason == "malformed"
 

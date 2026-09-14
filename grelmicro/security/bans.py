@@ -33,12 +33,14 @@ from __future__ import annotations
 
 from collections import deque
 from time import monotonic
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Self
 
 from pydantic import BaseModel, field_validator
 from typing_extensions import Doc
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro._config import build_config
+from grelmicro.errors import AdmissionError
+from grelmicro.security.jwt import TokenRejectedReason
 
 __all__ = [
     "ABUSIVE_REASONS",
@@ -47,33 +49,45 @@ __all__ = [
     "ClientBansConfig",
 ]
 
-ABUSIVE_REASONS: Final = frozenset({"algorithm", "malformed", "signature"})
+ABUSIVE_REASONS: Final[frozenset[TokenRejectedReason]] = frozenset(
+    {TokenRejectedReason.ALGORITHM, TokenRejectedReason.SIGNATURE}
+)
 """Rejection reasons that mean the caller is trying something, by default.
 
-These three say the token was never issued by anyone the service trusts: a
-signature that does not check out, an algorithm the verifier does not accept,
-or bytes that are not a token at all. Nothing a working client does produces
-them.
+These two say a token was built to pass as one the service trusts: a
+signature that does not check out, or an algorithm its key does not verify.
+Both cost a full verification to refuse, and nothing a working client does
+produces them.
 
 The reasons left out matter more than the ones kept. `unknown-key` is what
-every client sees for a moment when the provider rotates its signing keys, and
-counting it would ban a service's real users on every rotation. `expired` is a
-client whose token needs refreshing, which is ordinary. `not-yet-valid` is a
-clock that disagrees. `audience` and `issuer` are a token meant for a
+every client sees for a moment when the provider rotates its signing keys,
+and counting it would ban a service's real users on every rotation.
+`malformed` is refused for almost nothing, before any signature is checked,
+and a legitimate client presenting an opaque token lands there. `expired` is
+a client whose token needs refreshing, which is ordinary. `not-yet-valid` is
+a clock that disagrees. `audience` and `issuer` are a token meant for a
 neighbouring service, which is a misrouted client rather than an attacker.
 """
 
 
-class ClientBannedError(GrelmicroError, RuntimeError):
+class ClientBannedError(AdmissionError, RuntimeError):
     """The caller is banned, so its token was not looked at.
 
     Distinct from `TokenRejectedError` because it says nothing about the
     token. Answer it with `429`, not `401`: the caller is being refused for
     what it did before this request, and a fresh token would not change it.
+    `retry_after` says how long the ban has left.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        retry_after: Annotated[
+            float, Doc("Seconds the ban has left, `0.0` when not known.")
+        ] = 0.0,
+    ) -> None:
         """Initialize the error."""
+        self.retry_after = retry_after
         super().__init__("Too many rejected tokens from this client.")
 
 
@@ -136,7 +150,7 @@ class ClientBans:
         bans = ClientBans()
 
         if bans.banned(client_ip):
-            raise HTTPException(status_code=429)
+            raise ClientBannedError(retry_after=bans.banned_for(client_ip))
 
         try:
             claims = verifier.verify_header(authorization)
@@ -148,21 +162,80 @@ class ClientBans:
 
     def __init__(
         self,
-        config: Annotated[
-            ClientBansConfig | None, Doc("When to ban, and for how long.")
-        ] = None,
         *,
+        failures: Annotated[
+            int | None,
+            Doc("Failures inside `window` before the client is banned."),
+        ] = None,
+        window: Annotated[
+            float | None,
+            Doc("Seconds over which failures are counted."),
+        ] = None,
+        duration: Annotated[
+            float | None,
+            Doc("Seconds a ban lasts. Keep it short: addresses are shared."),
+        ] = None,
+        max_clients: Annotated[
+            int | None,
+            Doc("Addresses tracked at once."),
+        ] = None,
         reasons: Annotated[
             frozenset[str] | None,
             Doc("Rejection reasons that count. Defaults to `ABUSIVE_REASONS`."),
         ] = None,
     ) -> None:
-        """Initialize the table, which starts empty."""
-        settings = config or ClientBansConfig()
-        self._failures = settings.failures
-        self._window = settings.window
-        self._duration = settings.duration
-        self._max_clients = settings.max_clients
+        """Initialize the table, which starts empty.
+
+        A setting left out takes the default `ClientBansConfig` gives it.
+
+        Raises:
+            SettingsValidationError: If a setting is refused.
+        """
+        given = {
+            "failures": failures,
+            "window": window,
+            "duration": duration,
+            "max_clients": max_clients,
+        }
+        config = build_config(
+            ClientBansConfig,
+            **{
+                name: value
+                for name, value in given.items()
+                if value is not None
+            },
+        )
+        self._setup(config, reasons=reasons)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            ClientBansConfig, Doc("When to ban, and for how long.")
+        ],
+        *,
+        reasons: Annotated[
+            frozenset[str] | None,
+            Doc("Rejection reasons that count. Defaults to `ABUSIVE_REASONS`."),
+        ] = None,
+    ) -> Self:
+        """Build the table from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no environment
+        variable is read.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(config, reasons=reasons)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self, config: ClientBansConfig, *, reasons: frozenset[str] | None
+    ) -> None:
+        """Hold the settings, and start an empty table."""
+        self._failures = config.failures
+        self._window = config.window
+        self._duration = config.duration
+        self._max_clients = config.max_clients
         self._reasons = ABUSIVE_REASONS if reasons is None else reasons
         # `(window_started, count, banned_until)` per client. Kept beside a
         # queue of the order clients were first seen, so making room never
@@ -186,6 +259,23 @@ class ClientBans:
         """
         seen = self._clients.get(client)
         return seen is not None and seen[2] > monotonic()
+
+    def banned_for(
+        self,
+        client: Annotated[
+            str,
+            Doc("The address a trusted proxy vouched for, never a raw header."),
+        ],
+    ) -> float:
+        """Return the seconds `client` stays refused, `0.0` when it is not.
+
+        Read once `banned` has said yes, to tell the caller when to come back,
+        so an honest request never pays for it.
+        """
+        seen = self._clients.get(client)
+        if seen is None:
+            return 0.0
+        return max(seen[2] - monotonic(), 0.0)
 
     def record(
         self,
@@ -239,20 +329,3 @@ class ClientBans:
             except IndexError:
                 break
             clients.pop(oldest, None)
-
-
-def _responsible_client(client: str | None) -> str:
-    """Return the address to hold responsible, refusing to guess.
-
-    A verifier that was given a ban table and then called without a client
-    would count nothing and refuse nobody, which reads as protection and is
-    not. Failing here is loud on the first request rather than quiet forever.
-    """
-    if not client:
-        msg = (
-            "client= is required once bans are configured, and must be an"
-            " address the caller cannot choose. Pass what"
-            " resolve_client_address returned."
-        )
-        raise SettingsValidationError(msg)
-    return client

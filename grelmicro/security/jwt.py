@@ -45,11 +45,6 @@ from grelmicro.errors import (
     GrelmicroError,
     SettingsValidationError,
 )
-from grelmicro.security.bans import (
-    ClientBannedError,
-    ClientBans,
-    _responsible_client,
-)
 from grelmicro.security.jwks import (
     SigningKeysUnavailableError,
     fetch_with_httpx,
@@ -72,6 +67,7 @@ __all__ = [
     "TokenRejectedError",
     "TokenRejectedReason",
     "TokenVerifier",
+    "unverified_header",
 ]
 
 logger = getLogger("grelmicro.security.jwt")
@@ -786,10 +782,6 @@ class TokenVerifier(Protocol):
     def verify(
         self,
         token: Annotated[str, Doc("The encoded JWT, with no scheme prefix.")],
-        *,
-        client: Annotated[
-            str | None, Doc("The address to hold responsible, when banning.")
-        ] = None,
     ) -> JWTClaims:
         """Return the claims of `token`, or raise `TokenRejectedError`."""
         ...  # pragma: no cover
@@ -799,19 +791,8 @@ class TokenVerifier(Protocol):
         header: Annotated[
             str | None, Doc("The `Authorization` header value, or `None`.")
         ],
-        *,
-        client: Annotated[
-            str | None, Doc("The address to hold responsible, when banning.")
-        ] = None,
     ) -> JWTClaims:
         """Return the claims of the bearer token in `header`."""
-        ...  # pragma: no cover
-
-    def unverified_header(
-        self,
-        token: Annotated[str, Doc("The encoded JWT.")],
-    ) -> dict[str, Any]:
-        """Return the `alg` and `kid` of `token` without checking it."""
         ...  # pragma: no cover
 
 
@@ -892,14 +873,6 @@ class JWTVerifier:
             float | None,
             Doc("Seconds a verified token stays cached."),
         ] = None,
-        bans: Annotated[
-            ClientBans | None,
-            Doc(
-                "Opt in to refusing callers that keep presenting tokens that"
-                " do not verify. Pass `client=` to every call once set, so"
-                " the protection cannot be half wired."
-            ),
-        ] = None,
     ) -> Self:
         """Build a verifier from keys you hold, such as a PEM or a secret.
 
@@ -922,7 +895,7 @@ class JWTVerifier:
                 cache_ttl=cache_ttl,
             ),
         )
-        return cls.from_config(config, bans=bans)
+        return cls.from_config(config)
 
     @classmethod
     def jwks(  # noqa: PLR0913
@@ -997,14 +970,6 @@ class JWTVerifier:
             Fetcher | None,
             Doc("Fetcher to use. Defaults to one built on `httpx`."),
         ] = None,
-        bans: Annotated[
-            ClientBans | None,
-            Doc(
-                "Opt in to refusing callers that keep presenting tokens that"
-                " do not verify. Pass `client=` to every call once set, so"
-                " the protection cannot be half wired."
-            ),
-        ] = None,
     ) -> Self:
         """Build a verifier from keys a provider publishes at a JWKS endpoint.
 
@@ -1034,7 +999,7 @@ class JWTVerifier:
                 cache_ttl=cache_ttl,
             ),
         )
-        return cls.from_config(config, fetch=fetch, bans=bans)
+        return cls.from_config(config, fetch=fetch)
 
     @classmethod
     def from_config(
@@ -1054,14 +1019,6 @@ class JWTVerifier:
                 " and is refused for keys held in code."
             ),
         ] = None,
-        bans: Annotated[
-            ClientBans | None,
-            Doc(
-                "Opt in to refusing callers that keep presenting tokens that"
-                " do not verify. Pass `client=` to every call once set, so"
-                " the protection cannot be half wired."
-            ),
-        ] = None,
     ) -> Self:
         """Build a verifier from a configuration that is already whole.
 
@@ -1073,7 +1030,7 @@ class JWTVerifier:
             TypeError: If `fetch` is given for keys held in code.
         """
         instance = cls.__new__(cls)
-        instance._setup(config, fetch=fetch, bans=bans)  # noqa: SLF001
+        instance._setup(config, fetch=fetch)  # noqa: SLF001
         return instance
 
     def _setup(
@@ -1081,7 +1038,6 @@ class JWTVerifier:
         config: JWTKeysConfig | JWKSConfig,
         *,
         fetch: Fetcher | None,
-        bans: ClientBans | None,
     ) -> None:
         """Hold the policy, and load the keys when they are held in code."""
         if fetch is not None and not isinstance(config, JWKSConfig):
@@ -1092,9 +1048,7 @@ class JWTVerifier:
             raise TypeError(msg)
         compiled = _core()
         self._compiled = compiled
-        self._bans = bans
         self._error = compiled.CoreVerificationError
-        self._unverified_header = compiled.unverified_header
         self._digest = (
             compiled.sha256_digest if config.cache_key == "sha256" else None
         )
@@ -1323,15 +1277,6 @@ class JWTVerifier:
     def verify(
         self,
         token: Annotated[str, Doc("The encoded JWT, with no scheme prefix.")],
-        *,
-        client: Annotated[
-            str | None,
-            Doc(
-                "The address to hold responsible. Required when `bans` is"
-                " set, and it must be one the caller cannot choose: pass"
-                " what `resolve_client_address` returned."
-            ),
-        ] = None,
     ) -> JWTClaims:
         """Return the claims of `token`, or raise `TokenRejectedError`.
 
@@ -1339,27 +1284,10 @@ class JWTVerifier:
         until `cache_ttl` or its own `exp` passes, whichever comes first, so a
         cache hit is never staler than a full verification.
 
-        With `bans` set, a caller already banned raises `ClientBannedError`
-        before the token is looked at, and a rejection is counted against it.
-
         Raises:
             TokenRejectedError: If the token does not verify.
             SigningKeysUnavailableError: If no key set has loaded yet.
         """
-        bans = self._bans
-        if bans is not None:
-            client = _responsible_client(client)
-            if bans.banned(client):
-                raise ClientBannedError
-            try:
-                return self._verified(token)
-            except TokenRejectedError as error:
-                bans.record(client, error.reason)
-                raise
-        return self._verified(token)
-
-    def _verified(self, token: str) -> JWTClaims:
-        """Return the claims of `token`, with no ban bookkeeping."""
         keys = self._keys
         if keys is None:
             raise SigningKeysUnavailableError(_NOT_LOADED)
@@ -1394,35 +1322,18 @@ class JWTVerifier:
         header: Annotated[
             str | None, Doc("The `Authorization` header value, or `None`.")
         ],
-        *,
-        client: Annotated[
-            str | None, Doc("The address to hold responsible, when banning.")
-        ] = None,
     ) -> JWTClaims:
-        """Return the claims of the bearer token in `header`."""
-        if not header or header[:_BEARER_LENGTH].lower() != _BEARER_LOWER:
-            # Resolved before the scheme is judged, so a verifier built with
-            # bans reports the misconfiguration rather than the bad header.
-            if self._bans is not None:
-                _responsible_client(client)
-            raise TokenRejectedError(TokenRejectedReason.SCHEME)
-        return self.verify(header[_BEARER_LENGTH:], client=client)
+        """Return the claims of the bearer token in `header`.
 
-    def unverified_header(
-        self,
-        token: Annotated[str, Doc("The encoded JWT.")],
-    ) -> dict[str, Any]:
-        """Return the `alg` and `kid` of `token` without checking its signature.
+        The scheme is matched without regard to case, as RFC 7235 asks.
 
-        Nothing it returns is trustworthy. It routes a token to the right key
-        set, it never decides whether a token is valid, and it needs no key
-        set to be loaded.
+        Raises:
+            TokenRejectedError: With `scheme` when `header` carries no bearer
+                token, or with the reason the token itself failed.
         """
-        try:
-            header: dict[str, Any] = self._unverified_header(token)
-        except self._error as error:
-            raise TokenRejectedError(error.args[0]) from None
-        return header
+        if not header or header[:_BEARER_LENGTH].lower() != _BEARER_LOWER:
+            raise TokenRejectedError(TokenRejectedReason.SCHEME)
+        return self.verify(header[_BEARER_LENGTH:])
 
     def _store(
         self, keys: _KeySet, key: str | bytes, claims: JWTClaims
@@ -1492,6 +1403,25 @@ def _document_config(source: JWKSConfig, document: bytes) -> JWTKeysConfig:
     except (SettingsValidationError, ValueError) as error:
         msg = f"jwks document holds no usable key: {error}"
         raise SigningKeysUnavailableError(msg) from None
+
+
+def unverified_header(
+    token: Annotated[str, Doc("The encoded JWT.")],
+) -> dict[str, Any]:
+    """Return the `alg` and `kid` of `token` without checking its signature.
+
+    Nothing it returns is trustworthy. It routes a token to the right
+    verifier, it never decides whether a token is valid, and it reads no key.
+
+    Raises:
+        TokenRejectedError: If `token` is not a well-formed JWS.
+    """
+    compiled = _core()
+    try:
+        header: dict[str, Any] = compiled.unverified_header(token)
+    except compiled.CoreVerificationError as error:
+        raise TokenRejectedError(error.args[0]) from None
+    return header
 
 
 def _core() -> Any:  # noqa: ANN401

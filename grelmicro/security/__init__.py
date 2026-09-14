@@ -40,6 +40,7 @@ from grelmicro.security.jwt import (
     TokenRejectedError,
     TokenRejectedReason,
     TokenVerifier,
+    unverified_header,
 )
 
 __all__ = [
@@ -65,4 +66,5 @@ __all__ = [
     "TrustedProxies",
     "fetch_with_httpx",
     "resolve_client_address",
+    "unverified_header",
 ]

@@ -911,10 +911,11 @@
       "()": "(*values)"
     },
     "ClientBannedError": {
-      "()": "() -> 'None'"
+      "()": "(*, retry_after=0.0) -> 'None'"
     },
     "ClientBans": {
-      "()": "(config=None, *, reasons=None) -> 'None'"
+      "()": "(*, failures=None, window=None, duration=None, max_clients=None, reasons=None) -> 'None'",
+      ".from_config": "(config, *, reasons=None) -> 'Self'"
     },
     "ClientBansConfig": {
       "()": "(*, failures=10, window=60.0, duration=300.0, max_clients=10000) -> None"
@@ -943,9 +944,9 @@
     },
     "JWTVerifier": {
       "()": "(*args, **kwargs) -> 'None'",
-      ".from_config": "(config, *, fetch=None, bans=None) -> 'Self'",
-      ".jwks": "(url, *, audience, issuer=None, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None, bans=None) -> 'Self'",
-      ".keys": "(*keys, audience, issuer=None, leeway=None, token_type=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, bans=None) -> 'Self'"
+      ".from_config": "(config, *, fetch=None) -> 'Self'",
+      ".jwks": "(url, *, audience, issuer=None, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None) -> 'Self'",
+      ".keys": "(*keys, audience, issuer=None, leeway=None, token_type=None, required=None, cache_size=None, cache_key=None, cache_ttl=None) -> 'Self'"
     },
     "SigningKeysUnavailableError": null,
     "TokenRejectedError": {
@@ -965,6 +966,9 @@
     },
     "resolve_client_address": {
       "()": "(scope, trusted) -> 'ClientAddress | None'"
+    },
+    "unverified_header": {
+      "()": "(token) -> 'dict[str, Any]'"
     }
   },
   "grelmicro.task": {

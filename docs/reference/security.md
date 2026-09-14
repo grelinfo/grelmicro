@@ -18,6 +18,7 @@
         - JWTClaims
         - TokenRejectedError
         - TokenRejectedReason
+        - unverified_header
         - JWKSConfig
         - SigningKeysUnavailableError
         - Fetcher

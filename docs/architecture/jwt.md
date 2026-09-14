@@ -324,8 +324,11 @@ the clock reaches `nbf`, and `unknown-key` becomes valid when the provider's
 next key set arrives, so remembering either would refuse traffic that should
 pass.
 
-The answer to a flood is to rate limit it, which `RateLimitedRequests` already
-does, and which works whether the tokens repeat or not.
+The answer to a flood is to count the failures per client and refuse the
+client, which `ClientBans` does. It works whether the tokens repeat or not,
+and it charges an honest request one dictionary lookup, where a rate limiter
+in front of verification charges every request for traffic that is usually
+not there.
 
 ## Shipping the wheel
 

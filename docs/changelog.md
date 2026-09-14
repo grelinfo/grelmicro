@@ -13,6 +13,12 @@
 * 💥 `JWKSVerifier` is gone. `JWTVerifier.jwks(url, audience=...)` builds the same verifier, and `JWTVerifier.from_config()` takes a `JWKSConfig` too. A verifier built from keys you hold answers `ready`, `stale` and `refresh` as well, so code written against one takes the other. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `JWKSUnavailableError` is now `SigningKeysUnavailableError`, and verifying before any key set has loaded raises it instead of `OutOfContextError`. `JWKSFetcher` is now `Fetcher`, and `unverified_header` answers before any key set loads. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
+* 💥 `bans=` and `client=` are gone from `JWTVerifier`. Ban callers with a `ClientBans` beside the verifier: check `banned()` before verifying, and `record()` a rejection after. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `ClientBans(failures=..., window=..., duration=...)` takes its settings as keywords, and `ClientBans.from_config()` takes a `ClientBansConfig`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `ClientBannedError` is an `AdmissionError` carrying `retry_after`, and `ClientBans.banned_for()` says how long a ban has left. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `malformed` no longer counts toward a ban. It is refused before any signature is checked, and a legitimate client presenting an opaque token lands there. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `unverified_header(token)` is a function, and the verifier method is gone. It reads no key, so it never needed a verifier. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
 ### Added
 * ✨ `JWTVerifier` is an async context manager. `async with verifier:` loads the keys a provider publishes before the first request and refreshes them in the background every `retry_interval` until it closes, so no task has to be scheduled by hand. A provider that cannot be reached at startup leaves the verifier open without keys rather than stopping the app. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * ✨ `TokenRejectedError.reason` is a `TokenRejectedReason`, one member per way a token fails. Each member compares equal to the string it names, so `error.reason == "expired"` keeps working, and a tag the module does not know reads as `INVALID`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
