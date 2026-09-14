@@ -27,12 +27,17 @@ from litestar import WebSocket as LitestarWebSocket
 from litestar.params import Parameter
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
+from starlette.convertors import (  # codespell:ignore
+    CONVERTOR_TYPES,
+    Convertor,  # codespell:ignore
+    register_url_convertor,
+)
 from starlette.endpoints import HTTPEndpoint
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.testclient import WebSocketDenialResponse
 
-from grelmicro import Grelmicro
+from grelmicro import ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro._describe import _Endpoint, _reads_idempotent
 from grelmicro._paths import walk_routes
 from grelmicro.cache import Cache
@@ -1503,3 +1508,56 @@ class TestConsistency:
         app.state.micro.describe(other)
 
         assert TestClient(app).get("/me").status_code == HTTP_401_UNAUTHORIZED
+
+
+class TestBoundaries:
+    """Where one route's reach ends, and how many authentications an app has."""
+
+    def test_a_convertor_spanning_segments_is_held_at_every_depth(self) -> None:
+        """A protected route whose parameter matches a slash stays protected."""
+
+        class Rest(Convertor[str]):  # codespell:ignore
+            regex = ".+"
+
+            def convert(self, value: str) -> str:
+                return value
+
+            def to_string(self, value: str) -> str:
+                return value
+
+        register_url_convertor("grelmicro_rest", Rest())
+        try:
+            app = FastAPI()
+
+            @app.get("/admin/{rest:grelmicro_rest}")
+            async def admin(rest: str) -> dict[str, str]:
+                return {"who": "admin", "rest": rest}
+
+            @app.get("/{a}/{b}/{c}", dependencies=[Anonymous()])
+            async def triple(a: str, b: str, c: str) -> dict[str, str]:
+                return {"who": "public", "path": f"{a}/{b}/{c}"}
+
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+            ).install(app)
+            client = TestClient(app)
+
+            refused = client.get("/admin/x/y")
+            served = client.get("/one/two/three")
+        finally:
+            CONVERTOR_TYPES.pop("grelmicro_rest", None)
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert served.json() == {"who": "public", "path": "one/two/three"}
+
+    def test_a_second_authentication_is_refused_where_it_is_registered(
+        self,
+    ) -> None:
+        """Two would require every token to pass both verifiers."""
+        with pytest.raises(ComponentAlreadyRegisteredError, match="issuers"):
+            Grelmicro(
+                uses=[
+                    AuthenticatedRequests(verifier()),
+                    AuthenticatedRequests(verifier(), name="partner"),
+                ]
+            )

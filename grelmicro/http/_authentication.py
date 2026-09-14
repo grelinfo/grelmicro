@@ -283,7 +283,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     by_depth: dict[int, list[_Reach]] = {}
     anywhere: list[_Reach] = []
     for template, reach in rivals:
-        if ":path}" in template:
+        if _spans_depths(template):
             anywhere.append(reach)
         else:
             by_depth.setdefault(template.count("/"), []).append(reach)
@@ -363,6 +363,29 @@ _SAMPLES: Final = {
     "uuid": "00000000-0000-4000-8000-00000c0ffee0",
 }
 """A value for each converter that no literal route is likely declared with."""
+
+
+def _spans_depths(template: str) -> bool:
+    """Return whether a URL this template matches may have more segments.
+
+    Starlette's own `str`, `int`, `float` and `uuid` converters each match
+    within one segment. Any other, `path` included, may match a slash, and so
+    may one registered under one of those names to replace it. A route using
+    one is held against URLs of every depth.
+    """
+    from starlette.convertors import (  # noqa: PLC0415  # codespell:ignore
+        CONVERTOR_TYPES,
+        FloatConvertor,
+        IntegerConvertor,
+        StringConvertor,
+        UUIDConvertor,
+    )
+
+    single = (StringConvertor, IntegerConvertor, FloatConvertor, UUIDConvertor)
+    return any(
+        type(CONVERTOR_TYPES.get(match.group(2) or "str")) not in single
+        for match in _STARLETTE_PARAMETER.finditer(template)
+    )
 
 
 def _sample_url(template: str) -> str:
@@ -813,6 +836,12 @@ class AuthenticatedRequests:
     """
 
     kind: ClassVar[str] = "authenticated_requests"
+    singleton: ClassVar[bool] = True
+    singleton_reason: ClassVar[str] = (
+        "One authentication answers for the whole app, because a second "
+        "would require every token to pass both. To accept tokens from "
+        "several issuers, pass one verifier that accepts them"
+    )
     asgi_authenticates: ClassVar[bool] = True
     """Placed ahead of every other answering middleware of ours at install."""
 
@@ -843,7 +872,7 @@ class AuthenticatedRequests:
         ] = None,
         name: Annotated[
             str,
-            Doc("Registration name, for a second verifier on one app."),
+            Doc("Registration name. Only one may be registered."),
         ] = "default",
         openapi: Annotated[
             bool,
@@ -895,7 +924,7 @@ class AuthenticatedRequests:
         ] = None,
         name: Annotated[
             str,
-            Doc("Registration name, for a second verifier on one app."),
+            Doc("Registration name. Only one may be registered."),
         ] = "default",
         openapi: Annotated[
             bool,
