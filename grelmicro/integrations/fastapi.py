@@ -60,9 +60,9 @@ from grelmicro.http import (
 from grelmicro.http._authentication import (
     AUTHENTICATED_MARKER,
     AuthenticatedRequestsMiddleware,
-    _declares_anonymous,
     declare_anonymous,
     route_scopes,
+    routes_of,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
@@ -1127,19 +1127,22 @@ def _route_authentication(
     """Return the public operations, and the scopes each covered one needs.
 
     Keyed by the path the schema publishes and the lowercased method, so
-    both read straight against the schema's paths.
+    both read straight against the schema's paths. An operation is public
+    only when the middleware serves it without a credential, which a
+    declaration alone does not settle: another route may answer its URL.
     """
+    served = routes_of(app)
     public: set[tuple[str, str]] = set()
     scopes: dict[tuple[str, str], list[str]] = {}
-    for prefix, route, contexts in walk_routes(app):
+    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
         path = f"{prefix}{getattr(route, 'path_format', route.path)}"
-        methods = [method.lower() for method in getattr(route, "methods", ())]
-        if _declares_anonymous(route, contexts):
-            public.update((path, method) for method in methods)
-            continue
-        required = list(route_scopes(route, ""))
-        for method in methods:
-            scopes[(path, method)] = required
+        # `None` for an endpoint class, which answers whatever it defines.
+        for method in getattr(route, "methods", None) or ():
+            key = (path, method.lower())
+            if served.serves_publicly(route, method):
+                public.add(key)
+            else:
+                scopes[key] = list(route_scopes(route, method))
     return public, scopes
 
 

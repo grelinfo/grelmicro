@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Security
 from fastapi import Request as FastAPIRequest
 from fastapi import WebSocket as FastAPIWebSocket
 from fastapi.security import HTTPBearer
@@ -27,6 +27,7 @@ from litestar import WebSocket as LitestarWebSocket
 from litestar.params import Parameter
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
+from starlette.endpoints import HTTPEndpoint
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.testclient import WebSocketDenialResponse
@@ -64,6 +65,7 @@ from grelmicro.security import (
     JWTClaims,
     JWTKey,
     JWTVerifier,
+    Principal,
     SigningKeysUnavailableError,
     TokenRejectedError,
     TokenRejectedReason,
@@ -818,19 +820,6 @@ class TestFastAPI:
         with pytest.raises(TypeError, match="not a single string"):
             Authenticated(scopes="orders:write")
 
-    def test_a_report_reads_the_routes_as_they_are_now(self) -> None:
-        """`grelmicro check` refreshes the routes before it reads them."""
-        component = AuthenticatedRequests(verifier())
-        app = fastapi_app(component)
-
-        @app.get("/health", dependencies=[Anonymous()])
-        async def health() -> dict[str, bool]:
-            return {"ok": True}
-
-        component.refresh_routes(app)
-
-        assert TestClient(app).get("/health").json() == {"ok": True}
-
     async def test_a_component_opened_before_install_reads_no_routes(
         self,
     ) -> None:
@@ -1419,3 +1408,98 @@ class TestRouting:
             response = client.get("/catalog/not-a-number")
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
+
+
+class TestConsistency:
+    """The schema and the report say what the middleware does."""
+
+    @staticmethod
+    def applies(app: Any, method: str, path: str) -> tuple[str, ...]:  # noqa: ANN401
+        """Return what the report says applies to one endpoint."""
+        report = app.state.micro.describe(app)
+        return next(
+            row.applies
+            for row in report.endpoints
+            if row.method == method and row.path == path
+        )
+
+    def test_an_endpoint_class_never_breaks_the_schema(self) -> None:
+        """A route whose endpoint is a class declares no methods of its own."""
+        app = fastapi_app(AuthenticatedRequests(verifier()))
+
+        class Legacy(HTTPEndpoint):
+            async def get(self, request: Any) -> JSONResponse:  # noqa: ANN401, ARG002
+                return JSONResponse({"legacy": True})
+
+        app.add_route("/legacy", Legacy)  # ty: ignore[invalid-argument-type]
+
+        assert "/me" in app.openapi()["paths"]
+
+    def test_a_route_another_route_covers_is_described_as_authenticated(
+        self,
+    ) -> None:
+        """The schema and the report agree with the `401` it is answered."""
+
+        def declare(app: FastAPI) -> None:
+            @app.get("/items/featured", dependencies=[Anonymous()])
+            async def featured() -> dict[str, bool]:
+                return {"featured": True}
+
+            @app.get("/items/{item_id}")
+            async def item(item_id: str) -> dict[str, str]:
+                return {"item": item_id}
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+
+        assert app.openapi()["paths"]["/items/featured"]["get"]["security"] == [
+            {SCHEME: []}
+        ]
+        assert self.applies(app, "GET", "/items/featured") == ("authenticated",)
+        assert (
+            TestClient(app).get("/items/featured").status_code
+            == HTTP_401_UNAUTHORIZED
+        )
+
+    def test_scopes_a_parent_security_declares_are_described(self) -> None:
+        """A `Security` wrapping `Authenticated()` passes its scopes down."""
+
+        async def orders_user(
+            principal: Annotated[Principal, Authenticated()],
+        ) -> Principal:
+            return principal
+
+        def declare(app: FastAPI) -> None:
+            @app.get(
+                "/orders/history",
+                dependencies=[Security(orders_user, scopes=["orders:read"])],
+            )
+            async def history() -> dict[str, bool]:
+                return {"history": True}
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+
+        assert app.openapi()["paths"]["/orders/history"]["get"]["security"] == [
+            {SCHEME: ["orders:read"]}
+        ]
+        assert self.applies(app, "GET", "/orders/history") == (
+            "authenticated orders:read",
+        )
+        assert (
+            TestClient(app)
+            .get("/orders/history", headers=bearer(token()))
+            .status_code
+            == HTTP_403_FORBIDDEN
+        )
+
+    def test_a_report_on_another_app_changes_nothing_served(self) -> None:
+        """Describing a different app never opens a route on the served one."""
+        app = fastapi_app(AuthenticatedRequests(verifier()))
+        other = FastAPI()
+
+        @other.get("/me", dependencies=[Anonymous()])
+        async def me() -> dict[str, bool]:
+            return {"public": True}
+
+        app.state.micro.describe(other)
+
+        assert TestClient(app).get("/me").status_code == HTTP_401_UNAUTHORIZED

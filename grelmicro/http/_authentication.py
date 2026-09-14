@@ -164,6 +164,32 @@ class _Routes:
     by_depth: Mapping[int, tuple[_Reach, ...]] = MappingProxyType({})
     anywhere: tuple[_Reach, ...] = ()
     litestar: Any = None
+    declared: Mapping[int, tuple[_Reach, str]] = MappingProxyType({})
+
+    def serves_publicly(
+        self,
+        route: Any,  # noqa: ANN401
+        method: str,
+    ) -> bool:
+        """Return whether the middleware serves this route without a credential.
+
+        For a report or a schema, which describe a route rather than a URL.
+        The route is tried with a URL of its own whose parameters avoid the
+        literal paths other routes are declared with, so a route another one
+        covers is described as authenticated, as the middleware treats it.
+        """
+        if self.litestar is not None:
+            return _litestar_declares_public(route, method)
+        entry = self.declared.get(id(route))
+        if entry is None:
+            return False
+        reach, template = entry
+        sample = _sample_url(template)
+        kind = next(iter(reach.kinds))
+        rivals = (*self.by_depth.get(sample.count("/"), ()), *self.anywhere)
+        return reach.answers(kind, method, sample) and not any(
+            rival.answers(kind, method, sample) for rival in rivals
+        )
 
 
 class _PublicRoutes:
@@ -187,12 +213,12 @@ class _PublicRoutes:
     def read(self, app: Any) -> None:  # noqa: ANN401
         """Read every route `app` declares, public or not."""
         self._app = app
-        self._routes = _routes_of(app)
+        self._routes = routes_of(app)
 
     def reread(self) -> None:
         """Read the app again, for the routes declared since install."""
         if self._app is not None:
-            self._routes = _routes_of(self._app)
+            self._routes = routes_of(self._app)
 
     def matches(self, scope: Scope) -> bool:
         """Return whether the request is served by a route declared public."""
@@ -212,7 +238,7 @@ class _PublicRoutes:
         return not any(reach.answers(kind, method, path) for reach in rivals)
 
 
-def _routes_of(app: Any) -> _Routes:  # noqa: ANN401
+def routes_of(app: Any) -> _Routes:  # noqa: ANN401
     """Read an app's routes, the way its framework declares them."""
     if getattr(app, "asgi_router", None) is not None:
         return _litestar_routes(app)
@@ -230,6 +256,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     from starlette.routing import WebSocketRoute, compile_path  # noqa: PLC0415
 
     public: list[_Reach] = []
+    declared: dict[int, tuple[_Reach, str]] = {}
     rivals: list[tuple[str, _Reach]] = []
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{route.path}"
@@ -243,6 +270,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             )
         if _declares_anonymous(route, contexts):
             public.append(reach)
+            declared[id(route)] = (reach, template)
         else:
             rivals.append((template, reach))
     if not public:
@@ -265,6 +293,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             {depth: tuple(reaches) for depth, reaches in by_depth.items()}
         ),
         anywhere=tuple(anywhere),
+        declared=MappingProxyType(declared),
     )
 
 
@@ -319,6 +348,29 @@ def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
     except HTTPException:
         return False
     return bool(handler.opt.get(ANONYMOUS_OPT))
+
+
+_STARLETTE_PARAMETER = re.compile(
+    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([a-zA-Z_][a-zA-Z0-9_]*))?\}"
+)
+"""A path parameter in a Starlette route's path, with its optional converter."""
+
+_SAMPLES: Final = {
+    "str": "grelmicro-probe",
+    "path": "grelmicro/probe",
+    "int": "40961257",
+    "float": "4096.1257",
+    "uuid": "00000000-0000-4000-8000-00000c0ffee0",
+}
+"""A value for each converter that no literal route is likely declared with."""
+
+
+def _sample_url(template: str) -> str:
+    """Return a URL of this route whose parameters avoid literal paths."""
+    return _STARLETTE_PARAMETER.sub(
+        lambda match: _SAMPLES.get(match.group(2) or "str", _SAMPLES["str"]),
+        template,
+    )
 
 
 def _litestar_handlers(route: Any) -> list[Any] | None:  # noqa: ANN401
@@ -391,20 +443,20 @@ def is_anonymous_declaration(call: object) -> bool:
     return bool(getattr(call, _ANONYMOUS_MARKER, False))
 
 
-def route_is_public(
+def _litestar_declares_public(
     route: Any,  # noqa: ANN401
     method: str,
-    contexts: tuple[Any, ...] = (),
 ) -> bool:
-    """Return whether a route declares this method public."""
-    handlers = _litestar_handlers(route)
-    if handlers is not None:
-        return any(
-            handler.opt.get(ANONYMOUS_OPT)
-            and method in getattr(handler, "http_methods", ())
-            for handler in handlers
-        )
-    return _declares_anonymous(route, contexts)
+    """Return whether a Litestar route declares this method public.
+
+    Litestar's router always runs the handler that declared it for the URLs
+    it routes there, so the declaration is the answer.
+    """
+    return any(
+        handler.opt.get(ANONYMOUS_OPT)
+        and method in getattr(handler, "http_methods", ())
+        for handler in _litestar_handlers(route) or ()
+    )
 
 
 def route_scopes(
@@ -430,7 +482,15 @@ def route_scopes(
     while pending:
         dependency = pending.pop(0)
         if getattr(dependency.call, AUTHENTICATED_MARKER, False):
-            found.extend(getattr(dependency, "own_oauth_scopes", None) or ())
+            # What `SecurityScopes` hands it: the scopes of every `Security`
+            # around it as well as its own, under either spelling FastAPI
+            # has used for them.
+            found.extend(getattr(dependency, "parent_oauth_scopes", None) or ())
+            found.extend(
+                getattr(dependency, "own_oauth_scopes", None)
+                or getattr(dependency, "security_scopes", None)
+                or ()
+            )
         pending.extend(dependency.dependencies)
     return tuple(dict.fromkeys(found))
 
@@ -941,13 +1001,6 @@ class AuthenticatedRequests:
         read again when it starts, so a route added between the two counts
         as well.
         """
-        self._public.read(app)
-
-    def refresh_routes(
-        self,
-        app: Annotated[Any, Doc("The application to read the routes off.")],  # noqa: ANN401
-    ) -> None:
-        """Read the routes again, for a report on the app as it is now."""
         self._public.read(app)
 
     def handled_exceptions(self) -> tuple[type[Exception], ...]:

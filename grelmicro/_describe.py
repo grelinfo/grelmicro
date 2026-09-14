@@ -349,6 +349,7 @@ class _Endpoint:
     contexts: tuple[Any, ...]
     regex: Any = None
     authenticated: bool = False
+    public: bool = False
 
 
 SOME_PATHS = " (some paths)"
@@ -531,16 +532,13 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
 
 def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what an `AuthenticatedRequests` does to one endpoint."""
-    from grelmicro.http._authentication import (  # noqa: PLC0415
-        route_is_public,
-        route_scopes,
-    )
+    from grelmicro.http._authentication import route_scopes  # noqa: PLC0415
 
     def read(endpoint: _Endpoint) -> str | None:
         reach = _reach(endpoint, (), tuple(component.config.exclude))
         if reach is None:
             return None
-        if route_is_public(endpoint.route, endpoint.method, endpoint.contexts):
+        if endpoint.public:
             return "anonymous"
         scopes = " ".join(route_scopes(endpoint.route, endpoint.method))
         return (
@@ -558,15 +556,22 @@ def _authenticated_by(components: Sequence[Any], endpoint: _Endpoint) -> bool:
     A covered request carries a caller, so the cache answers it from its
     handler and an idempotent replay is skipped.
     """
-    from grelmicro.http._authentication import route_is_public  # noqa: PLC0415
-
     return any(
         _reach(endpoint, (), tuple(component.config.exclude)) is not None
-        and not route_is_public(
-            endpoint.route, endpoint.method, endpoint.contexts
-        )
+        and not endpoint.public
         for component in components
     )
+
+
+def _served_publicly(app: object) -> Callable[[Any, str], bool]:
+    """Return what says whether a route is served without a credential.
+
+    Read off the app the report is about, never off the running middleware,
+    so a report on one app changes nothing another one serves.
+    """
+    from grelmicro.http._authentication import routes_of  # noqa: PLC0415
+
+    return routes_of(app).serves_publicly
 
 
 def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
@@ -639,6 +644,7 @@ def _describe_endpoints(
         for component in components
         if getattr(component, "kind", None) == "authenticated_requests"
     ]
+    served = _served_publicly(app) if authenticating else None
     if not rules:
         return ()
     compiled = dict(_declared_paths(app))
@@ -654,6 +660,9 @@ def _describe_endpoints(
                 route=route,
                 contexts=contexts,
                 regex=compiled.get(path),
+            )
+            endpoint = replace(
+                endpoint, public=served is not None and served(route, method)
             )
             endpoint = replace(
                 endpoint,
