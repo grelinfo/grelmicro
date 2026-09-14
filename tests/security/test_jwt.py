@@ -7,6 +7,7 @@ The adversarial cases live in `test_jwt_security.py`.
 
 from __future__ import annotations
 
+import inspect
 import sys
 import threading
 import time
@@ -17,6 +18,7 @@ from typing import Any, Literal
 import pytest
 from pydantic import ValidationError
 
+from grelmicro._config import reconfigure_all
 from grelmicro.errors import DependencyNotFoundError, SettingsValidationError
 from grelmicro.security import (
     JWTClaims,
@@ -1113,3 +1115,162 @@ class TestClaims:
 
         assert claims.identity == ""
         assert claims.display_name == ""
+
+
+class TestEnvironment:
+    """Settings a deployment supplies, and the ones only code may choose."""
+
+    @staticmethod
+    def key() -> JWTKey:
+        """Return the suite's RSA key, built the way a caller builds one."""
+        return JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256")
+
+    def test_the_environment_says_whose_tokens_to_trust(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deployment names the audience and the issuer."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_AUDIENCE", AUDIENCE)
+        monkeypatch.setenv("GREL_JWTVERIFIER_ISSUER", ISSUER)
+
+        verifier = JWTVerifier.keys(self.key())
+
+        assert verifier.config.audience == [AUDIENCE]
+        assert verifier.config.issuer == [ISSUER]
+        assert verifier.verify(issue()).subject == "user-1"
+
+    def test_a_list_is_written_with_commas_or_as_json(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both forms an operator writes by hand read the same."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv(
+            "GREL_JWTVERIFIER_AUDIENCE", f'["other-api", "{AUDIENCE}"]'
+        )
+        monkeypatch.setenv("GREL_JWTVERIFIER_REQUIRED", "exp, jti")
+
+        verifier = JWTVerifier.keys(self.key())
+
+        assert verifier.config.audience == ["other-api", AUDIENCE]
+        assert verifier.config.required == ["exp", "jti"]
+
+    def test_a_keyword_wins_over_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What the code says is what runs."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_AUDIENCE", "other-api")
+
+        verifier = JWTVerifier.keys(self.key(), audience=AUDIENCE)
+
+        assert verifier.config.audience == [AUDIENCE]
+
+    def test_an_audience_nobody_supplies_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Left to the environment, the audience is still required."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+
+        with pytest.raises(SettingsValidationError, match="audience"):
+            JWTVerifier.keys(self.key())
+
+    def test_only_code_answers_to_no_audience(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`None` in code wins over a variable naming an audience."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_AUDIENCE", AUDIENCE)
+
+        verifier = JWTVerifier.keys(self.key(), audience=None)
+
+        assert verifier.config.audience is None
+
+    def test_no_variable_turns_the_audience_check_off(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty variable is refused rather than read as no audience."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_AUDIENCE", "")
+
+        with pytest.raises(SettingsValidationError, match="audience"):
+            JWTVerifier.keys(self.key())
+
+    def test_a_named_verifier_reads_its_own_prefix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second verifier is addressed by its name."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_AUDIENCE", "default-api")
+        monkeypatch.setenv("GREL_JWTVERIFIER_PARTNER_AUDIENCE", AUDIENCE)
+
+        partner = JWTVerifier.keys(self.key(), name="partner")
+
+        assert partner.config.audience == [AUDIENCE]
+
+    def test_a_named_verifier_never_reads_the_kind_prefix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One verifier's trust settings never reach another."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_AUDIENCE", AUDIENCE)
+
+        with pytest.raises(SettingsValidationError, match="audience"):
+            JWTVerifier.keys(self.key(), name="partner")
+
+    def test_env_load_false_reads_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The per-call switch wins over the process-wide flag."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_LEEWAY", "30")
+
+        verifier = JWTVerifier.keys(
+            self.key(), audience=AUDIENCE, env_load=False
+        )
+
+        assert verifier.config.leeway == 0
+
+    async def test_a_mounted_file_resizes_the_cache_and_nothing_else(
+        self,
+    ) -> None:
+        """A file tunes what a verification costs, never whose tokens pass."""
+        verifier = JWTVerifier.keys(
+            self.key(), audience=AUDIENCE, name="reloaded"
+        )
+
+        await reconfigure_all(
+            {
+                "GREL_JWTVERIFIER_RELOADED_CACHE_SIZE": "7",
+                "GREL_JWTVERIFIER_RELOADED_AUDIENCE": "other-api",
+                "GREL_JWTVERIFIER_RELOADED_LEEWAY": "600",
+            }
+        )
+
+        assert verifier.config.cache_size == 7  # noqa: PLR2004
+        assert verifier._cache_size == 7  # noqa: PLR2004
+        assert verifier.config.audience == [AUDIENCE]
+        assert verifier.config.leeway == 0
+
+    def test_a_verifier_from_a_config_is_never_reloaded(self) -> None:
+        """The declarative door is the whole truth, so no file reaches it."""
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig(keys=[self.key()], audience=AUDIENCE)
+        )
+
+        assert verifier._env_prefix is None
+
+    def test_the_signature_says_the_audience_is_left_unset(self) -> None:
+        """The default an editor and the API reference show reads as a name."""
+        parameters = inspect.signature(JWTVerifier.jwks).parameters
+
+        assert repr(parameters["audience"].default) == "UNSET"
+
+    async def test_a_reload_never_changes_whose_tokens_pass(self) -> None:
+        """A config handed to reconfigure with a new audience is refused."""
+        verifier = JWTVerifier.keys(self.key(), audience=AUDIENCE)
+        changed = verifier.config.model_copy(update={"audience": ["other-api"]})
+
+        with pytest.raises(ValueError, match="audience"):
+            await verifier.reconfigure(changed)
+
+        assert verifier.config.audience == [AUDIENCE]

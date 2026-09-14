@@ -31,6 +31,7 @@ Read more in the [JWT](../security/jwt.md) docs.
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from time import monotonic
 from typing import Annotated, Any, Final, Self
@@ -38,7 +39,7 @@ from typing import Annotated, Any, Final, Self
 from pydantic import BaseModel, field_validator
 from typing_extensions import Doc
 
-from grelmicro._config import build_config
+from grelmicro._config import Reconfigurable, env_prefixes, resolve_config
 from grelmicro.errors import AdmissionError
 from grelmicro.security.jwt import TokenRejectedReason
 
@@ -91,7 +92,7 @@ class ClientBannedError(AdmissionError, RuntimeError):
         super().__init__("Too many rejected tokens from this client.")
 
 
-class ClientBansConfig(BaseModel):
+class ClientBansConfig(BaseModel, frozen=True):
     """When a client is refused, and for how long."""
 
     failures: Annotated[
@@ -138,12 +139,17 @@ class ClientBansConfig(BaseModel):
         return value
 
 
-class ClientBans:
+class ClientBans(Reconfigurable[ClientBansConfig]):
     """Tracks failing clients and refuses the ones that keep failing.
 
     `banned` is the only call on the request path and does one dictionary
     lookup. `record` runs when a token was already refused, so it is never on
     the path of a request that succeeds.
+
+    Built with keywords, it also reads `GREL_CLIENTBANS_`, or
+    `GREL_CLIENTBANS_{NAME}_` for a named table, once `GREL_ENV_LOAD` is set.
+    Every setting can change while the service runs: a ban only ever costs
+    capacity, never trust.
 
     Example:
         ```python
@@ -183,29 +189,46 @@ class ClientBans:
             frozenset[str] | None,
             Doc("Rejection reasons that count. Defaults to `ABUSIVE_REASONS`."),
         ] = None,
+        name: Annotated[
+            str,
+            Doc(
+                "Instance name, which is the environment namespace:"
+                " `GREL_CLIENTBANS_{NAME}_`. The default instance reads"
+                " `GREL_CLIENTBANS_`."
+            ),
+        ] = "default",
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the"
+                " process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the table, which starts empty.
 
-        A setting left out takes the default `ClientBansConfig` gives it.
+        A setting left out is read from the environment, then takes the
+        default `ClientBansConfig` gives it.
 
         Raises:
             SettingsValidationError: If a setting is refused.
         """
-        given = {
-            "failures": failures,
-            "window": window,
-            "duration": duration,
-            "max_clients": max_clients,
-        }
-        config = build_config(
+        env_prefix, kind_prefix = env_prefixes("CLIENTBANS", name)
+        config = resolve_config(
             ClientBansConfig,
-            **{
-                name: value
-                for name, value in given.items()
-                if value is not None
+            explicit=None,
+            kwargs={
+                "failures": failures,
+                "window": window,
+                "duration": duration,
+                "max_clients": max_clients,
             },
+            env_prefix=env_prefix,
+            kind_env_prefix=kind_prefix,
+            env_load=env_load,
         )
         self._setup(config, reasons=reasons)
+        self._track_reconfigure(env_prefix)
 
     @classmethod
     def from_config(
@@ -222,7 +245,7 @@ class ClientBans:
         """Build the table from a configuration that is already whole.
 
         The one declarative door. What you pass is what runs: no environment
-        variable is read.
+        variable is read, and the table is not registered for live reload.
         """
         instance = cls.__new__(cls)
         instance._setup(config, reasons=reasons)  # noqa: SLF001
@@ -232,10 +255,9 @@ class ClientBans:
         self, config: ClientBansConfig, *, reasons: frozenset[str] | None
     ) -> None:
         """Hold the settings, and start an empty table."""
-        self._failures = config.failures
-        self._window = config.window
-        self._duration = config.duration
-        self._max_clients = config.max_clients
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
+        self._take(config)
         self._reasons = ABUSIVE_REASONS if reasons is None else reasons
         # `(window_started, count, banned_until)` per client. Kept beside a
         # queue of the order clients were first seen, so making room never
@@ -244,6 +266,17 @@ class ClientBans:
         # under a free-threaded interpreter, with no lock on the read path.
         self._clients: dict[str, tuple[float, int, float]] = {}
         self._order: deque[str] = deque()
+
+    def _take(self, config: ClientBansConfig) -> None:
+        """Read the thresholds a request is judged against."""
+        self._failures = config.failures
+        self._window = config.window
+        self._duration = config.duration
+        self._max_clients = config.max_clients
+
+    async def _apply_reconfigure(self, new_config: ClientBansConfig) -> None:
+        """Take the new thresholds. Clients already tracked keep their counts."""
+        self._take(new_config)
 
     def banned(
         self,

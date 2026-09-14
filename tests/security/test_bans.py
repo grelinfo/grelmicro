@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from grelmicro._config import reconfigure_all
 from grelmicro.errors import AdmissionError, SettingsValidationError
 from grelmicro.security import (
     ABUSIVE_REASONS,
@@ -395,3 +396,47 @@ class TestUnderThreads:
         table.record(OTHER, "signature")
 
         assert len(table._clients) >= 1
+
+
+class TestEnvironment:
+    """Thresholds a deployment tunes, at startup and while running."""
+
+    def test_the_environment_tunes_the_table(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A setting left out of the code is read from its variable."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_CLIENTBANS_FAILURES", "2")
+
+        table = ClientBans()
+        table.record(CLIENT, "signature")
+
+        assert table.record(CLIENT, "signature") is True
+
+    def test_a_named_table_falls_back_to_the_kind_prefix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ban costs capacity, so one variable may tune every table."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_CLIENTBANS_FAILURES", "2")
+
+        assert ClientBans(name="edge").config.failures == 2  # noqa: PLR2004
+
+    async def test_a_mounted_file_retunes_a_running_table(self) -> None:
+        """Every threshold is live, and the next failure is judged by it."""
+        table = ClientBans(failures=FAILURES, name="live")
+
+        await reconfigure_all(
+            {
+                "GREL_CLIENTBANS_LIVE_FAILURES": "1",
+                "GREL_CLIENTBANS_LIVE_DURATION": "30",
+            }
+        )
+
+        assert table.config.failures == 1
+        assert table.record(CLIENT, "signature") is True
+        assert 0.0 < table.banned_for(CLIENT) <= 30  # noqa: PLR2004
+
+    def test_a_table_from_a_config_is_never_reloaded(self) -> None:
+        """The declarative door is the whole truth, so no file reaches it."""
+        assert ClientBans.from_config(ClientBansConfig())._env_prefix is None

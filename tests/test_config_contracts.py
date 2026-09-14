@@ -27,7 +27,7 @@ from tests._contract_support import base_names, module_name
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
-_MIN_RECONFIGURABLES = 19
+_MIN_RECONFIGURABLES = 21
 """Exact count today, so a class dropping out of discovery fails.
 
 Slack here would let members erode silently, which is the failure this
@@ -148,6 +148,8 @@ KIND_SEGMENTS = {
     "Shield": "SHIELD",
     "RateLimiter": "RATELIMITER",
     "CircuitBreaker": "CIRCUITBREAKER",
+    "JWTVerifier": "JWTVERIFIER",
+    "ClientBans": "CLIENTBANS",
 }
 """R4's published table: the class name uppercased, separators dropped.
 

@@ -47,11 +47,14 @@ from grelmicro.resilience import (
     Shield,
     Timeout,
 )
-from grelmicro.security import TrustedProxies
+from grelmicro.security import ClientBans, JWTKey, JWTVerifier, TrustedProxies
 from grelmicro.trace import Trace
 
 SECRET = "s3cret-value-never-echoed"
 """Stand-in for a credential an operator put behind a variable by mistake."""
+
+HMAC_KEY = JWTKey.secret(b"s" * 32, algorithm="HS256")
+"""A key long enough to build a verifier, so only the setting under test fails."""
 
 ENV_CASES: list[tuple[str, str, Callable[[], object]]] = [
     ("Timeout", "GREL_TIMEOUT_T_SECONDS", lambda: Timeout("t")),
@@ -82,10 +85,16 @@ ENV_CASES: list[tuple[str, str, Callable[[], object]]] = [
         lambda: ReadWriteLock("rw"),
     ),
     ("TaskLock", "GREL_TASKLOCK_TL_LEASE_DURATION", lambda: TaskLock("tl")),
+    (
+        "JWTVerifier",
+        "GREL_JWTVERIFIER_V_LEEWAY",
+        lambda: JWTVerifier.keys(HMAC_KEY, audience="api", name="v"),
+    ),
+    ("ClientBans", "GREL_CLIENTBANS_B_FAILURES", lambda: ClientBans(name="b")),
 ]
 """One env-path case per pattern that reads the environment."""
 
-_MIN_ENV_CASES = 12
+_MIN_ENV_CASES = 14
 """Floor for the sweep, so a shrunken list cannot pass silently."""
 
 DOTTED_SECRET = "acme.vault.Sk_live_abc"
@@ -192,6 +201,11 @@ KWARG_CASES: list[tuple[str, Callable[[], object]]] = [
     ),
     ("Lock", lambda: Lock("l", lease_duration=-1)),
     ("TTLCache", lambda: TTLCache(ttl=-1)),
+    (
+        "JWTVerifier",
+        lambda: JWTVerifier.keys(HMAC_KEY, audience="api", leeway=-1),
+    ),
+    ("ClientBans", lambda: ClientBans(failures=0)),
 ]
 """The kwargs path, which must fail the same way as the env path."""
 

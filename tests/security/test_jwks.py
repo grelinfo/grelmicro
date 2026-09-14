@@ -20,6 +20,7 @@ import httpx2
 import pytest
 from pydantic import ValidationError
 
+from grelmicro._config import reconfigure_all
 from grelmicro.errors import (
     DependencyNotFoundError,
     SettingsValidationError,
@@ -799,3 +800,65 @@ class TestDefaultFetcher:
         verifier = JWTVerifier.from_config(config())
 
         assert verifier._fetch is fetch_with_httpx
+
+
+class TestEnvironment:
+    """Where the keys are published can come from the deployment."""
+
+    async def test_the_endpoint_can_come_from_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deployment names the JWKS endpoint and the audience."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_URL", URL)
+        monkeypatch.setenv("GREL_JWTVERIFIER_AUDIENCE", AUDIENCE)
+
+        verifier = JWTVerifier.jwks(fetch=Endpoint(document()))
+        await verifier.refresh()
+
+        assert verifier.verify(token()).subject == "user-1"
+
+    def test_the_algorithm_is_never_read_from_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only code chooses how a signature is checked."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+        monkeypatch.setenv("GREL_JWTVERIFIER_ALGORITHM", "RS256")
+
+        with pytest.raises(SettingsValidationError, match="only code"):
+            JWTVerifier.jwks(URL, audience=AUDIENCE)
+
+    def test_an_algorithm_named_in_code_is_kept(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pin written in code is the choice the guard protects."""
+        monkeypatch.setenv("GREL_ENV_LOAD", "1")
+
+        verifier = JWTVerifier.jwks(URL, audience=AUDIENCE, algorithm="RS256")
+
+        assert isinstance(verifier.config, JWKSConfig)
+        assert verifier.config.algorithm == "RS256"
+
+    async def test_a_mounted_file_paces_the_refresh_and_nothing_else(
+        self,
+    ) -> None:
+        """The refresh interval is live, the endpoint is not."""
+        verifier = JWTVerifier.jwks(
+            URL,
+            audience=AUDIENCE,
+            name="paced",
+            fetch=Endpoint(document()),
+        )
+
+        await reconfigure_all(
+            {
+                "GREL_JWTVERIFIER_PACED_RETRY_INTERVAL": "5",
+                "GREL_JWTVERIFIER_PACED_URL": "https://elsewhere.example.com/k",
+            }
+        )
+
+        config = verifier.config
+        assert isinstance(config, JWKSConfig)
+        assert config.retry_interval == 5  # noqa: PLR2004
+        assert config.url == URL
+        assert verifier._source is config

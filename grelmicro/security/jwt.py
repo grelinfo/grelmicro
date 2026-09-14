@@ -23,6 +23,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,
     Final,
     Literal,
     Protocol,
@@ -32,14 +33,21 @@ from typing import (
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     Field,
     SecretBytes,
     field_validator,
     model_validator,
 )
+from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
-from grelmicro._config import build_config
+from grelmicro._config import (
+    Reconfigurable,
+    env_prefixes,
+    parse_csv_or_json,
+    resolve_config,
+)
 from grelmicro.errors import (
     DependencyNotFoundError,
     GrelmicroError,
@@ -394,7 +402,7 @@ def _material(key: bytes | str) -> bytes:
     return key.encode() if isinstance(key, str) else key
 
 
-class JWTPolicy(BaseModel):
+class JWTPolicy(BaseModel, frozen=True):
     """What a verifier checks, and what it remembers.
 
     Everything here is independent of where the keys came from, so a verifier
@@ -404,6 +412,8 @@ class JWTPolicy(BaseModel):
 
     audience: Annotated[
         list[str] | None,
+        NoDecode,
+        BeforeValidator(parse_csv_or_json),
         Doc(
             "Accepted `aud` values, one or several. Required, because a"
             " resource server has to check that a token was issued for it."
@@ -415,6 +425,8 @@ class JWTPolicy(BaseModel):
     ]
     issuer: Annotated[
         list[str],
+        NoDecode,
+        BeforeValidator(parse_csv_or_json),
         Doc("Accepted `iss` values. Empty leaves the issuer unchecked."),
     ] = Field(default_factory=list)
     leeway: Annotated[
@@ -434,6 +446,8 @@ class JWTPolicy(BaseModel):
     ] = None
     scope_claims: Annotated[
         list[str],
+        NoDecode,
+        BeforeValidator(parse_csv_or_json),
         Doc(
             "Claims the granted scopes are read from, in order. The first one"
             " the token carries decides, as a space-separated string or an"
@@ -444,6 +458,8 @@ class JWTPolicy(BaseModel):
     ] = Field(default_factory=lambda: ["scope", "scp"])
     required: Annotated[
         list[str],
+        NoDecode,
+        BeforeValidator(parse_csv_or_json),
         Doc(
             "Further claims that must be present. `exp` is always required"
             " and does not need naming, and naming an `audience` or an"
@@ -479,12 +495,6 @@ class JWTPolicy(BaseModel):
             " withdrawn upstream keeps being accepted from memory."
         ),
     ] = 300.0
-
-    @field_validator("audience", "issuer", "scope_claims", mode="before")
-    @classmethod
-    def _as_list(cls, value: Any) -> Any:  # noqa: ANN401
-        """Read a single value as a list of one."""
-        return [value] if isinstance(value, str) else value
 
     @field_validator("audience")
     @classmethod
@@ -852,7 +862,46 @@ class TokenVerifier(Protocol):
         ...  # pragma: no cover
 
 
-class JWTVerifier:
+_LIVE_FIELDS: Final = frozenset(
+    {"cache_size", "retry_interval", "timeout", "ttl"}
+)
+"""Fields a mounted file may change while the service runs.
+
+Each one tunes what a verification costs: how many tokens stay cached, and
+how the key set is fetched. None of them decides whose tokens are trusted or
+how long a withdrawn token keeps being accepted.
+"""
+
+
+class _Unset:
+    """Stands for an audience the caller did not pass.
+
+    `None` cannot: it is what `audience` means by "answer to no audience", so
+    a caller writing it has said something, and `resolve_config` reads a
+    `None` keyword as one nobody passed.
+    """
+
+    def __repr__(self) -> str:
+        """Return the name it is published under."""
+        return "UNSET"
+
+
+_UNSET: Final = _Unset()
+"""The one instance of `_Unset`, so a caller can be told apart from a default."""
+
+_NO_AUDIENCE: Final = "\x00no-audience"
+"""Stands in for the audience while the environment is read.
+
+Code that answers to no audience says so with `None`, which the resolver
+would otherwise read as "not given" and fill from a variable. The stand-in
+keeps the variable out, and `None` replaces it once resolution is done.
+"""
+
+_ONE_OR_MANY: Final = ("audience", "issuer", "scope_claims")
+"""Settings a keyword may pass as a single string."""
+
+
+class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
     """Verifies inbound JWTs against a key set and a claim policy.
 
     Build one with a factory that names where the keys come from:
@@ -866,6 +915,13 @@ class JWTVerifier:
     parallel. Keys a provider publishes are fetched by `refresh`, a
     coroutine, and never on the request path.
 
+    `keys` and `jwks` also read the environment once `GREL_ENV_LOAD` is set,
+    under `GREL_JWTVERIFIER_`, or `GREL_JWTVERIFIER_{NAME}_` for a named
+    verifier, and a keyword always wins. The environment may say whose tokens
+    to trust, such as the issuer or the audience. It never chooses the key
+    source, the algorithm or the key material, and a mounted file changes
+    only what a verification costs while the service runs.
+
     Example:
         ```python
         verifier = JWTVerifier.keys(
@@ -875,6 +931,16 @@ class JWTVerifier:
         )
         claims = verifier.verify(token)
         ```
+    """
+
+    _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = (
+        frozenset(JWTKeysConfig.model_fields)
+        | frozenset(JWKSConfig.model_fields)
+    ) - _LIVE_FIELDS
+    """Every field but the ones that tune what a verification costs.
+
+    Read off the two configs rather than listed, so a field added to either
+    one starts out fixed at startup instead of becoming live by omission.
     """
 
     def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: ARG002
@@ -888,22 +954,24 @@ class JWTVerifier:
         raise TypeError(msg)
 
     @classmethod
-    def keys(
+    def keys(  # noqa: PLR0913
         cls,
         *keys: Annotated[
             JWTKey,
             Doc("Keys this verifier accepts, selected by the token's `kid`."),
         ],
         audience: Annotated[
-            str | Sequence[str] | None,
+            str | Sequence[str] | _Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
-                " refuses any token that names one."
+                " refuses any token that names one, and only code can say it."
+                " Left out, it is read from the environment, where it is"
+                " required."
             ),
-        ],
+        ] = _UNSET,
         issuer: Annotated[
             str | Sequence[str] | None,
-            Doc("Accepted `iss` values. `None` leaves the issuer unchecked."),
+            Doc("Accepted `iss` values. Left out, nothing checks the issuer."),
         ] = None,
         leeway: Annotated[
             int | None,
@@ -933,54 +1001,79 @@ class JWTVerifier:
             float | None,
             Doc("Seconds a verified token stays cached."),
         ] = None,
+        name: Annotated[
+            str,
+            Doc(
+                "Instance name, which is the environment namespace:"
+                " `GREL_JWTVERIFIER_{NAME}_`. The default instance reads"
+                " `GREL_JWTVERIFIER_`."
+            ),
+        ] = "default",
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the"
+                " process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> Self:
         """Build a verifier from keys you hold, such as a PEM or a secret.
 
-        A setting left out takes the default `JWTKeysConfig` gives it.
+        A setting left out is read from the environment, then takes the
+        default `JWTKeysConfig` gives it. Key material only ever comes from
+        code.
 
         Raises:
             SettingsValidationError: If a key or a setting is refused.
         """
-        config = build_config(
+        config, env_prefix = cls._resolve(
             JWTKeysConfig,
-            keys=list(keys),
+            name,
             audience=audience,
-            **_given(
-                issuer=issuer,
-                leeway=leeway,
-                token_type=token_type,
-                scope_claims=scope_claims,
-                required=required,
-                cache_size=cache_size,
-                cache_key=cache_key,
-                cache_ttl=cache_ttl,
-            ),
+            env_load=env_load,
+            keys=list(keys),
+            issuer=issuer,
+            leeway=leeway,
+            token_type=token_type,
+            scope_claims=scope_claims,
+            required=required,
+            cache_size=cache_size,
+            cache_key=cache_key,
+            cache_ttl=cache_ttl,
         )
-        return cls.from_config(config)
+        instance = cls.from_config(config)
+        instance._track_reconfigure(env_prefix)  # noqa: SLF001
+        return instance
 
     @classmethod
     def jwks(  # noqa: PLR0913
         cls,
         url: Annotated[
-            str,
-            Doc("The JWKS endpoint. Must be `https`."),
-        ],
+            str | None,
+            Doc(
+                "The JWKS endpoint. Must be `https`. Left out, it is read from"
+                " the environment."
+            ),
+        ] = None,
         *,
         audience: Annotated[
-            str | Sequence[str] | None,
+            str | Sequence[str] | _Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
-                " refuses any token that names one."
+                " refuses any token that names one, and only code can say it."
+                " Left out, it is read from the environment, where it is"
+                " required."
             ),
-        ],
+        ] = _UNSET,
         issuer: Annotated[
             str | Sequence[str] | None,
-            Doc("Accepted `iss` values. `None` leaves the issuer unchecked."),
+            Doc("Accepted `iss` values. Left out, nothing checks the issuer."),
         ] = None,
         algorithm: Annotated[
             _AsymmetricAlgorithm | None,
             Doc(
-                "Algorithm to pin for keys that publish none, as Entra ID does."
+                "Algorithm to pin for keys that publish none, as Entra ID"
+                " does. Only code chooses it."
             ),
         ] = None,
         ttl: Annotated[
@@ -1035,37 +1128,110 @@ class JWTVerifier:
             Fetcher | None,
             Doc("Fetcher to use. Defaults to one built on `httpx`."),
         ] = None,
+        name: Annotated[
+            str,
+            Doc(
+                "Instance name, which is the environment namespace:"
+                " `GREL_JWTVERIFIER_{NAME}_`. The default instance reads"
+                " `GREL_JWTVERIFIER_`."
+            ),
+        ] = "default",
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the"
+                " process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
     ) -> Self:
         """Build a verifier from keys a provider publishes at a JWKS endpoint.
 
-        Nothing is fetched here. Await `refresh` before the first request and
-        then on a schedule, so no request ever waits on the provider.
+        Nothing is fetched here. Open the verifier with `async with`, or
+        await `refresh`, before the first request. A setting left out is read
+        from the environment, then takes the default `JWKSConfig` gives it.
 
         Raises:
-            SettingsValidationError: If a setting is refused.
+            SettingsValidationError: If a setting is refused, or a variable
+                names the algorithm.
         """
-        config = build_config(
+        config, env_prefix = cls._resolve(
             JWKSConfig,
-            url=url,
+            name,
             audience=audience,
-            **_given(
-                issuer=issuer,
-                algorithm=algorithm,
-                ttl=ttl,
-                retry_interval=retry_interval,
-                timeout=timeout,
-                max_bytes=max_bytes,
-                max_keys=max_keys,
-                leeway=leeway,
-                token_type=token_type,
-                scope_claims=scope_claims,
-                required=required,
-                cache_size=cache_size,
-                cache_key=cache_key,
-                cache_ttl=cache_ttl,
-            ),
+            env_load=env_load,
+            url=url,
+            issuer=issuer,
+            algorithm=algorithm,
+            ttl=ttl,
+            retry_interval=retry_interval,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            max_keys=max_keys,
+            leeway=leeway,
+            token_type=token_type,
+            scope_claims=scope_claims,
+            required=required,
+            cache_size=cache_size,
+            cache_key=cache_key,
+            cache_ttl=cache_ttl,
         )
-        return cls.from_config(config, fetch=fetch)
+        instance = cls.from_config(config, fetch=fetch)
+        instance._track_reconfigure(env_prefix)  # noqa: SLF001
+        return instance
+
+    @staticmethod
+    def _resolve[C: (JWTKeysConfig, JWKSConfig)](
+        config_cls: type[C],
+        name: str,
+        *,
+        audience: str | Sequence[str] | _Unset | None,
+        env_load: bool | None,
+        **settings: object,
+    ) -> tuple[C, str]:
+        """Resolve a config from keywords and this verifier's own variables.
+
+        Only the instance prefix is read, never the kind-wide one, so a
+        variable meant for one verifier never retunes another.
+
+        A single string passed in code is one value, never split on commas.
+        `audience=None` is applied once the variables are read, so no
+        variable can turn the audience check off. A variable naming the
+        algorithm is refused rather than applied.
+
+        Raises:
+            SettingsValidationError: If a value is refused, or a variable
+                names a setting only code chooses.
+        """
+        env_prefix, _ = env_prefixes("JWTVERIFIER", name)
+        kwargs: dict[str, object] = dict(settings)
+        if audience is None:
+            kwargs["audience"] = [_NO_AUDIENCE]
+        elif not isinstance(audience, _Unset):
+            kwargs["audience"] = audience
+        for field_name in _ONE_OR_MANY:
+            value = kwargs.get(field_name)
+            if isinstance(value, str):
+                kwargs[field_name] = [value]
+        config = resolve_config(
+            config_cls,
+            explicit=None,
+            kwargs=kwargs,
+            env_prefix=env_prefix,
+            env_load=env_load,
+        )
+        if (
+            isinstance(config, JWKSConfig)
+            and settings.get("algorithm") is None
+            and config.algorithm is not None
+        ):
+            msg = (
+                f"{env_prefix}ALGORITHM names a signature algorithm, which only"
+                " code chooses. Pass algorithm= instead."
+            )
+            raise SettingsValidationError(msg)
+        if audience is None:
+            config = config.model_copy(update={"audience": None})
+        return config, env_prefix
 
     @classmethod
     def from_config(
@@ -1089,7 +1255,7 @@ class JWTVerifier:
         """Build a verifier from a configuration that is already whole.
 
         The one declarative door. What you pass is what runs: no environment
-        variable is read.
+        variable is read, and the verifier is not registered for live reload.
 
         Raises:
             SettingsValidationError: If the core cannot read a key.
@@ -1112,6 +1278,8 @@ class JWTVerifier:
                 " are held in code, so there is nothing to fetch."
             )
             raise TypeError(msg)
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
         compiled = _core()
         self._compiled = compiled
         self._error = compiled.CoreVerificationError
@@ -1328,9 +1496,11 @@ class JWTVerifier:
 
         `refresh` fetches only when the keys are stale, so a pass while they
         are fresh costs nothing, and a key the provider rotated in reaches
-        the verifier within one interval of a token naming it.
+        the verifier within one interval of a token naming it. The interval
+        is read again on every pass, so a reload paces the next one.
         """
         while True:
+            source = self._source or source
             await asyncio.sleep(source.retry_interval)
             try:
                 await self.refresh()
@@ -1340,6 +1510,33 @@ class JWTVerifier:
                     " keys: %s",
                     error,
                 )
+
+    async def _apply_reconfigure(
+        self, new_config: JWTKeysConfig | JWKSConfig
+    ) -> None:
+        """Take a new cache size and refresh pacing.
+
+        Nothing else changes while the service runs. A new audience, issuer
+        or key is refused, so the config a verifier reports is always the
+        one it enforces.
+
+        Raises:
+            ValueError: If `new_config` changes a setting that only applies
+                at startup.
+        """
+        current = self._config
+        changed = sorted(
+            name
+            for name in type(current).model_fields
+            if name in self._IMMUTABLE_RECONFIGURE_FIELDS
+            and getattr(new_config, name) != getattr(current, name)
+        )
+        if changed:
+            msg = f"only applies at startup: {', '.join(changed)}"
+            raise ValueError(msg)
+        self._cache_size = new_config.cache_size
+        if isinstance(new_config, JWKSConfig):
+            self._source = new_config
 
     def verify(
         self,
@@ -1436,13 +1633,6 @@ class JWTVerifier:
             cache.pop(oldest, None)
         cache[key] = (deadline, claims)
         order.append(key)
-
-
-def _given(**settings: object) -> dict[str, object]:
-    """Return the settings a caller passed, leaving the rest to the config."""
-    return {
-        name: value for name, value in settings.items() if value is not None
-    }
 
 
 def _document_config(source: JWKSConfig, document: bytes) -> JWTKeysConfig:

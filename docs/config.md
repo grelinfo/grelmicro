@@ -177,6 +177,9 @@ deployment set it.
 | `IdempotentRequests()` | `GREL_IDEMPOTENT_REQUESTS_` | it is the pattern default |
 | `RateLimitedRequests()` | `GREL_RATE_LIMITED_REQUESTS_` | it is the pattern default |
 | `AccessLog()` | `GREL_ACCESS_LOG_` | it is the pattern default |
+| `JWTVerifier.jwks()` | `GREL_JWTVERIFIER_` | it is the pattern default |
+| `JWTVerifier.jwks(name="partner")` | `GREL_JWTVERIFIER_PARTNER_` | nothing, a verifier reads its own prefix only |
+| `ClientBans()` | `GREL_CLIENTBANS_` | it is the pattern default |
 
 Each pattern page lists its own fields and the exact variable names.
 

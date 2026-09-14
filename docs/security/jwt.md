@@ -231,6 +231,48 @@ A fetcher that goes through your own client keeps the request inside whatever
 OpenTelemetry instrumentation that client already has, so a slow or failing
 provider shows up in your traces.
 
+## Configure from the deployment
+
+A verifier built by `keys` or `jwks` also reads its settings from the
+environment once `GREL_ENV_LOAD` is set, under `GREL_JWTVERIFIER_`, or
+`GREL_JWTVERIFIER_{NAME}_` for one built with `name=`. A keyword always wins,
+so leave a setting out of the code for the deployment to supply it:
+
+```python
+verifier = JWTVerifier.jwks()
+```
+
+```bash
+GREL_ENV_LOAD=1
+GREL_JWTVERIFIER_URL=https://auth.example.com/.well-known/jwks.json
+GREL_JWTVERIFIER_AUDIENCE=orders-api
+GREL_JWTVERIFIER_ISSUER=https://auth.example.com/
+```
+
+A list is written comma-separated or as JSON. A mounted file read by
+[`ExternalConfig`](../configuration/reconfigure-from-configmap.md) uses the
+same names.
+
+The environment says whose tokens to trust, and nothing more:
+
+| Setting | From the environment | Changed by a mounted file while running |
+| --- | --- | --- |
+| `url`, `audience`, `issuer`, `required`, `token_type`, `scope_claims`, `leeway`, `cache_key`, `cache_ttl`, `max_bytes`, `max_keys` | at startup | no |
+| `cache_size`, `ttl`, `retry_interval`, `timeout` | at startup | yes |
+| the key source, `algorithm`, key material, `audience=None` | never | never |
+
+A verifier reads its own prefix only. `GREL_JWTVERIFIER_AUDIENCE` never
+reaches a verifier named `partner`, so one verifier's trust settings cannot
+leak into another's. A variable naming `ALGORITHM` is refused at startup
+rather than applied.
+
+Only code answers to no audience. `audience=None` in code wins over the
+environment, and no variable can turn the audience check off.
+
+`ClientBans` reads `GREL_CLIENTBANS_` the same way, and every one of its
+settings can change while the service runs, because a ban costs capacity and
+never trust.
+
 ## AWS Cognito
 
 Cognito serves its keys at
