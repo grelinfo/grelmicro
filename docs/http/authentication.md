@@ -26,7 +26,8 @@ Two things say otherwise:
   per method, so a public read keeps the writes on the same path
   authenticated. A URL another route could also answer stays authenticated,
   whichever route would serve it, so a declaration never opens a route it was
-  not written on.
+  not written on. A mounted app or a `Host` whose routes cannot be read counts
+  as a route answering every path under it.
 
 A path that is not authenticated is not authenticated at all, even when the
 request carries a token. `request.user` there is a caller that is not

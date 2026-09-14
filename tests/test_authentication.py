@@ -38,7 +38,7 @@ from starlette.convertors import (  # codespell:ignore
 )
 from starlette.endpoints import HTTPEndpoint
 from starlette.responses import JSONResponse
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import Host, Route, Router, WebSocketRoute
 from starlette.status import (
     HTTP_307_TEMPORARY_REDIRECT,
     WS_1008_POLICY_VIOLATION,
@@ -1568,6 +1568,50 @@ class TestRouting:
         assert TestClient(middleware(page, **options)).get("/").status_code == (
             HTTP_401_UNAUTHORIZED
         )
+
+    def test_a_host_whose_routes_cannot_be_read_keeps_its_paths_authenticated(
+        self,
+    ) -> None:
+        """A `Host` serving another app could answer any path under it."""
+
+        async def admin(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"admin": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        def build(place: Any) -> FastAPI:  # noqa: ANN401
+            app = FastAPI()
+
+            @app.get("/status", dependencies=[Anonymous()])
+            async def status() -> dict[str, bool]:
+                return {"up": True}
+
+            place(app)
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+            ).install(app)
+            return app
+
+        admin_host = "http://admin.example.com"
+        at_root = build(lambda app: app.host("admin.example.com", admin))
+        under = build(
+            lambda app: app.mount(
+                "/tenants",
+                Router(routes=[Host("admin.example.com", app=admin)]),
+            )
+        )
+        looped = build(lambda app: app.mount("/again", app))
+
+        assert (
+            TestClient(at_root, base_url=admin_host).get("/status").status_code
+            == HTTP_401_UNAUTHORIZED
+        )
+        assert TestClient(under).get("/status").json() == {"up": True}
+        assert (
+            TestClient(under, base_url=admin_host).get("/tenants/x").status_code
+            == HTTP_401_UNAUTHORIZED
+        )
+        assert TestClient(looped).get("/status").json() == {"up": True}
 
 
 class TestConsistency:

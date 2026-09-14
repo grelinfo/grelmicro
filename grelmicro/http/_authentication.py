@@ -14,6 +14,9 @@ from typing_extensions import Doc
 from grelmicro._config import build_config
 from grelmicro._paths import (
     PathPatterns,
+    _is_mount,
+    _is_route,
+    _route_source,
     as_patterns,
     compile_route,
     route_path,
@@ -298,9 +301,10 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     """Read a Starlette or FastAPI app's public routes, and all the others.
 
     Each path is compiled with the framework's own compiler, so it fits
-    exactly the URLs the router matches it against. A mounted application
-    whose routes cannot be read answers anything under its path, so it
-    counts as a route that could answer every one of those URLs.
+    exactly the URLs the router matches it against. A mounted application,
+    a `Host`, or a route of another kind whose routes cannot be read answers
+    anything under the path it sits at, so it counts as a route that could
+    answer every one of those URLs.
     """
     from starlette.routing import WebSocketRoute  # noqa: PLC0415
 
@@ -324,11 +328,11 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             rivals.append((template, reach))
     if not public:
         return _Routes()
-    for prefix, route, _ in walk_routes(app):
-        if getattr(route, "routes", None) is not None:
-            template = f"{prefix}{route.path.rstrip('/')}/{{path:path}}"
-            compiled = compile_route(template)
-            rivals.append((template, _Reach(_EITHER, None, compiled)))
+    for under in _unreadable_paths(app):
+        template = f"{under.rstrip('/')}/{{path:path}}"
+        rivals.append(
+            (template, _Reach(_EITHER, None, compile_route(template)))
+        )
     by_depth: dict[int, list[_Reach]] = {}
     anywhere: list[_Reach] = []
     for template, reach in rivals:
@@ -344,6 +348,48 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         anywhere=tuple(anywhere),
         declared=MappingProxyType(declared),
     )
+
+
+def _unreadable_paths(
+    app: Any,  # noqa: ANN401
+    prefix: str = "",
+    ancestors: frozenset[int] = frozenset(),
+) -> list[str]:
+    """Return the path of every routing node whose routes cannot be read.
+
+    A mounted application, a `Host` or a route of another kind answers
+    whatever it matches, so all that narrows it is the path it sits at: a
+    mount's own path, or for anything else the path of the router holding
+    it.
+    """
+    routed = _route_source(app, unwrap_middleware=True)
+    if routed is None or id(routed) in ancestors:
+        return []
+    ancestors |= {id(routed)}
+    found: list[str] = []
+    for route in getattr(routed, "routes", None) or ():
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            context = getattr(route, "include_context", None)
+            found.extend(
+                _unreadable_paths(
+                    included,
+                    f"{prefix}{getattr(context, 'prefix', '')}",
+                    ancestors,
+                )
+            )
+            continue
+        if _is_route(route):
+            continue
+        under = f"{prefix}{route.path}" if _is_mount(route) else prefix
+        nested = _route_source(
+            getattr(route, "app", None), unwrap_middleware=True
+        )
+        if getattr(nested, "routes", None) is None:
+            found.append(under)
+        else:
+            found.extend(_unreadable_paths(nested, under, ancestors))
+    return found
 
 
 def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401
