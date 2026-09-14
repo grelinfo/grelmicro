@@ -630,6 +630,33 @@ class TestStarlette:
             if row.method == "DELETE" and row.path == "/async"
         ) == ("authenticated orders:write",)
 
+    def test_an_endpoint_object_with_an_async_call_is_awaited(self) -> None:
+        """An object whose `__call__` is a coroutine is served, not returned."""
+
+        class Cancel:
+            async def __call__(self, request: Request) -> JSONResponse:  # noqa: ARG002
+                return JSONResponse({"cancelled": True})
+
+        app = Starlette(
+            routes=[
+                Route(
+                    "/object",
+                    StarletteAuthenticated(scopes=["orders:write"])(Cancel()),
+                    methods=["DELETE"],
+                )
+            ]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.delete(
+            "/object", headers=bearer(token(scope="orders:write"))
+        )
+
+        assert response.json() == {"cancelled": True}
+
     def test_an_endpoint_taking_no_connection_is_refused(self) -> None:
         """There would be nothing to read the caller from."""
 

@@ -694,7 +694,7 @@ def Authenticated(  # noqa: N802
             if not set(required) <= set(getattr(caller, "scopes", ())):
                 raise InsufficientScopeError(scopes=required)
 
-        if inspect.iscoroutinefunction(endpoint):
+        if _is_async(endpoint):
 
             @functools.wraps(endpoint)
             async def asynchronous(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
@@ -732,3 +732,15 @@ def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:
         f"websocket argument, and {getattr(endpoint, '__qualname__', endpoint)!s} takes neither."
     )
     raise TypeError(msg)
+
+
+def _is_async(endpoint: "Callable[..., Any]") -> bool:
+    """Return whether calling the endpoint returns a coroutine.
+
+    A function declared `async`, or an object whose `__call__` is, which
+    Starlette awaits the same way.
+    """
+    call = getattr(endpoint, "__call__", None)  # noqa: B004
+    return inspect.iscoroutinefunction(endpoint) or inspect.iscoroutinefunction(
+        call
+    )
