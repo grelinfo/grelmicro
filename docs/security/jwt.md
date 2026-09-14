@@ -44,9 +44,9 @@ except TokenRejectedError as error:
         ...
 ```
 
-The reasons are `algorithm`, `audience`, `expired`, `invalid`, `malformed`,
-`missing-claim`, `not-yet-valid`, `scheme`, `signature`, `subject`, `issuer`
-and `unknown-key`.
+The reasons are `algorithm`, `audience`, `binding`, `expired`, `invalid`,
+`issuer`, `malformed`, `missing-claim`, `not-yet-valid`, `scheme`,
+`signature`, `type` and `unknown-key`.
 
 Neither the tag nor the message quotes the token. It is a live credential and
 the message reaches your logs.
@@ -63,6 +63,26 @@ allow clock skew between the issuer and your service.
 The algorithm is pinned to the key. A token asking for a different one is
 rejected before its signature is checked, so `none` and the HMAC confusion
 attacks have nothing to reach.
+
+### Token type
+
+A provider signs more than access tokens with the same keys: DPoP proofs,
+logout tokens, security event tokens. Each declares its kind in the `typ`
+header, so a token declaring anything other than `JWT`, `JOSE` or `at+jwt` is
+rejected with `type`. A token that declares no type passes.
+
+Set `token_type="at+jwt"` to require the access token type of
+[RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068#section-4). Microsoft
+Entra ID never sends it and Keycloak sends it only when a client asks, so it
+is off by default. The audience check is what keeps an ID token out either
+way, because an ID token names the client, not your API.
+
+### Bound tokens
+
+A token carrying a `cnf` claim is bound to a key, and is only good together
+with proof that the caller holds that key. grelmicro checks no such proof, so
+a bound token is rejected with `binding` rather than accepted without the
+binding its issuer asked for.
 
 ### Audience and issuer
 

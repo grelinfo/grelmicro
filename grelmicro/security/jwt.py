@@ -15,7 +15,7 @@ from collections import deque
 from dataclasses import dataclass
 from time import time
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, Final, Protocol
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Protocol
 
 from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Doc
@@ -98,15 +98,16 @@ A key of any other type is skipped. Configure a shared secret with
 _REASONS: Final[Mapping[str, str]] = {
     "algorithm": "The token uses an algorithm this verifier does not accept.",
     "audience": "The token was issued for another audience.",
+    "binding": "The token is bound to a key this service does not check.",
     "expired": "The token has expired.",
     "invalid": "The token is not valid.",
+    "issuer": "The token was issued by another issuer.",
     "malformed": "The token is not a well-formed JWS.",
     "missing-claim": "The token is missing a required claim.",
     "not-yet-valid": "The token is not valid yet.",
     "scheme": "The Authorization header does not carry a bearer token.",
     "signature": "The signature does not match the key.",
-    "subject": "The token names another subject.",
-    "issuer": "The token was issued by another issuer.",
+    "type": "The token is not an access token of an accepted type.",
     "unknown-key": "No configured key matches the token.",
 }
 
@@ -228,6 +229,17 @@ class JWTPolicy(BaseModel):
         int,
         Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
     ] = 0
+    token_type: Annotated[
+        Literal["at+jwt"] | None,
+        Doc(
+            "Type every token must declare in its `typ` header. `None` accepts"
+            " a token that declares none, `JWT`, `JOSE` or `at+jwt`, and"
+            " refuses any other type, such as a DPoP proof or a logout token."
+            " `at+jwt` requires the access token type of RFC 9068, which"
+            " Microsoft Entra ID does not send and Keycloak sends only when a"
+            " client asks for it."
+        ),
+    ] = None
     required: Annotated[
         list[str],
         Doc(
@@ -530,6 +542,7 @@ class JWTVerifier:
                 issuer=config.issuer or None,
                 leeway=config.leeway,
                 required=config.enforced_claims(),
+                token_type=config.token_type,
             ).verify
         except ValueError as error:
             # The core names the failure without quoting the key, which is

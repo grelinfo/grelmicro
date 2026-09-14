@@ -377,6 +377,145 @@ class TestCacheIsNotAnOracle:
         assert refuses(token, strict) == "audience"
 
 
+class TestTokenType:
+    """A token of another kind, signed by the same keys, is not an access token."""
+
+    @pytest.mark.parametrize(
+        "typ",
+        [
+            None,
+            "JWT",
+            "jwt",
+            "JOSE",
+            "at+jwt",
+            "AT+JWT",
+            "application/at+jwt",
+            "APPLICATION/JWT",
+        ],
+    )
+    def test_an_access_token_type_is_accepted(self, typ: str | None) -> None:
+        """No type, or one an issuer writes for an access token, passes."""
+        token = SIGNER.token(claims(), header={"typ": typ})
+
+        assert verifier().verify(token).subject == "victim"
+
+    @pytest.mark.parametrize(
+        "typ",
+        [
+            "dpop+jwt",
+            "logout+jwt",
+            "secevent+jwt",
+            "application/dpop+jwt",
+            "DPoP+JWT",
+            "id_token",
+            "at+jwt ",
+            " JWT",
+            "application/",
+            "",
+            "jwt+at",
+            "text/jwt",
+        ],
+    )
+    def test_another_type_is_refused(self, typ: str) -> None:
+        """A DPoP proof or a logout token never passes as an access token."""
+        token = SIGNER.token(claims(), header={"typ": typ})
+
+        assert refuses(token) == "type"
+
+    @pytest.mark.parametrize("typ", [1, True, ["JWT"], {"typ": "JWT"}])
+    def test_a_type_that_is_not_a_string_is_refused(self, typ: Any) -> None:  # noqa: ANN401
+        """A `typ` of the wrong shape never reads as absent."""
+        token = SIGNER.token(claims(), header={"typ": typ})
+
+        assert refuses(token) == "malformed"
+
+    @pytest.mark.parametrize(
+        "typ", ["at+jwt", "AT+JWT", "application/at+jwt", "Application/At+JWT"]
+    )
+    def test_a_required_type_accepts_its_spellings(self, typ: str) -> None:
+        """The media type is compared without case and without its prefix."""
+        strict = verifier(token_type="at+jwt")
+        token = SIGNER.token(claims(), header={"typ": typ})
+
+        assert strict.verify(token).subject == "victim"
+
+    @pytest.mark.parametrize("typ", [None, "JWT", "JOSE", "dpop+jwt"])
+    def test_a_required_type_refuses_every_other(self, typ: str | None) -> None:
+        """Requiring `at+jwt` refuses a token that declares none."""
+        strict = verifier(token_type="at+jwt")
+        token = SIGNER.token(claims(), header={"typ": typ})
+
+        assert refuses(token, strict) == "type"
+
+    def test_the_type_is_checked_before_the_key(self) -> None:
+        """A token of another kind never marks the key set stale."""
+        token = SIGNER.token(
+            claims(), header={"typ": "dpop+jwt", "kid": "not-configured"}
+        )
+
+        assert refuses(token) == "type"
+
+    def test_only_a_known_type_can_be_required(self) -> None:
+        """A type the verifier would never see is a configuration mistake."""
+        with pytest.raises(ValueError, match="token_type"):
+            JWTConfig(
+                keys=[
+                    JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
+                ],
+                token_type="JWT",  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            )
+
+
+class TestBoundTokens:
+    """A token bound to a key is only good with proof the caller holds it."""
+
+    @pytest.mark.parametrize(
+        "cnf",
+        [
+            {"jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"},
+            {"x5t#S256": "bwcK0esc3ACC3DB2Y5_lESsXE8o9ltc05O89jdN-dg2"},
+            {"jwk": {"kty": "EC", "crv": "P-256"}},
+            {},
+            "bound",
+            1,
+            [],
+        ],
+    )
+    def test_a_bound_token_is_refused(self, cnf: Any) -> None:  # noqa: ANN401
+        """This service checks no proof of possession, so it takes no binding."""
+        token = SIGNER.token(claims(cnf=cnf))
+
+        assert refuses(token) == "binding"
+
+    def test_a_null_binding_is_absent(self) -> None:
+        """Null reads as absent, the way every required claim reads it."""
+        head = b64u_json({"alg": "RS256", "typ": "JWT"})
+        payload = b64u_json({**claims(), "cnf": None})
+        message = f"{head}.{payload}".encode()
+        signature = b64u(SIGNER.signature("RS256", message))
+
+        assert verifier().verify(f"{head}.{payload}.{signature}").subject == (
+            "victim"
+        )
+
+    def test_a_bound_token_is_refused_with_a_clear_message(self) -> None:
+        """The reason carries its own sentence, not the generic one."""
+        with pytest.raises(TokenRejectedError) as caught:
+            verifier().verify(SIGNER.token(claims(cnf={"jkt": "thumbprint"})))
+
+        assert str(caught.value) == (
+            "The token is bound to a key this service does not check."
+        )
+
+    def test_a_bound_token_is_never_cached(self) -> None:
+        """A refusal leaves nothing behind for a later request to find."""
+        subject = verifier()
+        with pytest.raises(TokenRejectedError):
+            subject.verify(SIGNER.token(claims(cnf={"jkt": "thumbprint"})))
+
+        assert subject._cache == {}
+
+
 VALID = SIGNER.token(claims())
 
 
