@@ -837,7 +837,10 @@ def refuse_unreachable_routes(
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{getattr(route, 'path_format', route.path)}"
         excluded = not selects(template, include=(), exclude=exclude)
-        for method in getattr(route, "methods", None) or _ENDPOINT_METHODS:
+        # Sorted, so the method a refusal names is the same on every run.
+        for method in sorted(
+            getattr(route, "methods", None) or _ENDPOINT_METHODS
+        ):
             if not requires_caller(route, method, contexts):
                 continue
             if excluded:

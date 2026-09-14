@@ -893,6 +893,91 @@ class TestUnreachable:
         ):
             pass  # pragma: no cover
 
+    def test_a_route_is_checked_on_every_method_it_answers(self) -> None:
+        """A guarded read beside an open delete is found, in a stable order."""
+
+        @get("/orders/{order_id:int}", guards=[LitestarAuthenticated()])
+        async def read(
+            order_id: Annotated[int, Parameter()],
+        ) -> None: ...  # pragma: no cover
+
+        @delete("/orders/{order_id:int}")
+        async def remove(
+            order_id: Annotated[int, Parameter()],
+        ) -> None: ...  # pragma: no cover
+
+        with pytest.raises(
+            TypeError, match=r"GET /orders/\{order_id\} is in exclude"
+        ):
+            self.install(
+                Litestar(route_handlers=[read, remove]), exclude=("/orders/*",)
+            )
+
+    def test_the_refusal_names_the_path_as_the_schema_does(self) -> None:
+        """A converter is left out of the path the message names."""
+
+        @StarletteAuthenticated()
+        async def item(request: Request) -> None: ...  # pragma: no cover
+
+        with pytest.raises(
+            TypeError, match=r"GET /items/\{item_id\} is in exclude"
+        ):
+            self.install(
+                Starlette(routes=[Route("/items/{item_id:int}", item)]),
+                exclude=("/items/*",),
+            )
+
+    def test_the_refusal_names_the_method_the_route_answers(self) -> None:
+        """A route answering only `DELETE` is named by it."""
+        app = FastAPI()
+
+        @app.delete("/orders", dependencies=[Authenticated()])
+        async def cancel() -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="DELETE /orders is in exclude"):
+            self.install(app, exclude=("/orders",))
+
+    def test_a_router_included_with_authenticated_is_checked(self) -> None:
+        """What the include declares is read along with the route."""
+        router = APIRouter()
+
+        @router.get("/health")
+        async def health() -> None: ...  # pragma: no cover
+
+        app = FastAPI()
+        app.include_router(
+            router, prefix="/ops", dependencies=[Authenticated()]
+        )
+
+        with pytest.raises(TypeError, match="GET /ops/health is in exclude"):
+            self.install(app, exclude=("/ops/*",))
+
+    def test_a_router_included_as_public_is_checked(self) -> None:
+        """`Anonymous()` on the include counts as on the route."""
+        router = APIRouter()
+
+        @router.get("/profile", dependencies=[Authenticated()])
+        async def profile() -> None: ...  # pragma: no cover
+
+        app = FastAPI()
+        app.include_router(router, dependencies=[Anonymous()])
+
+        with pytest.raises(TypeError, match="GET /profile declares Anonymous"):
+            self.install(app)
+
+    def test_a_route_inside_a_wrapped_mount_is_checked(self) -> None:
+        """Middleware around a mounted app hides none of its routes."""
+        sub = FastAPI()
+
+        @sub.get("/both", dependencies=[Anonymous(), Authenticated()])
+        async def both() -> None: ...  # pragma: no cover
+
+        app = FastAPI()
+        app.mount("/sub", GZipMiddleware(sub))
+
+        with pytest.raises(TypeError, match="GET /sub/both declares Anonymous"):
+            self.install(app)
+
 
 class TestWebSocket:
     """A handshake is authenticated like a request."""
