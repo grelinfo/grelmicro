@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import deque
-from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from logging import getLogger
@@ -1527,10 +1526,10 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         for task in (self._task, self._inflight):
             if task is not None:
                 task.cancel()
-                # Whatever an abandoned fetch failed with, closing still
-                # succeeds: nothing is waiting on that result any more.
-                with suppress(asyncio.CancelledError, Exception):
-                    await task
+                # Waits for it to unwind without taking on its outcome, so a
+                # failed fetch never fails the close, while a cancellation
+                # aimed at the task closing the verifier still reaches it.
+                await asyncio.wait({task})
         self._task = None
         self._inflight = None
 

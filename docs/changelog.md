@@ -35,6 +35,7 @@
 * 🐛 A missing `httpx` raises `DependencyNotFoundError` from `async with verifier:` instead of being retried forever, and an unexpected error in the background refresh is logged without ending it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 `ClientBans.record()` no longer reports a ban that has already run out. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A client `ClientBans.forget()` cleared and recorded again is no longer evicted early, and forgetting clients no longer grows the table's queue without bound. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))

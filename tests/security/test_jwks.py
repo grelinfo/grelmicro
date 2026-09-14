@@ -486,6 +486,25 @@ def verifies(verifier: JWTVerifier, presented: str) -> bool:
     return True
 
 
+class Lingering(Endpoint):
+    """An endpoint whose fetch takes a moment to unwind once cancelled."""
+
+    async def __call__(
+        self,
+        url: str,  # noqa: ARG002
+        *,
+        timeout: float,  # noqa: ARG002, ASYNC109
+        max_bytes: int,  # noqa: ARG002
+    ) -> bytes:
+        """Wait to be cancelled, then take a moment to let go."""
+        self.calls += 1
+        try:
+            await asyncio.sleep(HOUR)
+        finally:
+            await asyncio.sleep(0.2)
+        return b""  # pragma: no cover
+
+
 class TestLifecycle:
     """Opening a verifier loads its keys and keeps them fresh until it closes."""
 
@@ -612,6 +631,23 @@ class TestLifecycle:
                 endpoint.body = document(ROTATED, kid="k2")
                 rotated = token(ROTATED, kid="k2")
                 await until(lambda: verifies(verifier, rotated))
+
+    async def test_closing_can_itself_be_cancelled(self) -> None:
+        """Waiting on an abandoned fetch never hides the closer's cancel."""
+        endpoint = Lingering()
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
+        fetching = asyncio.create_task(verifier.refresh())
+        await until(lambda: endpoint.calls == 1)
+        inflight = verifier._inflight
+        assert inflight is not None
+
+        closing = asyncio.create_task(verifier.__aexit__(None, None, None))
+        await asyncio.sleep(0.01)
+        closing.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await closing
+        await asyncio.wait({inflight, fetching})
 
     async def test_a_background_refresh_follows_a_rotation(self) -> None:
         """A token naming a new key verifies once the next pass runs."""

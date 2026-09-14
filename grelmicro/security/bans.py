@@ -339,9 +339,12 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         banned_until = now + self._duration if count >= self._failures else 0.0
         if seen is not None and seen[2] > now:
             banned_until = max(banned_until, seen[2])
-        self._make_room()
         current = self._clients.get(client)
         if current is None:
+            # Only an address not yet tracked makes room. Making it for one
+            # already tracked would let a client failing from a single address
+            # evict every other entry, bans included.
+            self._make_room()
             inserted = next(self._insertions)
             self._order.append((client, inserted))
         else:

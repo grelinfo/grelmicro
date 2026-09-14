@@ -309,6 +309,16 @@ class TestMemoryIsBounded:
         assert "first" not in table._clients
         assert "third" in table._clients
 
+    def test_a_tracked_client_failing_again_evicts_nobody(self) -> None:
+        """Failing from one tracked address never lifts another's ban."""
+        table = bans(failures=1, max_clients=2)
+        table.record("victim", "signature")
+        table.record(CLIENT, "signature")
+
+        table.record(CLIENT, "signature")
+
+        assert table.banned("victim") is True
+
     def test_forgetting_clients_leaves_the_queue_bounded(self) -> None:
         """Records `forget` leaves behind are dropped, never piled up."""
         table = bans(max_clients=TRACKED)
