@@ -17,6 +17,7 @@
         - JWTKey
         - JWTClaims
         - TokenRejectedError
+        - TokenRejectedReason
         - JWKSConfig
         - SigningKeysUnavailableError
         - Fetcher

@@ -15,6 +15,7 @@
 
 ### Added
 * ✨ `JWTVerifier` is an async context manager. `async with verifier:` loads the keys a provider publishes before the first request and refreshes them in the background every `retry_interval` until it closes, so no task has to be scheduled by hand. A provider that cannot be reached at startup leaves the verifier open without keys rather than stopping the app. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ✨ `TokenRejectedError.reason` is a `TokenRejectedReason`, one member per way a token fails. Each member compares equal to the string it names, so `error.reason == "expired"` keeps working, and a tag the module does not know reads as `INVALID`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs

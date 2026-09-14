@@ -15,6 +15,7 @@ import json
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
+from enum import StrEnum
 from logging import getLogger
 from time import monotonic, time
 from types import MappingProxyType
@@ -69,6 +70,7 @@ __all__ = [
     "JWTPolicy",
     "JWTVerifier",
     "TokenRejectedError",
+    "TokenRejectedReason",
     "TokenVerifier",
 ]
 
@@ -146,39 +148,105 @@ A key of any other type is skipped. Configure a shared secret with
 `JWTKey.secret(...)`, from somewhere that is not published.
 """
 
-_REASONS: Final[Mapping[str, str]] = {
-    "algorithm": "The token uses an algorithm this verifier does not accept.",
-    "audience": "The token was issued for another audience.",
-    "binding": "The token is bound to a key this service does not check.",
-    "expired": "The token has expired.",
-    "invalid": "The token is not valid.",
-    "issuer": "The token was issued by another issuer.",
-    "malformed": "The token is not a well-formed JWS.",
-    "missing-claim": "The token is missing a required claim.",
-    "not-yet-valid": "The token is not valid yet.",
-    "scheme": "The Authorization header does not carry a bearer token.",
-    "signature": "The signature does not match the key.",
-    "type": "The token is not an access token of an accepted type.",
-    "unknown-key": "No configured key matches the token.",
+
+class TokenRejectedReason(StrEnum):
+    """Why a token was rejected.
+
+    A stable tag a caller branches on rather than message text. Each member
+    compares equal to the string it names, so `error.reason == "expired"`
+    reads the same as `error.reason is TokenRejectedReason.EXPIRED`.
+    """
+
+    ALGORITHM = "algorithm"
+    """The token asks for an algorithm its key does not verify."""
+
+    AUDIENCE = "audience"
+    """The token was issued for another audience."""
+
+    BINDING = "binding"
+    """The token is bound to a key, and no proof of possession is checked."""
+
+    EXPIRED = "expired"
+    """The token is past its `exp`."""
+
+    INVALID = "invalid"
+    """The token failed for a reason with no tag of its own."""
+
+    ISSUER = "issuer"
+    """The token was issued by another issuer."""
+
+    MALFORMED = "malformed"
+    """The token is not a well-formed JWS."""
+
+    MISSING_CLAIM = "missing-claim"
+    """The token lacks a claim the policy requires."""
+
+    NOT_YET_VALID = "not-yet-valid"
+    """The token is before its `nbf`."""
+
+    SCHEME = "scheme"
+    """The `Authorization` header carries no bearer token."""
+
+    SIGNATURE = "signature"
+    """The signature does not match the key."""
+
+    TYPE = "type"
+    """The token declares a type other than an access token."""
+
+    UNKNOWN_KEY = "unknown-key"
+    """No loaded key matches the token's `kid`."""
+
+
+_MESSAGES: Final[Mapping[TokenRejectedReason, str]] = {
+    TokenRejectedReason.ALGORITHM: (
+        "The token uses an algorithm this verifier does not accept."
+    ),
+    TokenRejectedReason.AUDIENCE: "The token was issued for another audience.",
+    TokenRejectedReason.BINDING: (
+        "The token is bound to a key this service does not check."
+    ),
+    TokenRejectedReason.EXPIRED: "The token has expired.",
+    TokenRejectedReason.INVALID: "The token is not valid.",
+    TokenRejectedReason.ISSUER: "The token was issued by another issuer.",
+    TokenRejectedReason.MALFORMED: "The token is not a well-formed JWS.",
+    TokenRejectedReason.MISSING_CLAIM: "The token is missing a required claim.",
+    TokenRejectedReason.NOT_YET_VALID: "The token is not valid yet.",
+    TokenRejectedReason.SCHEME: (
+        "The Authorization header does not carry a bearer token."
+    ),
+    TokenRejectedReason.SIGNATURE: "The signature does not match the key.",
+    TokenRejectedReason.TYPE: (
+        "The token is not an access token of an accepted type."
+    ),
+    TokenRejectedReason.UNKNOWN_KEY: "No configured key matches the token.",
 }
+"""What each rejection says. No message quotes the token or the key."""
 
 
 class TokenRejectedError(GrelmicroError, ValueError):
     """A token failed verification.
 
-    `reason` is a stable tag such as `expired` or `signature`, so a caller
-    branches on it rather than on message text. Neither the tag nor the
-    message quotes the token: it is a live credential and the message reaches
-    logs and error responses.
+    `reason` names what failed, so a caller branches on it rather than on
+    message text. Neither the reason nor the message quotes the token: it is
+    a live credential and the message reaches logs and error responses.
     """
 
     def __init__(
         self,
-        reason: Annotated[str, Doc("Stable tag naming what failed.")],
+        reason: Annotated[
+            TokenRejectedReason | str,
+            Doc(
+                "What failed. A tag this module does not know reads as invalid."
+            ),
+        ],
     ) -> None:
         """Initialize the error."""
-        self.reason = reason
-        super().__init__(_REASONS.get(reason, _REASONS["invalid"]))
+        try:
+            known = TokenRejectedReason(reason)
+        except ValueError:
+            known = TokenRejectedReason.INVALID
+        self.reason: TokenRejectedReason = known
+        super().__init__(_MESSAGES[known])
 
 
 class JWTKey(BaseModel, frozen=True):
@@ -1122,7 +1190,7 @@ class JWTVerifier:
         try:
             claims = verifier.verify(token)
         except TokenRejectedError as error:
-            if error.reason != "unknown-key" or not await verifier.refresh():
+            if error.reason is not TokenRejectedReason.UNKNOWN_KEY or not await verifier.refresh():
                 raise
             claims = verifier.verify(token)
         ```
@@ -1306,7 +1374,7 @@ class JWTVerifier:
             raw = keys.verify(token)
         except self._error as error:
             reason = error.args[0]
-            if reason == "unknown-key":
+            if reason == TokenRejectedReason.UNKNOWN_KEY:
                 # The provider has probably rotated. Mark the set stale so the
                 # next refresh fetches, rather than fetching here, which would
                 # put the provider on the request path.
@@ -1337,8 +1405,7 @@ class JWTVerifier:
             # bans reports the misconfiguration rather than the bad header.
             if self._bans is not None:
                 _responsible_client(client)
-            reason = "scheme"
-            raise TokenRejectedError(reason)
+            raise TokenRejectedError(TokenRejectedReason.SCHEME)
         return self.verify(header[_BEARER_LENGTH:], client=client)
 
     def unverified_header(

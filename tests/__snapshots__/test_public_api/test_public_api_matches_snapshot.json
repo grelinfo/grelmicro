@@ -951,6 +951,9 @@
     "TokenRejectedError": {
       "()": "(reason) -> 'None'"
     },
+    "TokenRejectedReason": {
+      "()": "(*values)"
+    },
     "TokenVerifier": {
       "()": "(*args, **kwargs)"
     },

@@ -31,22 +31,24 @@ microseconds, so moving it to a thread costs more than it saves. The
 
 ## Reject a token
 
-Anything that fails raises `TokenRejectedError`. Its `reason` is a stable tag,
-so you branch on it instead of matching message text.
+Anything that fails raises `TokenRejectedError`. Its `reason` is a
+`TokenRejectedReason`, so you branch on it instead of matching message text.
 
 ```python
-from grelmicro.security import TokenRejectedError
+from grelmicro.security import TokenRejectedError, TokenRejectedReason
 
 try:
     claims = verifier.verify_header(request.headers.get("authorization"))
 except TokenRejectedError as error:
-    if error.reason == "expired":
+    if error.reason is TokenRejectedReason.EXPIRED:
         ...
 ```
 
-The reasons are `algorithm`, `audience`, `binding`, `expired`, `invalid`,
-`issuer`, `malformed`, `missing-claim`, `not-yet-valid`, `scheme`,
-`signature`, `type` and `unknown-key`.
+Each reason also compares equal to the string it names, so
+`error.reason == "expired"` works too. The reasons are `algorithm`,
+`audience`, `binding`, `expired`, `invalid`, `issuer`, `malformed`,
+`missing-claim`, `not-yet-valid`, `scheme`, `signature`, `type` and
+`unknown-key`.
 
 Neither the tag nor the message quotes the token. It is a live credential and
 the message reaches your logs.

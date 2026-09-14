@@ -38,6 +38,7 @@ from grelmicro.security.jwt import (
     JWTPolicy,
     JWTVerifier,
     TokenRejectedError,
+    TokenRejectedReason,
     TokenVerifier,
 )
 
@@ -59,6 +60,7 @@ __all__ = [
     "JWTVerifier",
     "SigningKeysUnavailableError",
     "TokenRejectedError",
+    "TokenRejectedReason",
     "TokenVerifier",
     "TrustedProxies",
     "fetch_with_httpx",

@@ -24,6 +24,7 @@ from grelmicro.security import (
     JWTKeysConfig,
     JWTVerifier,
     TokenRejectedError,
+    TokenRejectedReason,
 )
 from grelmicro.security.jwt import ALGORITHMS, BEARER_PREFIX
 from tests.security.jwt_signing import Signer, loaded
@@ -988,12 +989,31 @@ class TestConstruction:
 class TestErrors:
     """The error surface a caller branches on."""
 
-    def test_an_unknown_reason_falls_back_to_a_generic_message(self) -> None:
-        """A tag the table does not carry still produces a usable error."""
+    def test_an_unknown_reason_reads_as_invalid(self) -> None:
+        """A tag this module does not know is never passed on unchecked."""
         error = TokenRejectedError("something-new")
 
-        assert error.reason == "something-new"
+        assert error.reason is TokenRejectedReason.INVALID
         assert str(error) == "The token is not valid."
+
+    def test_a_reason_compares_equal_to_its_tag(self) -> None:
+        """Code that branched on the string keeps working."""
+        error = TokenRejectedError("expired")
+
+        assert error.reason is TokenRejectedReason.EXPIRED
+        assert error.reason == "expired"
+
+    @pytest.mark.parametrize("reason", list(TokenRejectedReason))
+    def test_every_reason_has_its_own_message(
+        self, reason: TokenRejectedReason
+    ) -> None:
+        """No reason borrows the sentence of the generic one."""
+        message = str(TokenRejectedError(reason))
+
+        assert message.endswith(".")
+        assert (reason is TokenRejectedReason.INVALID) == (
+            message == "The token is not valid."
+        )
 
     def test_a_missing_core_says_what_to_install(
         self, monkeypatch: pytest.MonkeyPatch
