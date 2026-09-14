@@ -31,6 +31,7 @@ from grelmicro.security.jwks import (
 )
 from grelmicro.security.jwt import (
     ALGORITHMS,
+    DiscoveryConfig,
     JWKSConfig,
     JWTClaims,
     JWTKey,
@@ -53,6 +54,7 @@ __all__ = [
     "ClientBannedError",
     "ClientBans",
     "ClientBansConfig",
+    "DiscoveryConfig",
     "Fetcher",
     "JWKSConfig",
     "JWTClaims",

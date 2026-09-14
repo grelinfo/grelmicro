@@ -231,22 +231,55 @@ A fetcher that goes through your own client keeps the request inside whatever
 OpenTelemetry instrumentation that client already has, so a slow or failing
 provider shows up in your traces.
 
+### From an issuer
+
+Most providers say where their keys live. Give `JWTVerifier.discover` the
+issuer, and it reads the JWKS URL from the provider's metadata:
+
+```python
+verifier = JWTVerifier.discover("https://auth.example.com/", audience="orders-api")
+
+async with verifier:
+    claims = verifier.verify(token)
+```
+
+It reads the [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414) authorization
+server metadata first, then the
+[OpenID Connect discovery](https://openid.net/specs/openid-connect-discovery-1_0.html)
+document, and remembers which one answered.
+
+| Issuer | Looked up at |
+| --- | --- |
+| `https://auth.example.com/` | `/.well-known/oauth-authorization-server`, then `/.well-known/openid-configuration` |
+| `https://auth.example.com/realms/shop` | `/.well-known/oauth-authorization-server/realms/shop`, then `/realms/shop/.well-known/openid-configuration` |
+
+Everything else works as it does for a JWKS URL: `async with`, the background
+refresh, `fetch=`, and the limits in the table above.
+
+The document that answers must name the issuer exactly, character for
+character, trailing slash included. A document answering for another issuer is
+refused rather than passed over, so a misrouted or hostile endpoint never
+chooses your keys. The JWKS URL it names must be `https`, and every token must
+carry the issuer in `iss`.
+
+The metadata is read again once per `ttl`. A refresh asked for by a token
+naming a new key fetches the key set alone.
+
 ## Configure from the deployment
 
-A verifier built by `keys` or `jwks` also reads its settings from the
+A verifier built by `keys`, `jwks` or `discover` also reads its settings from the
 environment once `GREL_ENV_LOAD` is set, under `GREL_JWTVERIFIER_`, or
 `GREL_JWTVERIFIER_{NAME}_` for one built with `name=`. A keyword always wins,
 so leave a setting out of the code for the deployment to supply it:
 
 ```python
-verifier = JWTVerifier.jwks()
+verifier = JWTVerifier.discover()
 ```
 
 ```bash
 GREL_ENV_LOAD=1
-GREL_JWTVERIFIER_URL=https://auth.example.com/.well-known/jwks.json
-GREL_JWTVERIFIER_AUDIENCE=orders-api
 GREL_JWTVERIFIER_ISSUER=https://auth.example.com/
+GREL_JWTVERIFIER_AUDIENCE=orders-api
 ```
 
 A list is written comma-separated or as JSON. A mounted file read by
@@ -275,20 +308,17 @@ never trust.
 
 ## AWS Cognito
 
-Cognito serves its keys at
-`https://cognito-idp.{region}.amazonaws.com/{pool}/.well-known/jwks.json` and
-publishes `alg` on every key.
+Cognito publishes OpenID Connect discovery for every user pool, and `alg` on
+every key.
 
 An access token carries no `aud` claim. It names the application in `client_id`
-instead, so check that yourself and name `aud` in `required` only for ID
-tokens.
+instead, so pass `audience=None` and check `client_id` yourself. An ID token
+does carry `aud`, so verify one with a verifier built with `audience=client_id`.
 
 ```python
-issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool}"
-verifier = JWTVerifier.jwks(
-    f"{issuer}/.well-known/jwks.json",
+verifier = JWTVerifier.discover(
+    f"https://cognito-idp.{region}.amazonaws.com/{pool}",
     audience=None,
-    issuer=issuer,
     required=["token_use"],
 )
 async with verifier:
@@ -299,20 +329,19 @@ async with verifier:
 
 ## Microsoft Entra ID
 
-Entra serves its keys at
-`https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys` and publishes
-signing keys with no `alg`. `from_jwks` reads the algorithm the key type
-implies, and `algorithm=` pins one explicitly.
+Entra publishes OpenID Connect discovery for each tenant, and signing keys with
+no `alg`. `algorithm=` pins the one its keys use.
 
 ```python
-tenant_issuer = f"https://login.microsoftonline.com/{tenant}/v2.0"
-verifier = JWTVerifier.jwks(
-    f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
+verifier = JWTVerifier.discover(
+    f"https://login.microsoftonline.com/{tenant_id}/v2.0",
     algorithm="RS256",
     audience=client_id,
-    issuer=tenant_issuer,
 )
 ```
+
+Name the tenant by its ID. The issuer in Entra's metadata always carries the
+ID, so a tenant named by its domain does not match it and is refused.
 
 ## Repeated tokens
 

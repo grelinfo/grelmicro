@@ -29,6 +29,7 @@ from typing import (
     Self,
     get_args,
 )
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -65,6 +66,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ALGORITHMS",
+    "DiscoveryConfig",
     "JWKSConfig",
     "JWTClaims",
     "JWTKey",
@@ -622,20 +624,9 @@ class JWTKeysConfig(JWTPolicy):
         return value
 
 
-class JWKSConfig(JWTPolicy):
-    """Where the keys are published, and the claim policy they enforce.
+class _KeyPublishing(BaseModel, frozen=True):
+    """How keys published over HTTP are fetched, for every remote key source."""
 
-    Carries every `JWTPolicy` setting, so a verifier fed from a JWKS endpoint
-    checks exactly what one built from a PEM checks.
-    """
-
-    url: Annotated[
-        str,
-        Doc(
-            "The JWKS endpoint. Must be `https`, because the keys it serves"
-            " decide who is believed."
-        ),
-    ]
     ttl: Annotated[
         float,
         Doc("Seconds a fetched document is treated as current."),
@@ -668,15 +659,6 @@ class JWKSConfig(JWTPolicy):
         Doc("Algorithm to pin for keys that publish none, as Entra ID does."),
     ] = None
 
-    @field_validator("url")
-    @classmethod
-    def _check_url(cls, value: Any) -> Any:  # noqa: ANN401
-        """Refuse a URL that is not `https`."""
-        if not str(value).startswith("https://"):
-            msg = "url must be an https URL"
-            raise ValueError(msg)
-        return value
-
     @field_validator("ttl", "retry_interval", "timeout")
     @classmethod
     def _check_positive(cls, value: Any) -> Any:  # noqa: ANN401
@@ -696,12 +678,64 @@ class JWKSConfig(JWTPolicy):
         return value
 
 
-_PUBLISHING_FIELDS: Final = frozenset(JWKSConfig.model_fields) - frozenset(
-    JWTPolicy.model_fields
-)
+class JWKSConfig(JWTPolicy, _KeyPublishing):
+    """Where the keys are published, and the claim policy they enforce.
+
+    Carries every `JWTPolicy` setting, so a verifier fed from a JWKS endpoint
+    checks exactly what one built from a PEM checks.
+    """
+
+    url: Annotated[
+        str,
+        Doc(
+            "The JWKS endpoint. Must be `https`, because the keys it serves"
+            " decide who is believed."
+        ),
+    ]
+
+    @field_validator("url")
+    @classmethod
+    def _check_url(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse a URL that is not `https`."""
+        if not str(value).startswith("https://"):
+            msg = "url must be an https URL"
+            raise ValueError(msg)
+        return value
+
+
+class DiscoveryConfig(JWTPolicy, _KeyPublishing):
+    """An issuer whose metadata says where its keys are published.
+
+    The issuer is the one URL to configure. Its RFC 8414 authorization server
+    metadata is read first, then its OpenID Connect discovery document, and
+    the first one that answers names the JWKS endpoint. That document must
+    name the issuer exactly, and every token must carry it in `iss`.
+    """
+
+    @model_validator(mode="after")
+    def _check_issuer(self) -> Self:
+        """Refuse anything but one `https` issuer with no query or fragment."""
+        if len(self.issuer) != 1:
+            msg = "issuer must name exactly one issuer to discover"
+            raise ValueError(msg)
+        parts = urlsplit(self.issuer[0])
+        if (
+            parts.scheme != "https"
+            or not parts.netloc
+            or parts.query
+            or parts.fragment
+        ):
+            msg = "issuer must be an https URL with no query or fragment"
+            raise ValueError(msg)
+        return self
+
+
+_PUBLISHING_FIELDS: Final = (
+    frozenset(JWKSConfig.model_fields) | frozenset(DiscoveryConfig.model_fields)
+) - frozenset(JWTPolicy.model_fields)
 """Fields that say where keys are published, never how a token is checked.
 
-Read off the two classes rather than listed, so a field added to either one
+Read off the classes rather than listed, so a field added to any of them
 lands on the right side without anybody remembering to add it here.
 """
 
@@ -927,14 +961,14 @@ _ONE_OR_MANY: Final = ("audience", "issuer", "scope_claims")
 """Settings a keyword may pass as a single string."""
 
 
-class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
+class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
     """Verifies inbound JWTs against a key set and a claim policy.
 
     Build one with a factory that names where the keys come from:
-    `JWTVerifier.keys` for keys you hold, `JWTVerifier.jwks` for keys a
-    provider publishes, or `JWTVerifier.from_config` for a config assembled
-    elsewhere. There is no bare constructor, because no key source is a safe
-    default.
+    `JWTVerifier.discover` for an issuer that publishes its metadata,
+    `JWTVerifier.jwks` for a JWKS endpoint, `JWTVerifier.keys` for keys you
+    hold, or `JWTVerifier.from_config` for a config assembled elsewhere.
+    There is no bare constructor, because no key source is a safe default.
 
     Keys are parsed once, when they are loaded. Verification runs in the
     compiled core with the GIL released, so a thread pool verifies in
@@ -962,6 +996,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
     _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = (
         frozenset(JWTKeysConfig.model_fields)
         | frozenset(JWKSConfig.model_fields)
+        | frozenset(DiscoveryConfig.model_fields)
     ) - _LIVE_FIELDS
     """Every field but the ones that tune what a verification costs.
 
@@ -1205,8 +1240,150 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         instance._track_reconfigure(env_prefix)  # noqa: SLF001
         return instance
 
+    @classmethod
+    def discover(  # noqa: PLR0913
+        cls,
+        issuer: Annotated[
+            str | None,
+            Doc(
+                "The issuer, exactly as its tokens carry it in `iss`. Must be"
+                " `https`. Left out, it is read from the environment."
+            ),
+        ] = None,
+        *,
+        audience: Annotated[
+            str | Sequence[str] | _Unset | None,
+            Doc(
+                "Accepted `aud` values. `None` answers to no audience, which"
+                " refuses any token that names one, and only code can say it."
+                " Left out, it is read from the environment, where it is"
+                " required."
+            ),
+        ] = _UNSET,
+        algorithm: Annotated[
+            _AsymmetricAlgorithm | None,
+            Doc(
+                "Algorithm to pin for keys that publish none, as Entra ID"
+                " does. Only code chooses it."
+            ),
+        ] = None,
+        ttl: Annotated[
+            float | None,
+            Doc("Seconds the metadata and the key set are treated as current."),
+        ] = None,
+        retry_interval: Annotated[
+            float | None,
+            Doc("Least time between two fetches."),
+        ] = None,
+        timeout: Annotated[
+            float | None,
+            Doc("Seconds to wait for the provider before giving up."),
+        ] = None,
+        max_bytes: Annotated[
+            int | None,
+            Doc("Largest document accepted."),
+        ] = None,
+        max_keys: Annotated[
+            int | None,
+            Doc("Most keys accepted from one document."),
+        ] = None,
+        leeway: Annotated[
+            int | None,
+            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+        ] = None,
+        token_type: Annotated[
+            Literal["at+jwt"] | None,
+            Doc("Type every token must declare in its `typ` header."),
+        ] = None,
+        scope_claims: Annotated[
+            str | Sequence[str] | None,
+            Doc("Claims the granted scopes are read from, in order."),
+        ] = None,
+        required: Annotated[
+            Sequence[str] | None,
+            Doc("Further claims that must be present. `exp` always is."),
+        ] = None,
+        cache_size: Annotated[
+            int | None,
+            Doc("Verified tokens held in memory. Zero turns the cache off."),
+        ] = None,
+        cache_key: Annotated[
+            Literal["sha256", "token"] | None,
+            Doc("What the cache keys on: a digest, or the encoded token."),
+        ] = None,
+        cache_ttl: Annotated[
+            float | None,
+            Doc("Seconds a verified token stays cached."),
+        ] = None,
+        fetch: Annotated[
+            Fetcher | None,
+            Doc("Fetcher to use. Defaults to one built on `httpx`."),
+        ] = None,
+        name: Annotated[
+            str,
+            Doc(
+                "Instance name, which is the environment namespace:"
+                " `GREL_JWTVERIFIER_{NAME}_`. The default instance reads"
+                " `GREL_JWTVERIFIER_`."
+            ),
+        ] = "default",
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the"
+                " process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
+    ) -> Self:
+        """Build a verifier from an issuer, finding its keys in its metadata.
+
+        Nothing is fetched here. Open the verifier with `async with`, or
+        await `refresh`, before the first request. The issuer's RFC 8414
+        authorization server metadata is read first, then its OpenID Connect
+        discovery document. The one that answers must name this issuer
+        exactly and an `https` JWKS endpoint, and every token must carry the
+        issuer in `iss`.
+
+        Example:
+            ```python
+            verifier = JWTVerifier.discover(
+                "https://auth.example.com/", audience="orders-api"
+            )
+
+            async with verifier:
+                claims = verifier.verify_header(authorization)
+            ```
+
+        Raises:
+            SettingsValidationError: If a setting is refused, or a variable
+                names the algorithm.
+        """
+        config, env_prefix = cls._resolve(
+            DiscoveryConfig,
+            name,
+            audience=audience,
+            env_load=env_load,
+            issuer=issuer,
+            algorithm=algorithm,
+            ttl=ttl,
+            retry_interval=retry_interval,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            max_keys=max_keys,
+            leeway=leeway,
+            token_type=token_type,
+            scope_claims=scope_claims,
+            required=required,
+            cache_size=cache_size,
+            cache_key=cache_key,
+            cache_ttl=cache_ttl,
+        )
+        instance = cls.from_config(config, fetch=fetch)
+        instance._track_reconfigure(env_prefix)  # noqa: SLF001
+        return instance
+
     @staticmethod
-    def _resolve[C: (JWTKeysConfig, JWKSConfig)](
+    def _resolve[C: (JWTKeysConfig, JWKSConfig, DiscoveryConfig)](
         config_cls: type[C],
         name: str,
         *,
@@ -1246,7 +1423,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
             env_load=env_load,
         )
         if (
-            isinstance(config, JWKSConfig)
+            isinstance(config, _KeyPublishing)
             and settings.get("algorithm") is None
             and config.algorithm is not None
         ):
@@ -1263,7 +1440,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
     def from_config(
         cls,
         config: Annotated[
-            JWTKeysConfig | JWKSConfig,
+            JWTKeysConfig | JWKSConfig | DiscoveryConfig,
             Doc(
                 "The keys, or where they are published, and the claim policy"
                 " to enforce, taken as they are."
@@ -1273,8 +1450,9 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         fetch: Annotated[
             Fetcher | None,
             Doc(
-                "Fetcher for a `JWKSConfig`. Defaults to one built on `httpx`,"
-                " and is refused for keys held in code."
+                "Fetcher for a `JWKSConfig` or a `DiscoveryConfig`. Defaults"
+                " to one built on `httpx`, and is refused for keys held in"
+                " code."
             ),
         ] = None,
     ) -> Self:
@@ -1293,12 +1471,12 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
 
     def _setup(
         self,
-        config: JWTKeysConfig | JWKSConfig,
+        config: JWTKeysConfig | JWKSConfig | DiscoveryConfig,
         *,
         fetch: Fetcher | None,
     ) -> None:
         """Hold the policy, and load the keys when they are held in code."""
-        if fetch is not None and not isinstance(config, JWKSConfig):
+        if fetch is not None and isinstance(config, JWTKeysConfig):
             msg = (
                 "fetch= applies to keys published at an endpoint. These keys"
                 " are held in code, so there is nothing to fetch."
@@ -1323,12 +1501,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         self._wants_keys = False
         self._inflight: asyncio.Task[bool] | None = None
         self._task: asyncio.Task[None] | None = None
-        if isinstance(config, JWKSConfig):
-            self._source: JWKSConfig | None = config
-            self._keys: _KeySet | None = None
+        self._metadata_url: str | None = None
+        self._discovered: tuple[float, str] | None = None
+        if isinstance(config, JWTKeysConfig):
+            self._source: JWKSConfig | DiscoveryConfig | None = None
+            self._keys: _KeySet | None = self._key_set(config)
             return
-        self._source = None
-        self._keys = self._key_set(config)
+        self._source = config
+        self._keys = None
 
     def _key_set(self, config: JWTKeysConfig) -> _KeySet:
         """Parse every key in `config` into a key set with an empty cache."""
@@ -1473,22 +1653,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         if not task.cancelled():
             task.exception()
 
-    async def _load(self, source: JWKSConfig) -> bool:
-        """Fetch the document, and swap the keys in when it changed."""
-        try:
-            document = await self._fetch(
-                source.url, timeout=source.timeout, max_bytes=source.max_bytes
-            )
-        except (SigningKeysUnavailableError, DependencyNotFoundError):
-            # A missing dependency is a broken install, not an outage, so it
-            # stops the app at startup instead of being retried forever.
-            raise
-        except Exception as error:
-            # A fetcher of the caller's own can fail in its own way. Left
-            # unwrapped, that error would stop the app at startup and end the
-            # background refresh for good, which only this one is handled for.
-            msg = f"jwks endpoint could not be fetched: {type(error).__name__}"
-            raise SigningKeysUnavailableError(msg) from error
+    async def _load(self, source: JWKSConfig | DiscoveryConfig) -> bool:
+        """Fetch the key set, and swap the keys in when it changed."""
+        url = (
+            source.url
+            if isinstance(source, JWKSConfig)
+            else await self._discover(source)
+        )
+        document = await self._fetched(url, source)
         if document == self._document:
             # Same bytes, so the keys already loaded are the current ones.
             self._loaded_at = monotonic()
@@ -1513,6 +1685,60 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         self._loaded_at = monotonic()
         self._wants_keys = False
         return True
+
+    async def _discover(self, source: DiscoveryConfig) -> str:
+        """Return the JWKS endpoint the issuer's metadata names.
+
+        The metadata is read once per `ttl`, so a refresh a new `kid` asked
+        for fetches the key set alone. The document that answered last is
+        tried first, so a provider publishing only one of the two costs one
+        request once it has been found.
+
+        Raises:
+            SigningKeysUnavailableError: If no metadata document can be
+                fetched, or the one that answers names another issuer or no
+                `https` key set.
+        """
+        discovered = self._discovered
+        if discovered is not None and monotonic() - discovered[0] < source.ttl:
+            return discovered[1]
+        issuer = source.issuer[0]
+        failures: list[str] = []
+        for url in _metadata_urls(issuer, first=self._metadata_url):
+            try:
+                document = await self._fetched(url, source)
+            except SigningKeysUnavailableError as error:
+                failures.append(f"{url}: {error}")
+                continue
+            # Outside the `try`: a document answering for another issuer is
+            # refused outright, never passed over for the next one.
+            jwks_uri = _jwks_uri_of(document, issuer)
+            self._metadata_url = url
+            self._discovered = (monotonic(), jwks_uri)
+            return jwks_uri
+        msg = f"no metadata document could be fetched: {', '.join(failures)}"
+        raise SigningKeysUnavailableError(msg)
+
+    async def _fetched(self, url: str, source: _KeyPublishing) -> bytes:
+        """Fetch `url` within the limits `source` sets.
+
+        Raises:
+            SigningKeysUnavailableError: Whatever the fetcher failed with.
+        """
+        try:
+            return await self._fetch(
+                url, timeout=source.timeout, max_bytes=source.max_bytes
+            )
+        except (SigningKeysUnavailableError, DependencyNotFoundError):
+            # A missing dependency is a broken install, not an outage, so it
+            # stops the app at startup instead of being retried forever.
+            raise
+        except Exception as error:
+            # A fetcher of the caller's own can fail in its own way. Left
+            # unwrapped, that error would stop the app at startup and end the
+            # background refresh for good, which only this one is handled for.
+            msg = f"{url} could not be fetched: {type(error).__name__}"
+            raise SigningKeysUnavailableError(msg) from error
 
     async def __aenter__(self) -> Self:
         """Load the published keys, then keep them fresh until exit.
@@ -1553,7 +1779,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         self._task = None
         self._inflight = None
 
-    async def _keep_fresh(self, source: JWKSConfig) -> None:
+    async def _keep_fresh(self, source: JWKSConfig | DiscoveryConfig) -> None:
         """Refresh once per `retry_interval` until cancelled.
 
         `refresh` fetches only when the keys are stale, so a pass while they
@@ -1583,7 +1809,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
                     " keys"
                 )
 
-    def _until_next_pass(self, source: JWKSConfig) -> float:
+    def _until_next_pass(self, source: JWKSConfig | DiscoveryConfig) -> float:
         """Return the seconds the background refresh waits before its next pass.
 
         One interval, or the part of it left when the last fetch attempt was
@@ -1599,7 +1825,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         return remaining if remaining > 0 else interval
 
     async def _apply_reconfigure(
-        self, new_config: JWTKeysConfig | JWKSConfig
+        self, new_config: JWTKeysConfig | JWKSConfig | DiscoveryConfig
     ) -> None:
         """Take a new cache size and refresh pacing.
 
@@ -1630,7 +1856,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
             # is set first, so a store running alongside already sees it.
             keys.cache.clear()
             keys.order.clear()
-        if isinstance(new_config, JWKSConfig):
+        if not isinstance(new_config, JWTKeysConfig):
             self._source = new_config
 
     def verify(
@@ -1730,7 +1956,9 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         order.append(key)
 
 
-def _document_config(source: JWKSConfig, document: bytes) -> JWTKeysConfig:
+def _document_config(
+    source: JWKSConfig | DiscoveryConfig, document: bytes
+) -> JWTKeysConfig:
     """Turn a fetched JWKS document into keys, refusing what it should."""
     try:
         parsed = json.loads(document)
@@ -1755,6 +1983,54 @@ def _document_config(source: JWKSConfig, document: bytes) -> JWTKeysConfig:
     except (SettingsValidationError, ValueError) as error:
         msg = f"jwks document holds no usable key: {error}"
         raise SigningKeysUnavailableError(msg) from None
+
+
+def _metadata_urls(issuer: str, *, first: str | None) -> list[str]:
+    """Return where `issuer` may publish its metadata, `first` leading.
+
+    RFC 8414 authorization server metadata comes first, with the well-known
+    segment inserted between the host and the issuer's path. OpenID Connect
+    discovery follows, with the segment appended to the issuer.
+    """
+    parts = urlsplit(issuer)
+    origin = f"https://{parts.netloc}"
+    path = parts.path.rstrip("/")
+    urls = [
+        f"{origin}/.well-known/oauth-authorization-server{path}",
+        f"{origin}{path}/.well-known/openid-configuration",
+    ]
+    # Stable, so the order above holds for every URL but `first`.
+    urls.sort(key=lambda url: url != first)
+    return urls
+
+
+def _jwks_uri_of(document: bytes, issuer: str) -> str:
+    """Return the JWKS endpoint an issuer's metadata names.
+
+    The document must name `issuer` exactly, as RFC 8414 and OpenID Connect
+    Discovery both require, so a document answering for another issuer never
+    chooses the keys.
+
+    Raises:
+        SigningKeysUnavailableError: If the document is not a JSON object,
+            names another issuer, or names no `https` key set.
+    """
+    try:
+        parsed = json.loads(document)
+    except ValueError:
+        msg = "metadata document is not valid JSON"
+        raise SigningKeysUnavailableError(msg) from None
+    if not isinstance(parsed, dict):
+        shape = "metadata document is not a JSON object"
+        raise SigningKeysUnavailableError(shape)
+    if parsed.get("issuer") != issuer:
+        msg = f"metadata document answers for another issuer than {issuer}"
+        raise SigningKeysUnavailableError(msg)
+    jwks_uri = parsed.get("jwks_uri")
+    if not isinstance(jwks_uri, str) or not jwks_uri.startswith("https://"):
+        msg = "metadata document names no https jwks_uri"
+        raise SigningKeysUnavailableError(msg)
+    return jwks_uri
 
 
 def unverified_header(

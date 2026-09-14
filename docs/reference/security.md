@@ -20,6 +20,7 @@
         - TokenRejectedError
         - TokenRejectedReason
         - unverified_header
+        - DiscoveryConfig
         - JWKSConfig
         - SigningKeysUnavailableError
         - Fetcher
