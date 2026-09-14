@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Final,
+    Protocol,
+    Self,
+    cast,
+)
 
 from pydantic import BaseModel
 from typing_extensions import Doc
@@ -53,7 +63,17 @@ if TYPE_CHECKING:
     from grelmicro.http._component import RenderedError
     from grelmicro.security.bans import ClientBans
     from grelmicro.security.clientip import TrustedProxies
-    from grelmicro.security.jwt import JWTClaims, TokenVerifier
+    from grelmicro.security.jwt import TokenVerifier
+    from grelmicro.security.principal import Principal
+
+    class _AwaitedVerifier(Protocol):
+        """A verifier answering with an awaitable, such as one on the network."""
+
+        def verify(self, token: str) -> Awaitable[Principal]:
+            """Return the caller the token stands for, once awaited."""
+            ...  # pragma: no cover
+
+    _Verifier = TokenVerifier | _AwaitedVerifier
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -1191,8 +1211,11 @@ class AuthenticatedRequestsMiddleware:
         ],
         *,
         verifier: Annotated[
-            TokenVerifier,
-            Doc("Verifies each bearer token, such as a `JWTVerifier`."),
+            _Verifier,
+            Doc(
+                "Verifies each bearer token, such as a `JWTVerifier`. Its"
+                " `verify` may answer with the caller or an awaitable of it."
+            ),
         ],
         exclude: Annotated[
             tuple[str, ...],
@@ -1291,7 +1314,7 @@ class AuthenticatedRequestsMiddleware:
             and public.matches(scope)
         )
 
-    async def _authenticate(self, scope: Scope) -> JWTClaims:
+    async def _authenticate(self, scope: Scope) -> Principal:
         """Return the verified caller, or raise what the caller is told."""
         token = _bearer_token(scope)
         client = self._client_of(scope)
@@ -1305,17 +1328,30 @@ class AuthenticatedRequestsMiddleware:
                 bans.record(client, error.reason)
             raise
 
-    async def _verified(self, token: str) -> JWTClaims:
-        """Verify `token`, waiting for one refresh when it names a new key."""
+    async def _verified(self, token: str) -> Principal:
+        """Verify `token`, waiting for one refresh when it names a new key.
+
+        A verifier answering with an awaitable, such as one asking the
+        authorization server, is awaited, and so is its answer after the
+        refresh. One answering at once costs no await.
+        """
         verifier = self._verifier
         try:
-            return verifier.verify(token)
+            # Either the caller or an awaitable of it, whichever it answers.
+            caller: Any = verifier.verify(token)
+            if inspect.isawaitable(caller):
+                caller = await caller
         except TokenRejectedError as error:
             if error.reason is not TokenRejectedReason.UNKNOWN_KEY:
                 raise
             if not await self._refreshed():
                 raise
-        return verifier.verify(token)
+        else:
+            return caller
+        retried: Any = verifier.verify(token)
+        if inspect.isawaitable(retried):
+            retried = await retried
+        return retried
 
     async def _refreshed(self) -> bool:
         """Return whether a refresh loaded keys the verifier did not hold.
@@ -1508,8 +1544,11 @@ class AuthenticatedRequests:
     def __init__(
         self,
         verifier: Annotated[
-            TokenVerifier,
-            Doc("Verifies each bearer token, such as a `JWTVerifier`."),
+            _Verifier,
+            Doc(
+                "Verifies each bearer token, such as a `JWTVerifier`. Its"
+                " `verify` may answer with the caller or an awaitable of it."
+            ),
         ],
         *,
         exclude: Annotated[
@@ -1570,8 +1609,11 @@ class AuthenticatedRequests:
             Doc("The pre-built authenticated requests configuration."),
         ],
         verifier: Annotated[
-            TokenVerifier,
-            Doc("Verifies each bearer token, such as a `JWTVerifier`."),
+            _Verifier,
+            Doc(
+                "Verifies each bearer token, such as a `JWTVerifier`. Its"
+                " `verify` may answer with the caller or an awaitable of it."
+            ),
         ],
         *,
         bans: Annotated[
@@ -1615,7 +1657,7 @@ class AuthenticatedRequests:
         self,
         config: AuthenticatedRequestsConfig,
         *,
-        verifier: TokenVerifier,
+        verifier: _Verifier,
         bans: ClientBans | None,
         trusted: TrustedProxies | None,
         name: str,
@@ -1655,7 +1697,7 @@ class AuthenticatedRequests:
         return self._config
 
     @property
-    def verifier(self) -> TokenVerifier:
+    def verifier(self) -> _Verifier:
         """Return the verifier every token is checked against."""
         return self._verifier
 

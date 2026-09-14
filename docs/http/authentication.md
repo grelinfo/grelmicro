@@ -109,6 +109,11 @@ one fetch rather than one per request.
 The [JWT](../security/jwt.md) guide covers the verifier itself: keys you hold, a
 JWKS URL, discovery from an issuer, and what gets checked.
 
+The verifier does not have to be a `JWTVerifier`. Any object whose
+`verify(token)` returns a `Principal` is accepted, and one returning an
+awaitable is awaited, so a verifier that asks the authorization server about each
+token fits too.
+
 ## Refusing a caller that keeps forging
 
 ```python

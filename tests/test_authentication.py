@@ -213,6 +213,28 @@ class Rotating:
         return self._finds
 
 
+class Asking:
+    """A verifier that answers asynchronously, the way a network one would."""
+
+    def __init__(self, *, known: bool = True) -> None:
+        """Answer `unknown-key` until a refresh when not `known`."""
+        self._real = verifier()
+        self.known = known
+        self.refreshes = 0
+
+    async def verify(self, token: str) -> JWTClaims:
+        """Verify the token once its key is known."""
+        if not self.known:
+            raise TokenRejectedError(TokenRejectedReason.UNKNOWN_KEY)
+        return self._real.verify(token)
+
+    async def refresh(self, *, force: bool = False) -> bool:  # noqa: ARG002
+        """Learn the key."""
+        self.refreshes += 1
+        self.known = True
+        return True
+
+
 async def whoami(request: Request) -> JSONResponse:
     """Answer with the caller the middleware put in the scope."""
     return JSONResponse(
@@ -506,6 +528,31 @@ class TestKeys:
 
         assert opened
         assert tracked.closed
+
+    def test_a_verifier_that_answers_asynchronously_is_awaited(self) -> None:
+        """A valid token is served, and a forged one refused with the reason."""
+        client = TestClient(app_with(AuthenticatedRequests(Asking())))
+
+        served = client.get("/whoami", headers=bearer(token()))
+        refused = client.get("/whoami", headers=bearer(token(FORGER)))
+
+        assert served.json()["subject"] == "user-1"
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="invalid_token"'
+        )
+
+    def test_an_asynchronous_verifier_is_awaited_again_after_a_refresh(
+        self,
+    ) -> None:
+        """A key it learns on refresh serves the request that asked for it."""
+        asking = Asking(known=False)
+        client = TestClient(app_with(AuthenticatedRequests(asking)))
+
+        response = client.get("/whoami", headers=bearer(token()))
+
+        assert response.json()["subject"] == "user-1"
+        assert asking.refreshes == 1
 
     def test_keys_that_never_loaded_answer_503(self) -> None:
         """A service that cannot check a token refuses every one of them."""
