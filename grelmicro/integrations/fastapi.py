@@ -21,6 +21,9 @@ try:
 
     # Read at runtime: FastAPI resolves the quoted annotation through this
     # module's globals when it builds the dependency.
+    from fastapi.requests import (
+        HTTPConnection as _HTTPConnection,  # noqa: TC002
+    )
     from fastapi.security import (
         SecurityScopes as _SecurityScopes,  # noqa: TC002
     )
@@ -407,15 +410,15 @@ def CachedResponse(  # noqa: N802
     return _Depends(declare_cached(ttl))
 
 
-async def _current_principal(request: "_Request") -> Any:  # noqa: ANN401
+async def _current_principal(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
     """Return the caller the middleware authenticated, or ask for a credential."""
-    caller = request.scope.get("user")
+    caller = connection.scope.get("user")
     if caller is None or not getattr(caller, "is_authenticated", False):
         raise AuthenticationRequiredError
     return caller
 
 
-async def _current_claims(request: "_Request") -> Any:  # noqa: ANN401
+async def _current_claims(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
     """Return the verified JWT claims of the caller.
 
     Raises:
@@ -424,7 +427,7 @@ async def _current_claims(request: "_Request") -> Any:  # noqa: ANN401
             a JWT, which is a route asking for what its verifier never
             produces.
     """
-    caller = await _current_principal(request)
+    caller = await _current_principal(connection)
     if not isinstance(caller, JWTClaims):
         msg = (
             f"Claims reads a caller authenticated by a JWT, and this one is "
@@ -435,11 +438,11 @@ async def _current_claims(request: "_Request") -> Any:  # noqa: ANN401
 
 
 async def _authenticated(
-    request: "_Request", security_scopes: "_SecurityScopes"
+    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
 ) -> Any:  # noqa: ANN401
     """Return the caller, holding every scope this declaration names."""
     required = tuple(security_scopes.scopes)
-    caller = request.scope.get("user")
+    caller = connection.scope.get("user")
     if caller is None or not getattr(caller, "is_authenticated", False):
         raise AuthenticationRequiredError(scopes=required)
     if not set(required) <= set(getattr(caller, "scopes", ())):

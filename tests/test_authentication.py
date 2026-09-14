@@ -842,6 +842,29 @@ class TestFastAPI:
         async with component:
             assert component.verifier is not None
 
+    def test_a_websocket_route_reads_the_caller_and_its_scopes(self) -> None:
+        """`CurrentPrincipal` and `Authenticated` work on a websocket too."""
+
+        def declare(app: FastAPI) -> None:
+            @app.websocket(
+                "/live", dependencies=[Authenticated(scopes=["live:read"])]
+            )
+            async def live(
+                socket: FastAPIWebSocket, principal: CurrentPrincipal
+            ) -> None:
+                await socket.accept()
+                await socket.send_json({"subject": principal.subject})
+                await socket.close()
+
+        client = TestClient(
+            fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        )
+
+        with client.websocket_connect(
+            "/live", headers=bearer(token(scope="live:read"))
+        ) as socket:
+            assert socket.receive_json() == {"subject": "user-1"}
+
 
 OAUTH_METADATA = "https://auth.grel.info/.well-known/oauth-authorization-server"
 OIDC_METADATA = "https://auth.grel.info/.well-known/openid-configuration"
@@ -1502,6 +1525,49 @@ class TestRouting:
             client.websocket_connect("/catalog"),
         ):
             pass  # pragma: no cover
+
+    def test_one_registration_on_two_apps_serves_each_by_its_own_routes(
+        self,
+    ) -> None:
+        """A route public on one app never opens the same path on the other."""
+        guarded = FastAPI()
+
+        @guarded.get("/admin/{name}")
+        async def secret(name: str) -> dict[str, str]:
+            return {"secret": name}  # pragma: no cover
+
+        public = FastAPI()
+
+        @public.get("/admin/{name}", dependencies=[Anonymous()])
+        async def page(name: str) -> dict[str, str]:
+            return {"page": name}
+
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(guarded)
+        micro.install(public)
+
+        assert TestClient(guarded).get("/admin/x").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+        assert TestClient(public).get("/admin/x").json() == {"page": "x"}
+
+    def test_a_request_from_an_app_never_read_is_authenticated(self) -> None:
+        """A middleware whose app was never read serves no route publicly."""
+
+        async def page(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"page": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        middleware, options = AuthenticatedRequests(
+            verifier()
+        ).asgi_middleware()
+
+        assert TestClient(middleware(page, **options)).get("/").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
 
 
 class TestConsistency:

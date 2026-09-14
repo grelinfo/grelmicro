@@ -217,8 +217,8 @@ class _Routes:
 class _PublicRoutes:
     """The routes that declared `Anonymous()`, read off the app.
 
-    Read when `micro.install(app)` adds the middleware, and again when the
-    app starts, so a route declared between the two counts as well.
+    Read off each app `micro.install(app)` adds the middleware to, and again
+    when the app starts, so a route declared between the two counts as well.
 
     A public route's path can fit a URL another route answers, and which one
     serves it depends on the order the routes were declared in, or on the
@@ -229,22 +229,27 @@ class _PublicRoutes:
 
     def __init__(self) -> None:
         """Start with no app and no public route."""
-        self._app: Any = None
-        self._routes = _Routes()
+        self._apps: dict[Any, _Routes] = {}
 
     def read(self, app: Any) -> None:  # noqa: ANN401
         """Read every route `app` declares, public or not."""
-        self._app = app
-        self._routes = routes_of(app)
+        self._apps[app] = routes_of(app)
 
     def reread(self) -> None:
-        """Read the app again, for the routes declared since install."""
-        if self._app is not None:
-            self._routes = routes_of(self._app)
+        """Read every app again, for the routes declared since install."""
+        for app in self._apps:
+            self._apps[app] = routes_of(app)
 
     def matches(self, scope: Scope) -> bool:
-        """Return whether the request is served by a route declared public."""
-        routes = self._routes
+        """Return whether the request is served by a route declared public.
+
+        Held against the routes of the app serving it, which the framework
+        names in `scope["app"]`, so one registration installed on two apps
+        serves each by its own routes.
+        """
+        routes = self._apps.get(scope.get("app"))
+        if routes is None:
+            return False
         if routes.litestar is not None:
             return _litestar_serves_publicly(routes.litestar, scope)
         if not routes.public:
