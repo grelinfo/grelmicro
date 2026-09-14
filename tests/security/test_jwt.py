@@ -279,7 +279,7 @@ def test_an_audience_list_matches_on_any_member() -> None:
     """`aud` may be an array, and one match is enough."""
     token = issue(aud=["other-api", AUDIENCE])
 
-    assert build().verify(token).audience == ["other-api", AUDIENCE]
+    assert build().verify(token).audience == ("other-api", AUDIENCE)
 
 
 class TestKeySelection:
@@ -634,6 +634,21 @@ class TestCache:
             "orders:read",
             "orders:write",
         }
+
+    def test_nested_claims_cannot_be_written_into_either(self) -> None:
+        """Roles inside an object claim reach every later request too."""
+        verifier = build()
+        token = issue(realm_access={"roles": ["reader"]}, aud=[AUDIENCE])
+        claims = verifier.verify(token)
+
+        with pytest.raises(AttributeError):
+            claims.claims["realm_access"]["roles"].append("admin")
+        with pytest.raises(TypeError):
+            claims.claims["realm_access"]["roles"] = ["admin"]
+
+        again = verifier.verify(token)
+        assert again.claims["realm_access"]["roles"] == ("reader",)
+        assert again.audience == (AUDIENCE,)
 
     def test_a_repeated_token_is_served_from_the_cache(self) -> None:
         """The second verification returns the very same claims object."""

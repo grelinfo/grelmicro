@@ -719,15 +719,16 @@ class JWTClaims:
     claims: Annotated[
         Mapping[str, Any],
         Doc(
-            "Every claim the token carries, read-only. A verified claim set"
-            " is shared by every request presenting that token while it is"
-            " cached, so writing into it would change what a later request"
-            " is authorized as."
+            "Every claim the token carries, read-only all the way down: an"
+            " object is a read-only mapping and an array a tuple. A verified"
+            " claim set is shared by every request presenting that token"
+            " while it is cached, so writing into it would change what a"
+            " later request is authorized as."
         ),
     ]
     subject: Annotated[str | None, Doc("The `sub` claim.")]
     issuer: Annotated[str | None, Doc("The `iss` claim.")]
-    audience: Annotated[str | list[str] | None, Doc("The `aud` claim.")]
+    audience: Annotated[str | tuple[str, ...] | None, Doc("The `aud` claim.")]
     expires_at: Annotated[int | None, Doc("The `exp` claim, in seconds.")]
     issued_at: Annotated[int | None, Doc("The `iat` claim, in seconds.")]
     token_id: Annotated[str | None, Doc("The `jti` claim.")]
@@ -788,15 +789,34 @@ def _claims_of(raw: dict[str, Any], scope_claims: tuple[str, ...]) -> JWTClaims:
     """Wrap a verified claim set, lifting the registered claims out of it."""
     get = raw.get
     return JWTClaims(
-        claims=MappingProxyType(raw),
+        claims=_frozen(raw),
         subject=get("sub"),
         issuer=get("iss"),
-        audience=get("aud"),
+        audience=_frozen(get("aud")),
         expires_at=get("exp"),
         issued_at=get("iat"),
         token_id=get("jti"),
         scopes=_scopes_of(raw, scope_claims),
     )
+
+
+def _frozen(value: Any) -> Any:  # noqa: ANN401
+    """Return `value` with every object and array in it made read-only.
+
+    An object becomes a read-only mapping and an array a tuple, all the way
+    down. Run once, when a token is first verified, so a cache hit pays
+    nothing for it.
+    """
+    if isinstance(value, dict):
+        return MappingProxyType(
+            {
+                key: _frozen(item) if isinstance(item, (dict, list)) else item
+                for key, item in value.items()
+            }
+        )
+    if isinstance(value, list):
+        return tuple(_frozen(item) for item in value)
+    return value
 
 
 def _scopes_of(

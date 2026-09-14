@@ -20,6 +20,7 @@
 * 💥 `unverified_header(token)` is a function, and the verifier method is gone. It reads no key, so it never needed a verifier. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 * 💥 `JWTClaims.raw` is now `JWTClaims.claims`, the name `Principal` reads the claim set by. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🔒 `JWTClaims.claims` is read-only all the way down: a nested object is a read-only mapping and an array is a tuple, and `JWTClaims.audience` is a tuple when a token names several audiences. A cached claim set is shared by every request presenting the token, so a handler can no longer change what a later one is authorized as. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Added
 * ✨ `Principal` is the caller a handler reads, whatever proved who it is, and `JWTClaims` satisfies it. A verified token also answers `is_authenticated`, `identity` and `display_name`, which Starlette reads off `request.user`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
@@ -34,7 +35,7 @@
 * 🐛 A JWKS entry that is not a key object, names its `kty` with anything but a string, or holds key material the core cannot read, is skipped and the document's other keys still load, so one bad key no longer stops `async with verifier:` or ends the background refresh. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A missing `httpx` raises `DependencyNotFoundError` from `async with verifier:` instead of being retried forever, and an unexpected error in the background refresh is logged without ending it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 `ClientBans.record()` no longer reports a ban that has already run out. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
-* 🐛 A client `ClientBans.forget()` cleared and recorded again is no longer evicted early, and forgetting clients no longer grows the table's queue without bound. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A full `ClientBans` table evicts the least recently recorded client, as documented, instead of the one that failed first, and a client `forget()` cleared no longer takes up room or gets a later entry evicted. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs

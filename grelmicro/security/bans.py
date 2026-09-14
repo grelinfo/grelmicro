@@ -32,8 +32,8 @@ Read more in the [JWT](../security/jwt.md) docs.
 from __future__ import annotations
 
 import asyncio
-import itertools
-from collections import deque
+import threading
+from collections import OrderedDict
 from time import monotonic
 from typing import Annotated, Any, Final, Self
 
@@ -260,15 +260,15 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         self._reconfigure_lock = asyncio.Lock()
         self._take(config)
         self._reasons = ABUSIVE_REASONS if reasons is None else reasons
-        # `(window_started, count, banned_until, inserted)` per client. Kept
-        # beside a queue of `(client, inserted)` in the order clients were
-        # first seen, so making room never walks the table. Every operation on
-        # either is one the interpreter applies whole, so this is safe to share
-        # across a thread pool and under a free-threaded interpreter, with no
-        # lock on the read path.
-        self._clients: dict[str, tuple[float, int, float, int]] = {}
-        self._order: deque[tuple[str, int]] = deque()
-        self._insertions = itertools.count()
+        # `(window_started, count, banned_until)` per client, the least
+        # recently recorded first. Only a rejected token writes, and it writes
+        # under the lock, so a request that succeeds never takes it: `banned`
+        # stays one lookup, safe beside a writer on a thread pool and under a
+        # free-threaded interpreter.
+        self._clients: OrderedDict[str, tuple[float, int, float]] = (
+            OrderedDict()
+        )
+        self._lock = threading.Lock()
 
     def _take(self, config: ClientBansConfig) -> None:
         """Read the thresholds a request is judged against."""
@@ -330,52 +330,43 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         """
         if reason not in self._reasons:
             return False
-        now = monotonic()
-        seen = self._clients.get(client)
-        if seen is None or now - seen[0] >= self._window:
-            started, count = now, 1
-        else:
-            started, count = seen[0], seen[1] + 1
-        banned_until = now + self._duration if count >= self._failures else 0.0
-        if seen is not None and seen[2] > now:
-            banned_until = max(banned_until, seen[2])
-        current = self._clients.get(client)
-        if current is None:
-            # Only an address not yet tracked makes room. Making it for one
-            # already tracked would let a client failing from a single address
-            # evict every other entry, bans included.
-            self._make_room()
-            inserted = next(self._insertions)
-            self._order.append((client, inserted))
-        else:
-            inserted = current[3]
-        self._clients[client] = (started, count, banned_until, inserted)
+        with self._lock:
+            now = monotonic()
+            clients = self._clients
+            seen = clients.get(client)
+            if seen is None or now - seen[0] >= self._window:
+                started, count = now, 1
+            else:
+                started, count = seen[0], seen[1] + 1
+            banned_until = (
+                now + self._duration if count >= self._failures else 0.0
+            )
+            if seen is not None and seen[2] > now:
+                banned_until = max(banned_until, seen[2])
+            if seen is None:
+                # Only an address not yet tracked makes room. Making it for
+                # one already tracked would let a client failing from a single
+                # address evict every other entry, bans included.
+                self._make_room()
+            clients[client] = (started, count, banned_until)
+            # The client just recorded goes last, so the one evicted to make
+            # room is always the one that failed longest ago.
+            clients.move_to_end(client)
         return banned_until > 0.0
 
     def forget(
         self, client: Annotated[str, Doc("The address to clear.")]
     ) -> None:
         """Drop everything remembered about `client`, ban included."""
-        self._clients.pop(client, None)
+        with self._lock:
+            self._clients.pop(client, None)
 
     def _make_room(self) -> None:
-        """Drop the oldest entries so the table stays bounded.
+        """Evict the least recently recorded clients so a new one fits.
 
-        The queue is what is bounded. Every entry in the table has a record
-        in it, so the table never holds more than the queue. A record `forget`
-        left behind names an entry that is gone, or one recorded again since
-        under a newer insertion, and is dropped without evicting anything.
-
-        Taken from the end the queue was written at, so nothing reads the
-        table while another thread is writing to it.
+        Called with the lock held, so no other writer changes the table
+        underneath it.
         """
         clients = self._clients
-        order = self._order
-        while len(order) >= self._max_clients:
-            try:
-                oldest, inserted = order.popleft()
-            except IndexError:
-                break
-            entry = clients.get(oldest)
-            if entry is not None and entry[3] == inserted:
-                clients.pop(oldest, None)
+        while len(clients) >= self._max_clients:
+            clients.popitem(last=False)

@@ -11,7 +11,6 @@ from __future__ import annotations
 import sys
 import threading
 import time
-from collections import deque
 from typing import Any
 
 import pytest
@@ -289,7 +288,6 @@ class TestMemoryIsBounded:
             table.record(f"2001:db8::{index:x}", "signature")
 
         assert len(table._clients) <= TRACKED
-        assert len(table._order) <= TRACKED + 1
 
     def test_spreading_failures_across_addresses_earns_no_ban(self) -> None:
         """One failure per address is what a botnet does, and it buys nothing."""
@@ -319,16 +317,32 @@ class TestMemoryIsBounded:
 
         assert table.banned("victim") is True
 
-    def test_forgetting_clients_leaves_the_queue_bounded(self) -> None:
-        """Records `forget` leaves behind are dropped, never piled up."""
-        table = bans(max_clients=TRACKED)
+    def test_the_least_recently_recorded_client_is_dropped(self) -> None:
+        """A client failing again moves to the back, whenever it first failed."""
+        table = bans(failures=3, max_clients=3)
+        table.record("early", "signature")
+        table.record("second", "signature")
+        table.record("third", "signature")
+        table.record("early", "signature")
+        table.record("early", "signature")
 
-        for index in range(FLOOD):
-            client = f"2001:db8::{index:x}"
-            table.record(client, "signature")
-            table.forget(client)
+        table.record("newcomer", "signature")
 
-        assert len(table._order) <= TRACKED
+        assert table.banned("early") is True
+        assert "second" not in table._clients
+
+    def test_forgotten_clients_never_evict_a_ban(self) -> None:
+        """Only clients still tracked count toward `max_clients`."""
+        table = bans(failures=1, max_clients=4)
+        table.record("banned", "signature")
+        for index in range(3):
+            cleared = f"cleared-{index}"
+            table.record(cleared, "signature")
+            table.forget(cleared)
+
+        table.record(CLIENT, "signature")
+
+        assert table.banned("banned") is True
 
 
 class TestConfiguration:
@@ -386,7 +400,7 @@ class TestUnderThreads:
     """The table is shared across a thread pool, so it must never raise."""
 
     def test_concurrent_use_never_raises(self) -> None:
-        """Reads and writes interleave without a lock between them."""
+        """Reads never take the lock, and interleave with every write."""
         table = bans(max_clients=RACE_TRACKED, duration=0.01, window=0.01)
         escaped: list[str] = []
         stop = threading.Event()
@@ -423,23 +437,6 @@ class TestUnderThreads:
 
         assert escaped == []
         assert len(table._clients) <= RACE_TRACKED
-
-    def test_an_emptied_queue_stops_the_eviction_loop(self) -> None:
-        """Another thread can drain the queue while this one is evicting."""
-
-        class Drained(deque):  # type: ignore[type-arg]
-            """A queue that is empty the moment it is read from."""
-
-            def popleft(self) -> object:
-                raise IndexError
-
-        table = bans(max_clients=1)
-        table.record(CLIENT, "signature")
-        table._order = Drained(table._order)
-
-        table.record(OTHER, "signature")
-
-        assert len(table._clients) >= 1
 
 
 class TestEnvironment:
