@@ -219,8 +219,8 @@ class TestDiscovery:
 
         assert caught.value.reason is TokenRejectedReason.ISSUER
 
-    async def test_a_document_for_another_issuer_is_refused(self) -> None:
-        """It is never passed over for the next document either."""
+    async def test_a_document_for_another_issuer_is_never_used(self) -> None:
+        """It is passed over, so the next document still decides."""
         provider = Provider(
             {
                 OAUTH: metadata(issuer="https://other.grel.info/"),
@@ -230,11 +230,20 @@ class TestDiscovery:
         )
         verifier = discovering(provider)
 
-        with pytest.raises(SigningKeysUnavailableError, match="another issuer"):
-            await verifier.refresh()
+        await verifier.refresh()
 
-        assert verifier.ready is False
-        assert provider.calls == [OAUTH]
+        assert verifier.verify(token()).subject == "user-1"
+        assert provider.calls == [OAUTH, OIDC, JWKS]
+
+    async def test_only_documents_for_another_issuer_are_refused(self) -> None:
+        """A misconfigured issuer fails loudly, and no key set is fetched."""
+        other = metadata(issuer="https://other.grel.info/")
+        provider = Provider({OAUTH: other, OIDC: other, JWKS: key_set()})
+
+        with pytest.raises(SigningKeysUnavailableError, match="another issuer"):
+            await discovering(provider).refresh()
+
+        assert JWKS not in provider.calls
 
     async def test_a_key_set_not_served_over_https_is_refused(self) -> None:
         """The metadata cannot downgrade the channel the keys arrive on."""
@@ -288,18 +297,38 @@ class TestDiscovery:
 
         assert verifier.ready is True
 
-    async def test_a_failed_discovery_keeps_the_loaded_keys(self) -> None:
-        """A provider going wrong later does not take verification down."""
+    async def test_metadata_turning_on_the_issuer_keeps_the_key_set(
+        self,
+    ) -> None:
+        """A document naming another issuer later never swaps the keys."""
         provider = Provider({OIDC: metadata(), JWKS: key_set()})
         verifier = discovering(provider, ttl=SHORT_TTL)
         await verifier.refresh()
         await anyio.sleep(SHORT_TTL * 2)
-        provider.documents[OIDC] = metadata(issuer="https://other.grel.info/")
+        provider.documents[OIDC] = metadata(
+            issuer="https://other.grel.info/",
+            jwks_uri="https://other.grel.info/keys",
+        )
 
-        with pytest.raises(SigningKeysUnavailableError, match="another issuer"):
-            await verifier.refresh(force=True)
+        await verifier.refresh(force=True)
 
+        assert "https://other.grel.info/keys" not in provider.calls
         assert verifier.verify(token()).subject == "user-1"
+
+    async def test_lowering_ttl_live_reads_the_metadata_sooner(self) -> None:
+        """The metadata is read again under the `ttl` in effect now."""
+        provider = Provider({OIDC: metadata(), JWKS: key_set()})
+        verifier = discovering(provider)
+        await verifier.refresh()
+        await verifier.reconfigure(
+            verifier.config.model_copy(update={"ttl": SHORT_TTL})
+        )
+        await anyio.sleep(SHORT_TTL * 2)
+        provider.calls.clear()
+
+        await verifier.refresh(force=True)
+
+        assert provider.calls == [OIDC, JWKS]
 
     @pytest.mark.parametrize(
         "unusable",

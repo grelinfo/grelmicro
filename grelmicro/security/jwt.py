@@ -1503,7 +1503,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         self._inflight: asyncio.Task[bool] | None = None
         self._task: asyncio.Task[None] | None = None
         self._metadata_url: str | None = None
-        # When the metadata is read again, and the JWKS URL it named.
+        # When the metadata was read, and the JWKS URL it named.
         self._discovered: tuple[float, str] | None = None
         if isinstance(config, JWTKeysConfig):
             self._source: JWKSConfig | DiscoveryConfig | None = None
@@ -1702,7 +1702,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 `https` key set.
         """
         discovered = self._discovered
-        if discovered is not None and monotonic() < discovered[0]:
+        if discovered is not None and monotonic() - discovered[0] < source.ttl:
             return discovered[1]
         issuer = source.issuer[0]
         failures: list[str] = []
@@ -1714,13 +1714,13 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 continue
             try:
                 jwks_uri = _jwks_uri_of(document, issuer)
-            except _NotMetadataError as error:
-                # An error page served with `200`, or metadata naming no key
-                # set, says nothing about this issuer, so the next is tried.
+            except _UnusableMetadataError as error:
+                # Nothing a document that fails here names is ever used, so
+                # passing it over for the next one gives nothing away.
                 failures.append(f"{url}: {error}")
                 continue
             self._metadata_url = url
-            self._discovered = (monotonic() + source.ttl, jwks_uri)
+            self._discovered = (monotonic(), jwks_uri)
             return jwks_uri
         if discovered is not None:
             # The metadata only says where the keys are, so its endpoint being
@@ -1733,8 +1733,11 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 " it last named: %s",
                 ", ".join(failures),
             )
+            # Stamped as if read `ttl - retry_interval` ago, so the metadata
+            # is tried again once `retry_interval` has passed, under whatever
+            # `ttl` is in effect by then.
             self._discovered = (
-                monotonic() + source.retry_interval,
+                monotonic() - source.ttl + source.retry_interval,
                 discovered[1],
             )
             return discovered[1]
@@ -2026,8 +2029,8 @@ def _metadata_urls(issuer: str, *, first: str | None) -> list[str]:
     return urls
 
 
-class _NotMetadataError(Exception):
-    """A document that is not issuer metadata naming a key set.
+class _UnusableMetadataError(Exception):
+    """A document this issuer's key set cannot be read from.
 
     Raised and caught inside discovery, so the next document is tried. It
     never reaches a caller.
@@ -2038,38 +2041,36 @@ def _jwks_uri_of(document: bytes, issuer: str) -> str:
     """Return the JWKS endpoint an issuer's metadata names.
 
     The document must name `issuer` exactly, as RFC 8414 and OpenID Connect
-    Discovery both require, so a document answering for another issuer never
-    chooses the keys. A document that is not metadata at all, or names no key
-    set, which RFC 8414 allows, is passed over for the next one.
+    Discovery both require, and an `https` key set. A document answering for
+    another issuer is never used, so a misrouted or hostile endpoint never
+    chooses the keys.
 
     Raises:
-        _NotMetadataError: If the document is not a JSON object naming an
-            issuer and a `jwks_uri`.
-        SigningKeysUnavailableError: If it names another issuer, or a
-            `jwks_uri` that is not `https`.
+        _UnusableMetadataError: If the document is not a JSON object naming
+            this issuer and an `https` `jwks_uri`.
     """
     try:
         parsed = json.loads(document)
     except ValueError:
         not_json = "not valid JSON"
-        raise _NotMetadataError(not_json) from None
+        raise _UnusableMetadataError(not_json) from None
     if not isinstance(parsed, dict):
         shape = "not a JSON object"
-        raise _NotMetadataError(shape)
+        raise _UnusableMetadataError(shape)
     named = parsed.get("issuer")
     if named is None:
         unnamed = "names no issuer"
-        raise _NotMetadataError(unnamed)
+        raise _UnusableMetadataError(unnamed)
     if named != issuer:
-        msg = f"metadata document answers for another issuer than {issuer}"
-        raise SigningKeysUnavailableError(msg)
+        other = f"answers for another issuer than {issuer}"
+        raise _UnusableMetadataError(other)
     jwks_uri = parsed.get("jwks_uri")
     if jwks_uri is None:
         keyless = "names no jwks_uri"
-        raise _NotMetadataError(keyless)
+        raise _UnusableMetadataError(keyless)
     if not isinstance(jwks_uri, str) or not jwks_uri.startswith("https://"):
-        msg = "metadata document names a jwks_uri that is not https"
-        raise SigningKeysUnavailableError(msg)
+        insecure = "names a jwks_uri that is not https"
+        raise _UnusableMetadataError(insecure)
     return jwks_uri
 
 

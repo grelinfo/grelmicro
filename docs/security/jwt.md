@@ -258,9 +258,8 @@ refresh, `fetch=`, and the limits in the table above.
 
 The document that answers must name the issuer exactly, character for
 character, trailing slash included. A document answering for another issuer is
-refused rather than passed over, so a misrouted or hostile endpoint never
-chooses your keys. A document that is not metadata, such as an error page
-served with `200`, is passed over for the next one. The JWKS URL it names must be `https`, and every token must
+never used, so a misrouted or hostile endpoint never chooses your keys. Like an
+error page served with `200`, it is passed over for the next document. The JWKS URL it names must be `https`, and every token must
 carry the issuer in `iss`.
 
 The metadata is read again once per `ttl`. A refresh asked for by a token
