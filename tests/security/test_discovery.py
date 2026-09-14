@@ -242,12 +242,17 @@ class TestDiscovery:
             {OIDC: metadata(jwks_uri="http://auth.grel.info/keys")}
         )
 
-        with pytest.raises(SigningKeysUnavailableError, match="https jwks_uri"):
+        with pytest.raises(SigningKeysUnavailableError, match="not https"):
             await discovering(provider).refresh()
 
     @pytest.mark.parametrize(
         ("body", "reason"),
-        [(b"not json", "not valid JSON"), (b"[]", "not a JSON object")],
+        [
+            (b"not json", "not valid JSON"),
+            (b"[]", "not a JSON object"),
+            (b'{"error": "not_found"}', "names no issuer"),
+            (b'{"issuer": "https://auth.grel.info/"}', "names no jwks_uri"),
+        ],
     )
     async def test_a_document_that_is_not_metadata_is_refused(
         self, body: bytes, reason: str
@@ -295,6 +300,37 @@ class TestDiscovery:
             await verifier.refresh(force=True)
 
         assert verifier.verify(token()).subject == "user-1"
+
+    @pytest.mark.parametrize(
+        "unusable",
+        [b"<html>Not found</html>", json.dumps({"issuer": ISSUER}).encode()],
+    )
+    async def test_an_unusable_document_falls_through_to_the_next(
+        self, unusable: bytes
+    ) -> None:
+        """An error page or keyless metadata never hides OpenID Connect."""
+        provider = Provider(
+            {OAUTH: unusable, OIDC: metadata(), JWKS: key_set()}
+        )
+        verifier = discovering(provider)
+
+        await verifier.refresh()
+
+        assert verifier.ready is True
+        assert provider.calls == [OAUTH, OIDC, JWKS]
+
+    async def test_a_maintenance_page_still_loads_a_rotation(self) -> None:
+        """A `200` error page during an outage falls back like a `503` does."""
+        provider = Provider({OIDC: metadata(), JWKS: key_set()})
+        verifier = discovering(provider, ttl=SHORT_TTL)
+        await verifier.refresh()
+        await anyio.sleep(SHORT_TTL * 2)
+        provider.documents[OIDC] = b"<html>Down for maintenance</html>"
+        provider.documents[JWKS] = rotated_key_set()
+
+        assert await verifier.refresh(force=True) is True
+
+        assert verifier.verify(rotated_token()).subject == "user-1"
 
     async def test_a_metadata_outage_still_loads_a_rotation(
         self, caplog: pytest.LogCaptureFixture

@@ -1711,9 +1711,13 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             except SigningKeysUnavailableError as error:
                 failures.append(f"{url}: {error}")
                 continue
-            # Outside the `try`: a document answering for another issuer is
-            # refused outright, never passed over for the next one.
-            jwks_uri = _jwks_uri_of(document, issuer)
+            try:
+                jwks_uri = _jwks_uri_of(document, issuer)
+            except _NotMetadataError as error:
+                # An error page served with `200`, or metadata naming no key
+                # set, says nothing about this issuer, so the next is tried.
+                failures.append(f"{url}: {error}")
+                continue
             self._metadata_url = url
             self._discovered = (monotonic(), jwks_uri)
             return jwks_uri
@@ -1723,12 +1727,12 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             # fetched, rather than holding a rotation up until the metadata is
             # back, and the metadata is tried again on the next refresh.
             logger.warning(
-                "issuer metadata could not be fetched, refreshing the key set"
+                "issuer metadata could not be read, refreshing the key set"
                 " it last named: %s",
                 ", ".join(failures),
             )
             return discovered[1]
-        msg = f"no metadata document could be fetched: {', '.join(failures)}"
+        msg = f"no issuer metadata could be read: {', '.join(failures)}"
         raise SigningKeysUnavailableError(msg)
 
     async def _fetched(self, url: str, source: _KeyPublishing) -> bytes:
@@ -2016,31 +2020,49 @@ def _metadata_urls(issuer: str, *, first: str | None) -> list[str]:
     return urls
 
 
+class _NotMetadataError(Exception):
+    """A document that is not issuer metadata naming a key set.
+
+    Raised and caught inside discovery, so the next document is tried. It
+    never reaches a caller.
+    """
+
+
 def _jwks_uri_of(document: bytes, issuer: str) -> str:
     """Return the JWKS endpoint an issuer's metadata names.
 
     The document must name `issuer` exactly, as RFC 8414 and OpenID Connect
     Discovery both require, so a document answering for another issuer never
-    chooses the keys.
+    chooses the keys. A document that is not metadata at all, or names no key
+    set, which RFC 8414 allows, is passed over for the next one.
 
     Raises:
-        SigningKeysUnavailableError: If the document is not a JSON object,
-            names another issuer, or names no `https` key set.
+        _NotMetadataError: If the document is not a JSON object naming an
+            issuer and a `jwks_uri`.
+        SigningKeysUnavailableError: If it names another issuer, or a
+            `jwks_uri` that is not `https`.
     """
     try:
         parsed = json.loads(document)
     except ValueError:
-        msg = "metadata document is not valid JSON"
-        raise SigningKeysUnavailableError(msg) from None
+        not_json = "not valid JSON"
+        raise _NotMetadataError(not_json) from None
     if not isinstance(parsed, dict):
-        shape = "metadata document is not a JSON object"
-        raise SigningKeysUnavailableError(shape)
-    if parsed.get("issuer") != issuer:
+        shape = "not a JSON object"
+        raise _NotMetadataError(shape)
+    named = parsed.get("issuer")
+    if named is None:
+        unnamed = "names no issuer"
+        raise _NotMetadataError(unnamed)
+    if named != issuer:
         msg = f"metadata document answers for another issuer than {issuer}"
         raise SigningKeysUnavailableError(msg)
     jwks_uri = parsed.get("jwks_uri")
+    if jwks_uri is None:
+        keyless = "names no jwks_uri"
+        raise _NotMetadataError(keyless)
     if not isinstance(jwks_uri, str) or not jwks_uri.startswith("https://"):
-        msg = "metadata document names no https jwks_uri"
+        msg = "metadata document names a jwks_uri that is not https"
         raise SigningKeysUnavailableError(msg)
     return jwks_uri
 
