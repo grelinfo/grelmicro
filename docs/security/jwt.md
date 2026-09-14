@@ -63,8 +63,9 @@ Every verification checks the signature against the key the `kid` names, then
 must be strings and `iat` a number of seconds, as RFC 7519 defines them, and a
 token whose `iat` is still to come is not valid yet.
 
-`exp` is always required. A token with no expiry is rejected rather than
-trusted forever, and there is no setting that turns that off. Set `leeway` to
+`exp` and `sub` are always required. A token with no expiry is rejected rather
+than trusted forever, and one with no subject rather than read as a caller
+nobody can name. There is no setting that turns either off. Set `leeway` to
 allow clock skew between the issuer and your service.
 
 The algorithm is pinned to the key. A token asking for a different one is

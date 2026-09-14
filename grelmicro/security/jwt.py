@@ -462,8 +462,8 @@ class JWTPolicy(BaseModel, frozen=True):
         NoDecode,
         BeforeValidator(parse_csv_or_json),
         Doc(
-            "Further claims that must be present. `exp` is always required"
-            " and does not need naming, and naming an `audience` or an"
+            "Further claims that must be present. `exp` and `sub` are always required"
+            " and do not need naming, and naming an `audience` or an"
             " `issuer` requires that claim too, so this only ever adds to"
             " what is enforced."
         ),
@@ -546,13 +546,14 @@ class JWTPolicy(BaseModel, frozen=True):
         provider whose tokens carry none, such as an AWS Cognito access
         token.
         """
-        # `exp` is seeded rather than defaulted, so naming any other claim
-        # adds to the policy instead of replacing it. Without this,
-        # `required=["tenant"]` would read as tightening the policy and
-        # would in fact drop the expiry check, and a token carrying no
-        # `exp` would then be accepted for as long as its key is published.
-        enforced = ["exp"]
-        enforced += [claim for claim in self.required if claim != "exp"]
+        # `exp` and `sub` are seeded rather than defaulted, so naming any
+        # other claim adds to the policy instead of replacing it. Without
+        # this, `required=["tenant"]` would read as tightening the policy and
+        # would in fact drop the expiry check, and a token carrying no `exp`
+        # would then be accepted for as long as its key is published. RFC
+        # 9068 requires `sub` of an access token, and a caller is keyed by it.
+        enforced = ["exp", "sub"]
+        enforced += [claim for claim in self.required if claim not in enforced]
         for claim, configured in (("aud", self.audience), ("iss", self.issuer)):
             if configured and claim not in enforced:
                 enforced.append(claim)
@@ -847,8 +848,8 @@ def _check_registered(raw: dict[str, Any], leeway: int) -> None:
     leeway is refused as not yet valid, as an `nbf` there is.
 
     Raises:
-        TokenRejectedError: With `malformed` for a `sub` or `jti` that is not
-            a string, `invalid` for an `iat` that is not a number, and
+        TokenRejectedError: With `malformed` for a `sub` or `jti` that is
+            not a string, `invalid` for an `iat` that is not a number, and
             `not-yet-valid` for an `iat` in the future.
     """
     for name in _STRING_CLAIMS:

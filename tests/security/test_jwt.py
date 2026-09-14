@@ -180,7 +180,7 @@ def test_naming_a_claim_does_not_drop_the_expiry_requirement() -> None:
         required=["tenant"],
     )
 
-    assert policy.enforced_claims() == ["exp", "tenant", "aud"]
+    assert policy.enforced_claims() == ["exp", "sub", "tenant", "aud"]
 
     with pytest.raises(TokenRejectedError) as caught:
         JWTVerifier.from_config(policy).verify(issue(exp=None, tenant="acme"))
@@ -195,7 +195,7 @@ def test_an_empty_required_list_still_requires_an_expiry() -> None:
         required=[],
     )
 
-    assert policy.enforced_claims() == ["exp", "aud"]
+    assert policy.enforced_claims() == ["exp", "sub", "aud"]
 
     with pytest.raises(TokenRejectedError):
         JWTVerifier.from_config(policy).verify(issue(exp=None))
@@ -1151,17 +1151,32 @@ class TestClaims:
         assert principal.claims["jti"] == "token-1"
         assert claims.identity == claims.display_name == "user-1"
 
-    def test_a_token_with_no_subject_has_an_empty_identity(self) -> None:
-        """Starlette reads these as strings, so a missing subject is empty."""
-        claims = build().verify(issue(sub=None))
+    def test_a_token_with_no_subject_is_rejected(self) -> None:
+        """RFC 9068 requires `sub` of an access token, and a caller is keyed by it."""
+        payload = claims()
+        del payload["sub"]
 
-        assert claims.identity == ""
-        assert claims.display_name == ""
+        with pytest.raises(TokenRejectedError) as missing:
+            build().verify(
+                SIGNER.token(payload, algorithm="RS256", header=None)
+            )
+        with pytest.raises(TokenRejectedError) as empty:
+            build().verify(issue(sub=None))
+
+        assert missing.value.reason == "missing-claim"
+        assert empty.value.reason == "missing-claim"
+
+    def test_claims_with_no_subject_read_as_an_empty_identity(self) -> None:
+        """Starlette reads these as strings, so a missing subject is empty."""
+        verified = replace(build().verify(issue()), subject=None)
+
+        assert verified.identity == ""
+        assert verified.display_name == ""
 
     @pytest.mark.parametrize(
         ("overrides", "reason"),
         [
-            ({"sub": 42}, "malformed"),
+            ({"sub": 42}, "missing-claim"),
             ({"jti": 7}, "malformed"),
             ({"iat": "yesterday"}, "invalid"),
             ({"iat": True}, "invalid"),
