@@ -796,6 +796,104 @@ class TestCallerShape:
         }
 
 
+class TestUnreachable:
+    """A route that could never serve what it was written for is refused."""
+
+    @staticmethod
+    def install(app: Any, **options: Any) -> None:  # noqa: ANN401
+        """Register authentication with `options`, and install it on `app`."""
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(verifier(), **options),
+            ]
+        ).install(app)
+
+    def test_an_anonymous_route_requiring_a_caller_is_refused(self) -> None:
+        """A request without a token is what `Anonymous()` means to serve."""
+        app = FastAPI()
+
+        @app.get("/both", dependencies=[Anonymous(), Authenticated()])
+        async def both() -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="GET /both declares Anonymous"):
+            self.install(app)
+
+    def test_an_anonymous_route_reading_the_caller_is_refused(self) -> None:
+        """The message points at the dependency a public route reads."""
+        app = FastAPI()
+
+        @app.get("/who", dependencies=[Anonymous()])
+        async def who(
+            principal: CurrentPrincipal,
+        ) -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="OptionalPrincipal"):
+            self.install(app)
+
+    def test_an_excluded_route_requiring_a_caller_is_refused(self) -> None:
+        """A token is never read there, so every request would be refused."""
+        app = FastAPI()
+
+        @app.get("/probe", dependencies=[Authenticated()])
+        async def probe() -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="GET /probe is in exclude"):
+            self.install(app, exclude=("/probe",))
+
+    def test_a_litestar_handler_public_and_guarded_is_refused(self) -> None:
+        """`opt=Anonymous()` and an `Authenticated` guard contradict each other."""
+
+        @get("/both", opt=LitestarAnonymous(), guards=[LitestarAuthenticated()])
+        async def both() -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="GET /both declares Anonymous"):
+            self.install(Litestar(route_handlers=[both]))
+
+    def test_a_guarded_litestar_websocket_in_exclude_is_refused(self) -> None:
+        """A websocket handler names no method, and is refused all the same."""
+
+        @websocket("/live", guards=[LitestarAuthenticated()])
+        async def live(
+            socket: LitestarWebSocket,
+        ) -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="/live is in exclude"):
+            self.install(Litestar(route_handlers=[live]), exclude=("/live",))
+
+    def test_a_decorated_starlette_endpoint_in_exclude_is_refused(self) -> None:
+        """A function and an endpoint method alike."""
+
+        class Orders(HTTPEndpoint):
+            @StarletteAuthenticated()
+            async def delete(
+                self, request: Request
+            ) -> None: ...  # pragma: no cover
+
+        @StarletteAuthenticated()
+        async def probe(
+            request: Request,
+        ) -> None: ...  # pragma: no cover
+
+        for route in (Route("/orders", Orders), Route("/probe", probe)):
+            with pytest.raises(TypeError, match="is in exclude"):
+                self.install(Starlette(routes=[route]), exclude=(route.path,))
+
+    def test_a_route_declared_after_install_is_refused_at_startup(self) -> None:
+        """The app is read again when it starts, and checked again."""
+        app = FastAPI()
+        self.install(app, exclude=("/late",))
+
+        @app.get("/late", dependencies=[Authenticated()])
+        async def late() -> None: ...  # pragma: no cover
+
+        with (
+            pytest.raises(TypeError, match="GET /late is in exclude"),
+            TestClient(app),
+        ):
+            pass  # pragma: no cover
+
+
 class TestWebSocket:
     """A handshake is authenticated like a request."""
 
@@ -969,7 +1067,7 @@ class _OpaqueCaller:
     is_authenticated = True
 
 
-def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401
+def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401, C901
     """Return a FastAPI app with routes declaring how they are authenticated."""
     app = FastAPI()
 
@@ -1002,6 +1100,10 @@ def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401
     @app.get("/feed")
     async def feed() -> dict[str, list[str]]:
         return {"feed": []}
+
+    @app.get("/livez")
+    async def probe() -> dict[str, bool]:
+        return {"live": True}  # pragma: no cover
 
     reports = APIRouter(dependencies=[Authenticated(scopes=["reports:read"])])
 
@@ -1303,7 +1405,7 @@ class TestOpenAPI:
     def test_public_and_excluded_operations_need_nothing(self) -> None:
         """An anonymous read offers the scheme, an excluded path names none."""
         schema = fastapi_app(
-            AuthenticatedRequests(verifier(), exclude=("/claims",))
+            AuthenticatedRequests(verifier(), exclude=("/livez",))
         ).openapi()
 
         assert schema["paths"]["/catalog"]["get"]["security"] == [
@@ -1311,8 +1413,8 @@ class TestOpenAPI:
             {SCHEME: []},
         ]
         assert "401" in schema["paths"]["/catalog"]["get"]["responses"]
-        assert "401" not in schema["paths"]["/claims"]["get"]["responses"]
-        assert "security" not in schema["paths"]["/claims"]["get"]
+        assert "401" not in schema["paths"]["/livez"]["get"]["responses"]
+        assert "security" not in schema["paths"]["/livez"]["get"]
         assert schema["paths"]["/catalog"]["post"]["security"] == [{SCHEME: []}]
 
     def test_bans_add_the_429(self) -> None:
@@ -1690,7 +1792,7 @@ class TestReport:
         app = fastapi_app(
             Cache(MemoryCacheAdapter()),
             CachedResponses(include=("/feed",)),
-            AuthenticatedRequests(verifier(), exclude=("/claims",)),
+            AuthenticatedRequests(verifier(), exclude=("/livez",)),
         )
 
         assert self.applies(app, "GET", "/me") == ("authenticated",)
@@ -1701,7 +1803,7 @@ class TestReport:
             "authenticated reports:read reports:export",
         )
         assert self.applies(app, "GET", "/catalog") == ("anonymous",)
-        assert self.applies(app, "GET", "/claims") == ()
+        assert self.applies(app, "GET", "/livez") == ()
 
     def test_an_authenticated_read_is_never_reported_as_cached(self) -> None:
         """The cache answers an authenticated request from its handler."""

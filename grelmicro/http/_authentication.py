@@ -284,6 +284,11 @@ class _PublicRoutes:
         """Start with no app and no public route."""
         self._apps: dict[Any, _Routes] = {}
 
+    @property
+    def apps(self) -> tuple[Any, ...]:
+        """Return every app read so far."""
+        return tuple(self._apps)
+
     def read(self, app: Any) -> None:  # noqa: ANN401
         """Read every route `app` declares, public or not."""
         self._apps[app] = routes_of(app)
@@ -731,17 +736,53 @@ def route_scopes(
     the app's included. A Starlette endpoint declares them with the
     `Authenticated` decorator.
     """
-    found: list[str] = []
+    return tuple(
+        dict.fromkeys(
+            scope
+            for declared in _declarations(route, method, contexts)
+            for scope in declared
+        )
+    )
+
+
+def requires_caller(
+    route: Any,  # noqa: ANN401
+    method: str,
+    contexts: tuple[Any, ...] = (),
+) -> bool:
+    """Return whether the route refuses a request that sends no credential.
+
+    True when it declares `Authenticated`, or on FastAPI reads the caller
+    through `CurrentPrincipal` or `Claims`, whatever scopes it names.
+    """
+    return bool(_declarations(route, method, contexts))
+
+
+def _declarations(
+    route: Any,  # noqa: ANN401
+    method: str,
+    contexts: tuple[Any, ...],
+) -> list[tuple[str, ...]]:
+    """Return the scopes of each declaration on the route requiring a caller."""
     handlers = _litestar_handlers(route)
     if handlers is not None:
-        for handler in handlers:
-            if method in getattr(handler, "http_methods", ()):
-                for guard in handler.resolve_guards():
-                    found.extend(getattr(guard, AUTHENTICATED_MARKER, ()))
-        return tuple(dict.fromkeys(found))
-    found.extend(
-        getattr(getattr(route, "endpoint", None), AUTHENTICATED_MARKER, ())
+        return [
+            tuple(getattr(guard, AUTHENTICATED_MARKER))
+            for handler in handlers
+            if _handles(handler, method)
+            for guard in handler.resolve_guards()
+            if hasattr(guard, AUTHENTICATED_MARKER)
+        ]
+    found: list[tuple[str, ...]] = []
+    endpoint = getattr(route, "endpoint", None)
+    # An endpoint class answers each method from a method of its own.
+    target = (
+        getattr(endpoint, method.lower(), None)
+        if isinstance(endpoint, type)
+        else endpoint
     )
+    if hasattr(target, AUTHENTICATED_MARKER):
+        found.append(tuple(getattr(target, AUTHENTICATED_MARKER)))
     declared = getattr(route, "dependant", None)  # codespell:ignore
     pending = [
         *getattr(declared, "dependencies", ()),
@@ -753,14 +794,77 @@ def route_scopes(
             # What `SecurityScopes` hands it: the scopes of every `Security`
             # around it as well as its own, under either spelling FastAPI
             # has used for them.
-            found.extend(getattr(dependency, "parent_oauth_scopes", None) or ())
-            found.extend(
-                getattr(dependency, "own_oauth_scopes", None)
-                or getattr(dependency, "security_scopes", None)
-                or ()
+            found.append(
+                (
+                    *(getattr(dependency, "parent_oauth_scopes", None) or ()),
+                    *(
+                        getattr(dependency, "own_oauth_scopes", None)
+                        or getattr(dependency, "security_scopes", None)
+                        or ()
+                    ),
+                )
             )
         pending.extend(dependency.dependencies)
-    return tuple(dict.fromkeys(found))
+    return found
+
+
+def _handles(handler: Any, method: str) -> bool:  # noqa: ANN401
+    """Return whether a Litestar handler answers `method`.
+
+    A websocket handler names no method, so it answers whichever is asked.
+    """
+    methods = getattr(handler, "http_methods", None)
+    return methods is None or method in methods
+
+
+_ENDPOINT_METHODS: Final = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
+"""Methods an endpoint class may answer, which its route does not list."""
+
+
+def refuse_unreachable_routes(
+    app: Any,  # noqa: ANN401
+    exclude: tuple[str, ...],
+) -> None:
+    """Refuse a route that requires a caller where none is ever required.
+
+    A route in `exclude` never has a token read, so one requiring a caller
+    answers `401` to every request. A route declaring `Anonymous()` and
+    requiring a caller refuses the requests `Anonymous()` is there to serve.
+
+    Raises:
+        TypeError: Naming the method and the path of the first such route.
+    """
+    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
+        template = f"{prefix}{getattr(route, 'path_format', route.path)}"
+        excluded = not selects(template, include=(), exclude=exclude)
+        for method in getattr(route, "methods", None) or _ENDPOINT_METHODS:
+            if not requires_caller(route, method, contexts):
+                continue
+            if excluded:
+                where = "is in exclude, so a token is never read there,"
+            elif _declares_public(route, method, contexts):
+                where = "declares Anonymous()"
+            else:
+                continue
+            msg = (
+                f"{method} {template} {where} and requires a caller through "
+                f"Authenticated, CurrentPrincipal or Claims, so it refuses "
+                f"every request it was written to serve. Read "
+                f"OptionalPrincipal on a public route, or take away what "
+                f"makes the route public."
+            )
+            raise TypeError(msg)
+
+
+def _declares_public(
+    route: Any,  # noqa: ANN401
+    method: str,
+    contexts: tuple[Any, ...],
+) -> bool:
+    """Return whether the route declares itself public, on either framework."""
+    if _litestar_handlers(route) is not None:
+        return _litestar_declares_public(route, method)
+    return _declares_anonymous(route, contexts)
 
 
 def _included_dependency_trees(
@@ -1589,7 +1693,12 @@ class AuthenticatedRequests:
         Called by the integration after the middleware is added. The app is
         read again when it starts, so a route added between the two counts
         as well.
+
+        Raises:
+            TypeError: If a route requiring a caller declares `Anonymous()`
+                or sits in `exclude`, where it could never get one.
         """
+        refuse_unreachable_routes(app, self._config.exclude)
         self._public.read(app)
 
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
@@ -1602,7 +1711,14 @@ class AuthenticatedRequests:
         return (*_REFUSALS, InsufficientScopeError)
 
     async def __aenter__(self) -> Self:
-        """Read the routes again, and open the verifier so its keys load."""
+        """Read the routes again, and open the verifier so its keys load.
+
+        Raises:
+            TypeError: If a route added since install requires a caller where
+                it could never get one.
+        """
+        for app in self._public.apps:
+            refuse_unreachable_routes(app, self._config.exclude)
         self._public.reread()
         stack = AsyncExitStack()
         enter = getattr(self._verifier, "__aenter__", None)
