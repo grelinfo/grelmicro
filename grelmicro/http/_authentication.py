@@ -1,0 +1,528 @@
+"""Authentication at the HTTP edge."""
+
+from __future__ import annotations
+
+from contextlib import AsyncExitStack
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
+
+from pydantic import BaseModel
+from typing_extensions import Doc
+
+from grelmicro._config import build_config
+from grelmicro._paths import PathPatterns, as_patterns, route_path, selects
+from grelmicro.errors import (
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+)
+from grelmicro.http._component import (
+    ErrorResponses,
+    raw_headers_of,
+    send_error,
+)
+from grelmicro.http._ratelimit import bucket_of
+from grelmicro.security.bans import ClientBannedError
+from grelmicro.security.jwks import SigningKeysUnavailableError
+from grelmicro.security.jwt import TokenRejectedError, TokenRejectedReason
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, MutableMapping
+    from contextlib import AbstractAsyncContextManager
+    from types import TracebackType
+
+    from grelmicro.http._component import RenderedError
+    from grelmicro.security.bans import ClientBans
+    from grelmicro.security.clientip import TrustedProxies
+    from grelmicro.security.jwt import JWTClaims, TokenVerifier
+
+    Scope = MutableMapping[str, Any]
+    Message = MutableMapping[str, Any]
+    Receive = Callable[[], Awaitable[Message]]
+    Send = Callable[[Message], Awaitable[None]]
+    ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
+
+__all__ = [
+    "AuthenticatedRequests",
+    "AuthenticatedRequestsConfig",
+    "AuthenticatedRequestsMiddleware",
+]
+
+_BEARER = "bearer"
+"""The scheme a bearer token travels under, lowercased for the comparison."""
+
+_POLICY_VIOLATION = 1008
+"""Close code for a websocket refused on a server that cannot send a `401`."""
+
+_REFUSALS = (
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    ClientBannedError,
+    SigningKeysUnavailableError,
+    TokenRejectedError,
+)
+"""What the middleware answers itself, rather than letting reach the app."""
+
+
+class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
+    """Authenticated Requests Config.
+
+    Where authentication does not apply. Every other path is authenticated,
+    and there is no `include`: a mistyped one would leave an endpoint public
+    without a word. Nothing here is read from the environment, because every
+    field decides what the service is protected by.
+    """
+
+    exclude: Annotated[
+        PathPatterns,
+        Doc(
+            "Paths served without a credential, such as health probes. "
+            "Exact match unless the pattern ends with `*`, which matches as "
+            "a prefix."
+        ),
+    ] = ()
+
+
+class AuthenticatedRequestsMiddleware:
+    """Authenticate every request before the app sees it.
+
+    Reads the bearer token from `Authorization`, verifies it, and puts the
+    verified caller in `scope["user"]` and `scope["auth"]`, which is where
+    `request.user`, `request.auth` and Starlette's `@requires` look.
+
+    ```python
+    from grelmicro.http import AuthenticatedRequestsMiddleware
+    from grelmicro.security import JWTVerifier
+
+    app.add_middleware(
+        AuthenticatedRequestsMiddleware,
+        verifier=JWTVerifier.discover(
+            "https://auth.example.com/", audience="orders-api"
+        ),
+        exclude=("/livez", "/readyz"),
+    )
+    ```
+
+    Register `AuthenticatedRequests(...)` instead to have
+    `micro.install(app)` add it, place it and open its verifier for you.
+
+    What a refused caller is told:
+
+    - No credential, or one in another scheme such as `Basic`: `401`.
+    - A token that does not verify: `401`, with the reason.
+    - More than one credential: `400`.
+    - A caller `bans` refuses: `429`, with `Retry-After`.
+    - Keys that have not loaded: `503`.
+
+    Each is rendered by the app's `ErrorResponses`, with the
+    `WWW-Authenticate` challenge RFC 6750 gives it.
+
+    A token naming a key the verifier does not hold waits for one refresh
+    and is verified again, so the first request after a rotation is served.
+    The verifier fetches at most once per `retry_interval`, so a caller
+    inventing key ids costs one fetch, not one per request.
+
+    The middleware is pure ASGI. It acts on `http` and `websocket` scopes and
+    passes every other scope through untouched. A refused websocket is
+    answered with the same `401` on a server that supports the denial
+    response extension, and closed before the handshake completes on one
+    that does not.
+    """
+
+    def __init__(
+        self,
+        app: Annotated[
+            ASGIApp,
+            Doc("The next ASGI application in the middleware chain."),
+        ],
+        *,
+        verifier: Annotated[
+            TokenVerifier,
+            Doc("Verifies each bearer token, such as a `JWTVerifier`."),
+        ],
+        exclude: Annotated[
+            tuple[str, ...],
+            Doc(
+                "Paths served without a credential. Exact match unless the "
+                "pattern ends with `*`, which matches as a prefix."
+            ),
+        ] = (),
+        bans: Annotated[
+            ClientBans | None,
+            Doc(
+                "Refuses a caller that keeps presenting forged tokens, "
+                "before its next token is verified. Counts only the "
+                "reasons it is configured with."
+            ),
+        ] = None,
+        trusted: Annotated[
+            TrustedProxies | None,
+            Doc(
+                "The proxies whose forwarded entries may be believed, for "
+                "resolving the caller a ban is counted against. Required "
+                "with `bans`."
+            ),
+        ] = None,
+    ) -> None:
+        """Initialize the middleware with the verifier it trusts.
+
+        Raises:
+            TypeError: If `exclude` is a single string, or `bans` is given
+                without `trusted`.
+        """
+        if bans is not None and trusted is None:
+            msg = (
+                "AuthenticatedRequestsMiddleware needs trusted= to resolve "
+                "the caller a ban is counted against. Without it the only "
+                "address left is the socket peer, which behind an ingress "
+                "is the ingress, and one forged token would ban everyone."
+            )
+            raise TypeError(msg)
+        self.app = app
+        self._verifier = verifier
+        self._exclude = as_patterns(exclude, name="exclude")
+        self._bans = bans
+        self._trusted = trusted
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Authenticate the request, then serve or refuse it."""
+        if scope["type"] not in ("http", "websocket") or (
+            self._exclude
+            and not selects(
+                route_path(scope), include=(), exclude=self._exclude
+            )
+        ):
+            await self.app(scope, receive, send)
+            return
+        try:
+            caller = await self._authenticate(scope)
+        except _REFUSALS as error:
+            await _refuse(scope, receive, send, error)
+            return
+        scope["user"] = caller
+        scope["auth"] = caller
+        await self.app(scope, receive, send)
+
+    async def _authenticate(self, scope: Scope) -> JWTClaims:
+        """Return the verified caller, or raise what the caller is told."""
+        token = _bearer_token(scope)
+        client = self._client_of(scope)
+        bans = self._bans
+        if client is not None and bans is not None and bans.banned(client):
+            raise ClientBannedError(retry_after=bans.banned_for(client))
+        try:
+            return await self._verified(token)
+        except TokenRejectedError as error:
+            if client is not None and bans is not None:
+                bans.record(client, error.reason)
+            raise
+
+    async def _verified(self, token: str) -> JWTClaims:
+        """Verify `token`, waiting for one refresh when it names a new key."""
+        verifier = self._verifier
+        try:
+            return verifier.verify(token)
+        except TokenRejectedError as error:
+            if error.reason is not TokenRejectedReason.UNKNOWN_KEY:
+                raise
+            if not await self._refreshed():
+                raise
+        return verifier.verify(token)
+
+    async def _refreshed(self) -> bool:
+        """Return whether a refresh loaded keys the verifier did not hold.
+
+        A refresh that fails keeps the keys already loaded, so the token is
+        refused for the key it named rather than the service answering
+        `503` for a key nobody can vouch for.
+        """
+        refresh = getattr(self._verifier, "refresh", None)
+        if refresh is None:
+            return False
+        try:
+            return bool(await refresh())
+        except SigningKeysUnavailableError:
+            return False
+
+    def _client_of(self, scope: Scope) -> str | None:
+        """Return the address a ban is counted against, when bans are on."""
+        if self._bans is None:
+            return None
+        return bucket_of(scope, key=None, trusted=self._trusted).key
+
+
+def _bearer_token(scope: Scope) -> str:
+    """Return the bearer token the request carries.
+
+    Raises:
+        AmbiguousCredentialsError: If it carries more than one credential.
+        AuthenticationRequiredError: If it carries none, or one in another
+            scheme.
+    """
+    credentials = [
+        value for name, value in scope["headers"] if name == b"authorization"
+    ]
+    if len(credentials) > 1:
+        raise AmbiguousCredentialsError
+    if not credentials:
+        raise AuthenticationRequiredError
+    scheme, _, token = credentials[0].decode("latin-1").partition(" ")
+    if scheme.lower() != _BEARER:
+        raise AuthenticationRequiredError
+    return token
+
+
+async def _refuse(
+    scope: Scope, receive: Receive, send: Send, error: Exception
+) -> None:
+    """Answer a refusal in the format the app answers every refusal with."""
+    app = scope.get("app")
+    registered = getattr(
+        getattr(app, "state", None), "grelmicro_error_responses", None
+    )
+    errors = registered if registered is not None else ErrorResponses()
+    rendered = errors.render(error, instance=scope.get("path"))
+    if rendered is None:  # pragma: no cover - every refusal has a kind
+        raise error
+    if scope["type"] == "http":
+        await send_error(send, rendered)
+        return
+    await _deny_websocket(scope, receive, send, rendered)
+
+
+async def _deny_websocket(
+    scope: Scope, receive: Receive, send: Send, rendered: RenderedError
+) -> None:
+    """Refuse a websocket handshake, with the refusal's status when possible.
+
+    The denial response extension carries a whole HTTP response, the `401`
+    and its challenge included. A server without it can only close the
+    handshake, which it answers `403` with no headers. Accepting the
+    connection to close it with a code would complete the handshake for a
+    caller that never authenticated, so that is never done.
+    """
+    message = await receive()
+    if message["type"] != "websocket.connect":
+        return
+    if "websocket.http.response" in (scope.get("extensions") or {}):
+        await send(
+            {
+                "type": "websocket.http.response.start",
+                "status": rendered.status,
+                "headers": raw_headers_of(rendered),
+            }
+        )
+        await send(
+            {
+                "type": "websocket.http.response.body",
+                "body": rendered.body,
+                "more_body": False,
+            }
+        )
+        return
+    await send({"type": "websocket.close", "code": _POLICY_VIOLATION})
+
+
+class AuthenticatedRequests:
+    """Authenticate every request, wired by `micro.install(app)`.
+
+    Register it and `install` adds `AuthenticatedRequestsMiddleware`, ahead
+    of every other middleware of ours that can answer a request:
+
+    ```python
+    from grelmicro import Grelmicro
+    from grelmicro.http import AuthenticatedRequests, ErrorResponses
+    from grelmicro.security import JWTVerifier
+
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            AuthenticatedRequests(
+                JWTVerifier.discover(
+                    "https://auth.example.com/", audience="orders-api"
+                ),
+                exclude=("/livez", "/readyz"),
+            ),
+        ]
+    )
+    ```
+
+    Every request is authenticated except the paths in `exclude`. The
+    verifier is opened with the app, so its keys load before the first
+    request and stay fresh while it serves.
+
+    Nothing is read from the environment and nothing is live: every setting
+    decides what the service is protected by, so each one changes with a
+    deploy.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+    """
+
+    kind: ClassVar[str] = "authenticated_requests"
+    asgi_authenticates: ClassVar[bool] = True
+    """Placed ahead of every other answering middleware of ours at install."""
+
+    def __init__(
+        self,
+        verifier: Annotated[
+            TokenVerifier,
+            Doc("Verifies each bearer token, such as a `JWTVerifier`."),
+        ],
+        *,
+        exclude: Annotated[
+            tuple[str, ...],
+            Doc(
+                "Paths served without a credential, such as health probes. "
+                "Same matching as every other middleware."
+            ),
+        ] = (),
+        bans: Annotated[
+            ClientBans | None,
+            Doc("Refuses a caller that keeps presenting forged tokens."),
+        ] = None,
+        trusted: Annotated[
+            TrustedProxies | None,
+            Doc(
+                "The proxies whose forwarded entries may be believed, for "
+                "resolving the caller a ban is counted against."
+            ),
+        ] = None,
+        name: Annotated[
+            str,
+            Doc("Registration name, for a second verifier on one app."),
+        ] = "default",
+    ) -> None:
+        """Authenticate every request through the registered middleware.
+
+        Raises:
+            TypeError: If `exclude` is a single string, or `bans` is given
+                without `trusted`.
+        """
+        config = build_config(
+            AuthenticatedRequestsConfig,
+            exclude=as_patterns(exclude, name="exclude"),
+        )
+        self._setup(
+            config, verifier=verifier, bans=bans, trusted=trusted, name=name
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            AuthenticatedRequestsConfig,
+            Doc("The pre-built authenticated requests configuration."),
+        ],
+        verifier: Annotated[
+            TokenVerifier,
+            Doc("Verifies each bearer token, such as a `JWTVerifier`."),
+        ],
+        *,
+        bans: Annotated[
+            ClientBans | None,
+            Doc("Refuses a caller that keeps presenting forged tokens."),
+        ] = None,
+        trusted: Annotated[
+            TrustedProxies | None,
+            Doc("The proxies whose forwarded entries may be believed."),
+        ] = None,
+        name: Annotated[
+            str,
+            Doc("Registration name, for a second verifier on one app."),
+        ] = "default",
+    ) -> Self:
+        """Build the component from a configuration that is already whole.
+
+        The one declarative door. The verifier stays beside the config,
+        because it is an object holding keys rather than a setting.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(  # noqa: SLF001
+            config, verifier=verifier, bans=bans, trusted=trusted, name=name
+        )
+        return instance
+
+    def _setup(
+        self,
+        config: AuthenticatedRequestsConfig,
+        *,
+        verifier: TokenVerifier,
+        bans: ClientBans | None,
+        trusted: TrustedProxies | None,
+        name: str,
+    ) -> None:
+        """Hold the configuration and the objects the middleware reads."""
+        self._config = config
+        self._verifier = verifier
+        self._bans = bans
+        self._trusted = trusted
+        self._name = name
+        self._stack: AsyncExitStack | None = None
+        # Built once here so a mistake is refused where it is written,
+        # rather than on the first request the app serves.
+        AuthenticatedRequestsMiddleware(_nothing, **self._options())
+
+    def _options(self) -> dict[str, Any]:
+        """Return the arguments the middleware is built with."""
+        return {
+            "verifier": self._verifier,
+            "exclude": self._config.exclude,
+            "bans": self._bans,
+            "trusted": self._trusted,
+        }
+
+    @property
+    def name(self) -> str:
+        """Return the registration name."""
+        return self._name
+
+    @property
+    def config(self) -> AuthenticatedRequestsConfig:
+        """Return the configuration the middleware reads."""
+        return self._config
+
+    @property
+    def verifier(self) -> TokenVerifier:
+        """Return the verifier every token is checked against."""
+        return self._verifier
+
+    def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
+        """Return the middleware class and the arguments to build it with."""
+        return AuthenticatedRequestsMiddleware, self._options()
+
+    def handled_exceptions(self) -> tuple[type[Exception], ...]:
+        """Return what this component answers rather than letting through.
+
+        The middleware answers what it refuses itself. These are what a
+        route raises, such as a missing scope, and registering the
+        component is the opt-in for answering those the same way.
+        """
+        return (*_REFUSALS, InsufficientScopeError)
+
+    async def __aenter__(self) -> Self:
+        """Open the verifier, so its keys load before the first request."""
+        stack = AsyncExitStack()
+        enter = getattr(self._verifier, "__aenter__", None)
+        if enter is not None:
+            await stack.enter_async_context(
+                cast("AbstractAsyncContextManager[Any]", self._verifier)
+            )
+        self._stack = stack
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
+        """Close the verifier, stopping its background refresh."""
+        stack, self._stack = self._stack, None
+        if stack is not None:
+            await stack.aclose()
+        return None
+
+
+async def _nothing(scope: Scope, receive: Receive, send: Send) -> None:
+    """Stand in for the app, so the options can be checked without one."""

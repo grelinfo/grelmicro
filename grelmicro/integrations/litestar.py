@@ -123,6 +123,10 @@ def install_middleware(
     handler with it. Registration order is wrapping order, so the first one
     registered is the outermost and answers first.
 
+    One that authenticates, `AuthenticatedRequests`, is wrapped outermost
+    among ours whatever order it was registered in, so none of ours serves
+    a request that was never authenticated.
+
     Each one is wrapped inside the binding, so a middleware that resolves a
     backend ambiently finds the app bound.
 
@@ -131,9 +135,13 @@ def install_middleware(
     components it found, so a direct call is only for an app that never goes
     through `install`.
     """
-    for component in components:
+    # Stable, so registration order holds among the rest.
+    ordered = sorted(
+        components, key=lambda component: not _authenticates(component)
+    )
+    for component in ordered:
         _answer_for(app, component)
-    for component in reversed(components):
+    for component in reversed(ordered):
         middleware, options = component.asgi_middleware()
         if _already_wired(app, middleware):
             # The app passed it to `Litestar(middleware=...)`, which puts it
@@ -271,6 +279,11 @@ def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
 
 _MAX_CHAIN = 32
 """How far to walk a handler chain before calling it a cycle."""
+
+
+def _authenticates(component: Any) -> bool:  # noqa: ANN401
+    """Return whether a component's middleware authenticates the request."""
+    return bool(getattr(component, "asgi_authenticates", False))
 
 
 def _observes(component: Any) -> bool:  # noqa: ANN401

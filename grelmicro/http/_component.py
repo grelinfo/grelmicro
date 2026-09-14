@@ -144,7 +144,23 @@ async def send_error(
                 await send_error(send, rendered)
     ```
     """
-    headers: list[tuple[bytes, bytes]] = [
+    await send(
+        {
+            "type": "http.response.start",
+            "status": rendered.status,
+            "headers": raw_headers_of(rendered),
+        }
+    )
+    await send({"type": "http.response.body", "body": rendered.body})
+
+
+def raw_headers_of(rendered: RenderedError) -> list[tuple[bytes, bytes]]:
+    """Return the ASGI headers of a rendered error, type and length included.
+
+    One place for the three every refusal carries, so an HTTP response and
+    a websocket denial response send the same ones.
+    """
+    return [
         (b"content-type", rendered.media_type.encode("latin-1")),
         *(
             (name.encode("latin-1"), value.encode("latin-1"))
@@ -152,14 +168,6 @@ async def send_error(
         ),
         (b"content-length", str(len(rendered.body)).encode("latin-1")),
     ]
-    await send(
-        {
-            "type": "http.response.start",
-            "status": rendered.status,
-            "headers": headers,
-        }
-    )
-    await send({"type": "http.response.body", "body": rendered.body})
 
 
 def _render_problem_details(

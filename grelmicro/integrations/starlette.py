@@ -221,6 +221,11 @@ def install_middleware(
     layer refuses is still seen. A component says which it is with
     `asgi_observes`.
 
+    One that authenticates, `AuthenticatedRequests`, goes first among the
+    ones that answer, whatever order it was registered in, so none of ours
+    serves a request that was never authenticated. It says so with
+    `asgi_authenticates`.
+
     Both run inside `GrelmicroMiddleware`, which stays outermost, so one
     that resolves a backend ambiently finds the app bound.
 
@@ -246,7 +251,11 @@ def install_middleware(
         if isinstance(entry.cls, type)
     }
     added = [
-        (Middleware(middleware, **options), _observes(component))
+        (
+            Middleware(middleware, **options),
+            _observes(component),
+            _authenticates(component),
+        )
         for component, (middleware, options) in (
             (component, component.asgi_middleware()) for component in components
         )
@@ -254,8 +263,19 @@ def install_middleware(
         # wanted, and a second would store, tag and answer twice.
         if middleware not in wired
     ]
-    watching = [entry for entry, observes in added if observes]
-    answering = [entry for entry, observes in added if not observes]
+    watching = [entry for entry, observes, _ in added if observes]
+    # Authentication goes first among the answering, whatever order it was
+    # registered in, so no middleware of ours answers a request that was
+    # never authenticated, a cached or replayed response included.
+    answering = [
+        entry
+        for entry, observes, authenticates in added
+        if not observes and authenticates
+    ] + [
+        entry
+        for entry, observes, authenticates in added
+        if not observes and not authenticates
+    ]
     # Answering middleware goes innermost, behind every middleware the app
     # added itself. One of ours that answers a request without calling the
     # app, such as an idempotent replay, must never be the reason a request
@@ -354,6 +374,11 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
     for klass in handled():
         if klass not in app.exception_handlers:
             app.add_exception_handler(klass, handler)
+
+
+def _authenticates(component: Any) -> bool:  # noqa: ANN401
+    """Return whether a component's middleware authenticates the request."""
+    return bool(getattr(component, "asgi_authenticates", False))
 
 
 def _observes(component: Any) -> bool:  # noqa: ANN401
