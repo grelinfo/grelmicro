@@ -920,11 +920,14 @@
     "ClientBansConfig": {
       "()": "(*, failures=10, window=60.0, duration=300.0, max_clients=10000) -> None"
     },
+    "DiscoveryConfig": {
+      "()": "(*, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
+    },
     "Fetcher": {
       "()": "(*args, **kwargs)"
     },
     "JWKSConfig": {
-      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, url, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None) -> None"
+      "()": "(*, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, url) -> None"
     },
     "JWTClaims": {
       "()": "(claims, subject, issuer, audience, expires_at, issued_at, token_id, scopes=frozenset()) -> None"
@@ -944,6 +947,7 @@
     },
     "JWTVerifier": {
       "()": "(*args, **kwargs) -> 'None'",
+      ".discover": "(issuer=None, *, audience=UNSET, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None, name='default', env_load=None) -> 'Self'",
       ".from_config": "(config, *, fetch=None) -> 'Self'",
       ".jwks": "(url=None, *, audience=UNSET, issuer=None, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None, name='default', env_load=None) -> 'Self'",
       ".keys": "(*keys, audience=UNSET, issuer=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, name='default', env_load=None) -> 'Self'"
