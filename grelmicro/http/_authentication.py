@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 
 from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro._config import build_config
-from grelmicro._paths import PathPatterns, as_patterns, route_path, selects
+from grelmicro._paths import (
+    PathPatterns,
+    as_patterns,
+    route_path,
+    selects,
+    walk_routes,
+)
 from grelmicro.errors import (
     AmbiguousCredentialsError,
     AuthenticationRequiredError,
@@ -26,8 +34,9 @@ from grelmicro.security.jwks import SigningKeysUnavailableError
 from grelmicro.security.jwt import TokenRejectedError, TokenRejectedReason
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping
+    from collections.abc import Awaitable, Callable, Mapping, MutableMapping
     from contextlib import AbstractAsyncContextManager
+    from re import Pattern
     from types import TracebackType
 
     from grelmicro.http._component import RenderedError
@@ -61,6 +70,125 @@ _REFUSALS = (
     TokenRejectedError,
 )
 """What the middleware answers itself, rather than letting reach the app."""
+
+_ANONYMOUS_MARKER = "__grelmicro_anonymous__"
+"""Set on the callable a route declares to be served without a credential."""
+
+
+async def _anonymous_route() -> None:
+    """Declare that this route is served without a credential.
+
+    Async so the framework resolves it on the event loop. It computes
+    nothing: what it carries is where it is declared.
+    """
+
+
+setattr(_anonymous_route, _ANONYMOUS_MARKER, True)
+
+
+def declare_anonymous() -> Callable[[], Awaitable[None]]:
+    """Return the callable a route declares to be served without a credential.
+
+    `grelmicro.integrations.fastapi.Anonymous` wraps it in a `Depends`, and
+    `micro.install(app)` reads it back off the dependency tree. One object
+    for every route, so finding it is a matter of identity.
+    """
+    return _anonymous_route
+
+
+@dataclass(frozen=True, slots=True)
+class _AnonymousCaller:
+    """The caller of a request served without a credential.
+
+    Put in `scope["user"]` and `scope["auth"]` on a path that is not
+    authenticated, so `request.user` answers there too rather than failing
+    for the want of a middleware that ran and chose not to act.
+    """
+
+    subject: None = None
+    issuer: None = None
+    scopes: frozenset[str] = frozenset()
+    claims: Mapping[str, Any] = MappingProxyType({})
+    is_authenticated: bool = False
+    identity: str = ""
+    display_name: str = ""
+
+
+_ANONYMOUS = _AnonymousCaller()
+"""The one anonymous caller, shared by every request served without one."""
+
+
+class _PublicRoutes:
+    """The routes that declared `Anonymous()`, read off the app.
+
+    Read when `micro.install(app)` adds the middleware, and again when the
+    app starts, so a route declared between the two counts as well.
+    """
+
+    def __init__(self) -> None:
+        """Start with no app and no public route."""
+        self._app: Any = None
+        self._routes: tuple[
+            tuple[Pattern[str], frozenset[str] | None], ...
+        ] = ()
+
+    def read(self, app: Any) -> None:  # noqa: ANN401
+        """Read every route `app` declares public."""
+        self._app = app
+        self._routes = _public_routes(app)
+
+    def reread(self) -> None:
+        """Read the app again, for the routes declared since install."""
+        if self._app is not None:
+            self._routes = _public_routes(self._app)
+
+    def matches(self, scope: Scope) -> bool:
+        """Return whether the request asks for a route declared public.
+
+        Per method, so a path that serves a public read and an
+        authenticated write keeps the write authenticated.
+        """
+        routes = self._routes
+        if not routes:
+            return False
+        path = route_path(scope)
+        method = scope.get("method")
+        return any(
+            compiled.fullmatch(path) is not None
+            and (methods is None or method in methods)
+            for compiled, methods in routes
+        )
+
+
+def _public_routes(
+    app: Any,  # noqa: ANN401
+) -> tuple[tuple[Pattern[str], frozenset[str] | None], ...]:
+    """Return the path and methods of every route that declared `Anonymous()`.
+
+    Read off the resolved dependency tree, so a declaration a router makes
+    for everything it holds counts for each of its routes. Each path is
+    compiled with the framework's own compiler, so it matches exactly what
+    the router matches.
+    """
+    found: list[tuple[Pattern[str], frozenset[str] | None]] = []
+    for prefix, route, _ in walk_routes(app):
+        if not _declares_anonymous(route):
+            continue
+        from starlette.routing import compile_path  # noqa: PLC0415
+
+        compiled, _, _ = compile_path(f"{prefix}{route.path}")
+        methods = getattr(route, "methods", None)
+        found.append((compiled, frozenset(methods) if methods else None))
+    return tuple(found)
+
+
+def _declares_anonymous(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a route declared `Anonymous()`, itself or through a router."""
+    declared = getattr(route, "dependant", None)  # codespell:ignore
+    return any(
+        getattr(dependency.call, _ANONYMOUS_MARKER, False)
+        for dependency in getattr(declared, "dependencies", ())
+    )
 
 
 class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
@@ -162,6 +290,14 @@ class AuthenticatedRequestsMiddleware:
                 "with `bans`."
             ),
         ] = None,
+        public: Annotated[
+            _PublicRoutes | None,
+            Doc(
+                "The routes that declared `Anonymous()`, filled by "
+                "`micro.install(app)`. A middleware added by hand serves "
+                "public paths through `exclude` instead."
+            ),
+        ] = None,
     ) -> None:
         """Initialize the middleware with the verifier it trusts.
 
@@ -182,17 +318,20 @@ class AuthenticatedRequestsMiddleware:
         self._exclude = as_patterns(exclude, name="exclude")
         self._bans = bans
         self._trusted = trusted
+        self._public = public
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Authenticate the request, then serve or refuse it."""
-        if scope["type"] not in ("http", "websocket") or (
-            self._exclude
-            and not selects(
-                route_path(scope), include=(), exclude=self._exclude
-            )
-        ):
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        if self._serves_anonymously(scope):
+            # Set only when nothing else did, so an authentication the app
+            # runs itself outside this one keeps its caller.
+            scope.setdefault("user", _ANONYMOUS)
+            scope.setdefault("auth", _ANONYMOUS)
             await self.app(scope, receive, send)
             return
         try:
@@ -203,6 +342,15 @@ class AuthenticatedRequestsMiddleware:
         scope["user"] = caller
         scope["auth"] = caller
         await self.app(scope, receive, send)
+
+    def _serves_anonymously(self, scope: Scope) -> bool:
+        """Return whether the request asks for a path served without a credential."""
+        if self._exclude and not selects(
+            route_path(scope), include=(), exclude=self._exclude
+        ):
+            return True
+        public = self._public
+        return public is not None and public.matches(scope)
 
     async def _authenticate(self, scope: Scope) -> JWTClaims:
         """Return the verified caller, or raise what the caller is told."""
@@ -348,9 +496,10 @@ class AuthenticatedRequests:
     )
     ```
 
-    Every request is authenticated except the paths in `exclude`. The
-    verifier is opened with the app, so its keys load before the first
-    request and stay fresh while it serves.
+    Every request is authenticated except the paths in `exclude` and the
+    routes that declare `Anonymous()`. The verifier is opened with the app,
+    so its keys load before the first request and stay fresh while it
+    serves.
 
     Nothing is read from the environment and nothing is live: every setting
     decides what the service is protected by, so each one changes with a
@@ -459,6 +608,7 @@ class AuthenticatedRequests:
         self._trusted = trusted
         self._name = name
         self._stack: AsyncExitStack | None = None
+        self._public = _PublicRoutes()
         # Built once here so a mistake is refused where it is written,
         # rather than on the first request the app serves.
         AuthenticatedRequestsMiddleware(_nothing, **self._options())
@@ -470,6 +620,7 @@ class AuthenticatedRequests:
             "exclude": self._config.exclude,
             "bans": self._bans,
             "trusted": self._trusted,
+            "public": self._public,
         }
 
     @property
@@ -491,6 +642,25 @@ class AuthenticatedRequests:
         """Return the middleware class and the arguments to build it with."""
         return AuthenticatedRequestsMiddleware, self._options()
 
+    def read_routes(
+        self,
+        app: Annotated[Any, Doc("The application to read the routes off.")],  # noqa: ANN401
+    ) -> None:
+        """Read `Anonymous()` off every route the app declares.
+
+        Called by the integration after the middleware is added. The app is
+        read again when it starts, so a route added between the two counts
+        as well.
+        """
+        self._public.read(app)
+
+    def refresh_routes(
+        self,
+        app: Annotated[Any, Doc("The application to read the routes off.")],  # noqa: ANN401
+    ) -> None:
+        """Read the routes again, for a report on the app as it is now."""
+        self._public.read(app)
+
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
         """Return what this component answers rather than letting through.
 
@@ -501,7 +671,8 @@ class AuthenticatedRequests:
         return (*_REFUSALS, InsufficientScopeError)
 
     async def __aenter__(self) -> Self:
-        """Open the verifier, so its keys load before the first request."""
+        """Read the routes again, and open the verifier so its keys load."""
+        self._public.reread()
         stack = AsyncExitStack()
         enter = getattr(self._verifier, "__aenter__", None)
         if enter is not None:

@@ -14,6 +14,8 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from fastapi import APIRouter, FastAPI
+from fastapi import Request as FastAPIRequest
 from fastapi.testclient import TestClient
 from litestar import Litestar, get
 from litestar import Request as LitestarRequest
@@ -30,6 +32,12 @@ from grelmicro.http import (
     AuthenticatedRequestsMiddleware,
     ErrorResponses,
     RateLimitedRequests,
+)
+from grelmicro.integrations.fastapi import (
+    Anonymous,
+    Authenticated,
+    Claims,
+    CurrentPrincipal,
 )
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
@@ -58,6 +66,8 @@ URL = "https://auth.grel.info/.well-known/jwks.json"
 HOUR = 3600
 HTTP_200_OK = 200
 HTTP_400_BAD_REQUEST = 400
+HTTP_403_FORBIDDEN = 403
+HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_401_UNAUTHORIZED = 401
 HTTP_429_TOO_MANY_REQUESTS = 429
 HTTP_503_SERVICE_UNAVAILABLE = 503
@@ -575,3 +585,224 @@ class TestConstruction:
 
         assert client.get("/livez").status_code == HTTP_200_OK
         assert client.get("/whoami").status_code == HTTP_401_UNAUTHORIZED
+
+
+class Opaque:
+    """A verifier whose callers are not JWTs."""
+
+    def verify(self, token: str) -> Any:  # noqa: ANN401, ARG002
+        """Accept any token as the same caller."""
+        return _OpaqueCaller()
+
+    def verify_header(self, header: str | None) -> Any:  # noqa: ANN401
+        """Unused by the middleware, which reads the header itself."""
+        raise NotImplementedError  # pragma: no cover
+
+
+class _OpaqueCaller:
+    """A caller authenticated by something other than a JWT."""
+
+    subject = "service-7"
+    issuer = None
+    scopes: frozenset[str] = frozenset()
+    claims: dict[str, Any] = {}  # noqa: RUF012
+    is_authenticated = True
+
+
+def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401
+    """Return a FastAPI app with routes declaring how they are authenticated."""
+    app = FastAPI()
+
+    @app.get("/me")
+    async def me(principal: CurrentPrincipal) -> dict[str, Any]:
+        return {
+            "subject": principal.subject,
+            "authenticated": principal.is_authenticated,
+        }
+
+    @app.get("/claims")
+    async def claims(claims: Claims) -> dict[str, Any]:
+        return {"scope": claims.claims.get("scope")}
+
+    @app.delete(
+        "/orders/{order_id}",
+        dependencies=[Authenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: int) -> dict[str, int]:
+        return {"cancelled": order_id}
+
+    @app.get("/catalog", dependencies=[Anonymous()])
+    async def catalog(request: FastAPIRequest) -> dict[str, bool]:
+        return {"authenticated": request.user.is_authenticated}
+
+    @app.post("/catalog")
+    async def add_to_catalog() -> dict[str, bool]:
+        return {"added": True}
+
+    reports = APIRouter(dependencies=[Authenticated(scopes=["reports:read"])])
+
+    @reports.get(
+        "/reports/export",
+        dependencies=[Authenticated(scopes=["reports:export"])],
+    )
+    async def export() -> dict[str, bool]:
+        return {"exported": True}
+
+    app.include_router(reports)
+    if declare is not None:
+        declare(app)
+    Grelmicro(uses=[ErrorResponses(), *uses]).install(app)
+    return app
+
+
+class TestFastAPI:
+    """Route declarations on FastAPI."""
+
+    def test_the_current_principal_is_the_verified_caller(self) -> None:
+        """A handler reads the caller, not the token behind it."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        response = client.get("/me", headers=bearer(token()))
+
+        assert response.json() == {"subject": "user-1", "authenticated": True}
+
+    def test_the_claims_are_the_verified_jwt(self) -> None:
+        """`Claims` hands over the claim set, typed."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        response = client.get(
+            "/claims", headers=bearer(token(scope="orders:read"))
+        )
+
+        assert response.json() == {"scope": "orders:read"}
+
+    def test_claims_asked_of_a_caller_that_is_no_jwt_is_a_route_error(
+        self,
+    ) -> None:
+        """A route reading what its verifier never produces is a bug."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(Opaque())))
+
+        with pytest.raises(TypeError, match="CurrentPrincipal"):
+            client.get("/claims", headers=bearer("opaque"))
+
+    def test_a_missing_scope_is_forbidden_and_named(self) -> None:
+        """`403`, never `401`, with a challenge naming the scope."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        response = client.delete(
+            "/orders/7", headers=bearer(token(scope="orders:read"))
+        )
+
+        assert response.status_code == HTTP_403_FORBIDDEN
+        assert response.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write"'
+        )
+
+    def test_the_scope_granted_serves_the_route(self) -> None:
+        """Holding every scope named is enough."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        response = client.delete(
+            "/orders/7", headers=bearer(token(scope="orders:write"))
+        )
+
+        assert response.json() == {"cancelled": 7}
+
+    def test_a_router_and_its_route_each_apply_their_scopes(self) -> None:
+        """A router's scope is required as well as the route's own."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        refused = client.get(
+            "/reports/export", headers=bearer(token(scope="reports:export"))
+        )
+        served = client.get(
+            "/reports/export",
+            headers=bearer(token(scope="reports:read reports:export")),
+        )
+
+        assert refused.status_code == HTTP_403_FORBIDDEN
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="reports:read"'
+        )
+        assert served.json() == {"exported": True}
+
+    def test_an_anonymous_route_needs_no_credential(self) -> None:
+        """The route is served, and its caller is not authenticated."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        response = client.get("/catalog")
+
+        assert response.json() == {"authenticated": False}
+
+    def test_anonymous_applies_to_the_method_that_declared_it(self) -> None:
+        """A public read leaves the write on the same path authenticated."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        response = client.post("/catalog")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_an_anonymous_route_added_after_install_counts_at_startup(
+        self,
+    ) -> None:
+        """The routes are read again when the app starts."""
+        app = fastapi_app(AuthenticatedRequests(verifier()))
+
+        @app.get("/status", dependencies=[Anonymous()])
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        with TestClient(app) as client:
+            response = client.get("/status")
+
+        assert response.json() == {"up": True}
+
+    def test_a_scope_without_the_component_is_asked_for_a_credential(
+        self,
+    ) -> None:
+        """With nothing verifying tokens, nobody is authenticated."""
+        client = TestClient(fastapi_app())
+
+        response = client.delete("/orders/7", headers=bearer(token()))
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.headers["www-authenticate"] == (
+            'Bearer scope="orders:write"'
+        )
+
+    def test_the_current_principal_without_the_component_is_refused(
+        self,
+    ) -> None:
+        """A route reading the caller never runs without one."""
+        client = TestClient(fastapi_app())
+
+        response = client.get("/me")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_scopes_written_as_one_string_are_refused(self) -> None:
+        """One string would otherwise read as one scope per character."""
+        with pytest.raises(TypeError, match="not a single string"):
+            Authenticated(scopes="orders:write")
+
+    def test_a_report_reads_the_routes_as_they_are_now(self) -> None:
+        """`grelmicro check` refreshes the routes before it reads them."""
+        component = AuthenticatedRequests(verifier())
+        app = fastapi_app(component)
+
+        @app.get("/health", dependencies=[Anonymous()])
+        async def health() -> dict[str, bool]:
+            return {"ok": True}
+
+        component.refresh_routes(app)
+
+        assert TestClient(app).get("/health").json() == {"ok": True}
+
+    async def test_a_component_opened_before_install_reads_no_routes(
+        self,
+    ) -> None:
+        """Opening it without an app has nothing to read."""
+        component = AuthenticatedRequests(verifier())
+
+        async with component:
+            assert component.verifier is not None

@@ -265,7 +265,7 @@
       "()": "(*, exclude=()) -> None"
     },
     "AuthenticatedRequestsMiddleware": {
-      "()": "(app, *, verifier, exclude=(), bans=None, trusted=None) -> 'None'"
+      "()": "(app, *, verifier, exclude=(), bans=None, trusted=None, public=None) -> 'None'"
     },
     "CachedResponses": {
       "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', name='default', env_prefix=None, env_load=None) -> 'None'",
@@ -381,11 +381,20 @@
   },
   "grelmicro.integrations": {},
   "grelmicro.integrations.fastapi": {
+    "Anonymous": {
+      "()": "() -> Any"
+    },
+    "Authenticated": {
+      "()": "(*, scopes=()) -> Any"
+    },
     "CachedResponse": {
       "()": "(*, ttl=None) -> Any"
     },
     "CheckResultResponse": {
       "()": "(*, status, critical=True, error=None, details=None) -> None"
+    },
+    "Claims": {
+      "()": "(*args, **kwargs)"
     },
     "Conditional": {
       "()": "(*args, **kwargs)"
@@ -394,6 +403,9 @@
       "()": "(if_match=None, if_none_match=None) -> None"
     },
     "ConditionalRequired": {
+      "()": "(*args, **kwargs)"
+    },
+    "CurrentPrincipal": {
       "()": "(*args, **kwargs)"
     },
     "HealthzResponse": {
