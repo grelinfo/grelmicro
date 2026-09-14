@@ -24,11 +24,11 @@ import pytest
 
 from grelmicro.security import (
     JWKSConfig,
-    JWKSUnavailableError,
-    JWKSVerifier,
+    JWTVerifier,
+    SigningKeysUnavailableError,
     TokenRejectedError,
 )
-from tests.security.jwt_signing import Signer
+from tests.security.jwt_signing import Signer, loaded
 
 CURRENT = Signer()
 NEXT = Signer()
@@ -163,12 +163,12 @@ class TestProviders:
         algorithm: str | None,
     ) -> None:
         """The document loads and a token signed by its key is accepted."""
-        verifier = JWKSVerifier(
+        verifier = JWTVerifier.from_config(
             JWKSConfig(
                 url="https://idp.example.com/jwks.json",
                 audience=["my-api"],
                 issuer=[issuer],
-                algorithm=algorithm,
+                algorithm=algorithm,  # ty: ignore[invalid-argument-type]
             ),
             fetch=served(document),
         )
@@ -182,7 +182,7 @@ class TestProviders:
     async def test_keycloak_encryption_key_is_not_loaded(self) -> None:
         """A signature is never checked with the encryption key beside it."""
         issuer = "https://sso.example.com/realms/prod"
-        verifier = JWKSVerifier(
+        verifier = JWTVerifier.from_config(
             JWKSConfig(
                 url="https://idp.example.com/jwks.json",
                 audience=["my-api"],
@@ -200,7 +200,7 @@ class TestProviders:
     async def test_a_rotation_pair_keeps_both_keys_live(self) -> None:
         """Okta and Google publish the next key early, and both must work."""
         issuer = "https://t.okta.com/oauth2/default"
-        verifier = JWKSVerifier(
+        verifier = JWTVerifier.from_config(
             JWKSConfig(
                 url="https://idp.example.com/jwks.json",
                 audience=["my-api"],
@@ -221,11 +221,12 @@ class TestCognitoAccessTokens:
 
     ISSUER = "https://cognito-idp.eu-central-1.amazonaws.com/pool"
 
-    async def verifier(self) -> JWKSVerifier:
+    async def verifier(self) -> JWTVerifier:
         """Return a verifier configured the way the docs recommend."""
-        built = JWKSVerifier(
+        built = JWTVerifier.from_config(
             JWKSConfig(
                 url="https://idp.example.com/jwks.json",
+                audience=None,
                 issuer=[self.ISSUER],
                 required=["exp", "token_use"],
             ),
@@ -249,7 +250,7 @@ class TestCognitoAccessTokens:
         )
 
         assert claims.audience is None
-        assert claims.raw["client_id"] == "app-1"
+        assert claims.claims["client_id"] == "app-1"
 
     async def test_a_token_without_token_use_is_refused(self) -> None:
         """`required` covers the claim Cognito uses to separate its tokens."""
@@ -262,7 +263,7 @@ class TestCognitoAccessTokens:
 
     async def test_an_id_token_still_checks_its_audience(self) -> None:
         """An ID token does carry `aud`, and it is checked when configured."""
-        verifier = JWKSVerifier(
+        verifier = JWTVerifier.from_config(
             JWKSConfig(
                 url="https://idp.example.com/jwks.json",
                 issuer=[self.ISSUER],
@@ -283,9 +284,9 @@ class TestCognitoAccessTokens:
 class TestAwkwardDocuments:
     """Shapes a provider can serve that must not take the whole set down."""
 
-    async def load(self, document: dict[str, Any]) -> JWKSVerifier:
+    async def load(self, document: dict[str, Any]) -> JWTVerifier:
         """Load `document` and return the verifier."""
-        verifier = JWKSVerifier(
+        verifier = JWTVerifier.from_config(
             JWKSConfig(
                 url="https://idp.example.com/jwks.json", audience=["my-api"]
             ),
@@ -312,12 +313,14 @@ class TestAwkwardDocuments:
     async def test_a_document_of_only_unusable_keys_is_refused(self) -> None:
         """Skipping every key leaves nothing to verify with, which is an error."""
         document = {"keys": [{"kty": "unheard-of", "kid": "future"}]}
-        verifier = JWKSVerifier(
-            JWKSConfig(url="https://idp.example.com/jwks.json"),
+        verifier = JWTVerifier.from_config(
+            JWKSConfig(
+                url="https://idp.example.com/jwks.json", audience="my-api"
+            ),
             fetch=served(document),
         )
 
-        with pytest.raises(JWKSUnavailableError, match="no usable key"):
+        with pytest.raises(SigningKeysUnavailableError, match="no usable key"):
             await verifier.refresh()
 
     async def test_key_ops_without_use_is_honoured(self) -> None:
@@ -350,11 +353,9 @@ class TestAwkwardDocuments:
     async def test_two_live_keys_load(self) -> None:
         """A rotation pair is the normal steady state, not an edge case."""
         verifier = await self.load(google_jwks())
-        loaded = verifier._loaded()
-
-        assert len(loaded._cache) == 0
+        assert len(loaded(verifier).cache) == 0
         for kid, signer in (("google-1", CURRENT), ("google-2", NEXT)):
             assert verifier.verify(
                 issue(signer, kid, "https://any/", aud="my-api")
             ).subject
-        assert len(loaded._cache) == EXPECTED_KEYS
+        assert len(loaded(verifier).cache) == EXPECTED_KEYS

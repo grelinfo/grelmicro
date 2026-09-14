@@ -47,7 +47,6 @@ fn reason_of(error: &jsonwebtoken::errors::Error) -> &'static str {
         ErrorKind::ImmatureSignature => "not-yet-valid",
         ErrorKind::InvalidAudience => "audience",
         ErrorKind::InvalidIssuer => "issuer",
-        ErrorKind::InvalidSubject => "subject",
         ErrorKind::InvalidAlgorithm | ErrorKind::InvalidAlgorithmName => "algorithm",
         ErrorKind::MissingRequiredClaim(_) => "missing-claim",
         _ => "invalid",
@@ -153,6 +152,45 @@ fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
 /// names it does not recognise rather than failing on them.
 const SPEC_CLAIMS: [&str; 5] = ["aud", "exp", "iss", "nbf", "sub"];
 
+/// Media type prefix RFC 7515 lets a `typ` header leave out.
+const APPLICATION: &str = "application/";
+
+/// Types a token may declare when no type is required.
+///
+/// `JWT` and `JOSE` are what issuers write when they type nothing in
+/// particular, and `at+jwt` is the access token type of RFC 9068. Anything
+/// else names another kind of token, such as a proof of possession or a logout token,
+/// which is signed by the same keys and must never pass as an access token.
+const ACCESS_TYPES: [&str; 3] = ["jwt", "jose", "at+jwt"];
+
+/// Return a `typ` value without the `application/` prefix RFC 7515 allows.
+///
+/// Matched without regard to case, because a media type is compared that way.
+fn without_application(declared: &str) -> &str {
+    match (
+        declared.get(..APPLICATION.len()),
+        declared.get(APPLICATION.len()..),
+    ) {
+        (Some(prefix), Some(rest)) if prefix.eq_ignore_ascii_case(APPLICATION) => rest,
+        _ => declared,
+    }
+}
+
+/// Check the `typ` header against the type this verifier requires, if any.
+///
+/// With no type required, a token that declares none passes, and so does one
+/// declaring an access token type. With one required, the token must declare
+/// exactly that type.
+fn type_accepted(declared: Option<&str>, required: Option<&str>) -> bool {
+    match (declared.map(without_application), required) {
+        (None, required) => required.is_none(),
+        (Some(found), None) => ACCESS_TYPES
+            .iter()
+            .any(|name| found.eq_ignore_ascii_case(name)),
+        (Some(found), Some(expected)) => found.eq_ignore_ascii_case(expected),
+    }
+}
+
 /// A verifier holding one key per `kid` plus an optional default key.
 #[pyclass(frozen, module = "grelmicro_core")]
 pub struct Verifier {
@@ -161,6 +199,7 @@ pub struct Verifier {
     extra_required: Vec<String>,
     audience: Option<HashSet<String>>,
     issuer: Option<HashSet<String>>,
+    token_type: Option<String>,
 }
 
 /// Check the `aud` claim, which RFC 7519 allows to be a string or an array.
@@ -214,9 +253,15 @@ fn no_kid() -> String {
 
 impl Verifier {
     /// Pick the key the token's `kid` names, or the key for tokens without one.
+    ///
+    /// The declared type is checked first, so a token of another kind is
+    /// refused before it can mark the key set stale by naming an unknown key.
     fn select(&self, token: &str) -> Result<&(DecodingKey, Validation), PyErr> {
         let header =
             decode_header(token).map_err(|error| rejected(reason_of(&error), error.to_string()))?;
+        if !type_accepted(header.typ.as_deref(), self.token_type.as_deref()) {
+            return Err(rejected("type", "token type not accepted".to_string()));
+        }
         match header.kid {
             Some(kid) => self
                 .keys
@@ -241,6 +286,14 @@ impl Verifier {
         let claims = decode::<Value>(token, key, validation)
             .map(|data| data.claims)
             .map_err(|error| rejected(reason_of(&error), error.to_string()))?;
+        // A token carrying `cnf` (RFC 7800) is bound to a key, and is only
+        // good together with proof that the caller holds that key. Nothing
+        // here checks such a proof, so accepting the token would drop the
+        // binding its issuer asked for. Null counts as absent, as it does
+        // for every required claim.
+        if matches!(claims.get("cnf"), Some(value) if !value.is_null()) {
+            return Err(rejected("binding", "token is bound to a key".to_string()));
+        }
         for name in &self.extra_required {
             // A claim written as `null` is absent, not present with no
             // value. The registered claims are read this way by the crate,
@@ -273,18 +326,28 @@ impl Verifier {
     ///
     /// A `kid` of `None` registers the key used for tokens with no `kid`
     /// header. PEM material is parsed here, never per verification.
+    /// `token_type` requires every token to declare that type, such as
+    /// `at+jwt`, instead of accepting any access token type.
     #[new]
-    #[pyo3(signature = (keys, *, audience=None, issuer=None, leeway=0, required=None))]
+    #[pyo3(signature = (keys, *, audience=None, issuer=None, leeway=0, required=None, token_type=None))]
     fn new(
         keys: KeySpec,
         audience: Option<Vec<String>>,
         issuer: Option<Vec<String>>,
         leeway: u64,
         required: Option<Vec<String>>,
+        token_type: Option<String>,
     ) -> PyResult<Self> {
         if keys.is_empty() {
             return Err(PyValueError::new_err("at least one key is required"));
         }
+        let token_type = match token_type {
+            Some(named) if without_application(&named).is_empty() => {
+                return Err(PyValueError::new_err("token_type must name a type"));
+            }
+            Some(named) => Some(without_application(&named).to_string()),
+            None => None,
+        };
         let required: HashSet<String> = required
             .unwrap_or_else(|| vec!["exp".to_string()])
             .into_iter()
@@ -333,6 +396,7 @@ impl Verifier {
             extra_required,
             audience: accepted_audience,
             issuer: accepted_issuer,
+            token_type,
         })
     }
 

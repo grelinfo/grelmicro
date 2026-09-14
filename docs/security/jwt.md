@@ -31,22 +31,24 @@ microseconds, so moving it to a thread costs more than it saves. The
 
 ## Reject a token
 
-Anything that fails raises `TokenRejectedError`. Its `reason` is a stable tag,
-so you branch on it instead of matching message text.
+Anything that fails raises `TokenRejectedError`. Its `reason` is a
+`TokenRejectedReason`, so you branch on it instead of matching message text.
 
 ```python
-from grelmicro.security import TokenRejectedError
+from grelmicro.security import TokenRejectedError, TokenRejectedReason
 
 try:
     claims = verifier.verify_header(request.headers.get("authorization"))
 except TokenRejectedError as error:
-    if error.reason == "expired":
+    if error.reason is TokenRejectedReason.EXPIRED:
         ...
 ```
 
-The reasons are `algorithm`, `audience`, `expired`, `invalid`, `malformed`,
-`missing-claim`, `not-yet-valid`, `scheme`, `signature`, `subject`, `issuer`
-and `unknown-key`.
+Each reason also compares equal to the string it names, so
+`error.reason == "expired"` works too. The reasons are `algorithm`,
+`audience`, `binding`, `expired`, `invalid`, `issuer`, `malformed`,
+`missing-claim`, `not-yet-valid`, `scheme`, `signature`, `type` and
+`unknown-key`.
 
 Neither the tag nor the message quotes the token. It is a live credential and
 the message reaches your logs.
@@ -64,6 +66,26 @@ The algorithm is pinned to the key. A token asking for a different one is
 rejected before its signature is checked, so `none` and the HMAC confusion
 attacks have nothing to reach.
 
+### Token type
+
+A provider signs more than access tokens with the same keys: DPoP proofs,
+logout tokens, security event tokens. Each declares its kind in the `typ`
+header, so a token declaring anything other than `JWT`, `JOSE` or `at+jwt` is
+rejected with `type`. A token that declares no type passes.
+
+Set `token_type="at+jwt"` to require the access token type of
+[RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068#section-4). Microsoft
+Entra ID never sends it and Keycloak sends it only when a client asks, so it
+is off by default. The audience check is what keeps an ID token out either
+way, because an ID token names the client, not your API.
+
+### Bound tokens
+
+A token carrying a `cnf` claim is bound to a key, and is only good together
+with proof that the caller holds that key. grelmicro checks no such proof, so
+a bound token is rejected with `binding` rather than accepted without the
+binding its issuer asked for.
+
 ### Audience and issuer
 
 Naming an `audience` or an `issuer` requires that claim. A token that simply
@@ -71,18 +93,18 @@ omits `aud` does not slip past a configured audience, because a check that
 applied only to the tokens carrying the claim would be the wrong way round.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], issuer=["https://auth.example.com/"])
+JWTVerifier.keys(..., audience="my-api", issuer="https://auth.example.com/")
 ```
 
 That rejects a token with no `aud`, a token with no `iss`, and a token naming
 either differently.
 
-Leave `audience` empty for a provider whose tokens carry none. An AWS Cognito
+Set `audience=None` for a provider whose tokens carry none. An AWS Cognito
 access token names the application in `client_id` instead, so declaring an
 audience would reject every one of them.
 [RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.3) also
-requires refusing a token whose `aud` the service does not answer to, so an
-empty `audience` rejects any token that does carry one.
+requires refusing a token whose `aud` the service does not answer to, so
+`audience=None` rejects any token that does carry one.
 
 ### Required claims
 
@@ -91,24 +113,42 @@ adds: `exp` is enforced whether or not you name it, and so is any `audience`
 or `issuer` you configured.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], required=["tenant"])
+JWTVerifier.keys(..., audience="my-api", required=["tenant"])
 ```
 
 That rejects a token with no `tenant`, a token whose `tenant` is `null`, and
 a token with no `exp`.
 
+## Reading the caller
+
+`verify` returns a `JWTClaims`. The registered claims are fields, `subject`,
+`issuer`, `audience`, `expires_at`, `issued_at` and `token_id`, and `claims`
+holds every claim as it arrived, read-only.
+
+`scopes` is what the token grants. It is read from `scope`, then `scp`, as a
+space-separated string or an array of strings, so Microsoft Entra ID's `scp`
+string and Okta's `scp` array both work. The first of those claims the token
+carries decides, and a claim of any other shape grants nothing. Name other
+claims with `scope_claims`:
+
+```python
+JWTVerifier.keys(..., audience="my-api", scope_claims=["permissions"])
+```
+
+`JWTClaims` satisfies `Principal`, the protocol a handler reads the caller
+through, whatever proved who it is. Key a caller by `issuer` and `subject`
+together, never by an email or a username, which an issuer can reassign.
+
 ## Keys
 
-List one `JWTKey` per key you accept. A key with a `kid` serves tokens whose
+Pass one `JWTKey` per key you accept. A key with a `kid` serves tokens whose
 header names it, and a key without one serves tokens that carry no `kid`.
 
 ```python
-JWTConfig(
-    keys=[
-        JWTKey(algorithm="RS256", key=current_pem, kid="2026-09"),
-        JWTKey(algorithm="RS256", key=previous_pem, kid="2026-06"),
-    ],
-    audience=["grelmicro-api"],
+JWTVerifier.keys(
+    JWTKey.pem(current_pem, algorithm="RS256", kid="2026-09"),
+    JWTKey.pem(previous_pem, algorithm="RS256", kid="2026-06"),
+    audience="grelmicro-api",
 )
 ```
 
@@ -121,34 +161,45 @@ have to `from_jwks`, which reads the `kid` and `alg` off each key and skips the
 ones published for encryption.
 
 ```python
-verifier = JWTVerifier(
-    JWTConfig.from_jwks(jwks, audience=["my-api"], issuer=[issuer])
+verifier = JWTVerifier.from_config(
+    JWTKeysConfig.from_jwks(jwks, audience="my-api", issuer=issuer)
 )
 ```
 
 ### From a JWKS URL
 
-`JWKSVerifier` fetches the document itself and follows the provider when it
-rotates. `refresh` is a coroutine, `verify` is not, so no request ever waits on
+`JWTVerifier.jwks` fetches the document itself and follows the provider when
+it rotates. `refresh` is a coroutine, `verify` is not, so no request ever waits on
 the provider.
 
 ```python
 --8<-- "security/jwks.py"
 ```
 
-`refresh` fetches only when the keys are stale, so a task calling it every
-minute costs nothing and bounds how long a rotation takes to reach you. Call
-it once before serving too, so the first request does not arrive before the
-keys do.
+Open the verifier with `async with`, in your app's lifespan. It loads the keys
+before the first request and refreshes them in the background every
+`retry_interval` until it closes. A refresh fetches only when the keys are
+stale, so a pass while they are fresh costs nothing, and a rotation reaches you
+within one interval.
+
+A provider that cannot be reached at startup does not stop the app. The
+verifier opens without keys, every verification raises
+`SigningKeysUnavailableError`, and the background refresh keeps trying.
+
+`refresh()` is still yours to await, for a request refused with `unknown-key`
+that wants the new keys now. A caller arriving while a fetch runs waits for
+that one rather than starting another, so a burst of such requests costs your
+provider one fetch.
 
 Nothing fetches on the request path. A token naming a key the verifier does
-not hold is refused and marks the key set stale, so the next scheduled refresh
-picks the new keys up. `retry_interval` puts a floor under how often that can
+not hold is refused and marks the key set stale, so the next background
+refresh picks the new keys up. `retry_interval` puts a floor under how often that can
 happen, so a caller inventing `kid` values cannot make your service hammer
 your provider.
 
-A refresh that fails raises `JWKSUnavailableError` and leaves the loaded keys
-in place, so a provider outage does not take authentication down with it.
+A refresh that fails raises `SigningKeysUnavailableError` and leaves the
+loaded keys in place, so a provider outage does not take authentication down
+with it. Verifying before any key set has loaded raises it too.
 
 The endpoint must be `https`. Bodies are read in chunks and abandoned past
 `max_bytes`, redirects are not followed, and a document with more than
@@ -173,12 +224,54 @@ async def fetch(url: str, *, timeout: float, max_bytes: int) -> bytes:
     response.raise_for_status()
     return response.content
 
-verifier = JWKSVerifier(config, fetch=fetch)
+verifier = JWTVerifier.from_config(config, fetch=fetch)
 ```
 
 A fetcher that goes through your own client keeps the request inside whatever
 OpenTelemetry instrumentation that client already has, so a slow or failing
 provider shows up in your traces.
+
+## Configure from the deployment
+
+A verifier built by `keys` or `jwks` also reads its settings from the
+environment once `GREL_ENV_LOAD` is set, under `GREL_JWTVERIFIER_`, or
+`GREL_JWTVERIFIER_{NAME}_` for one built with `name=`. A keyword always wins,
+so leave a setting out of the code for the deployment to supply it:
+
+```python
+verifier = JWTVerifier.jwks()
+```
+
+```bash
+GREL_ENV_LOAD=1
+GREL_JWTVERIFIER_URL=https://auth.example.com/.well-known/jwks.json
+GREL_JWTVERIFIER_AUDIENCE=orders-api
+GREL_JWTVERIFIER_ISSUER=https://auth.example.com/
+```
+
+A list is written comma-separated or as JSON. A mounted file read by
+[`ExternalConfig`](../configuration/reconfigure-from-configmap.md) uses the
+same names.
+
+The environment says whose tokens to trust, and nothing more:
+
+| Setting | From the environment | Changed by a mounted file while running |
+| --- | --- | --- |
+| `url`, `audience`, `issuer`, `required`, `token_type`, `scope_claims`, `leeway`, `cache_key`, `cache_ttl`, `max_bytes`, `max_keys` | at startup | no |
+| `cache_size`, `ttl`, `retry_interval`, `timeout` | at startup | yes |
+| the key source, `algorithm`, key material, `audience=None` | never | never |
+
+A verifier reads its own prefix only. `GREL_JWTVERIFIER_AUDIENCE` never
+reaches a verifier named `partner`, so one verifier's trust settings cannot
+leak into another's. A variable naming `ALGORITHM` is refused at startup
+rather than applied.
+
+Only code answers to no audience. `audience=None` in code wins over the
+environment, and no variable can turn the audience check off.
+
+`ClientBans` reads `GREL_CLIENTBANS_` the same way, and every one of its
+settings can change while the service runs, because a ban costs capacity and
+never trust.
 
 ## AWS Cognito
 
@@ -192,18 +285,16 @@ tokens.
 
 ```python
 issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool}"
-verifier = JWKSVerifier(
-    JWKSConfig(
-        url=f"{issuer}/.well-known/jwks.json",
-        issuer=[issuer],
-        required=["token_use"],
-    )
+verifier = JWTVerifier.jwks(
+    f"{issuer}/.well-known/jwks.json",
+    audience=None,
+    issuer=issuer,
+    required=["token_use"],
 )
-await verifier.refresh()
-
-claims = verifier.verify(token)
-if claims.raw["token_use"] != "access" or claims.raw["client_id"] != client_id:
-    raise TokenRejectedError("audience")
+async with verifier:
+    claims = verifier.verify(token)
+    if claims.claims["token_use"] != "access" or claims.claims["client_id"] != client_id:
+        raise TokenRejectedError("audience")
 ```
 
 ## Microsoft Entra ID
@@ -215,15 +306,12 @@ implies, and `algorithm=` pins one explicitly.
 
 ```python
 tenant_issuer = f"https://login.microsoftonline.com/{tenant}/v2.0"
-verifier = JWKSVerifier(
-    JWKSConfig(
-        url=f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
-        algorithm="RS256",
-        audience=[client_id],
-        issuer=[tenant_issuer],
-    )
+verifier = JWTVerifier.jwks(
+    f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
+    algorithm="RS256",
+    audience=client_id,
+    issuer=tenant_issuer,
 )
-await verifier.refresh()
 ```
 
 ## Repeated tokens
@@ -238,7 +326,7 @@ a 24 hour lifetime would keep being accepted from memory for 24 hours after it
 was withdrawn upstream.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], cache_size=1024, cache_ttl=300)
+JWTVerifier.keys(..., audience="my-api", cache_size=1024, cache_ttl=300)
 ```
 
 Set `cache_size=0` to turn the cache off.
@@ -269,7 +357,7 @@ Set `cache_key="token"` to key on the encoded token instead, which is faster by
 that 94 nanoseconds and is what an in-process cache normally does.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], cache_key="token")
+JWTVerifier.keys(..., audience="my-api", cache_key="token")
 ```
 
 ## Shedding a caller that keeps forging
@@ -280,39 +368,38 @@ sending forged tokens therefore buys real work per request. `ClientBans`
 counts those failures and refuses the caller for a while, which turns that
 cost into a dictionary lookup.
 
-It is off unless you ask for it. Pass a `ClientBans` to the verifier, and
-give every call the address to hold responsible:
+It is off unless you ask for it. Check the table before verifying, and record
+a rejection after:
 
 ```python
-from grelmicro.security import ClientBans, ClientBannedError
+from grelmicro.security import ClientBannedError, ClientBans, TokenRejectedError
 
-verifier = JWTVerifier(config, bans=ClientBans())
+bans = ClientBans()
 
+if bans.banned(client_ip):
+    raise ClientBannedError(retry_after=bans.banned_for(client_ip))
 try:
-    claims = verifier.verify_header(authorization, client=client_ip)
-except ClientBannedError:
-    raise HTTPException(status_code=429) from None
+    claims = verifier.verify_header(authorization)
 except TokenRejectedError as error:
-    raise HTTPException(status_code=401, detail=error.reason) from None
+    bans.record(client_ip, error.reason)
+    raise
 ```
 
-Counting the failure and refusing the client happen for you, so the
-protection cannot be half wired. A verifier built with `bans` and then called
-without a `client` raises rather than quietly counting nothing.
+`banned()` is one dictionary lookup, the only cost an honest request pays.
+`record()` runs only once a token was already refused, and `banned_for()` only
+once a client is refused.
 
 `ClientBannedError` is not a `TokenRejectedError`. It says nothing about the
 token, so answer it with `429` and not `401`: a fresh token would not change
-the answer.
-
-`JWKSVerifier` takes the same argument and behaves the same way.
+the answer. `retry_after` says how long the ban has left.
 
 The address has to be one the caller cannot choose. Pass what
 [`resolve_client_address`](clientip.md) returns, never a raw
 `X-Forwarded-For`, or an attacker sets a header and gets somebody else
 refused.
 
-The table is also usable on its own, through `banned()` and `record()`, for
-an authentication scheme this module does not handle.
+Settings go in as keywords, `ClientBans(failures=10, window=60, duration=300)`,
+or whole, through `ClientBans.from_config(ClientBansConfig(...))`.
 
 ### Why not rate limit instead
 
@@ -334,8 +421,9 @@ until a caller has already proven itself, and then charges 88 ns to refuse it.
 
 ### What counts as abuse
 
-Only `signature`, `malformed` and `algorithm` are counted by default. Each
-means the token was never issued by anyone the service trusts.
+Only `signature` and `algorithm` are counted by default. Each means a token
+was built to pass as one the service trusts, and each costs a full verification
+to refuse.
 
 The reasons left out matter more. `unknown-key` is what every client sees for
 a moment when the provider rotates its signing keys. Counting it bans a
@@ -343,9 +431,11 @@ service's own users on every rotation: with five hundred clients retrying
 while a rotation lands, counting rejections by reason bans none of them, and
 counting every `401` bans all five hundred.
 
-`expired` is a client that needs to refresh. `not-yet-valid` is a clock that
-disagrees. `audience` and `issuer` are a token meant for a neighbouring
-service. None of them is an attack.
+`malformed` is refused for almost nothing, before any signature is checked,
+and a legitimate client sending an opaque token lands there. `expired` is a
+client that needs to refresh. `not-yet-valid` is a clock that disagrees.
+`audience` and `issuer` are a token meant for a neighbouring service. None of
+them is an attack.
 
 Pass `reasons=` to choose a different set, and keep `duration` short. An
 address is shared behind NAT, so a ban reaches more people than the one caller
@@ -358,5 +448,7 @@ it to route a token to the right verifier, never to decide whether a token is
 valid.
 
 ```python
-kid = verifier.unverified_header(token)["kid"]
+from grelmicro.security import unverified_header
+
+kid = unverified_header(token)["kid"]
 ```

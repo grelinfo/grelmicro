@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Breaking
+* 💥 A token declaring a `typ` other than `JWT`, `JOSE` or `at+jwt` is rejected with `type`, so a DPoP proof or a logout token signed by the same keys no longer passes as an access token. `token_type="at+jwt"` requires the RFC 9068 type. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 A token carrying a `cnf` claim is rejected with `binding`, because nothing checks the proof of possession it depends on. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 The `subject` rejection reason is gone. No policy ever set a subject, so nothing produced it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWTKey.pem()`, `JWTKey.secret()` and `JWTKey.jwk()` build a key, and `JWTKey.from_jwk()` is gone. A secret goes with an `HS*` algorithm and nothing else, so a PEM can no longer be read as an HMAC secret, and a secret shorter than its hash output is refused, as RFC 7518 requires. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🔒 `JWTKey` holds its key material as a secret, so a `repr`, a log line or a dumped configuration never shows it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWTVerifier.keys()` builds a verifier from keys you hold, and `JWTVerifier.from_config()` builds one from a config that is already whole. `JWTVerifier(config)` is gone, and `JWTConfig` is now `JWTKeysConfig`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🔒 `audience` is required. Name the audience your tokens carry, or pass `audience=None` to answer to none, which refuses any token that names one. An empty list is refused, because it says neither. `audience` and `issuer` also take a single string. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWKSVerifier` is gone. `JWTVerifier.jwks(url, audience=...)` builds the same verifier, and `JWTVerifier.from_config()` takes a `JWKSConfig` too. A verifier built from keys you hold answers `ready`, `stale` and `refresh` as well, so code written against one takes the other. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWKSUnavailableError` is now `SigningKeysUnavailableError`, and verifying before any key set has loaded raises it instead of `OutOfContextError`. `JWKSFetcher` is now `Fetcher`, and `unverified_header` answers before any key set loads. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
+* 💥 `bans=` and `client=` are gone from `JWTVerifier`. Ban callers with a `ClientBans` beside the verifier: check `banned()` before verifying, and `record()` a rejection after. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `ClientBans(failures=..., window=..., duration=...)` takes its settings as keywords, and `ClientBans.from_config()` takes a `ClientBansConfig`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `ClientBannedError` is an `AdmissionError` carrying `retry_after`, and `ClientBans.banned_for()` says how long a ban has left. `ErrorResponses` answers it with `429`, the `client-banned` type and a `Retry-After` header. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `malformed` no longer counts toward a ban. It is refused before any signature is checked, and a legitimate client presenting an opaque token lands there. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `unverified_header(token)` is a function, and the verifier method is gone. It reads no key, so it never needed a verifier. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
+* 💥 `JWTClaims.raw` is now `JWTClaims.claims`, the name `Principal` reads the claim set by. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🔒 `JWTClaims.claims` is read-only all the way down: a nested object is a read-only mapping and an array is a tuple, and `JWTClaims.audience` is a tuple when a token names several audiences. A cached claim set is shared by every request presenting the token, so a handler can no longer change what a later one is authorized as. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
+### Added
+* ✨ `Principal` is the caller a handler reads, whatever proved who it is, and `JWTClaims` satisfies it. A verified token also answers `is_authenticated`, `identity` and `display_name`, which Starlette reads off `request.user`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ✨ `scopes` is read from `scope`, then `scp`, as a space-separated string or an array of strings, so Microsoft Entra ID and Okta tokens both grant their scopes. `scope_claims` names other claims. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ✨ `JWTVerifier` and `ClientBans` read their settings from the environment and from `ExternalConfig`, under `GREL_JWTVERIFIER_` and `GREL_CLIENTBANS_`. A verifier reads its own prefix only. The environment may name the issuer, the audience or the JWKS URL at startup, never the key source, the algorithm or the key material, and a mounted file changes only the cache size and the refresh pacing while the service runs. `name=` addresses a second one. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ✨ `JWTVerifier` is an async context manager. `async with verifier:` loads the keys a provider publishes before the first request and refreshes them in the background every `retry_interval` until it closes, so no task has to be scheduled by hand. A provider that cannot be reached at startup leaves the verifier open without keys rather than stopping the app. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ✨ `TokenRejectedError.reason` is a `TokenRejectedReason`, one member per way a token fails. Each member compares equal to the string it names, so `error.reason == "expired"` keeps working, and a tag the module does not know reads as `INVALID`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
+### Fixed
+* 🐛 A JWKS endpoint that cannot be reached, or times out, raises `SigningKeysUnavailableError` instead of a raw `httpx` error. `async with verifier:` then opens without keys as documented, and the background refresh keeps retrying instead of stopping for good. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A JWKS entry that is not a key object, names its `kty` with anything but a string, or holds key material the core cannot read, is skipped and the document's other keys still load, so one bad key no longer stops `async with verifier:` or ends the background refresh. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A missing `httpx` raises `DependencyNotFoundError` from `async with verifier:` instead of being retried forever, and an unexpected error in the background refresh is logged without ending it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 `ClientBans.record()` no longer reports a ban that has already run out. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A full `ClientBans` table evicts the least recently recorded client, as documented, instead of the one that failed first, and a client `forget()` cleared no longer takes up room or gets a later entry evicted. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
 

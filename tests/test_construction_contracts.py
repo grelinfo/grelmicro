@@ -36,7 +36,7 @@ from tests._contract_support import (
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
-_MIN_DOORS = 25
+_MIN_DOORS = 27
 """Exact count today, so a door dropping out of discovery fails.
 
 Slack would hide erosion. `_discover_from_config` reads `node.body`, so

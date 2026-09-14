@@ -911,43 +911,52 @@
       "()": "(*values)"
     },
     "ClientBannedError": {
-      "()": "() -> 'None'"
+      "()": "(*, retry_after=0.0) -> 'None'"
     },
     "ClientBans": {
-      "()": "(config=None, *, reasons=None) -> 'None'"
+      "()": "(*, failures=None, window=None, duration=None, max_clients=None, reasons=None, name='default', env_load=None) -> 'None'",
+      ".from_config": "(config, *, reasons=None) -> 'Self'"
     },
     "ClientBansConfig": {
       "()": "(*, failures=10, window=60.0, duration=300.0, max_clients=10000) -> None"
     },
-    "JWKSConfig": {
-      "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, url, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None) -> None"
-    },
-    "JWKSFetcher": {
+    "Fetcher": {
       "()": "(*args, **kwargs)"
     },
-    "JWKSUnavailableError": null,
-    "JWKSVerifier": {
-      "()": "(config, *, fetch=None, bans=None) -> 'None'"
+    "JWKSConfig": {
+      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, url, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None) -> None"
     },
     "JWTClaims": {
-      "()": "(raw, subject, issuer, audience, expires_at, issued_at, token_id) -> None"
-    },
-    "JWTConfig": {
-      "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, keys) -> None",
-      ".from_jwks": "(jwks, *, algorithm=None, **policy) -> 'JWTConfig'"
+      "()": "(claims, subject, issuer, audience, expires_at, issued_at, token_id, scopes=frozenset()) -> None"
     },
     "JWTKey": {
-      "()": "(*, algorithm, key, kid=None, format='pem') -> None",
-      ".from_jwk": "(jwk, *, algorithm=None) -> 'JWTKey'"
+      "()": "(*, algorithm, key, kid=None, format=None) -> None",
+      ".jwk": "(jwk, *, algorithm=None) -> 'Self'",
+      ".pem": "(key, *, algorithm, kid=None) -> 'Self'",
+      ".secret": "(key, *, algorithm, kid=None) -> 'Self'"
+    },
+    "JWTKeysConfig": {
+      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0, keys) -> None",
+      ".from_jwks": "(jwks, *, algorithm=None, **policy) -> 'JWTKeysConfig'"
     },
     "JWTPolicy": {
-      "()": "(*, audience=[], issuer=[], leeway=0, required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
+      "()": "(*, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
     },
     "JWTVerifier": {
-      "()": "(config, *, bans=None) -> 'None'"
+      "()": "(*args, **kwargs) -> 'None'",
+      ".from_config": "(config, *, fetch=None) -> 'Self'",
+      ".jwks": "(url=None, *, audience=UNSET, issuer=None, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None, name='default', env_load=None) -> 'Self'",
+      ".keys": "(*keys, audience=UNSET, issuer=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, name='default', env_load=None) -> 'Self'"
     },
+    "Principal": {
+      "()": "(*args, **kwargs)"
+    },
+    "SigningKeysUnavailableError": null,
     "TokenRejectedError": {
       "()": "(reason) -> 'None'"
+    },
+    "TokenRejectedReason": {
+      "()": "(*values)"
     },
     "TokenVerifier": {
       "()": "(*args, **kwargs)"
@@ -960,6 +969,9 @@
     },
     "resolve_client_address": {
       "()": "(scope, trusted) -> 'ClientAddress | None'"
+    },
+    "unverified_header": {
+      "()": "(token) -> 'dict[str, Any]'"
     }
   },
   "grelmicro.task": {

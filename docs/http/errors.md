@@ -71,6 +71,7 @@ client that honours the header without reading the body.
 | Error | Status | `type` anchor | Carries |
 |---|---|---|---|
 | `RateLimitExceededError` | 429 | [`rate-limit-exceeded`](#rate-limit-exceeded) | `retry_after` |
+| `ClientBannedError` | 429 | [`client-banned`](#client-banned) | `retry_after` |
 | `CircuitBreakerError` | 503 | [`circuit-breaker-open`](#circuit-breaker-open) | `retry_after` |
 | `BulkheadFullError` | 503 | [`bulkhead-full`](#bulkhead-full) | nothing to wait on |
 | `WouldBlockError` | 503 | [`lock-unavailable`](#lock-unavailable) | nothing to wait on |
@@ -325,6 +326,13 @@ One section per kind, and the `type` URI of each dereferences here.
 
 `429`. The caller is over the budget of a `RateLimiter`. `retry_after` is the
 seconds until the next request is allowed. Wait that long, then retry.
+
+### Client banned { #client-banned }
+
+`429`. `ClientBans` refused the caller because it kept presenting tokens that
+did not verify, so its token was not looked at. `retry_after` is the seconds
+the ban has left. A fresh token does not lift it, so wait that long before
+sending another request.
 
 ### Circuit breaker open { #circuit-breaker-open }
 

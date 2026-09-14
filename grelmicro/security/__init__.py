@@ -25,22 +25,24 @@ from grelmicro.security.clientip import (
     resolve_client_address,
 )
 from grelmicro.security.jwks import (
-    JWKSConfig,
-    JWKSFetcher,
-    JWKSUnavailableError,
-    JWKSVerifier,
+    Fetcher,
+    SigningKeysUnavailableError,
     fetch_with_httpx,
 )
 from grelmicro.security.jwt import (
     ALGORITHMS,
+    JWKSConfig,
     JWTClaims,
-    JWTConfig,
     JWTKey,
+    JWTKeysConfig,
     JWTPolicy,
     JWTVerifier,
     TokenRejectedError,
+    TokenRejectedReason,
     TokenVerifier,
+    unverified_header,
 )
+from grelmicro.security.principal import Principal
 
 __all__ = [
     "ABUSIVE_REASONS",
@@ -51,18 +53,20 @@ __all__ = [
     "ClientBannedError",
     "ClientBans",
     "ClientBansConfig",
+    "Fetcher",
     "JWKSConfig",
-    "JWKSFetcher",
-    "JWKSUnavailableError",
-    "JWKSVerifier",
     "JWTClaims",
-    "JWTConfig",
     "JWTKey",
+    "JWTKeysConfig",
     "JWTPolicy",
     "JWTVerifier",
+    "Principal",
+    "SigningKeysUnavailableError",
     "TokenRejectedError",
+    "TokenRejectedReason",
     "TokenVerifier",
     "TrustedProxies",
     "fetch_with_httpx",
     "resolve_client_address",
+    "unverified_header",
 ]

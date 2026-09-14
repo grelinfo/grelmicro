@@ -5,7 +5,6 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from grelmicro.security import (
-    JWTConfig,
     JWTKey,
     JWTVerifier,
     TokenRejectedError,
@@ -15,18 +14,10 @@ app = FastAPI()
 
 # Naming an audience or an issuer requires that claim on every token, so a
 # token that simply omits it does not slip past the check.
-verifier = JWTVerifier(
-    JWTConfig(
-        keys=[
-            JWTKey(
-                algorithm="RS256",
-                key=os.environ["JWT_PUBLIC_KEY"].encode(),
-                kid="2026-09",
-            )
-        ],
-        audience=["grelmicro-api"],
-        issuer=["https://auth.example.com/"],
-    )
+verifier = JWTVerifier.keys(
+    JWTKey.pem(os.environ["JWT_PUBLIC_KEY"], algorithm="RS256", kid="2026-09"),
+    audience="grelmicro-api",
+    issuer="https://auth.example.com/",
 )
 
 

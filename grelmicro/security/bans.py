@@ -31,14 +31,18 @@ Read more in the [JWT](../security/jwt.md) docs.
 
 from __future__ import annotations
 
-from collections import deque
+import asyncio
+import threading
+from collections import OrderedDict
 from time import monotonic
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Self
 
 from pydantic import BaseModel, field_validator
 from typing_extensions import Doc
 
-from grelmicro.errors import GrelmicroError, SettingsValidationError
+from grelmicro._config import Reconfigurable, env_prefixes, resolve_config
+from grelmicro.errors import AdmissionError
+from grelmicro.security.jwt import TokenRejectedReason
 
 __all__ = [
     "ABUSIVE_REASONS",
@@ -47,37 +51,49 @@ __all__ = [
     "ClientBansConfig",
 ]
 
-ABUSIVE_REASONS: Final = frozenset({"algorithm", "malformed", "signature"})
+ABUSIVE_REASONS: Final[frozenset[TokenRejectedReason]] = frozenset(
+    {TokenRejectedReason.ALGORITHM, TokenRejectedReason.SIGNATURE}
+)
 """Rejection reasons that mean the caller is trying something, by default.
 
-These three say the token was never issued by anyone the service trusts: a
-signature that does not check out, an algorithm the verifier does not accept,
-or bytes that are not a token at all. Nothing a working client does produces
-them.
+These two say a token was built to pass as one the service trusts: a
+signature that does not check out, or an algorithm its key does not verify.
+Both cost a full verification to refuse, and nothing a working client does
+produces them.
 
 The reasons left out matter more than the ones kept. `unknown-key` is what
-every client sees for a moment when the provider rotates its signing keys, and
-counting it would ban a service's real users on every rotation. `expired` is a
-client whose token needs refreshing, which is ordinary. `not-yet-valid` is a
-clock that disagrees. `audience` and `issuer` are a token meant for a
+every client sees for a moment when the provider rotates its signing keys,
+and counting it would ban a service's real users on every rotation.
+`malformed` is refused for almost nothing, before any signature is checked,
+and a legitimate client presenting an opaque token lands there. `expired` is
+a client whose token needs refreshing, which is ordinary. `not-yet-valid` is
+a clock that disagrees. `audience` and `issuer` are a token meant for a
 neighbouring service, which is a misrouted client rather than an attacker.
 """
 
 
-class ClientBannedError(GrelmicroError, RuntimeError):
+class ClientBannedError(AdmissionError, RuntimeError):
     """The caller is banned, so its token was not looked at.
 
     Distinct from `TokenRejectedError` because it says nothing about the
     token. Answer it with `429`, not `401`: the caller is being refused for
     what it did before this request, and a fresh token would not change it.
+    `retry_after` says how long the ban has left.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        retry_after: Annotated[
+            float, Doc("Seconds the ban has left, `0.0` when not known.")
+        ] = 0.0,
+    ) -> None:
         """Initialize the error."""
+        self.retry_after = retry_after
         super().__init__("Too many rejected tokens from this client.")
 
 
-class ClientBansConfig(BaseModel):
+class ClientBansConfig(BaseModel, frozen=True):
     """When a client is refused, and for how long."""
 
     failures: Annotated[
@@ -124,19 +140,24 @@ class ClientBansConfig(BaseModel):
         return value
 
 
-class ClientBans:
+class ClientBans(Reconfigurable[ClientBansConfig]):
     """Tracks failing clients and refuses the ones that keep failing.
 
     `banned` is the only call on the request path and does one dictionary
     lookup. `record` runs when a token was already refused, so it is never on
     the path of a request that succeeds.
 
+    Built with keywords, it also reads `GREL_CLIENTBANS_`, or
+    `GREL_CLIENTBANS_{NAME}_` for a named table, once `GREL_ENV_LOAD` is set.
+    Every setting can change while the service runs: a ban only ever costs
+    capacity, never trust.
+
     Example:
         ```python
         bans = ClientBans()
 
         if bans.banned(client_ip):
-            raise HTTPException(status_code=429)
+            raise ClientBannedError(retry_after=bans.banned_for(client_ip))
 
         try:
             claims = verifier.verify_header(authorization)
@@ -148,29 +169,117 @@ class ClientBans:
 
     def __init__(
         self,
-        config: Annotated[
-            ClientBansConfig | None, Doc("When to ban, and for how long.")
+        *,
+        failures: Annotated[
+            int | None,
+            Doc("Failures inside `window` before the client is banned."),
         ] = None,
+        window: Annotated[
+            float | None,
+            Doc("Seconds over which failures are counted."),
+        ] = None,
+        duration: Annotated[
+            float | None,
+            Doc("Seconds a ban lasts. Keep it short: addresses are shared."),
+        ] = None,
+        max_clients: Annotated[
+            int | None,
+            Doc("Addresses tracked at once."),
+        ] = None,
+        reasons: Annotated[
+            frozenset[str] | None,
+            Doc("Rejection reasons that count. Defaults to `ABUSIVE_REASONS`."),
+        ] = None,
+        name: Annotated[
+            str,
+            Doc(
+                "Instance name, which is the environment namespace:"
+                " `GREL_CLIENTBANS_{NAME}_`. The default instance reads"
+                " `GREL_CLIENTBANS_`."
+            ),
+        ] = "default",
+        env_load: Annotated[
+            bool | None,
+            Doc(
+                "Whether to read environment variables. `None` follows the"
+                " process-wide `GREL_ENV_LOAD` flag."
+            ),
+        ] = None,
+    ) -> None:
+        """Initialize the table, which starts empty.
+
+        A setting left out is read from the environment, then takes the
+        default `ClientBansConfig` gives it.
+
+        Raises:
+            SettingsValidationError: If a setting is refused.
+        """
+        env_prefix, kind_prefix = env_prefixes("CLIENTBANS", name)
+        config = resolve_config(
+            ClientBansConfig,
+            explicit=None,
+            kwargs={
+                "failures": failures,
+                "window": window,
+                "duration": duration,
+                "max_clients": max_clients,
+            },
+            env_prefix=env_prefix,
+            kind_env_prefix=kind_prefix,
+            env_load=env_load,
+        )
+        self._setup(config, reasons=reasons)
+        self._track_reconfigure(env_prefix)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            ClientBansConfig, Doc("When to ban, and for how long.")
+        ],
         *,
         reasons: Annotated[
             frozenset[str] | None,
             Doc("Rejection reasons that count. Defaults to `ABUSIVE_REASONS`."),
         ] = None,
+    ) -> Self:
+        """Build the table from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no environment
+        variable is read, and the table is not registered for live reload.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(config, reasons=reasons)  # noqa: SLF001
+        return instance
+
+    def _setup(
+        self, config: ClientBansConfig, *, reasons: frozenset[str] | None
     ) -> None:
-        """Initialize the table, which starts empty."""
-        settings = config or ClientBansConfig()
-        self._failures = settings.failures
-        self._window = settings.window
-        self._duration = settings.duration
-        self._max_clients = settings.max_clients
+        """Hold the settings, and start an empty table."""
+        self._config = config
+        self._reconfigure_lock = asyncio.Lock()
+        self._take(config)
         self._reasons = ABUSIVE_REASONS if reasons is None else reasons
-        # `(window_started, count, banned_until)` per client. Kept beside a
-        # queue of the order clients were first seen, so making room never
-        # walks the table. Every operation on either is one the interpreter
-        # applies whole, so this is safe to share across a thread pool and
-        # under a free-threaded interpreter, with no lock on the read path.
-        self._clients: dict[str, tuple[float, int, float]] = {}
-        self._order: deque[str] = deque()
+        # `(window_started, count, banned_until)` per client, the least
+        # recently recorded first. Only a rejected token writes, and it writes
+        # under the lock, so a request that succeeds never takes it: `banned`
+        # stays one lookup, safe beside a writer on a thread pool and under a
+        # free-threaded interpreter.
+        self._clients: OrderedDict[str, tuple[float, int, float]] = (
+            OrderedDict()
+        )
+        self._lock = threading.Lock()
+
+    def _take(self, config: ClientBansConfig) -> None:
+        """Read the thresholds a request is judged against."""
+        self._failures = config.failures
+        self._window = config.window
+        self._duration = config.duration
+        self._max_clients = config.max_clients
+
+    async def _apply_reconfigure(self, new_config: ClientBansConfig) -> None:
+        """Take the new thresholds. Clients already tracked keep their counts."""
+        self._take(new_config)
 
     def banned(
         self,
@@ -186,6 +295,23 @@ class ClientBans:
         """
         seen = self._clients.get(client)
         return seen is not None and seen[2] > monotonic()
+
+    def banned_for(
+        self,
+        client: Annotated[
+            str,
+            Doc("The address a trusted proxy vouched for, never a raw header."),
+        ],
+    ) -> float:
+        """Return the seconds `client` stays refused, `0.0` when it is not.
+
+        Read once `banned` has said yes, to tell the caller when to come back,
+        so an honest request never pays for it.
+        """
+        seen = self._clients.get(client)
+        if seen is None:
+            return 0.0
+        return max(seen[2] - monotonic(), 0.0)
 
     def record(
         self,
@@ -204,55 +330,43 @@ class ClientBans:
         """
         if reason not in self._reasons:
             return False
-        now = monotonic()
-        seen = self._clients.get(client)
-        if seen is None or now - seen[0] >= self._window:
-            started, count = now, 1
-        else:
-            started, count = seen[0], seen[1] + 1
-        banned_until = now + self._duration if count >= self._failures else 0.0
-        if seen is not None:
-            banned_until = max(banned_until, seen[2])
-        self._make_room()
-        if client not in self._clients:
-            self._order.append(client)
-        self._clients[client] = (started, count, banned_until)
+        with self._lock:
+            now = monotonic()
+            clients = self._clients
+            seen = clients.get(client)
+            if seen is None or now - seen[0] >= self._window:
+                started, count = now, 1
+            else:
+                started, count = seen[0], seen[1] + 1
+            banned_until = (
+                now + self._duration if count >= self._failures else 0.0
+            )
+            if seen is not None and seen[2] > now:
+                banned_until = max(banned_until, seen[2])
+            if seen is None:
+                # Only an address not yet tracked makes room. Making it for
+                # one already tracked would let a client failing from a single
+                # address evict every other entry, bans included.
+                self._make_room()
+            clients[client] = (started, count, banned_until)
+            # The client just recorded goes last, so the one evicted to make
+            # room is always the one that failed longest ago.
+            clients.move_to_end(client)
         return banned_until > 0.0
 
     def forget(
         self, client: Annotated[str, Doc("The address to clear.")]
     ) -> None:
         """Drop everything remembered about `client`, ban included."""
-        self._clients.pop(client, None)
+        with self._lock:
+            self._clients.pop(client, None)
 
     def _make_room(self) -> None:
-        """Drop the oldest entries so the table stays bounded.
+        """Evict the least recently recorded clients so a new one fits.
 
-        Taken from the end the queue was written at, so nothing reads the
-        table while another thread is writing to it.
+        Called with the lock held, so no other writer changes the table
+        underneath it.
         """
         clients = self._clients
-        order = self._order
         while len(clients) >= self._max_clients:
-            try:
-                oldest = order.popleft()
-            except IndexError:
-                break
-            clients.pop(oldest, None)
-
-
-def _responsible_client(client: str | None) -> str:
-    """Return the address to hold responsible, refusing to guess.
-
-    A verifier that was given a ban table and then called without a client
-    would count nothing and refuse nobody, which reads as protection and is
-    not. Failing here is loud on the first request rather than quiet forever.
-    """
-    if not client:
-        msg = (
-            "client= is required once bans are configured, and must be an"
-            " address the caller cannot choose. Pass what"
-            " resolve_client_address returned."
-        )
-        raise SettingsValidationError(msg)
-    return client
+            clients.popitem(last=False)
