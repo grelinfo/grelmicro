@@ -2615,6 +2615,32 @@ class TestRouting:
 
         assert response.json() == {"up": True}
 
+    def test_an_app_mounted_under_litestar_matches_exclude_as_it_routes(
+        self,
+    ) -> None:
+        """Litestar hands the app `/public/`, which its own router reads whole."""
+        inner = FastAPI()
+
+        @inner.get("/public/")
+        async def private() -> dict[str, bool]:
+            return {"private": True}  # pragma: no cover
+
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(verifier(), exclude=("/public",)),
+            ]
+        ).install(inner)
+
+        @asgi("/sub", is_mount=True, copy_scope=False)
+        async def sub(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await inner(scope, receive, send)
+
+        with LitestarTestClient(Litestar(route_handlers=[sub])) as client:
+            response = client.get("/sub/public")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
     def test_a_public_litestar_mount_serves_every_path_under_it(self) -> None:
         """`opt=Anonymous()` on a mounted ASGI handler covers what it answers."""
 

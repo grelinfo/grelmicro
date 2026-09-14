@@ -880,6 +880,24 @@ def test_the_route_path_is_read_as_litestar_routes_it(
     path: str, root_path: str, expected: str
 ) -> None:
     """Litestar takes the root path off where it first appears, and normalizes either way."""
-    scope = {"path": path, "root_path": root_path, "litestar_app": object()}
+    app = object()
+    scope = {
+        "path": path,
+        "root_path": root_path,
+        "app": app,
+        "litestar_app": app,
+    }
 
     assert route_path(scope) == expected
+
+
+def test_an_app_mounted_under_litestar_is_read_by_its_own_router() -> None:
+    """Litestar's key stays in the scope, and the app that set `app` routes."""
+    scope = {
+        "path": "/public/",
+        "root_path": "/sub",
+        "app": object(),
+        "litestar_app": object(),
+    }
+
+    assert route_path(scope) == "/public/"

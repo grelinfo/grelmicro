@@ -258,10 +258,15 @@ def route_path(
     `root_path` of `/api` leaves `/apikeys` alone and shortens `/api/keys`,
     and a path equal to it reads as empty. Litestar takes it off where it
     first appears, and normalizes the path whether it had one or not.
+
+    The router is the one of the app in `scope["app"]`, which each framework
+    sets to itself. Litestar's own key stays in the scope of an app mounted
+    under it, so it names Litestar's router only when it is that same app.
     """
     path = _scope_text(scope["path"])
     root = _scope_text(scope.get("root_path", ""))
-    if "litestar_app" in scope:
+    litestar = scope.get("litestar_app")
+    if litestar is not None and litestar is scope.get("app"):
         routed = path.split(root, maxsplit=1)[-1] if root else path
         return _litestar_normalize()(routed)
     return starlette_route_path(path, root)
