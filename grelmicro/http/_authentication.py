@@ -1193,8 +1193,8 @@ def _bearer_token(scope: Scope) -> str:
 
     Raises:
         AmbiguousCredentialsError: If it carries more than one credential.
-        AuthenticationRequiredError: If it carries none, or one in another
-            scheme.
+        AuthenticationRequiredError: If it carries none, one in another
+            scheme, or the bearer scheme with no token behind it.
     """
     credentials = [
         value for name, value in scope["headers"] if name == b"authorization"
@@ -1203,8 +1203,10 @@ def _bearer_token(scope: Scope) -> str:
         raise AmbiguousCredentialsError
     if not credentials:
         raise AuthenticationRequiredError
-    scheme, _, token = credentials[0].decode("latin-1").partition(" ")
-    if scheme.lower() != _BEARER:
+    scheme, _, rest = credentials[0].decode("latin-1").partition(" ")
+    # RFC 7235 allows one or more spaces between the scheme and the token.
+    token = rest.lstrip(" ")
+    if scheme.lower() != _BEARER or not token:
         raise AuthenticationRequiredError
     return token
 

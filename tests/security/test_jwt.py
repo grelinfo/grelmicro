@@ -582,7 +582,16 @@ class TestAuthorizationHeader:
 
     @pytest.mark.parametrize(
         "header",
-        [None, "", "Basic abc", "Bearer", "BearerX token", "Bearer\ttoken"],
+        [
+            None,
+            "",
+            "Basic abc",
+            "Bearer",
+            "Bearer ",
+            "Bearer   ",
+            "BearerX token",
+            "Bearer\ttoken",
+        ],
     )
     def test_anything_else_is_rejected(self, header: str | None) -> None:
         """Only `Bearer <token>` carries a token."""
@@ -590,6 +599,10 @@ class TestAuthorizationHeader:
             build().verify_header(header)
 
         assert caught.value.reason == "scheme"
+
+    def test_several_spaces_after_the_scheme_are_accepted(self) -> None:
+        """RFC 7235 allows one or more spaces between the scheme and the token."""
+        assert build().verify_header(f"Bearer   {issue()}").subject
 
 
 class TestUnverifiedHeader:

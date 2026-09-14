@@ -264,6 +264,30 @@ class TestCredential:
         assert response.status_code == HTTP_401_UNAUTHORIZED
         assert response.headers["www-authenticate"] == "Bearer"
 
+    @pytest.mark.parametrize("header", ["Bearer", "Bearer ", "Bearer   "])
+    def test_a_bearer_scheme_with_no_token_is_asked_for_one(
+        self, header: str
+    ) -> None:
+        """No token behind the scheme is no credential at all."""
+        client = TestClient(app_with(AuthenticatedRequests(verifier())))
+
+        response = client.get("/whoami", headers={"authorization": header})
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.headers["www-authenticate"] == "Bearer"
+
+    def test_spaces_between_the_scheme_and_the_token_are_accepted(
+        self,
+    ) -> None:
+        """RFC 7235 allows one or more spaces after the scheme."""
+        client = TestClient(app_with(AuthenticatedRequests(verifier())))
+
+        response = client.get(
+            "/whoami", headers={"authorization": f"Bearer   {token()}"}
+        )
+
+        assert response.status_code == HTTP_200_OK
+
     def test_the_scheme_is_read_without_regard_to_case(self) -> None:
         """RFC 7235 makes the scheme name case-insensitive."""
         client = TestClient(app_with(AuthenticatedRequests(verifier())))

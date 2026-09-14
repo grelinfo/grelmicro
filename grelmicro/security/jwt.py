@@ -1944,15 +1944,21 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
     ) -> JWTClaims:
         """Return the claims of the bearer token in `header`.
 
-        The scheme is matched without regard to case, as RFC 7235 asks.
+        The scheme is matched without regard to case, and the token read
+        behind one or more spaces, as RFC 7235 asks.
 
         Raises:
             TokenRejectedError: With `scheme` when `header` carries no bearer
                 token, or with the reason the token itself failed.
         """
-        if not header or header[:_BEARER_LENGTH].lower() != _BEARER_LOWER:
+        token = (header or "")[_BEARER_LENGTH:].lstrip(" ")
+        if (
+            not header
+            or header[:_BEARER_LENGTH].lower() != _BEARER_LOWER
+            or not token
+        ):
             raise TokenRejectedError(TokenRejectedReason.SCHEME)
-        return self.verify(header[_BEARER_LENGTH:])
+        return self.verify(token)
 
     def _store(
         self, keys: _KeySet, key: str | bytes, claims: JWTClaims
