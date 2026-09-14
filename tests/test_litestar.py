@@ -15,9 +15,11 @@ from litestar.status_codes import (
 from litestar.testing import AsyncTestClient
 
 from grelmicro import Grelmicro, GrelmicroMiddleware
+from grelmicro.http import CachedResponses, ErrorResponses, RateLimitedRequests
 from grelmicro.integrations.litestar import is_bound
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.security import TrustedProxies
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -124,3 +126,30 @@ async def test_shutdown_before_startup_does_not_raise() -> None:
 
     close = cast("Callable[[], Awaitable[None]]", app.on_shutdown[0])
     await close()
+
+
+def test_answering_middleware_nests_in_registration_order() -> None:
+    """The first one registered answers first, as it does on Starlette."""
+    limiter = RateLimiter.sliding_window(
+        "burst", limit=10, window=60, backend=MemoryRateLimiterAdapter()
+    )
+    app = Litestar(route_handlers=[limited])
+    Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                limiter, trusted=TrustedProxies(["10.0.0.0/8"])
+            ),
+            CachedResponses(include=("/limited",)),
+        ]
+    ).install(app)
+
+    chain: list[str] = []
+    handler: object = app.asgi_handler
+    while handler is not None and handler is not app:
+        chain.append(type(handler).__name__)
+        handler = getattr(handler, "app", None)
+
+    assert chain.index("RateLimitMiddleware") < chain.index(
+        "CachedResponsesMiddleware"
+    )

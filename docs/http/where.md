@@ -1,9 +1,9 @@
 # Where a rule applies
 
-Five HTTP components act on requests: the response cache, conditional
-requests, idempotent requests, rate limiting, and the access log. Each one
-answers the same two questions. This page answers them once, so you learn it
-here and every page after this only lists its own fields.
+Six HTTP components act on requests: authentication, the response cache,
+conditional requests, idempotent requests, rate limiting, and the access log.
+Each one answers the same two questions. This page answers them once, so you
+learn it here and every page after this only lists its own fields.
 
 ## Two words, on all of them
 
@@ -24,6 +24,10 @@ micro = Grelmicro(
 can name a whole router and carve one route out of it without the two rules
 fighting.
 
+[Authentication](authentication.md) takes `exclude` alone. A mistyped `include`
+there would leave an endpoint public without a word, so every path is
+authenticated unless it is excluded or its route declares `Anonymous()`.
+
 A pattern is an exact path, unless it ends with `*`, which matches as a
 prefix. `"/payments/*"` covers everything under `/payments`, and `/payments`
 itself, which is how a router mounted there is written.
@@ -41,7 +45,7 @@ behind an ingress.
 
 ## The response cache says more per path
 
-The cache is the one of the five with something to say about each path, so
+The cache is the one of the six with something to say about each path, so
 its `include` also takes a mapping from pattern to seconds:
 
 ```python
@@ -102,7 +106,7 @@ because carving out a path this app does not serve is usually deliberate.
 ## Changing it without a restart
 
 A mounted ConfigMap tunes the response cache, the rate limiter and the
-access log while the service runs. What the other two do is settled at
+access log while the service runs. What the other three do is settled at
 startup, and the next section says why:
 
 ```yaml
@@ -137,14 +141,16 @@ running finishes on the configuration it started with.
 | `AccessLog` | nothing, it observes | live |
 | `ConditionalRequests` | the client's data, from a lost update | a deploy |
 | `IdempotentRequests` | the client's data, from a duplicate | a deploy |
+| `AuthenticatedRequests` | who is let in | a deploy |
 
 A cache miss runs the handler, so turning caching off costs time and nothing
 else. Take a path out of idempotency and the next retry runs the operation a
 second time, which for a payment is the outcome idempotency exists to
 prevent. Take one out of conditional requests and an unconditional write
-erases an update nobody is told about.
+erases an update nobody is told about. Take one out of authentication and
+anyone can call it.
 
-So those two are configured at startup, every field of them, and changed by
+So those three are configured at startup, every field of them, and changed by
 a deploy where they are reviewed. Not a chosen list of fields: every one of
 theirs turns out to protect something. Turn off `fingerprint_body` and a key
 reused with a different payload replays the first response. Lower
@@ -167,7 +173,7 @@ and `reused_status` move only with a deploy.
 `RateLimitedRequests` keeps its reach live, because its contract has a
 superset form: the schema documents the `429` on every operation, which stays
 true whichever paths are metered. A rule that says what a client *must send*
-has no superset form, which is why the other two are fixed.
+has no superset form, which is why the other three are fixed.
 
 A key a file may not change is reported, naming the variable, and every
 other key in the same file still applies.

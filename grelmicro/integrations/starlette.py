@@ -5,6 +5,8 @@ anything built from one. `grelmicro.integrations.fastapi` builds on it and
 adds what only FastAPI has, an OpenAPI schema and a health router.
 """
 
+import functools
+import inspect
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
@@ -12,7 +14,14 @@ from typing_extensions import Doc
 
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
+from grelmicro._wrapping import refuse_registered
+from grelmicro.errors import (
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    _scope_tokens,
+)
 from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http._authentication import AUTHENTICATED_MARKER
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 
 if TYPE_CHECKING:
@@ -38,6 +47,7 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 __all__ = [
+    "Authenticated",
     "error_response",
     "install",
     "install_error_responses",
@@ -221,6 +231,11 @@ def install_middleware(
     layer refuses is still seen. A component says which it is with
     `asgi_observes`.
 
+    One that authenticates, `AuthenticatedRequests`, goes first among the
+    ones that answer, whatever order it was registered in, so none of ours
+    serves a request that was never authenticated. It says so with
+    `asgi_authenticates`.
+
     Both run inside `GrelmicroMiddleware`, which stays outermost, so one
     that resolves a backend ambiently finds the app bound.
 
@@ -246,7 +261,11 @@ def install_middleware(
         if isinstance(entry.cls, type)
     }
     added = [
-        (Middleware(middleware, **options), _observes(component))
+        (
+            Middleware(middleware, **options),
+            _observes(component),
+            _authenticates(component),
+        )
         for component, (middleware, options) in (
             (component, component.asgi_middleware()) for component in components
         )
@@ -254,8 +273,19 @@ def install_middleware(
         # wanted, and a second would store, tag and answer twice.
         if middleware not in wired
     ]
-    watching = [entry for entry, observes in added if observes]
-    answering = [entry for entry, observes in added if not observes]
+    watching = [entry for entry, observes, _ in added if observes]
+    # Authentication goes first among the answering, whatever order it was
+    # registered in, so no middleware of ours answers a request that was
+    # never authenticated, a cached or replayed response included.
+    answering = [
+        entry
+        for entry, observes, authenticates in added
+        if not observes and authenticates
+    ] + [
+        entry
+        for entry, observes, authenticates in added
+        if not observes and not authenticates
+    ]
     # Answering middleware goes innermost, behind every middleware the app
     # added itself. One of ours that answers a request without calling the
     # app, such as an idempotent replay, must never be the reason a request
@@ -354,6 +384,11 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
     for klass in handled():
         if klass not in app.exception_handlers:
             app.add_exception_handler(klass, handler)
+
+
+def _authenticates(component: Any) -> bool:  # noqa: ANN401
+    """Return whether a component's middleware authenticates the request."""
+    return bool(getattr(component, "asgi_authenticates", False))
 
 
 def _observes(component: Any) -> bool:  # noqa: ANN401
@@ -610,4 +645,105 @@ def is_bound(
     return any(
         getattr(middleware, "cls", None) is GrelmicroMiddleware
         for middleware in getattr(app, "user_middleware", ())
+    )
+
+
+def Authenticated(  # noqa: N802
+    *,
+    scopes: Annotated[
+        "Sequence[str]",
+        Doc("Scopes the caller must hold, every one of them."),
+    ] = (),
+) -> "Callable[[Callable[..., Any]], Callable[..., Any]]":
+    """Require an authenticated caller holding every scope named.
+
+    A decorator for a Starlette endpoint: a function, sync or async, a
+    method of an `HTTPEndpoint`, or a websocket endpoint.
+
+    ```python
+    from grelmicro.integrations.starlette import Authenticated
+
+
+    @Authenticated(scopes=["orders:write"])
+    async def cancel(request: Request) -> JSONResponse: ...
+    ```
+
+    A caller with no credential is answered `401`, and one lacking a scope
+    `403`, each with a `WWW-Authenticate` challenge naming the scopes. It
+    needs a registered `AuthenticatedRequests`, which verifies the token
+    before the endpoint runs.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+
+    Raises:
+        TypeError: If `scopes` is a single string, or the endpoint takes no
+            `request` or `websocket` argument.
+        ValueError: If a scope is not an OAuth scope token.
+    """
+    own = _scope_tokens(scopes)
+
+    def decorate(endpoint: "Callable[..., Any]") -> "Callable[..., Any]":
+        refuse_registered(endpoint, "@Authenticated")
+        name, position = _connection_argument(endpoint)
+        # Stacked on another `@Authenticated`, it requires the scopes of both.
+        inner = getattr(endpoint, AUTHENTICATED_MARKER, ())
+        required = tuple(dict.fromkeys((*own, *inner)))
+
+        def check(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+            connection = kwargs[name] if name in kwargs else args[position]
+            caller = connection.scope.get("user")
+            if caller is None or not getattr(caller, "is_authenticated", False):
+                raise AuthenticationRequiredError(scopes=required)
+            if not set(required) <= set(getattr(caller, "scopes", ())):
+                raise InsufficientScopeError(scopes=required)
+
+        if _is_async(endpoint):
+
+            @functools.wraps(endpoint)
+            async def asynchronous(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+                check(args, kwargs)
+                return await endpoint(*args, **kwargs)
+
+            wrapper: Callable[..., Any] = asynchronous
+        else:
+
+            @functools.wraps(endpoint)
+            def synchronous(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+                check(args, kwargs)
+                return endpoint(*args, **kwargs)
+
+            wrapper = synchronous
+        setattr(wrapper, AUTHENTICATED_MARKER, required)
+        return wrapper
+
+    return decorate
+
+
+def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:
+    """Return the name and position of the argument the connection arrives in.
+
+    Raises:
+        TypeError: If the endpoint takes neither a `request` nor a
+            `websocket` argument.
+    """
+    parameters = inspect.signature(endpoint).parameters.values()
+    for position, parameter in enumerate(parameters):
+        if parameter.name in {"request", "websocket"}:
+            return parameter.name, position
+    msg = (
+        f"Authenticated() decorates an endpoint taking a request or a "
+        f"websocket argument, and {getattr(endpoint, '__qualname__', endpoint)!s} takes neither."
+    )
+    raise TypeError(msg)
+
+
+def _is_async(endpoint: "Callable[..., Any]") -> bool:
+    """Return whether calling the endpoint returns a coroutine.
+
+    A function declared `async`, or an object whose `__call__` is, which
+    Starlette awaits the same way.
+    """
+    call = getattr(endpoint, "__call__", None)  # noqa: B004
+    return inspect.iscoroutinefunction(endpoint) or inspect.iscoroutinefunction(
+        call
     )

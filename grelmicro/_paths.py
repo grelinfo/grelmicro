@@ -6,6 +6,9 @@ once: `include` narrows, `exclude` carves out, and `exclude` wins.
 
 from __future__ import annotations
 
+import functools
+import itertools
+import re
 from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -13,7 +16,7 @@ from pydantic import BeforeValidator
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
-    from collections.abc import MutableMapping
+    from collections.abc import Callable, MutableMapping
     from re import Pattern
 
 __all__ = [
@@ -25,6 +28,9 @@ __all__ = [
     "MethodNames",
     "PathPatterns",
     "as_patterns",
+    "compile_mount",
+    "compile_route",
+    "holds_control_character",
     "matches",
     "names_route",
     "refuse_bare_method",
@@ -32,6 +38,7 @@ __all__ = [
     "refuse_bare_string",
     "route_path",
     "selects",
+    "starlette_route_path",
     "walk_routes",
 ]
 
@@ -170,12 +177,74 @@ _MAX_PORT = 65535
 """Largest valid TCP port."""
 
 
+_ROUTE_PARAMETER = re.compile(
+    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(:[a-zA-Z_][a-zA-Z0-9_]*)?\}"
+)
+"""A path parameter in a Starlette route's path, with its optional converter."""
+
+
+def compile_route(
+    template: Annotated[
+        str, Doc("A route's path, joined with every mount path above it.")
+    ],
+) -> Pattern[str]:
+    """Return the regex Starlette matches this path with.
+
+    Starlette compiles a mount and each route under it apart, so the two may
+    name the same parameter. Each parameter is given a name of its own before
+    the joined path is compiled, which changes no URL it matches.
+    """
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    compiled, _, _ = compile_path(_renamed(template))
+    return compiled
+
+
+def compile_mount(
+    template: Annotated[str, Doc("A mount's own path, as it was declared.")],
+) -> Pattern[str]:
+    """Return the regex Starlette matches a mount's path with.
+
+    What follows the mount's path is captured as `path`, which is the path
+    the mount hands the routes under it.
+    """
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    compiled, _, _ = compile_path(f"{_renamed(template)}/{{path:path}}")
+    return compiled
+
+
+def _renamed(template: str) -> str:
+    """Return the template with each parameter given a name of its own."""
+    names = itertools.count()
+    return _ROUTE_PARAMETER.sub(
+        lambda match: f"{{p{next(names)}{match.group(2) or ''}}}", template
+    )
+
+
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
+"""A character no route is declared with, though a URL can decode to one."""
+
+
+def holds_control_character(
+    path: Annotated[str, Doc("The path the request is asking for.")],
+) -> bool:
+    """Return whether the path holds a control character, such as a newline.
+
+    Starlette matches a route with `$`, which also matches before a final
+    newline, so `/users/me` followed by a newline reaches the route declared
+    `/users/me`. A check keyed on the declared path misses that spelling, so
+    a guard that must not be bypassed treats such a path as its own case.
+    """
+    return _CONTROL_CHARACTER.search(path) is not None
+
+
 def route_path(
     scope: Annotated[
         MutableMapping[str, Any], Doc("The ASGI scope of the request.")
     ],
 ) -> str:
-    """Return the path the app declares its routes under.
+    """Return the path the app's router matches the request with.
 
     `scope["path"]` carries the prefix a mount or a proxy adds, and
     `root_path` carries that prefix, so what is left is the path the route
@@ -183,19 +252,81 @@ def route_path(
     the root, mounted under another app, or behind a proxy, and the same
     as the path the OpenAPI schema publishes.
 
-    Only a whole segment is a prefix, so a `root_path` of `/api` leaves
-    `/apikeys` alone and shortens `/api/keys`. An app answering at its
-    prefix reads as `/`, which is the route it declares.
+    It is read exactly the way the framework's router reads it, because a
+    check made against any other path checks a route other than the one
+    that answers. Starlette takes `root_path` off whole and as given, so a
+    `root_path` of `/api` leaves `/apikeys` alone and shortens `/api/keys`,
+    and a path equal to it reads as empty. Litestar takes it off where it
+    first appears, and normalizes the path whether it had one or not.
+
+    The router is the one of the app in `scope["app"]`, which each framework
+    sets to itself. Litestar's own key stays in the scope of an app mounted
+    under it, so it names Litestar's router only when it is that same app.
+
+    Middleware Litestar runs behind its router reads the path the router
+    wrote back, which has the root path off already. A mount's is only what
+    is left inside the mount, so the mount's own path is joined back to it.
+
+    Raises:
+        RuntimeError: If Litestar routed the request to a mount its router
+            does not list, so the path the mount serves is unknown.
     """
     path = _scope_text(scope["path"])
-    root = _request_root_path(scope)
-    if not root or not path.startswith(root):
-        return path
-    if path == root:
-        return "/"
-    if path[len(root)] == "/":
-        return path[len(root) :]
+    root = _scope_text(scope.get("root_path", ""))
+    litestar = scope.get("litestar_app")
+    if litestar is None or litestar is not scope.get("app"):
+        return starlette_route_path(path, root)
+    handler = scope.get("route_handler")
+    if handler is None:
+        routed = path.split(root, maxsplit=1)[-1] if root else path
+        return _litestar_normalize()(routed)
+    if getattr(handler, "is_mount", False):
+        return _litestar_mounted_path(litestar, handler, path)
     return path
+
+
+def _litestar_mounted_path(app: Any, handler: Any, remaining: str) -> str:  # noqa: ANN401
+    """Return the path Litestar routed to a mount, the mount's own path included.
+
+    Raises:
+        RuntimeError: If the router lists no mount for the handler.
+    """
+    mounts = app.asgi_router._mount_routes  # noqa: SLF001
+    for mount, node in mounts.items():
+        if any(entry[1] is handler for entry in node.asgi_handlers.values()):
+            return _litestar_normalize()(f"{mount}{remaining}")
+    msg = (
+        "Litestar routed the request to a mount its router does not list, "
+        "so the path it serves is unknown."
+    )
+    raise RuntimeError(msg)
+
+
+def starlette_route_path(
+    path: Annotated[str, Doc("The request path, prefix included.")],
+    root_path: Annotated[str, Doc("The prefix a mount or a proxy added.")],
+) -> str:
+    """Return the path Starlette's router matches, as it reads it.
+
+    The root path is taken off whole and as given, only where the path
+    starts with it at a segment boundary, and a path equal to it reads as
+    empty. A path that does not start with it is read whole.
+    """
+    if not root_path or not path.startswith(root_path):
+        return path
+    if path == root_path:
+        return ""
+    if path[len(root_path)] == "/":
+        return path[len(root_path) :]
+    return path
+
+
+@functools.cache
+def _litestar_normalize() -> Callable[[str], str]:
+    """Return how Litestar normalizes a path, looked up once."""
+    from litestar.utils import normalize_path  # noqa: PLC0415
+
+    return normalize_path
 
 
 def _scope_text(value: str | bytes) -> str:

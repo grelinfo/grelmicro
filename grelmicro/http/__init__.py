@@ -28,6 +28,11 @@ Read more in the [Error Responses](../http/errors.md) and [Idempotency
 Middleware](../http/idempotency.md) docs.
 """
 
+from grelmicro.http._authentication import (
+    AuthenticatedRequests,
+    AuthenticatedRequestsConfig,
+    AuthenticatedRequestsMiddleware,
+)
 from grelmicro.http._component import (
     ErrorResponses,
     RenderedError,
@@ -75,6 +80,9 @@ from grelmicro.http.errors import (
 __all__ = [
     "ERROR_DOCS_BASE",
     "PROBLEM_MEDIA_TYPE",
+    "AuthenticatedRequests",
+    "AuthenticatedRequestsConfig",
+    "AuthenticatedRequestsMiddleware",
     "CachedResponses",
     "CachedResponsesConfig",
     "CachedResponsesMiddleware",

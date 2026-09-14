@@ -17,6 +17,16 @@ try:
     from fastapi import Header as _Header
     from fastapi import Request as _Request
     from fastapi import Response as _Response
+    from fastapi import Security as _Security
+
+    # Read at runtime: FastAPI resolves the quoted annotation through this
+    # module's globals when it builds the dependency.
+    from fastapi.requests import (
+        HTTPConnection as _HTTPConnection,  # noqa: TC002
+    )
+    from fastapi.security import (
+        SecurityScopes as _SecurityScopes,  # noqa: TC002
+    )
 
     HAS_FASTAPI = True
 except ImportError:  # pragma: no cover - the reimport test walks this
@@ -29,6 +39,11 @@ from typing_extensions import Doc
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
 from grelmicro._paths import selects, walk_routes
+from grelmicro.errors import (
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    _scope_tokens,
+)
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._endpoints import (
     JSON_MEDIA_TYPE,
@@ -44,6 +59,13 @@ from grelmicro.http import (
     PreconditionRequiredError,
     ProblemDetail,
     check_freshness,
+)
+from grelmicro.http._authentication import (
+    AUTHENTICATED_MARKER,
+    AuthenticatedRequestsMiddleware,
+    declare_anonymous,
+    document_operations,
+    operation_authentication,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
@@ -71,6 +93,8 @@ from grelmicro.integrations.starlette import (
     install_middleware as _install_middleware_starlette,
 )
 from grelmicro.resilience.errors import RateLimitExceededError
+from grelmicro.security.jwt import JWTClaims
+from grelmicro.security.principal import Principal
 
 if TYPE_CHECKING:
     import inspect
@@ -86,13 +110,19 @@ if TYPE_CHECKING:
     from grelmicro.trace._component import Trace
 
 __all__ = [
+    "Anonymous",
+    "Authenticated",
     "CachedResponse",
     "CheckResultResponse",
+    "Claims",
     "Conditional",
     "ConditionalRequest",
     "ConditionalRequired",
+    "CurrentPrincipal",
     "HealthzResponse",
+    "OptionalPrincipal",
     "RateLimited",
+    "document_authenticated_requests",
     "document_conditional_requests",
     "document_idempotency",
     "document_rate_limited_requests",
@@ -379,6 +409,208 @@ def CachedResponse(  # noqa: N802
 
         raise DependencyNotFoundError(module="fastapi")
     return _Depends(declare_cached(ttl))
+
+
+async def _current_principal(
+    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+) -> Any:  # noqa: ANN401
+    """Return the caller, holding every scope a `Security` around it names."""
+    return await _authenticated(connection, security_scopes)
+
+
+async def _current_claims(
+    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+) -> Any:  # noqa: ANN401
+    """Return the verified JWT claims of the caller.
+
+    Raises:
+        AuthenticationRequiredError: If the request carried no credential.
+        InsufficientScopeError: If the caller lacks a scope a `Security`
+            around it names.
+        TypeError: If the caller was authenticated by something other than
+            a JWT, which is a route asking for what its verifier never
+            produces.
+    """
+    caller = await _authenticated(connection, security_scopes)
+    if not isinstance(caller, JWTClaims):
+        msg = (
+            f"Claims reads a caller authenticated by a JWT, and this one is "
+            f"a {type(caller).__name__}. Read CurrentPrincipal instead."
+        )
+        raise TypeError(msg)
+    return caller
+
+
+async def _optional_principal(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
+    """Return the authenticated caller, or `None` for a request that sent no token."""
+    caller = connection.scope.get("user")
+    return caller if getattr(caller, "is_authenticated", False) else None
+
+
+async def _authenticated(
+    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+) -> Any:  # noqa: ANN401
+    """Return the caller, holding every scope this declaration names."""
+    required = tuple(security_scopes.scopes)
+    caller = connection.scope.get("user")
+    if caller is None or not getattr(caller, "is_authenticated", False):
+        raise AuthenticationRequiredError(scopes=required)
+    if not set(required) <= set(getattr(caller, "scopes", ())):
+        raise InsufficientScopeError(scopes=required)
+    return caller
+
+
+setattr(_authenticated, AUTHENTICATED_MARKER, True)
+setattr(_current_principal, AUTHENTICATED_MARKER, True)
+setattr(_current_claims, AUTHENTICATED_MARKER, True)
+
+
+CurrentPrincipal = Annotated[
+    Principal, _Depends(_current_principal) if HAS_FASTAPI else None
+]
+"""The authenticated caller, whatever proved who it is.
+
+```python
+from grelmicro.integrations.fastapi import CurrentPrincipal
+
+
+@app.get("/orders")
+async def list_orders(principal: CurrentPrincipal) -> list[Order]:
+    return await orders_of(principal.issuer, principal.subject)
+```
+
+A request that reached the route without a credential is answered `401`.
+Read inside `Security(..., scopes=[...])`, it requires those scopes too,
+and a caller lacking one is answered `403`. It needs a registered
+`AuthenticatedRequests`, which verifies the token before the route runs.
+"""
+
+Claims = Annotated[
+    JWTClaims, _Depends(_current_claims) if HAS_FASTAPI else None
+]
+"""The verified JWT claims of the caller, typed.
+
+```python
+from grelmicro.integrations.fastapi import Claims
+
+
+@app.get("/me")
+async def me(claims: Claims) -> dict[str, str]:
+    return {"tenant": claims.claims["tenant"]}
+```
+
+Read `CurrentPrincipal` instead in a handler that should not care how the
+caller was authenticated.
+"""
+
+OptionalPrincipal = Annotated[
+    Principal | None, _Depends(_optional_principal) if HAS_FASTAPI else None
+]
+"""The caller when the request sent a valid token, and `None` when it sent none.
+
+```python
+from grelmicro.integrations.fastapi import Anonymous, OptionalPrincipal
+
+
+@app.get("/catalog", dependencies=[Anonymous()])
+async def catalog(principal: OptionalPrincipal) -> list[Product]:
+    if principal is None:
+        return await public_catalog()
+    return await catalog_for(principal.subject)
+```
+
+Read on a route declaring `Anonymous()`, where a credential is optional. A
+token that does not verify never reaches it: the request is answered `401`.
+"""
+
+
+def Authenticated(  # noqa: N802
+    *,
+    scopes: Annotated[
+        "Sequence[str]",
+        Doc(
+            "Scopes the caller must hold, every one of them. Declared on "
+            "a router and on its route, each applies its own."
+        ),
+    ] = (),
+) -> Any:  # noqa: ANN401
+    """Require an authenticated caller holding every scope named.
+
+    ```python
+    from grelmicro.integrations.fastapi import Authenticated
+
+
+    @app.delete(
+        "/orders/{order_id}",
+        dependencies=[Authenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: int) -> None: ...
+    ```
+
+    Built on `fastapi.Security`, so the scopes reach `SecurityScopes`, and
+    a handler can take the caller from it:
+
+    ```python
+    @app.get("/orders")
+    async def list_orders(
+        principal: Annotated[Principal, Authenticated(scopes=["orders:read"])],
+    ) -> list[Order]: ...
+    ```
+
+    A caller with no credential is answered `401`, and one lacking a scope
+    `403`, each with a `WWW-Authenticate` challenge naming the scopes.
+
+    It needs a registered `AuthenticatedRequests`, which verifies the token
+    before the route runs. Without one, every call is answered `401`.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+
+    Raises:
+        TypeError: If `scopes` is a single string.
+        ValueError: If a scope is not an OAuth scope token.
+    """
+    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
+        from grelmicro.errors import (  # noqa: PLC0415
+            DependencyNotFoundError,
+        )
+
+        raise DependencyNotFoundError(module="fastapi")
+    return _Security(_authenticated, scopes=list(_scope_tokens(scopes)))
+
+
+def Anonymous() -> Any:  # noqa: N802, ANN401
+    """Serve this route without a credential.
+
+    Every route is authenticated once `AuthenticatedRequests` is registered.
+    Declare this on the one that is public:
+
+    ```python
+    from grelmicro.integrations.fastapi import Anonymous
+
+
+    @app.get("/catalog", dependencies=[Anonymous()])
+    async def catalog() -> list[Product]: ...
+    ```
+
+    `micro.install(app)` reads it off the dependency tree, and the app is
+    read again when it starts. It applies per method, so a path serving a
+    public read keeps its writes authenticated. A URL another route without
+    it could also answer stays authenticated, whichever route would serve it,
+    so a declaration never opens a route it was not written on. A credential
+    is optional there. A request sending none is served with a caller that is
+    not authenticated, and a bearer token that is sent is verified, so a valid
+    one hands the route its caller through `OptionalPrincipal` and one that
+    does not verify is answered `401`.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+    """
+    if not HAS_FASTAPI:  # pragma: no cover - the reimport test walks this
+        from grelmicro.errors import (  # noqa: PLC0415
+            DependencyNotFoundError,
+        )
+
+        raise DependencyNotFoundError(module="fastapi")
+    return _Depends(declare_anonymous())
 
 
 def RateLimited(  # noqa: N802
@@ -755,6 +987,98 @@ def document_rate_limited_requests(
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     app.openapi_schema = None
+
+
+_HTTP_METHODS: Final = (
+    "get",
+    "put",
+    "post",
+    "delete",
+    "options",
+    "head",
+    "patch",
+    "trace",
+)
+"""Every method an OpenAPI path item can carry an operation under."""
+
+
+def document_authenticated_requests(
+    app: Annotated[
+        "FastAPI",
+        Doc("The app carrying an `AuthenticatedRequestsMiddleware`."),
+    ],
+) -> None:
+    """Describe the bearer token every covered operation needs, in the schema.
+
+    A middleware runs outside the routing layer, so nothing it does reaches
+    the generated schema. This publishes the security scheme, requires it
+    on every operation the middleware authenticates, with the scopes its
+    route declares through `Authenticated`, and adds the `401` it answers,
+    the `403` where scopes are required, and the `429` when `bans` is set.
+
+    A path in `exclude` stays without it. A route declaring `Anonymous()`
+    lists it as optional, with the `401` a token that does not verify gets,
+    when `micro.install(app)` added the middleware. One added by hand serves
+    public paths through `exclude` alone.
+    The scheme is `openIdConnect` for a verifier that found the issuer's
+    OpenID Connect discovery document, and `http` bearer otherwise.
+
+    Registering `AuthenticatedRequests(...)` calls this for you, so a direct
+    call is for a middleware added by hand. Pass `openapi=False` to the
+    component to leave the schema alone.
+
+    Raises:
+        DependencyNotFoundError: If `fastapi` is not installed.
+        TypeError: If `app` is not a `FastAPI` app, or carries no
+            `AuthenticatedRequestsMiddleware`.
+    """
+    _require_fastapi(app, "document_authenticated_requests")
+    options = _middleware_options(
+        app,
+        AuthenticatedRequestsMiddleware,
+        "document_authenticated_requests() found no "
+        "AuthenticatedRequestsMiddleware on the app. Add it with "
+        "app.add_middleware(AuthenticatedRequestsMiddleware) first.",
+    )
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        errors = getattr(app.state, "grelmicro_error_responses", None)
+        schema = original()
+        _annotate_authenticated(
+            schema,
+            app,
+            options,
+            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
+            ProblemDetail if errors is None else errors.model,
+        )
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.openapi_schema = None
+
+
+def _annotate_authenticated(
+    schema: dict[str, Any],
+    app: "FastAPI",
+    options: dict[str, Any],
+    media_type: str,
+    model: type[BaseModel],
+) -> None:
+    """Require the scheme on every covered operation, with its refusals."""
+    public, scopes = operation_authentication(
+        app, anonymous=options["public"] is not None
+    )
+    document_operations(
+        schema,
+        verifier=options["verifier"],
+        bans=options["bans"] is not None,
+        exclude=tuple(options["exclude"]),
+        public=public,
+        scopes=scopes,
+        media_type=media_type,
+        model=model,
+    )
 
 
 _RATE_LIMIT_HEADERS: Final = {

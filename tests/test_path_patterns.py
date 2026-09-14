@@ -34,6 +34,7 @@ from grelmicro._paths import (
     _watch_topology_node,
     matches,
     names_route,
+    route_path,
     walk_routes,
 )
 from grelmicro.errors import SettingsValidationError
@@ -843,3 +844,88 @@ def test_names_route_agrees_with_what_runs(
 
     # Assert
     assert named is runs
+
+
+@pytest.mark.parametrize(
+    ("path", "root_path", "expected"),
+    [
+        ("/api/keys", "/api", "/keys"),
+        ("/apikeys", "/api", "/apikeys"),
+        ("/api", "/api", ""),
+        ("/api/x", "/api/", "/api/x"),
+        ("/api/", "/api/", ""),
+        ("/other/x", "/api", "/other/x"),
+        ("/x", "", "/x"),
+    ],
+)
+def test_the_route_path_is_read_as_starlette_routes_it(
+    path: str, root_path: str, expected: str
+) -> None:
+    """A root path is taken off whole, exactly as given, as Starlette does."""
+    assert route_path({"path": path, "root_path": root_path}) == expected
+
+
+@pytest.mark.parametrize(
+    ("path", "root_path", "expected"),
+    [
+        ("/api/x/", "/api", "/x"),
+        ("/api//x", "/api", "/x"),
+        ("/v1/api/x", "/api", "/x"),
+        ("/api", "/api", "/"),
+        ("/livez/", "", "/livez"),
+        ("//orders//7", "", "/orders/7"),
+    ],
+)
+def test_the_route_path_is_read_as_litestar_routes_it(
+    path: str, root_path: str, expected: str
+) -> None:
+    """Litestar takes the root path off where it first appears, and normalizes either way."""
+    app = object()
+    scope = {
+        "path": path,
+        "root_path": root_path,
+        "app": app,
+        "litestar_app": app,
+    }
+
+    assert route_path(scope) == expected
+
+
+def test_a_path_litestar_routed_is_read_as_its_router_wrote_it() -> None:
+    """Behind routing, the root path is already off, so it is not taken off again."""
+    app = object()
+    scope = {
+        "path": "/files/v1/livez",
+        "root_path": "/v1",
+        "app": app,
+        "litestar_app": app,
+        "route_handler": SimpleNamespace(is_mount=False),
+    }
+
+    assert route_path(scope) == "/files/v1/livez"
+
+
+def test_a_litestar_mount_its_router_does_not_list_is_refused() -> None:
+    """Without the mount's own path, the path it serves is unknown."""
+    app = SimpleNamespace(asgi_router=SimpleNamespace(_mount_routes={}))
+    scope = {
+        "path": "/livez/",
+        "app": app,
+        "litestar_app": app,
+        "route_handler": SimpleNamespace(is_mount=True),
+    }
+
+    with pytest.raises(RuntimeError, match="mount"):
+        route_path(scope)
+
+
+def test_an_app_mounted_under_litestar_is_read_by_its_own_router() -> None:
+    """Litestar's key stays in the scope, and the app that set `app` routes."""
+    scope = {
+        "path": "/public/",
+        "root_path": "/sub",
+        "app": object(),
+        "litestar_app": object(),
+    }
+
+    assert route_path(scope) == "/public/"

@@ -51,11 +51,13 @@ from grelmicro._paths import (
     _scope_text,
     _wrapped_app,
     as_patterns,
+    compile_route,
     route_path,
     selects,
     walk_routes,
 )
 from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.http._authentication import is_anonymous_declaration
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
     _IN_FLIGHT_RETRY_AFTER,
@@ -234,7 +236,6 @@ class _GatedRoutes:
             self._authenticated = ()
             self._routes = ()
             return
-        from starlette.routing import compile_path  # noqa: PLC0415
 
         protected: list[tuple[str, re.Pattern[str], frozenset[str] | None]] = []
         for prefix, nested, methods in sorted(
@@ -245,7 +246,7 @@ class _GatedRoutes:
                 tuple(sorted(boundary[2] or ())),
             ),
         ):
-            exact, _, _ = compile_path(prefix or "/")
+            exact = compile_route(prefix or "/")
             protected.append((prefix or "/", exact, methods))
             if nested:
                 template = (
@@ -253,7 +254,7 @@ class _GatedRoutes:
                     if prefix
                     else "/{path:path}"
                 )
-                descendant, _, _ = compile_path(template)
+                descendant = compile_route(template)
                 protected.append((template, descendant, methods))
         self._authenticated = tuple(protected)
 
@@ -263,7 +264,7 @@ class _GatedRoutes:
                 root, unwrap_middleware=True
             ):
                 template = f"{prefix}{route.path}"
-                compiled, _, _ = compile_path(template)
+                compiled = compile_route(template)
                 methods = frozenset(
                     method.upper()
                     for method in (getattr(route, "methods", None) or ())
@@ -320,8 +321,12 @@ def _gate_path_matches(
     regex: re.Pattern[str],
     path: str,
 ) -> bool:
-    """Match runtime URLs and the route templates used by endpoint reports."""
-    return template == path or regex.fullmatch(path) is not None
+    """Match runtime URLs and the route templates used by endpoint reports.
+
+    A URL is matched as Starlette routes it, with `match` on the anchored
+    regex, whose `$` also matches before a final newline.
+    """
+    return template == path or regex.match(path) is not None
 
 
 def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:
@@ -508,12 +513,21 @@ def _authentication_paths(  # noqa: C901, PLR0915
 
 
 def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
-    """Return whether FastAPI runs dependencies before this route."""
+    """Return whether FastAPI runs dependencies before this route.
+
+    `Anonymous()` computes nothing, so a route declaring only that gates no
+    replay.
+    """
     dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
-    if getattr(dependency_tree, "dependencies", ()):
+    if any(
+        not is_anonymous_declaration(dependency.call)
+        for dependency in getattr(dependency_tree, "dependencies", ()) or ()
+    ):
         return True
     return any(
-        getattr(context, "dependencies", ()) or () for context in contexts
+        not is_anonymous_declaration(getattr(dependency, "dependency", None))
+        for context in contexts
+        for dependency in getattr(context, "dependencies", ()) or ()
     )
 
 

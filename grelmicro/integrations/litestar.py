@@ -8,8 +8,20 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 from typing_extensions import Doc
 
 from grelmicro._asgi import GrelmicroMiddleware
-from grelmicro.errors import MiddlewarePlacementWarning
+from grelmicro.errors import (
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    MiddlewarePlacementWarning,
+    _scope_tokens,
+)
 from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http._authentication import (
+    ANONYMOUS_OPT,
+    AUTHENTICATED_MARKER,
+    document_operations,
+    operation_authentication,
+    serves_anonymous_routes,
+)
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._openapi import add_error_schema
 
@@ -17,6 +29,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping, Sequence
 
     from litestar import Litestar, Request
+    from litestar.connection import ASGIConnection
+    from litestar.handlers.base import BaseRouteHandler
     from litestar.response import Response
 
     from grelmicro import Grelmicro
@@ -28,6 +42,8 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 __all__ = [
+    "Anonymous",
+    "Authenticated",
     "error_response",
     "install",
     "install_error_responses",
@@ -123,6 +139,10 @@ def install_middleware(
     handler with it. Registration order is wrapping order, so the first one
     registered is the outermost and answers first.
 
+    One that authenticates, `AuthenticatedRequests`, is wrapped outermost
+    among ours whatever order it was registered in, so none of ours serves
+    a request that was never authenticated.
+
     Each one is wrapped inside the binding, so a middleware that resolves a
     backend ambiently finds the app bound.
 
@@ -131,9 +151,22 @@ def install_middleware(
     components it found, so a direct call is only for an app that never goes
     through `install`.
     """
-    for component in components:
+    # Authentication first, whatever order it was registered in. Stable, so
+    # registration order holds among the rest.
+    ordered = sorted(
+        components, key=lambda component: not _authenticates(component)
+    )
+    for component in ordered:
         _answer_for(app, component)
-    for component in reversed(components):
+    # One that answers goes in underneath the ones already placed, so those
+    # are wrapped in order and the first answers first. One that only
+    # watches goes on top of everything, so those are wrapped in reverse for
+    # the first of them to end up outermost.
+    wrapping = [
+        *(component for component in ordered if not _observes(component)),
+        *reversed([component for component in ordered if _observes(component)]),
+    ]
+    for component in wrapping:
         middleware, options = component.asgi_middleware()
         if _already_wired(app, middleware):
             # The app passed it to `Litestar(middleware=...)`, which puts it
@@ -163,6 +196,97 @@ def install_middleware(
                     app,
                 ),
             )
+    for component in ordered:
+        if _authenticates(component):
+            # The public routes it serves without a credential. The rest of
+            # ours name their paths in `include=` on Litestar.
+            component.read_routes(app)
+            component.document_openapi(app)
+
+
+def Anonymous() -> dict[str, Any]:  # noqa: N802
+    """Serve this route without a credential.
+
+    Every route is authenticated once `AuthenticatedRequests` is registered.
+    Pass this as the handler's `opt` on the one that is public:
+
+    ```python
+    from litestar import get
+
+    from grelmicro.integrations.litestar import Anonymous
+
+
+    @get("/catalog", opt=Anonymous())
+    async def catalog() -> list[Product]: ...
+    ```
+
+    It is a mapping, so it merges with options of your own:
+    `opt={**Anonymous(), "tag": "public"}`. `micro.install(app)` reads it off
+    every handler, per method, so a public read keeps its writes
+    authenticated, and the app is read again when it starts.
+
+    A token sent to it is verified: a valid one is the caller in
+    `request.user`, and one that does not verify is answered `401`.
+
+    It is `{"exclude_from_auth": True}`, the key Litestar's own
+    authentication middleware reads, so a handler written for that one is
+    public here too.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+    """
+    return {ANONYMOUS_OPT: True}
+
+
+def Authenticated(  # noqa: N802
+    *,
+    scopes: Annotated[
+        Sequence[str],
+        Doc("Scopes the caller must hold, every one of them."),
+    ] = (),
+) -> Callable[[ASGIConnection, BaseRouteHandler], Awaitable[None]]:
+    """Require an authenticated caller holding every scope named.
+
+    A Litestar guard:
+
+    ```python
+    from litestar import delete
+
+    from grelmicro.integrations.litestar import Authenticated
+
+
+    @delete(
+        "/orders/{order_id:int}",
+        guards=[Authenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: int) -> None: ...
+    ```
+
+    A caller with no credential is answered `401`, and one lacking a scope
+    `403`, each with a `WWW-Authenticate` challenge naming the scopes. It
+    needs a registered `AuthenticatedRequests`, which verifies the token
+    before the handler runs.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+
+    Raises:
+        TypeError: If `scopes` is a single string.
+        ValueError: If a scope is not an OAuth scope token.
+    """
+    required = _scope_tokens(scopes)
+
+    async def authenticated(
+        connection: ASGIConnection,
+        handler: BaseRouteHandler,  # noqa: ARG001
+    ) -> None:
+        """Refuse a caller that is not authenticated or lacks a scope."""
+        caller = connection.scope.get("user")
+        if caller is None or not getattr(caller, "is_authenticated", False):
+            raise AuthenticationRequiredError(scopes=required)
+        if not set(required) <= set(getattr(caller, "scopes", ())):
+            raise InsufficientScopeError(scopes=required)
+
+    setattr(authenticated, AUTHENTICATED_MARKER, required)
+    return authenticated
 
 
 def _wrap_outside(
@@ -271,6 +395,11 @@ def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
 
 _MAX_CHAIN = 32
 """How far to walk a handler chain before calling it a cycle."""
+
+
+def _authenticates(component: Any) -> bool:  # noqa: ANN401
+    """Return whether a component's middleware authenticates the request."""
+    return bool(getattr(component, "asgi_authenticates", False))
 
 
 def _observes(component: Any) -> bool:  # noqa: ANN401
@@ -491,6 +620,41 @@ def _document_error_responses(app: Litestar, errors: ErrorResponses) -> None:
         _rewrite_error_responses(plugin.provide_openapi_schema(), errors)
 
     app.on_startup.append(rewrite)
+
+
+def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
+    """Describe the bearer token every covered operation needs, in the schema.
+
+    Runs on startup, as the error responses do, so a handler registered
+    after `install` is described too. A handler declaring `Anonymous()`
+    lists it as optional when `micro.install(app)` added the middleware, and
+    a path in `exclude` names none.
+    """
+
+    async def document() -> None:
+        from litestar._openapi.plugin import (  # noqa: PLC0415
+            OpenAPIPlugin,
+        )
+
+        if app.openapi_config is None:
+            return
+        registered = getattr(app.state, "grelmicro_error_responses", None)
+        errors = ErrorResponses() if registered is None else registered
+        public, scopes = operation_authentication(
+            app, anonymous=serves_anonymous_routes(app)
+        )
+        document_operations(
+            app.plugins.get(OpenAPIPlugin).provide_openapi_schema(),
+            verifier=options["verifier"],
+            bans=options["bans"] is not None,
+            exclude=tuple(options["exclude"]),
+            public=public,
+            scopes=scopes,
+            media_type=errors.media_type,
+            model=errors.model,
+        )
+
+    app.on_startup.append(document)
 
 
 def _rewrite_error_responses(

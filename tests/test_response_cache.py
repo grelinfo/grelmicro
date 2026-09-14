@@ -32,7 +32,7 @@ from starlette.authentication import (
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import StreamingResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route, Router
 
 from grelmicro import Grelmicro
@@ -4407,3 +4407,64 @@ def test_the_cache_it_stores_in_is_readable() -> None:
     # Assert
     assert component.cache is own
     assert component.name == "default"
+
+
+def test_a_parameter_a_mount_and_its_route_both_name_is_served() -> None:
+    """Starlette compiles a mount and its routes apart, and so does the cache."""
+
+    # Arrange
+    async def member(request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse(dict(request.path_params))
+
+    app = FastAPI()
+    app.mount("/orgs/{id}", Router(routes=[Route("/members/{id}", member)]))
+    app.state.calls = 0
+
+    @app.get("/reads", dependencies=[CachedResponse(ttl=TTL)])
+    async def reads() -> dict[str, int]:
+        app.state.calls += 1
+        return {"calls": app.state.calls}
+
+    Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()]).install(
+        app
+    )
+
+    # Act
+    with TestClient(app) as client:
+        found = client.get("/orgs/1/members/2")
+        first = client.get("/reads")
+        second = client.get("/reads")
+
+    # Assert
+    assert found.json() == {"id": "2"}
+    assert first.json() == second.json() == {"calls": 1}
+
+
+def test_a_trailing_newline_never_caches_a_gated_read() -> None:
+    """Starlette routes `/users/me` and a final newline to the gated route."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    app.state.calls = 0
+    key = APIKeyHeader(name="X-API-Key")
+
+    @app.get("/users/me", dependencies=[Security(key)])
+    async def me() -> dict[str, int]:
+        app.state.calls += 1
+        return {"calls": app.state.calls}
+
+    @app.get("/users/{uid}", dependencies=[CachedResponse(ttl=TTL)])
+    async def user(uid: str) -> dict[str, str]:
+        return {"user": uid}  # pragma: no cover
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        allowed = client.get("/users/me%0A", headers={"X-API-Key": "key"})
+        without_key = client.get("/users/me%0A")
+
+    # Assert
+    assert allowed.json() == {"calls": 1}
+    assert without_key.status_code != allowed.status_code
+    assert "age" not in without_key.headers

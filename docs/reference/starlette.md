@@ -15,6 +15,7 @@ calls `install` for you.
 ::: grelmicro.integrations.starlette
     options:
       members:
+        - Authenticated
         - install
         - install_error_responses
         - install_middleware

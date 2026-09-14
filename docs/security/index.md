@@ -44,4 +44,4 @@ client = resolve_client_address(request.scope, trusted)
 
 A microservice checks the request it was handed. It does not run the login. Everything in this module follows that line, which keeps the trust boundary in one place instead of spread across handlers.
 
-Next is authenticating requests in the HTTP layer with these verifiers, and discovering the key set from an OpenID Connect issuer. See the [roadmap](../roadmap.md) for the direction.
+To authenticate every request with a verifier, register [`AuthenticatedRequests`](../http/authentication.md). Next is publishing protected resource metadata. See the [roadmap](../roadmap.md) for the direction.

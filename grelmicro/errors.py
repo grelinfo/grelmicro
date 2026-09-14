@@ -1,7 +1,7 @@
 """Errors."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, ClassVar, cast, get_args
 
 from pydantic import ValidationError
@@ -167,6 +167,78 @@ class LockTimeoutError(WouldBlockError, TimeoutError):
         self.name = name
         self.timeout = timeout
         super().__init__(f"Lock '{name}' not acquired within {timeout}s")
+
+
+_SCOPE_TOKEN = re.compile(r"[\x21\x23-\x5b\x5d-\x7e]+")
+"""An OAuth scope token, RFC 6749 section 3.3.
+
+Printable ASCII with no space, no double quote and no backslash, which is
+also what lets a scope sit inside a quoted `WWW-Authenticate` parameter.
+"""
+
+
+def _scope_tokens(scopes: Sequence[str]) -> tuple[str, ...]:
+    """Return `scopes` as a tuple, refusing anything that is not a scope token.
+
+    A scope reaches the `WWW-Authenticate` header, so one carrying a quote
+    or a line break would end the header early. The names come from the
+    route that declared them, so they are checked where they are written.
+
+    Raises:
+        TypeError: If `scopes` is a single string, which would read as one
+            scope per character.
+        ValueError: If a scope is not an OAuth scope token.
+    """
+    if isinstance(scopes, str):
+        msg = "scopes takes a sequence of scope names, not a single string"
+        raise TypeError(msg)
+    tokens = tuple(scopes)
+    for token in tokens:
+        if not isinstance(token, str) or _SCOPE_TOKEN.fullmatch(token) is None:
+            msg = f"scope {token!r} is not an OAuth scope token"
+            raise ValueError(msg)
+    return tokens
+
+
+class AuthenticationRequiredError(GrelmicroError):
+    """Raised when a request that must be authenticated carries no credential.
+
+    No `Authorization` header, or one in another scheme such as `Basic`.
+    Answers `401` with a `Bearer` challenge, naming the scopes the route
+    needs when it declares any, as RFC 6750 asks.
+    """
+
+    def __init__(self, *, scopes: Sequence[str] = ()) -> None:
+        """Initialize the error with the scopes the route requires."""
+        self.scopes = _scope_tokens(scopes)
+        super().__init__("No credential was presented where one is required.")
+
+
+class AmbiguousCredentialsError(GrelmicroError):
+    """Raised when a request carries more than one credential.
+
+    Two `Authorization` headers, for example. Choosing one to believe is not
+    a decision a server should make for its caller, so neither is used.
+    Answers `400`.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the error."""
+        super().__init__("More than one credential was presented.")
+
+
+class InsufficientScopeError(GrelmicroError):
+    """Raised when an authenticated caller lacks a scope the request needs.
+
+    Answers `403`, never `401`: the caller is known, and a fresh token with
+    the same grants would get the same answer. The challenge names every
+    scope required, so a client can ask its authorization server for them.
+    """
+
+    def __init__(self, *, scopes: Sequence[str]) -> None:
+        """Initialize the error with the scopes the request requires."""
+        self.scopes = _scope_tokens(scopes)
+        super().__init__("The caller lacks a scope this request needs.")
 
 
 class OutOfContextError(GrelmicroError, RuntimeError):

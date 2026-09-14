@@ -161,6 +161,22 @@ Liveness, readiness, and aggregate endpoints for orchestrators and load balancer
 
 Pick a hand-rolled handler if you only need one boolean endpoint. Pick grelmicro when you want the orchestrator-grade triple (`/livez`, `/readyz`, `/healthz`) with concurrent execution, caching, and details gated by a FastAPI dependency.
 
+## Authentication
+
+Verify the bearer token a caller presents before any handler runs.
+
+| Axis | FastAPI `fastapi.security` | Starlette `AuthenticationMiddleware` | Litestar `JWTAuth` | grelmicro `AuthenticatedRequests` |
+|---|---|---|---|---|
+| Token verification | none, the dependency hands you the raw token | none, you write the backend | one key or secret you hold | JWKS, OpenID Connect or RFC 8414 discovery, keys rotated in the background |
+| What is authenticated | each route that declares it, or every route through the app's `dependencies=` with no way to open one | each route that declares `@requires` | every handler, opt out with `exclude` or `opt={"exclude_from_auth": True}` | every route, opt out with `exclude` or `Anonymous()` |
+| Unknown path without a token | `404` | `404` | `404` | `401`, so the routes cannot be listed |
+| Refusal | `401` with a bare `Bearer` challenge | `403` from `@requires`, `400` in plain text from the backend | `401`, no challenge | RFC 6750 challenge with `error` and `scope`, in the app's `ErrorResponses` format |
+| Scopes | `Security(scopes=...)`, checked by your code | `@requires("scope")` | a guard you write | `Authenticated(scopes=...)`, `403` naming the missing ones |
+| A caller that keeps forging | nothing | nothing | nothing | `bans=` answers `429` before verifying again |
+| OpenAPI | per route | none | one requirement for the whole app, excluded handlers included | per operation with its scopes, public routes left open, on FastAPI and Litestar |
+
+Pick Litestar's `JWTAuth` when the service holds its own signing key and maps each token to a user object with `retrieve_user_handler`. Pick grelmicro when tokens come from an identity provider that rotates its keys, or when you want the challenge, the scopes and the schema to follow each operation. On Litestar, `Anonymous()` is the same `exclude_from_auth` key, so handlers move between the two unchanged.
+
 ## What grelmicro is NOT
 
 A few categories the comparison page does not cover, because grelmicro does not compete in them:

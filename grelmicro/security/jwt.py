@@ -187,7 +187,7 @@ class TokenRejectedReason(StrEnum):
     """The token lacks a claim the policy requires."""
 
     NOT_YET_VALID = "not-yet-valid"
-    """The token is before its `nbf`."""
+    """The token is before its `nbf`, or claims an `iat` still to come."""
 
     SCHEME = "scheme"
     """The `Authorization` header carries no bearer token."""
@@ -432,7 +432,7 @@ class JWTPolicy(BaseModel, frozen=True):
     ] = Field(default_factory=list)
     leeway: Annotated[
         int,
-        Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+        Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
     ] = 0
     token_type: Annotated[
         Literal["at+jwt"] | None,
@@ -462,8 +462,8 @@ class JWTPolicy(BaseModel, frozen=True):
         NoDecode,
         BeforeValidator(parse_csv_or_json),
         Doc(
-            "Further claims that must be present. `exp` is always required"
-            " and does not need naming, and naming an `audience` or an"
+            "Further claims that must be present. `exp` and `sub` are always required"
+            " and do not need naming, and naming an `audience` or an"
             " `issuer` requires that claim too, so this only ever adds to"
             " what is enforced."
         ),
@@ -546,13 +546,14 @@ class JWTPolicy(BaseModel, frozen=True):
         provider whose tokens carry none, such as an AWS Cognito access
         token.
         """
-        # `exp` is seeded rather than defaulted, so naming any other claim
-        # adds to the policy instead of replacing it. Without this,
-        # `required=["tenant"]` would read as tightening the policy and
-        # would in fact drop the expiry check, and a token carrying no
-        # `exp` would then be accepted for as long as its key is published.
-        enforced = ["exp"]
-        enforced += [claim for claim in self.required if claim != "exp"]
+        # `exp` and `sub` are seeded rather than defaulted, so naming any
+        # other claim adds to the policy instead of replacing it. Without
+        # this, `required=["tenant"]` would read as tightening the policy and
+        # would in fact drop the expiry check, and a token carrying no `exp`
+        # would then be accepted for as long as its key is published. RFC
+        # 9068 requires `sub` of an access token, and a caller is keyed by it.
+        enforced = ["exp", "sub"]
+        enforced += [claim for claim in self.required if claim not in enforced]
         for claim, configured in (("aud", self.audience), ("iss", self.issuer)):
             if configured and claim not in enforced:
                 enforced.append(claim)
@@ -834,6 +835,40 @@ def _claims_of(raw: dict[str, Any], scope_claims: tuple[str, ...]) -> JWTClaims:
     )
 
 
+_STRING_CLAIMS: Final = ("jti",)
+"""Registered claims RFC 7519 makes strings, which the core leaves unchecked.
+
+`sub` is not one of them: it is always required, and the core refuses one
+that is not a string as a missing claim.
+"""
+
+
+def _check_registered(raw: dict[str, Any], leeway: int) -> None:
+    """Refuse a registered claim of the wrong type, or an `iat` still to come.
+
+    RFC 7519 makes `jti` a string and `iat` a number of seconds. A token
+    breaking that is refused the way the core refuses an `nbf` that is not
+    a number. An `iat` past now and the leeway is refused as not yet valid,
+    as an `nbf` there is.
+
+    Raises:
+        TokenRejectedError: With `malformed` for a `jti` that is not a
+            string, `invalid` for an `iat` that is not a number, and
+            `not-yet-valid` for an `iat` in the future.
+    """
+    for name in _STRING_CLAIMS:
+        value = raw.get(name)
+        if value is not None and not isinstance(value, str):
+            raise TokenRejectedError(TokenRejectedReason.MALFORMED)
+    issued = raw.get("iat")
+    if issued is None:
+        return
+    if isinstance(issued, bool) or not isinstance(issued, int | float):
+        raise TokenRejectedError(TokenRejectedReason.INVALID)
+    if issued > time() + leeway:
+        raise TokenRejectedError(TokenRejectedReason.NOT_YET_VALID)
+
+
 def _frozen(value: Any) -> Any:  # noqa: ANN401
     """Return `value` with every object and array in it made read-only.
 
@@ -1037,7 +1072,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         leeway: Annotated[
             int | None,
-            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+            Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
         ] = None,
         token_type: Annotated[
             Literal["at+jwt"] | None,
@@ -1160,7 +1195,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         leeway: Annotated[
             int | None,
-            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+            Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
         ] = None,
         token_type: Annotated[
             Literal["at+jwt"] | None,
@@ -1290,7 +1325,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         leeway: Annotated[
             int | None,
-            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+            Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
         ] = None,
         token_type: Annotated[
             Literal["at+jwt"] | None,
@@ -1570,6 +1605,15 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
     def ready(self) -> bool:
         """Whether a key set is loaded. Always true for keys held in code."""
         return self._keys is not None
+
+    @property
+    def metadata_url(self) -> str | None:
+        """The issuer metadata document discovery last read keys through.
+
+        `None` for a verifier that does not discover, and until its first
+        discovery succeeds.
+        """
+        return self._metadata_url
 
     @property
     def stale(self) -> bool:
@@ -1918,6 +1962,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 # put the provider on the request path.
                 self._wants_keys = True
             raise TokenRejectedError(reason) from None
+        _check_registered(raw, self._leeway)
         claims = _claims_of(raw, self._scope_claims)
         self._store(keys, key, claims)
         return claims
@@ -1935,15 +1980,21 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
     ) -> JWTClaims:
         """Return the claims of the bearer token in `header`.
 
-        The scheme is matched without regard to case, as RFC 7235 asks.
+        The scheme is matched without regard to case, and the token read
+        behind one or more spaces, as RFC 7235 asks.
 
         Raises:
             TokenRejectedError: With `scheme` when `header` carries no bearer
                 token, or with the reason the token itself failed.
         """
-        if not header or header[:_BEARER_LENGTH].lower() != _BEARER_LOWER:
+        token = (header or "")[_BEARER_LENGTH:].lstrip(" ")
+        if (
+            not header
+            or header[:_BEARER_LENGTH].lower() != _BEARER_LOWER
+            or not token
+        ):
             raise TokenRejectedError(TokenRejectedReason.SCHEME)
-        return self.verify(header[_BEARER_LENGTH:])
+        return self.verify(token)
 
     def _store(
         self, keys: _KeySet, key: str | bytes, claims: JWTClaims

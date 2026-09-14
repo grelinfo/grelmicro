@@ -180,7 +180,7 @@ def test_naming_a_claim_does_not_drop_the_expiry_requirement() -> None:
         required=["tenant"],
     )
 
-    assert policy.enforced_claims() == ["exp", "tenant", "aud"]
+    assert policy.enforced_claims() == ["exp", "sub", "tenant", "aud"]
 
     with pytest.raises(TokenRejectedError) as caught:
         JWTVerifier.from_config(policy).verify(issue(exp=None, tenant="acme"))
@@ -195,7 +195,7 @@ def test_an_empty_required_list_still_requires_an_expiry() -> None:
         required=[],
     )
 
-    assert policy.enforced_claims() == ["exp", "aud"]
+    assert policy.enforced_claims() == ["exp", "sub", "aud"]
 
     with pytest.raises(TokenRejectedError):
         JWTVerifier.from_config(policy).verify(issue(exp=None))
@@ -582,7 +582,16 @@ class TestAuthorizationHeader:
 
     @pytest.mark.parametrize(
         "header",
-        [None, "", "Basic abc", "Bearer", "BearerX token", "Bearer\ttoken"],
+        [
+            None,
+            "",
+            "Basic abc",
+            "Bearer",
+            "Bearer ",
+            "Bearer   ",
+            "BearerX token",
+            "Bearer\ttoken",
+        ],
     )
     def test_anything_else_is_rejected(self, header: str | None) -> None:
         """Only `Bearer <token>` carries a token."""
@@ -590,6 +599,10 @@ class TestAuthorizationHeader:
             build().verify_header(header)
 
         assert caught.value.reason == "scheme"
+
+    def test_several_spaces_after_the_scheme_are_accepted(self) -> None:
+        """RFC 7235 allows one or more spaces between the scheme and the token."""
+        assert build().verify_header(f"Bearer   {issue()}").subject
 
 
 class TestUnverifiedHeader:
@@ -1138,12 +1151,63 @@ class TestClaims:
         assert principal.claims["jti"] == "token-1"
         assert claims.identity == claims.display_name == "user-1"
 
-    def test_a_token_with_no_subject_has_an_empty_identity(self) -> None:
-        """Starlette reads these as strings, so a missing subject is empty."""
-        claims = build().verify(issue(sub=None))
+    def test_a_token_with_no_subject_is_rejected(self) -> None:
+        """RFC 9068 requires `sub` of an access token, and a caller is keyed by it."""
+        payload = claims()
+        del payload["sub"]
 
-        assert claims.identity == ""
-        assert claims.display_name == ""
+        with pytest.raises(TokenRejectedError) as missing:
+            build().verify(
+                SIGNER.token(payload, algorithm="RS256", header=None)
+            )
+        with pytest.raises(TokenRejectedError) as empty:
+            build().verify(issue(sub=None))
+
+        assert missing.value.reason == "missing-claim"
+        assert empty.value.reason == "missing-claim"
+
+    def test_claims_with_no_subject_read_as_an_empty_identity(self) -> None:
+        """Starlette reads these as strings, so a missing subject is empty."""
+        verified = replace(build().verify(issue()), subject=None)
+
+        assert verified.identity == ""
+        assert verified.display_name == ""
+
+    @pytest.mark.parametrize(
+        ("overrides", "reason"),
+        [
+            ({"sub": 42}, "missing-claim"),
+            ({"jti": 7}, "malformed"),
+            ({"iat": "yesterday"}, "invalid"),
+            ({"iat": True}, "invalid"),
+        ],
+    )
+    def test_a_registered_claim_of_the_wrong_type_is_rejected(
+        self,
+        overrides: dict[str, Any],
+        reason: str,
+    ) -> None:
+        """RFC 7519 makes `sub` and `jti` strings and `iat` a number of seconds."""
+        with pytest.raises(TokenRejectedError) as caught:
+            build().verify(issue(**overrides))
+
+        assert caught.value.reason == reason
+
+    def test_a_token_with_no_issue_time_verifies(self) -> None:
+        """`iat` is optional, so a token without one is read as having none."""
+        assert build().verify(issue(iat=None)).issued_at is None
+
+    def test_a_token_issued_in_the_future_is_not_yet_valid(self) -> None:
+        """An `iat` past now and the leeway is refused, as an `nbf` there is."""
+        issued = int(time.time()) + HOUR
+
+        with pytest.raises(TokenRejectedError) as caught:
+            build().verify(issue(iat=issued))
+
+        assert caught.value.reason == "not-yet-valid"
+        assert (
+            build(leeway=2 * HOUR).verify(issue(iat=issued)).issued_at == issued
+        )
 
 
 class TestEnvironment:

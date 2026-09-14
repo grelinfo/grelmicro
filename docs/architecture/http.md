@@ -1,7 +1,7 @@
 # HTTP component internals
 
 This page is the engineering side of [Where a rule applies](../http/where.md).
-It documents the contract the five HTTP components follow, and why it is not
+It documents the contract the six HTTP components follow, and why it is not
 the contract the resilience patterns follow.
 
 ## The contract
@@ -18,9 +18,14 @@ kind prefix, `GREL_CACHED_RESPONSES_`.
 | `IdempotentRequests` | `idempotent_requests` | `GREL_IDEMPOTENT_REQUESTS_` |
 | `RateLimitedRequests` | `rate_limited_requests` | `GREL_RATE_LIMITED_REQUESTS_` |
 | `AccessLog` | `access_log` | `GREL_ACCESS_LOG_` |
+| `AuthenticatedRequests` | `authenticated_requests` | none |
 
 `ErrorResponses` is absent because it holds no value fields. The format comes
 from the factory you call, which is structure, so there is nothing to tune.
+
+`AuthenticatedRequests` reads no environment variable at all. Every field it
+has decides what the service is protected by, so each one moves with a
+deploy.
 
 ## Why it is not the multi-instance contract
 
@@ -93,6 +98,7 @@ reach of a mounted file:
 | `ConditionalRequests` | `openapi`, read once when the schema is built |
 | `IdempotentRequests` | `cache`, `key_maker`, `skip`, `namespace`, `openapi` |
 | `RateLimitedRequests` | the limiters, `trusted`, `key` |
+| `AuthenticatedRequests` | the verifier, `bans`, `trusted`, `openapi` |
 
 A `namespace` is part of every stored key, so changing it live would orphan
 everything already stored rather than retune anything.
@@ -186,6 +192,9 @@ taken out of the very sentence offering it.
 | The cell holds one snapshot, never a field each | Two fields from two configurations can answer one caller with another's response | The fields stop being read together |
 | Live reload tunes what a request costs, never what it is protected by | Editing a mounted file is a wider permission than shipping an image, and neither reviewed nor versioned with the code | A mounted source becomes as reviewed as a deploy |
 | The OpenAPI schema is built once, from the app as installed | It is a published contract, and each replica polls on its own clock, so a live one would have two pods publishing two documents | The schema stops being served per replica |
+| Authentication runs ahead of every other answering middleware of ours | A cached or replayed response must never reach a caller that was not authenticated | A component of ours has to answer before the caller is known |
+| Authentication takes `exclude` and no `include` | A mistyped `include` would leave an endpoint public without a word | Default deny stops being the contract |
+| A refused websocket is denied, never accepted and then closed | Accepting completes the handshake for a caller that never authenticated | No server supports the denial response extension any more |
 
 ## Related
 

@@ -53,6 +53,8 @@ from grelmicro._paths import (
     _routing_app,
     _same_routing_root,
     as_patterns,
+    compile_route,
+    holds_control_character,
     matches,
     names_route,
     route_path,
@@ -61,6 +63,7 @@ from grelmicro._paths import (
 from grelmicro.cache._stampede import compute_with_stampede
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
+from grelmicro.http._authentication import is_anonymous_declaration
 from grelmicro.http._conditional import (
     _KEPT_ON_304,
     _matches_weak,
@@ -395,8 +398,14 @@ class _Policies:
         before the app is routed, so caching either one answers over the
         gate or hands back what was never a read.
         """
-        return path in self._refused_paths or any(
-            regex.fullmatch(path) for regex in self._refused
+        # A path holding a control character is refused whatever it names:
+        # Starlette's `$` matches before a final newline, so it can reach a
+        # literal route the set below holds without that newline. The regex
+        # is matched the way Starlette matches it, for the same reason.
+        return (
+            path in self._refused_paths
+            or holds_control_character(path)
+            or any(regex.match(path) for regex in self._refused)
         )
 
     def _refuses_template(self, path: str) -> bool:
@@ -547,7 +556,7 @@ class _Policies:
         kept, so a request nothing names costs no scan of it.
         """
         for regex, marked in self._routes:
-            if regex.fullmatch(path):
+            if regex.match(path):
                 return (
                     None
                     if self._is_refused(path)
@@ -623,8 +632,6 @@ def _marked_routes(
             is refused the same way, because a hit answers over the gate
             whichever of the two put the path here.
     """
-    from starlette.routing import compile_path  # noqa: PLC0415
-
     found: list[tuple[Pattern[str], float | None]] = []
     refused = [
         *_middleware_refusals(app, include_root=include_root_middleware),
@@ -637,7 +644,7 @@ def _marked_routes(
         on_the_route = ttl is not _UNMARKED
         ttl = _inherited(ttl, contexts)
         declared = f"{prefix}{route.path}"
-        compiled, _, _ = compile_path(declared)
+        compiled = compile_route(declared)
         # Against the URL as well as the template. A route declared
         # `/users/{uid}` answers `/users/me`, so a pattern naming that
         # URL matches no template at all, and reading the template alone
@@ -688,8 +695,6 @@ def _middleware_refusals(
     include_root: bool = False,
 ) -> list[tuple[str, Pattern[str]]]:
     """Compile exact and descendant refusals for every middleware boundary."""
-    from starlette.routing import compile_path  # noqa: PLC0415
-
     found: list[tuple[str, Pattern[str]]] = []
     for boundary, nested, methods in _middleware_boundaries(
         app, include_root=include_root
@@ -697,7 +702,7 @@ def _middleware_refusals(
         if methods is not None and methods.isdisjoint(_SAFE_METHODS):
             continue
         exact = boundary or "/"
-        exact_pattern, _, _ = compile_path(exact)
+        exact_pattern = compile_route(exact)
         found.append((exact, exact_pattern))
         if not nested:
             continue
@@ -706,7 +711,7 @@ def _middleware_refusals(
             if boundary
             else "/{path:path}"
         )
-        descendant_pattern, _, _ = compile_path(descendants)
+        descendant_pattern = compile_route(descendants)
         found.append((descendants, descendant_pattern))
     return found
 
@@ -717,8 +722,6 @@ def _authentication_refusals(
     include_root: bool,
 ) -> list[tuple[str, Pattern[str]]]:
     """Compile exact and descendant refusals for authentication boundaries."""
-    from starlette.routing import compile_path  # noqa: PLC0415
-
     found: list[tuple[str, Pattern[str]]] = []
     for boundary, nested, methods in _authentication_paths(app):
         if not include_root and not boundary:
@@ -726,7 +729,7 @@ def _authentication_refusals(
         if methods is not None and methods.isdisjoint(_SAFE_METHODS):
             continue
         exact = boundary or "/"
-        exact_pattern, _, _ = compile_path(exact)
+        exact_pattern = compile_route(exact)
         found.append((exact, exact_pattern))
         if not nested:
             continue
@@ -735,7 +738,7 @@ def _authentication_refusals(
             if boundary
             else "/{path:path}"
         )
-        descendant_pattern, _, _ = compile_path(descendants)
+        descendant_pattern = compile_route(descendants)
         found.append((descendants, descendant_pattern))
     return found
 
@@ -822,7 +825,11 @@ def _has_non_cache_dependencies(
     route: Any,  # noqa: ANN401
     contexts: tuple[Any, ...],
 ) -> bool:
-    """Return whether FastAPI resolves anything besides the cache marker."""
+    """Return whether FastAPI resolves anything besides a declaration.
+
+    `CachedResponse()` and `Anonymous()` compute nothing, so resolving either
+    first gates nothing a cached response would skip.
+    """
     declared = getattr(route, "dependant", None)  # codespell:ignore
     route_provider, provider_is_authoritative = (
         _inherited_dependency_overrides_context(route, contexts)
@@ -844,8 +851,8 @@ def _has_non_cache_dependencies(
         )
         if (
             getattr(call, _MARKER, _UNMARKED) is _UNMARKED
-            or effective is not call
-        ):
+            and not is_anonymous_declaration(call)
+        ) or effective is not call:
             return True
         pending.extend(
             (child, dependency_provider, authoritative)
@@ -860,8 +867,8 @@ def _has_non_cache_dependencies(
             )
             if (
                 getattr(call, _MARKER, _UNMARKED) is _UNMARKED
-                or effective is not call
-            ):
+                and not is_anonymous_declaration(call)
+            ) or effective is not call:
                 return True
     return False
 

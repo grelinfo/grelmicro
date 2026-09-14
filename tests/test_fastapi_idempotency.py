@@ -1679,7 +1679,7 @@ def test_default_key_canonicalizes_authority_and_route_path() -> None:
     host_scope: Scope = {
         "type": "http",
         "scheme": "HTTP",
-        "root_path": "/api/",
+        "root_path": "/api",
         "method": "POST",
         "path": "/api/charge",
         "query_string": b"",
@@ -3382,3 +3382,31 @@ def test_document_idempotency_gives_each_operation_its_own_parameter() -> None:
     charge["description"] = "edited"
     # Assert
     assert created["description"] != "edited"
+
+
+def test_a_trailing_newline_never_replays_past_a_route_dependency() -> None:
+    """Starlette routes `/private` and a final newline to `/private`, gate included."""
+    # Arrange
+    app = build_app()
+
+    async def authenticate(
+        x_api_key: Annotated[str | None, Header()] = None,
+    ) -> None:
+        if x_api_key != "expected":
+            raise HTTPException(status_code=HTTP_401_UNAUTHORIZED)
+
+    @app.post("/private", dependencies=[Depends(authenticate)])
+    async def private() -> dict[str, str]:
+        return {"private": "value"}
+
+    # Act
+    with TestClient(app) as client:
+        authorized = client.post(
+            "/private%0A", headers={**KEY, "X-API-Key": "expected"}
+        )
+        unauthenticated = client.post("/private%0A", headers=KEY)
+
+    # Assert
+    assert authorized.status_code == HTTP_200_OK
+    assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
+    assert "idempotent-replayed" not in unauthenticated.headers
