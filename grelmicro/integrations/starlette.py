@@ -680,11 +680,14 @@ def Authenticated(  # noqa: N802
             `request` or `websocket` argument.
         ValueError: If a scope is not an OAuth scope token.
     """
-    required = _scope_tokens(scopes)
+    own = _scope_tokens(scopes)
 
     def decorate(endpoint: "Callable[..., Any]") -> "Callable[..., Any]":
         refuse_registered(endpoint, "@Authenticated")
         name, position = _connection_argument(endpoint)
+        # Stacked on another `@Authenticated`, it requires the scopes of both.
+        inner = getattr(endpoint, AUTHENTICATED_MARKER, ())
+        required = tuple(dict.fromkeys((*own, *inner)))
 
         def check(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
             connection = kwargs[name] if name in kwargs else args[position]

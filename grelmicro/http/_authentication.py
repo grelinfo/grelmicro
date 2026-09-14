@@ -782,11 +782,11 @@ def _litestar_declares_public(
     """Return whether a Litestar route declares this method public.
 
     Litestar's router always runs the handler that declared it for the URLs
-    it routes there, so the declaration is the answer.
+    it routes there, so the declaration is the answer. A websocket handler
+    names no method, so it declares whichever is asked.
     """
     return any(
-        handler.opt.get(ANONYMOUS_OPT)
-        and method in getattr(handler, "http_methods", ())
+        handler.opt.get(ANONYMOUS_OPT) and _handles(handler, method)
         for handler in _litestar_handlers(route) or ()
     )
 

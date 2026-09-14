@@ -784,6 +784,39 @@ class TestStarlette:
 
         assert response.json() == {"cancelled": True}
 
+    def test_stacked_decorators_require_and_report_every_scope(self) -> None:
+        """Each one adds its scopes, and the refusal names all of them."""
+
+        @StarletteAuthenticated(scopes=["orders:read"])
+        @StarletteAuthenticated(scopes=["admin"])
+        async def audit(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({"audited": True})
+
+        app = Starlette(routes=[Route("/audit", audit)])
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+        client = TestClient(app)
+
+        refused = client.get(
+            "/audit", headers=bearer(token(scope="orders:read"))
+        )
+        served = client.get(
+            "/audit", headers=bearer(token(scope="orders:read admin"))
+        )
+        applies = next(
+            row.applies
+            for row in micro.describe(app).endpoints
+            if row.method == "GET" and row.path == "/audit"
+        )
+
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:read admin"'
+        )
+        assert served.json() == {"audited": True}
+        assert applies == ("authenticated orders:read admin",)
+
     def test_an_endpoint_taking_no_connection_is_refused(self) -> None:
         """There would be nothing to read the caller from."""
 
@@ -954,6 +987,19 @@ class TestUnreachable:
 
         with pytest.raises(TypeError, match="GET /both declares Anonymous"):
             self.install(Litestar(route_handlers=[both]))
+
+    def test_a_litestar_websocket_public_and_guarded_is_refused(self) -> None:
+        """A websocket handler names no method, and contradicts itself all the same."""
+
+        @websocket(
+            "/live", opt=LitestarAnonymous(), guards=[LitestarAuthenticated()]
+        )
+        async def live(
+            socket: LitestarWebSocket,
+        ) -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="/live declares Anonymous"):
+            self.install(Litestar(route_handlers=[live]))
 
     def test_a_guarded_litestar_websocket_in_exclude_is_refused(self) -> None:
         """A websocket handler names no method, and is refused all the same."""
