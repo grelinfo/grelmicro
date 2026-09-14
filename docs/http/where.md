@@ -173,7 +173,7 @@ and `reused_status` move only with a deploy.
 `RateLimitedRequests` keeps its reach live, because its contract has a
 superset form: the schema documents the `429` on every operation, which stays
 true whichever paths are metered. A rule that says what a client *must send*
-has no superset form, which is why the other two are fixed.
+has no superset form, which is why the other three are fixed.
 
 A key a file may not change is reported, naming the variable, and every
 other key in the same file still applies.
