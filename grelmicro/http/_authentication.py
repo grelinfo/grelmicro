@@ -162,12 +162,34 @@ class _Routes:
     by_depth: Mapping[int, tuple[_Reach, ...]] = MappingProxyType({})
     anywhere: tuple[_Reach, ...] = ()
     litestar: Any = None
-    declared: Mapping[int, tuple[_Reach, str]] = MappingProxyType({})
+    declared: Mapping[tuple[int, str], tuple[_Reach, str]] = MappingProxyType(
+        {}
+    )
+
+    def serves(self, kind: str, method: str | None, path: str) -> bool:
+        """Return whether a public route answers the URL and no other could."""
+        if not any(reach.answers(kind, method, path) for reach in self.public):
+            return False
+        rivals = (*self.by_depth.get(path.count("/"), ()), *self.anywhere)
+        return not any(reach.answers(kind, method, path) for reach in rivals)
+
+    def routed(self, path: str) -> bool:
+        """Return whether any HTTP route matches the path, whatever its method."""
+        reaches = (
+            *self.public,
+            *self.by_depth.get(path.count("/"), ()),
+            *self.anywhere,
+        )
+        return any(
+            "http" in reach.kinds and reach.pattern.fullmatch(path) is not None
+            for reach in reaches
+        )
 
     def serves_publicly(
         self,
         route: Any,  # noqa: ANN401
         method: str,
+        prefix: str,
     ) -> bool:
         """Return whether the middleware serves this route without a credential.
 
@@ -175,10 +197,12 @@ class _Routes:
         The route is tried with a URL of its own whose parameters avoid the
         literal paths other routes are declared with, so a route another one
         covers is described as authenticated, as the middleware treats it.
+        `prefix` is the path of the mounts and routers above it, because one
+        route can be included under several.
         """
         if self.litestar is not None:
             return _litestar_declares_public(route, method)
-        entry = self.declared.get(id(route))
+        entry = self.declared.get((id(route), prefix))
         if entry is None:
             return False
         reach, template = entry
@@ -226,14 +250,17 @@ class _PublicRoutes:
         if not routes.public:
             return False
         kind = scope["type"]
-        method = scope.get("method")
         path = route_path(scope)
-        if not any(
-            reach.answers(kind, method, path) for reach in routes.public
-        ):
+        if routes.serves(kind, scope.get("method"), path):
+            return True
+        if kind != "http" or path == "/":
             return False
-        rivals = (*routes.by_depth.get(path.count("/"), ()), *routes.anywhere)
-        return not any(reach.answers(kind, method, path) for reach in rivals)
+        # Starlette redirects a path no route matches to the same path with
+        # its trailing slash added or removed, when a route matches that one.
+        toggled = path.rstrip("/") if path.endswith("/") else f"{path}/"
+        return routes.serves(kind, scope["method"], toggled) and not (
+            routes.routed(path)
+        )
 
 
 def routes_of(app: Any) -> _Routes:  # noqa: ANN401
@@ -273,7 +300,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     from starlette.routing import WebSocketRoute  # noqa: PLC0415
 
     public: list[_Reach] = []
-    declared: dict[int, tuple[_Reach, str]] = {}
+    declared: dict[tuple[int, str], tuple[_Reach, str]] = {}
     rivals: list[tuple[str, _Reach]] = []
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{route.path}"
@@ -287,7 +314,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             )
         if _declares_anonymous(route, contexts):
             public.append(reach)
-            declared[id(route)] = (reach, template)
+            declared[id(route), prefix] = (reach, template)
         else:
             rivals.append((template, reach))
     if not public:

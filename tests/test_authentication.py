@@ -39,7 +39,10 @@ from starlette.convertors import (  # codespell:ignore
 from starlette.endpoints import HTTPEndpoint
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
-from starlette.status import WS_1008_POLICY_VIOLATION
+from starlette.status import (
+    HTTP_307_TEMPORARY_REDIRECT,
+    WS_1008_POLICY_VIOLATION,
+)
 from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import ComponentAlreadyRegisteredError, Grelmicro
@@ -1464,6 +1467,42 @@ class TestRouting:
 
         assert refused.value.code == WS_1008_POLICY_VIOLATION
 
+    def test_a_public_route_is_redirected_to_without_its_trailing_slash(
+        self,
+    ) -> None:
+        """Starlette's redirect to a public route needs no credential."""
+        app = FastAPI()
+
+        @app.get("/catalog/", dependencies=[Anonymous()])
+        async def catalog() -> dict[str, bool]:
+            return {"catalog": True}
+
+        @app.get("/help/", dependencies=[Anonymous()])
+        async def help_page() -> dict[str, bool]:
+            return {"help": True}  # pragma: no cover
+
+        @app.post("/help")
+        async def ask() -> dict[str, bool]:
+            return {"asked": True}  # pragma: no cover
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        redirect = client.get("/catalog", follow_redirects=False)
+
+        assert redirect.status_code == HTTP_307_TEMPORARY_REDIRECT
+        assert redirect.headers["location"].endswith("/catalog/")
+        assert client.get("/catalog").json() == {"catalog": True}
+        assert client.get("/help").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/").status_code == HTTP_401_UNAUTHORIZED
+        with (
+            pytest.raises(WebSocketDenialResponse),
+            client.websocket_connect("/catalog"),
+        ):
+            pass  # pragma: no cover
+
 
 class TestConsistency:
     """The schema and the report say what the middleware does."""
@@ -1611,6 +1650,29 @@ class TestConsistency:
         assert self.applies(app, "GET", "/status") == ("authenticated",)
         with LitestarTestClient(app) as client:
             assert client.get("/status").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_router_included_twice_is_described_per_inclusion(self) -> None:
+        """Only the inclusion that declared `Anonymous()` is described public."""
+        shared = APIRouter()
+
+        @shared.get("/items")
+        async def items() -> dict[str, bool]:
+            return {"items": True}
+
+        def declare(app: FastAPI) -> None:
+            app.include_router(shared, prefix="/v1")
+            app.include_router(shared, prefix="/v2", dependencies=[Anonymous()])
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        paths = app.openapi()["paths"]
+        client = TestClient(app)
+
+        assert paths["/v1/items"]["get"]["security"] == [{SCHEME: []}]
+        assert "security" not in paths["/v2/items"]["get"]
+        assert self.applies(app, "GET", "/v1/items") == ("authenticated",)
+        assert self.applies(app, "GET", "/v2/items") == ("anonymous",)
+        assert client.get("/v1/items").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/v2/items").json() == {"items": True}
 
 
 class TestIncludedScopes:

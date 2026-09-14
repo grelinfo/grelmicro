@@ -1147,7 +1147,7 @@ def _route_authentication(
         # `None` for an endpoint class, which answers whatever it defines.
         for method in getattr(route, "methods", None) or ():
             key = (path, method.lower())
-            if anonymous and served.serves_publicly(route, method):
+            if anonymous and served.serves_publicly(route, method, prefix):
                 public.add(key)
             else:
                 scopes[key] = list(route_scopes(route, method, contexts))

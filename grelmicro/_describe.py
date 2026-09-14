@@ -565,7 +565,7 @@ def _authenticated_by(components: Sequence[Any], endpoint: _Endpoint) -> bool:
     )
 
 
-def _served_publicly(app: object) -> Callable[[Any, str], bool]:
+def _served_publicly(app: object) -> Callable[[Any, str, str], bool]:
     """Return what says whether a route is served without a credential.
 
     Read off the app the report is about, never off the running middleware,
@@ -582,7 +582,7 @@ def _served_publicly(app: object) -> Callable[[Any, str], bool]:
     return routes_of(app).serves_publicly
 
 
-def _served_by_no_route(route: Any, method: str) -> bool:  # noqa: ANN401, ARG001
+def _served_by_no_route(route: Any, method: str, prefix: str) -> bool:  # noqa: ANN401, ARG001
     """Return that no route is served without a credential."""
     return False
 
@@ -675,7 +675,8 @@ def _describe_endpoints(
                 regex=compiled.get(path),
             )
             endpoint = replace(
-                endpoint, public=served is not None and served(route, method)
+                endpoint,
+                public=served is not None and served(route, method, prefix),
             )
             endpoint = replace(
                 endpoint,
