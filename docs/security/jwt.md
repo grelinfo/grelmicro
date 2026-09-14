@@ -263,7 +263,9 @@ chooses your keys. The JWKS URL it names must be `https`, and every token must
 carry the issuer in `iss`.
 
 The metadata is read again once per `ttl`. A refresh asked for by a token
-naming a new key fetches the key set alone.
+naming a new key fetches the key set alone. A metadata endpoint that cannot be
+reached never holds a rotation up: the key set it last named is fetched, and
+the metadata is tried again on the next refresh.
 
 ## Configure from the deployment
 

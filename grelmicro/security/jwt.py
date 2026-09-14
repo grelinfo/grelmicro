@@ -1008,8 +1008,9 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         """Refuse construction: a verifier has no default key source."""
         msg = (
             "JWTVerifier has no default key source, so it cannot be built from"
-            " a bare constructor. Use JWTVerifier.keys(key, ..., audience=...),"
-            " JWTVerifier.jwks(url, audience=...) or"
+            " a bare constructor. Use JWTVerifier.discover(issuer,"
+            " audience=...), JWTVerifier.jwks(url, audience=...),"
+            " JWTVerifier.keys(key, ..., audience=...) or"
             " JWTVerifier.from_config(config)."
         )
         raise TypeError(msg)
@@ -1716,6 +1717,17 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             self._metadata_url = url
             self._discovered = (monotonic(), jwks_uri)
             return jwks_uri
+        if discovered is not None:
+            # The metadata only says where the keys are, so its endpoint being
+            # down says nothing about the key set. The last one it named is
+            # fetched, rather than holding a rotation up until the metadata is
+            # back, and the metadata is tried again on the next refresh.
+            logger.warning(
+                "issuer metadata could not be fetched, refreshing the key set"
+                " it last named: %s",
+                ", ".join(failures),
+            )
+            return discovered[1]
         msg = f"no metadata document could be fetched: {', '.join(failures)}"
         raise SigningKeysUnavailableError(msg)
 

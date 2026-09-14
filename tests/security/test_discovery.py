@@ -7,6 +7,7 @@ one, so each case says exactly which documents the provider publishes.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
@@ -41,6 +42,7 @@ HOUR = 3600
 SHORT_TTL = 0.01
 LIVE_TTL = 5
 SIGNER = Signer()
+ROTATED = Signer()
 
 
 def metadata(issuer: str = ISSUER, jwks_uri: str = JWKS) -> bytes:
@@ -64,6 +66,25 @@ def token(issuer: str = ISSUER) -> str:
         "iat": now,
     }
     return SIGNER.token(payload, algorithm="RS256", header={"kid": "k1"})
+
+
+def rotated_key_set() -> bytes:
+    """Return the key set after the provider rotated to a new key."""
+    rotated = ROTATED.public_jwk("RS256", kid="k2")
+    return json.dumps({"keys": [rotated]}).encode()
+
+
+def rotated_token() -> str:
+    """Return a token signed by the key the provider rotated to."""
+    now = int(time.time())
+    payload = {
+        "iss": ISSUER,
+        "sub": "user-1",
+        "aud": AUDIENCE,
+        "exp": now + HOUR,
+        "iat": now,
+    }
+    return ROTATED.token(payload, algorithm="RS256", header={"kid": "k2"})
 
 
 class Provider:
@@ -274,6 +295,23 @@ class TestDiscovery:
             await verifier.refresh(force=True)
 
         assert verifier.verify(token()).subject == "user-1"
+
+    async def test_a_metadata_outage_still_loads_a_rotation(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The key set the metadata last named is fetched while it is down."""
+        provider = Provider({OIDC: metadata(), JWKS: key_set()})
+        verifier = discovering(provider, ttl=SHORT_TTL)
+        await verifier.refresh()
+        await anyio.sleep(SHORT_TTL * 2)
+        del provider.documents[OIDC]
+        provider.documents[JWKS] = rotated_key_set()
+
+        with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
+            assert await verifier.refresh(force=True) is True
+
+        assert verifier.verify(rotated_token()).subject == "user-1"
+        assert "last named" in caplog.text
 
     async def test_opening_the_verifier_discovers_its_keys(self) -> None:
         """`async with` finds the keys before the first request."""
