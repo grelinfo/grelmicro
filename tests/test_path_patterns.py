@@ -891,6 +891,34 @@ def test_the_route_path_is_read_as_litestar_routes_it(
     assert route_path(scope) == expected
 
 
+def test_a_path_litestar_routed_is_read_as_its_router_wrote_it() -> None:
+    """Behind routing, the root path is already off, so it is not taken off again."""
+    app = object()
+    scope = {
+        "path": "/files/v1/livez",
+        "root_path": "/v1",
+        "app": app,
+        "litestar_app": app,
+        "route_handler": SimpleNamespace(is_mount=False),
+    }
+
+    assert route_path(scope) == "/files/v1/livez"
+
+
+def test_a_litestar_mount_its_router_does_not_list_is_refused() -> None:
+    """Without the mount's own path, the path it serves is unknown."""
+    app = SimpleNamespace(asgi_router=SimpleNamespace(_mount_routes={}))
+    scope = {
+        "path": "/livez/",
+        "app": app,
+        "litestar_app": app,
+        "route_handler": SimpleNamespace(is_mount=True),
+    }
+
+    with pytest.raises(RuntimeError, match="mount"):
+        route_path(scope)
+
+
 def test_an_app_mounted_under_litestar_is_read_by_its_own_router() -> None:
     """Litestar's key stays in the scope, and the app that set `app` routes."""
     scope = {

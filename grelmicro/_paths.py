@@ -262,14 +262,44 @@ def route_path(
     The router is the one of the app in `scope["app"]`, which each framework
     sets to itself. Litestar's own key stays in the scope of an app mounted
     under it, so it names Litestar's router only when it is that same app.
+
+    Middleware Litestar runs behind its router reads the path the router
+    wrote back, which has the root path off already. A mount's is only what
+    is left inside the mount, so the mount's own path is joined back to it.
+
+    Raises:
+        RuntimeError: If Litestar routed the request to a mount its router
+            does not list, so the path the mount serves is unknown.
     """
     path = _scope_text(scope["path"])
     root = _scope_text(scope.get("root_path", ""))
     litestar = scope.get("litestar_app")
-    if litestar is not None and litestar is scope.get("app"):
+    if litestar is None or litestar is not scope.get("app"):
+        return starlette_route_path(path, root)
+    handler = scope.get("route_handler")
+    if handler is None:
         routed = path.split(root, maxsplit=1)[-1] if root else path
         return _litestar_normalize()(routed)
-    return starlette_route_path(path, root)
+    if getattr(handler, "is_mount", False):
+        return _litestar_mounted_path(litestar, handler, path)
+    return path
+
+
+def _litestar_mounted_path(app: Any, handler: Any, remaining: str) -> str:  # noqa: ANN401
+    """Return the path Litestar routed to a mount, the mount's own path included.
+
+    Raises:
+        RuntimeError: If the router lists no mount for the handler.
+    """
+    mounts = app.asgi_router._mount_routes  # noqa: SLF001
+    for mount, node in mounts.items():
+        if any(entry[1] is handler for entry in node.asgi_handlers.values()):
+            return _litestar_normalize()(f"{mount}{remaining}")
+    msg = (
+        "Litestar routed the request to a mount its router does not list, "
+        "so the path it serves is unknown."
+    )
+    raise RuntimeError(msg)
 
 
 def starlette_route_path(

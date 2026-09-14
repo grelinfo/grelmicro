@@ -28,6 +28,7 @@ from fastapi.security import (
 from fastapi.testclient import TestClient
 from litestar import Litestar, asgi, delete, get, post, websocket
 from litestar import Request as LitestarRequest
+from litestar import Router as LitestarRouter
 from litestar import WebSocket as LitestarWebSocket
 from litestar import route as litestar_route
 from litestar.config.cors import CORSConfig
@@ -2638,6 +2639,71 @@ class TestRouting:
 
         with LitestarTestClient(Litestar(route_handlers=[sub])) as client:
             response = client.get("/sub/public")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_litestar_middleware_behind_routing_reads_the_routed_path(
+        self,
+    ) -> None:
+        """The root path Litestar's router took off is not taken off twice."""
+
+        @get("/files/{rest:path}")
+        async def files(rest: Annotated[str, Parameter()]) -> dict[str, str]:
+            return {"private": rest}  # pragma: no cover
+
+        @get("/livez")
+        async def livez() -> dict[str, bool]:
+            return {"live": True}
+
+        app = Litestar(
+            route_handlers=[files, livez],
+            middleware=[
+                DefineMiddleware(
+                    AuthenticatedRequestsMiddleware,  # ty: ignore[invalid-argument-type]
+                    verifier=verifier(),
+                    exclude=("/livez",),
+                )
+            ],
+        )
+        with LitestarTestClient(app, root_path="/v1") as client:
+            refused = client.get("/v1/files/v1/livez")
+            served = client.get("/v1/livez")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert served.json() == {"live": True}
+
+    def test_litestar_middleware_behind_routing_reads_a_mount_whole(
+        self,
+    ) -> None:
+        """A pattern matches the mount's path, not the path left inside it."""
+
+        @asgi("/other", is_mount=True, copy_scope=False)
+        async def other(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"other": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        @asgi("/assets", is_mount=True, copy_scope=False)
+        async def assets(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        app = Litestar(
+            route_handlers=[
+                other,
+                LitestarRouter("/v2", route_handlers=[assets]),
+            ],
+            middleware=[
+                DefineMiddleware(
+                    AuthenticatedRequestsMiddleware,  # ty: ignore[invalid-argument-type]
+                    verifier=verifier(),
+                    exclude=("/livez/*",),
+                )
+            ],
+        )
+        with LitestarTestClient(app) as client:
+            response = client.get("/v2/assets/livez")
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
 
