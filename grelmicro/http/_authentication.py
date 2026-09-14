@@ -629,13 +629,39 @@ def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
     from litestar.utils import normalize_path  # noqa: PLC0415
 
     try:
-        _, handler, *_ = app.asgi_router.handle_routing(
+        answering, handler, *_ = app.asgi_router.handle_routing(
             path=normalize_path(route_path(scope)), method=scope.get("method")
         )
     except (HTTPException, KeyError):
         # `KeyError` for a websocket asking a path only HTTP handlers answer.
         return False
+    if _litestar_added_options(handler):
+        route = getattr(answering, "__self__", None)
+        return any(
+            sibling.opt.get(ANONYMOUS_OPT)
+            for sibling in getattr(route, "route_handlers", ())
+        )
     return bool(handler.opt.get(ANONYMOUS_OPT))
+
+
+_LITESTAR_OPTIONS: Final = (
+    "litestar.routes.http",
+    "HTTPRoute.create_options_handler.<locals>.options_handler",
+)
+"""Where the `OPTIONS` handler Litestar adds to an HTTP route is written."""
+
+
+def _litestar_added_options(handler: Any) -> bool:  # noqa: ANN401
+    """Return whether a Litestar handler is the `OPTIONS` Litestar added itself.
+
+    It answers with the methods the route allows, for whichever of its
+    handlers the request is about, so it is public where one of them is.
+    """
+    function = getattr(handler, "fn", None)
+    return (
+        getattr(function, "__module__", None),
+        getattr(function, "__qualname__", None),
+    ) == _LITESTAR_OPTIONS
 
 
 _STARLETTE_PARAMETER = re.compile(
@@ -783,12 +809,14 @@ def _litestar_declares_public(
 
     Litestar's router always runs the handler that declared it for the URLs
     it routes there, so the declaration is the answer. A websocket handler
-    names no method, so it declares whichever is asked.
+    names no method, so it declares whichever is asked. The `OPTIONS`
+    Litestar adds to a route is public where any handler of the route is.
     """
-    return any(
-        handler.opt.get(ANONYMOUS_OPT) and _handles(handler, method)
-        for handler in _litestar_handlers(route) or ()
-    )
+    handlers = _litestar_handlers(route) or []
+    answering = [handler for handler in handlers if _handles(handler, method)]
+    if any(_litestar_added_options(handler) for handler in answering):
+        answering = handlers
+    return any(handler.opt.get(ANONYMOUS_OPT) for handler in answering)
 
 
 def route_scopes(

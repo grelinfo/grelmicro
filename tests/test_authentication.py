@@ -19,6 +19,7 @@ import pytest
 from fastapi import APIRouter, Depends, FastAPI, Security
 from fastapi import Request as FastAPIRequest
 from fastapi import WebSocket as FastAPIWebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.security import (
     HTTPBearer,
@@ -28,6 +29,8 @@ from fastapi.testclient import TestClient
 from litestar import Litestar, asgi, delete, get, post, websocket
 from litestar import Request as LitestarRequest
 from litestar import WebSocket as LitestarWebSocket
+from litestar import route as litestar_route
+from litestar.config.cors import CORSConfig
 from litestar.exceptions import (
     WebSocketDisconnect as LitestarWebSocketDisconnect,
 )
@@ -124,6 +127,7 @@ AUDIENCE = "orders-api"
 URL = "https://auth.grel.info/.well-known/jwks.json"
 HOUR = 3600
 HTTP_200_OK = 200
+HTTP_204_NO_CONTENT = 204
 HTTP_400_BAD_REQUEST = 400
 HTTP_403_FORBIDDEN = 403
 HTTP_404_NOT_FOUND = 404
@@ -1410,6 +1414,35 @@ def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401, C9
 class TestFastAPI:
     """Route declarations on FastAPI."""
 
+    def test_a_cors_preflight_is_answered_before_authentication(self) -> None:
+        """A browser asks before it sends the token, and is answered."""
+        app = FastAPI()
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["https://app.example"],
+            allow_methods=["*"],
+        )
+
+        @app.delete("/orders/{order_id}")
+        async def cancel(order_id: int) -> None: ...  # pragma: no cover
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        response = TestClient(app).options(
+            "/orders/7",
+            headers={
+                "origin": "https://app.example",
+                "access-control-request-method": "DELETE",
+            },
+        )
+
+        assert response.status_code == HTTP_200_OK
+        assert response.headers["access-control-allow-origin"] == (
+            "https://app.example"
+        )
+
     def test_the_current_principal_is_the_verified_caller(self) -> None:
         """A handler reads the caller, not the token behind it."""
         client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
@@ -1945,6 +1978,70 @@ def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401
 
 class TestLitestar:
     """Handler declarations on Litestar."""
+
+    def test_the_options_litestar_answers_on_a_public_path_is_public(
+        self,
+    ) -> None:
+        """The `OPTIONS` Litestar adds to a route is public where a handler is."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier()))
+        ) as client:
+            public = client.options("/catalog/7")
+            private = client.options("/orders/7")
+
+        assert public.status_code == HTTP_204_NO_CONTENT
+        assert "GET" in public.headers["allow"]
+        assert private.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_an_options_handler_of_its_own_is_authenticated_by_its_own_opt(
+        self,
+    ) -> None:
+        """Only the answer Litestar adds borrows the public handler's declaration."""
+
+        @get("/own", opt=LitestarAnonymous())
+        async def read() -> dict[str, bool]:
+            return {"read": True}  # pragma: no cover
+
+        @litestar_route("/own", http_method=["OPTIONS"])
+        async def describe() -> None: ...  # pragma: no cover
+
+        app = Litestar(route_handlers=[describe, read])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        with LitestarTestClient(app) as client:
+            response = client.options("/own")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_cors_preflight_is_answered_before_authentication(self) -> None:
+        """A browser asks before it sends the token, and is answered."""
+
+        @delete("/orders/{order_id:int}", guards=[LitestarAuthenticated()])
+        async def cancel(
+            order_id: Annotated[int, Parameter()],
+        ) -> None: ...  # pragma: no cover
+
+        app = Litestar(
+            route_handlers=[cancel],
+            cors_config=CORSConfig(allow_origins=["https://app.example"]),
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        with LitestarTestClient(app) as client:
+            response = client.options(
+                "/orders/7",
+                headers={
+                    "origin": "https://app.example",
+                    "access-control-request-method": "DELETE",
+                },
+            )
+
+        assert response.status_code == HTTP_204_NO_CONTENT
+        assert response.headers["access-control-allow-origin"] == (
+            "https://app.example"
+        )
 
     def test_exclude_matches_the_path_litestar_routes(self) -> None:
         """A trailing slash Litestar's router drops is dropped here too."""
