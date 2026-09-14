@@ -18,10 +18,12 @@ from typing import TYPE_CHECKING, Annotated, Any
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi import Request as FastAPIRequest
+from fastapi import WebSocket as FastAPIWebSocket
 from fastapi.security import HTTPBearer
 from fastapi.testclient import TestClient
-from litestar import Litestar, delete, get, post
+from litestar import Litestar, delete, get, post, websocket
 from litestar import Request as LitestarRequest
+from litestar import WebSocket as LitestarWebSocket
 from litestar.params import Parameter
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
@@ -1230,3 +1232,190 @@ class TestDeclarationsElsewhere:
 
         assert not _has_dependencies(*routes["/signup"])
         assert not _has_dependencies(*routes["/newsletter"])
+
+
+class TestRouting:
+    """Public means the route the router dispatches to, never a pattern overlap."""
+
+    def test_a_public_route_never_unlocks_a_protected_overlapping_one(
+        self,
+    ) -> None:
+        """`/users/me` is answered by its own route, which stays protected."""
+        app = FastAPI()
+
+        @app.get("/users/me")
+        async def me(principal: CurrentPrincipal) -> dict[str, str | None]:
+            return {"subject": principal.subject}
+
+        @app.get("/users/{user_id}", dependencies=[Anonymous()])
+        async def user(user_id: str) -> dict[str, str]:
+            return {"user": user_id}
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/users/me").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/users/me", headers=bearer(token())).json() == {
+            "subject": "user-1"
+        }
+        assert client.get("/users/7").json() == {"user": "7"}
+
+    def test_a_public_websocket_leaves_the_same_path_protected_over_http(
+        self,
+    ) -> None:
+        """Declaring a socket public says nothing about the HTTP route."""
+        app = FastAPI()
+
+        @app.get("/feed")
+        async def feed() -> dict[str, bool]:
+            return {"feed": True}
+
+        @app.websocket("/feed", dependencies=[Anonymous()])
+        async def feed_socket(socket: FastAPIWebSocket) -> None:
+            await socket.accept()
+            await socket.send_json({"public": True})
+            await socket.close()
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/feed").status_code == HTTP_401_UNAUTHORIZED
+        with client.websocket_connect("/feed") as socket:
+            assert socket.receive_json() == {"public": True}
+
+    def test_a_public_litestar_route_never_unlocks_a_fixed_segment(
+        self,
+    ) -> None:
+        """Litestar prefers `/users/me`, so that route decides."""
+
+        @get("/users/me")
+        async def me(request: LitestarRequest) -> dict[str, str]:
+            return {"subject": request.user.subject}
+
+        @get("/users/{user_id:int}", opt=LitestarAnonymous())
+        async def user(user_id: Annotated[int, Parameter()]) -> dict[str, int]:
+            return {"user": user_id}
+
+        app = Litestar(route_handlers=[me, user])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            refused = client.get("/users/me")
+            served = client.get("/users/me", headers=bearer(token()))
+            public = client.get("/users/7")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert served.json() == {"subject": "user-1"}
+        assert public.json() == {"user": 7}
+
+    def test_a_public_litestar_websocket_needs_no_credential(self) -> None:
+        """`opt=Anonymous()` on a websocket handler serves the handshake."""
+
+        @websocket("/live", opt=LitestarAnonymous())
+        async def live(socket: LitestarWebSocket) -> None:
+            await socket.accept()
+            await socket.send_json({"public": True})
+            await socket.close()
+
+        app = Litestar(route_handlers=[live])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with (
+            LitestarTestClient(app) as client,
+            client.websocket_connect("/live") as socket,
+        ):
+            assert socket.receive_json() == {"public": True}
+
+    def test_a_public_catch_all_never_opens_a_mounted_app(self) -> None:
+        """A mounted application answers under its path, public route or not."""
+        app = FastAPI()
+
+        async def admin(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"admin": True})(scope, receive, send)
+
+        app.mount("/admin", admin)
+
+        @app.get("/{rest:path}", dependencies=[Anonymous()])
+        async def page(rest: str) -> dict[str, str]:
+            return {"page": rest}
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/admin/users").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/about").json() == {"page": "about"}
+
+    def test_a_public_route_another_route_also_answers_stays_authenticated(
+        self,
+    ) -> None:
+        """Declaration order never decides whether a credential is needed."""
+        app = FastAPI()
+
+        @app.get("/users/me", dependencies=[Anonymous()])
+        async def me() -> dict[str, bool]:
+            return {"public": True}
+
+        @app.get("/users/{user_id}")
+        async def user(user_id: str) -> dict[str, str]:
+            return {"user": user_id}
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/users/me").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/users/me", headers=bearer(token())).json() == {
+            "public": True
+        }
+
+    def test_a_router_included_as_public_needs_no_credential(self) -> None:
+        """`include_router(dependencies=[Anonymous()])` counts for its routes."""
+        app = FastAPI()
+        help_pages = APIRouter()
+
+        @help_pages.get("/help")
+        async def help_page() -> dict[str, bool]:
+            return {"help": True}
+
+        app.include_router(help_pages, dependencies=[Anonymous()])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/help").json() == {"help": True}
+
+    def test_a_public_route_in_a_mounted_app_needs_no_credential(self) -> None:
+        """A sub-application's routes are read, and its public one is served."""
+        sub = FastAPI()
+
+        @sub.get("/status", dependencies=[Anonymous()])
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/sub/status").json() == {"up": True}
+
+    def test_a_url_litestar_would_refuse_is_never_served_publicly(self) -> None:
+        """A path that fits the pattern and not the route stays authenticated."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier()))
+        ) as client:
+            response = client.get("/catalog/not-a-number")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED

@@ -540,7 +540,7 @@ def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  
         reach = _reach(endpoint, (), tuple(component.config.exclude))
         if reach is None:
             return None
-        if route_is_public(endpoint.route, endpoint.method):
+        if route_is_public(endpoint.route, endpoint.method, endpoint.contexts):
             return "anonymous"
         scopes = " ".join(route_scopes(endpoint.route, endpoint.method))
         return (
@@ -562,7 +562,9 @@ def _authenticated_by(components: Sequence[Any], endpoint: _Endpoint) -> bool:
 
     return any(
         _reach(endpoint, (), tuple(component.config.exclude)) is not None
-        and not route_is_public(endpoint.route, endpoint.method)
+        and not route_is_public(
+            endpoint.route, endpoint.method, endpoint.contexts
+        )
         for component in components
     )
 

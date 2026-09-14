@@ -558,7 +558,9 @@ def Anonymous() -> Any:  # noqa: N802, ANN401
 
     `micro.install(app)` reads it off the dependency tree, and the app is
     read again when it starts. It applies per method, so a path serving a
-    public read keeps its writes authenticated. The route is not
+    public read keeps its writes authenticated. A URL another route without
+    it could also answer stays authenticated, whichever route would serve it,
+    so a declaration never opens a route it was not written on. The route is not
     authenticated at all, even when the request carries a token, and
     `request.user` there is a caller that is not authenticated.
 
@@ -1129,10 +1131,10 @@ def _route_authentication(
     """
     public: set[tuple[str, str]] = set()
     scopes: dict[tuple[str, str], list[str]] = {}
-    for prefix, route, _ in walk_routes(app):
+    for prefix, route, contexts in walk_routes(app):
         path = f"{prefix}{getattr(route, 'path_format', route.path)}"
         methods = [method.lower() for method in getattr(route, "methods", ())]
-        if _declares_anonymous(route):
+        if _declares_anonymous(route, contexts):
             public.update((path, method) for method in methods)
             continue
         required = list(route_scopes(route, ""))

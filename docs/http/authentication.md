@@ -24,7 +24,9 @@ Two things say otherwise:
   prefix ending in `*`.
 - `Anonymous()` declared on a route serves that route without one. It applies
   per method, so a public read keeps the writes on the same path
-  authenticated.
+  authenticated. A URL another route could also answer stays authenticated,
+  whichever route would serve it, so a declaration never opens a route it was
+  not written on.
 
 A path that is not authenticated is not authenticated at all, even when the
 request carries a token. `request.user` there is a caller that is not

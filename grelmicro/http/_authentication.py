@@ -6,7 +6,7 @@ import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self, cast
 
 from pydantic import BaseModel
 from typing_extensions import Doc
@@ -125,98 +125,217 @@ _ANONYMOUS = _AnonymousCaller()
 """The one anonymous caller, shared by every request served without one."""
 
 
+_HTTP: Final = frozenset({"http"})
+"""The scope type an HTTP route answers."""
+
+_WEBSOCKET: Final = frozenset({"websocket"})
+"""The scope type a websocket route answers."""
+
+_EITHER: Final = frozenset({"http", "websocket"})
+"""The scope types a mounted application may answer."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Reach:
+    """Where one route answers: its scope types, its methods and its paths."""
+
+    kinds: frozenset[str]
+    methods: frozenset[str] | None
+    pattern: Pattern[str]
+
+    def answers(self, kind: str, method: str | None, path: str) -> bool:
+        """Return whether this route could answer the request."""
+        return (
+            kind in self.kinds
+            and (self.methods is None or method in self.methods)
+            and self.pattern.fullmatch(path) is not None
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _Routes:
+    """An app's public routes, and every other route that could answer.
+
+    The others are kept by how many segments their path has, so a request is
+    held against the ones that could fit it and the few that fit any depth.
+    """
+
+    public: tuple[_Reach, ...] = ()
+    by_depth: Mapping[int, tuple[_Reach, ...]] = MappingProxyType({})
+    anywhere: tuple[_Reach, ...] = ()
+    litestar: Any = None
+
+
 class _PublicRoutes:
     """The routes that declared `Anonymous()`, read off the app.
 
     Read when `micro.install(app)` adds the middleware, and again when the
     app starts, so a route declared between the two counts as well.
+
+    A public route's path can fit a URL another route answers, and which one
+    serves it depends on the order the routes were declared in, or on the
+    framework's own preferences. A request is served without a credential
+    only when no route that is not public could answer it, so a declaration
+    never opens a route it was not written on.
     """
 
     def __init__(self) -> None:
         """Start with no app and no public route."""
         self._app: Any = None
-        self._routes: tuple[
-            tuple[Pattern[str], frozenset[str] | None], ...
-        ] = ()
+        self._routes = _Routes()
 
     def read(self, app: Any) -> None:  # noqa: ANN401
-        """Read every route `app` declares public."""
+        """Read every route `app` declares, public or not."""
         self._app = app
-        self._routes = _public_routes(app)
+        self._routes = _routes_of(app)
 
     def reread(self) -> None:
         """Read the app again, for the routes declared since install."""
         if self._app is not None:
-            self._routes = _public_routes(self._app)
+            self._routes = _routes_of(self._app)
 
     def matches(self, scope: Scope) -> bool:
-        """Return whether the request asks for a route declared public.
-
-        Per method, so a path that serves a public read and an
-        authenticated write keeps the write authenticated.
-        """
+        """Return whether the request is served by a route declared public."""
         routes = self._routes
-        if not routes:
+        if not routes.public:
             return False
-        path = route_path(scope)
+        kind = scope["type"]
         method = scope.get("method")
-        return any(
-            compiled.fullmatch(path) is not None
-            and (methods is None or method in methods)
-            for compiled, methods in routes
-        )
+        path = route_path(scope)
+        if not any(
+            reach.answers(kind, method, path) for reach in routes.public
+        ):
+            return False
+        if routes.litestar is not None:
+            return _litestar_serves_publicly(routes.litestar, scope)
+        rivals = (*routes.by_depth.get(path.count("/"), ()), *routes.anywhere)
+        return not any(reach.answers(kind, method, path) for reach in rivals)
 
 
-def _public_routes(
-    app: Any,  # noqa: ANN401
-) -> tuple[tuple[Pattern[str], frozenset[str] | None], ...]:
-    """Return the path and methods of every route that declared `Anonymous()`.
+def _routes_of(app: Any) -> _Routes:  # noqa: ANN401
+    """Read an app's routes, the way its framework declares them."""
+    if getattr(app, "asgi_router", None) is not None:
+        return _litestar_routes(app)
+    return _starlette_routes(app)
 
-    Read off the resolved dependency tree, so a declaration a router makes
-    for everything it holds counts for each of its routes. Each path is
-    compiled with the framework's own compiler, so it matches exactly what
-    the router matches.
+
+def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
+    """Read a Starlette or FastAPI app's public routes, and all the others.
+
+    Each path is compiled with the framework's own compiler, so it fits
+    exactly the URLs the router matches it against. A mounted application
+    whose routes cannot be read answers anything under its path, so it
+    counts as a route that could answer every one of those URLs.
     """
-    found: list[tuple[Pattern[str], frozenset[str] | None]] = []
+    from starlette.routing import WebSocketRoute, compile_path  # noqa: PLC0415
+
+    public: list[_Reach] = []
+    rivals: list[tuple[str, _Reach]] = []
+    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
+        template = f"{prefix}{route.path}"
+        compiled, _, _ = compile_path(template)
+        if isinstance(route, WebSocketRoute):
+            reach = _Reach(_WEBSOCKET, None, compiled)
+        else:
+            methods = getattr(route, "methods", None)
+            reach = _Reach(
+                _HTTP, frozenset(methods) if methods else None, compiled
+            )
+        if _declares_anonymous(route, contexts):
+            public.append(reach)
+        else:
+            rivals.append((template, reach))
+    if not public:
+        return _Routes()
     for prefix, route, _ in walk_routes(app):
-        handlers = getattr(route, "route_handlers", None)
-        if handlers is not None:
-            found.extend(_public_litestar_route(route, handlers))
-            continue
-        if not _declares_anonymous(route):
-            continue
-        from starlette.routing import compile_path  # noqa: PLC0415
-
-        compiled, _, _ = compile_path(f"{prefix}{route.path}")
-        methods = getattr(route, "methods", None)
-        found.append((compiled, frozenset(methods) if methods else None))
-    return tuple(found)
-
-
-def _public_litestar_route(
-    route: Any,  # noqa: ANN401
-    handlers: Any,  # noqa: ANN401
-) -> list[tuple[Pattern[str], frozenset[str] | None]]:
-    """Return one Litestar route's public handlers, by path and method.
-
-    A Litestar handler declares itself public through its `opt`. Its path
-    parameters carry types Starlette's compiler does not read, so the path
-    is compiled here: a `path` parameter spans slashes, and every other one
-    spans a single segment.
-    """
-    methods = frozenset(
-        method
-        for handler in handlers
-        if handler.opt.get(ANONYMOUS_OPT)
-        for method in handler.http_methods
+        if getattr(route, "routes", None) is not None:
+            template = f"{prefix}{route.path.rstrip('/')}/{{path:path}}"
+            compiled, _, _ = compile_path(template)
+            rivals.append((template, _Reach(_EITHER, None, compiled)))
+    by_depth: dict[int, list[_Reach]] = {}
+    anywhere: list[_Reach] = []
+    for template, reach in rivals:
+        if ":path}" in template:
+            anywhere.append(reach)
+        else:
+            by_depth.setdefault(template.count("/"), []).append(reach)
+    return _Routes(
+        public=tuple(public),
+        by_depth=MappingProxyType(
+            {depth: tuple(reaches) for depth, reaches in by_depth.items()}
+        ),
+        anywhere=tuple(anywhere),
     )
-    if not methods:
-        return []
-    return [(_litestar_pattern(route), methods)]
+
+
+def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401
+    """Read a Litestar app's public handlers.
+
+    The patterns only narrow the question. Litestar's own router answers it,
+    because it picks a fixed segment before a parameter whatever the order
+    the handlers were declared in.
+    """
+    public: list[_Reach] = []
+    for _, route, _ in walk_routes(app):
+        chosen = [
+            handler
+            for handler in _litestar_handlers(route) or ()
+            if handler.opt.get(ANONYMOUS_OPT)
+        ]
+        if not chosen:
+            continue
+        kind = getattr(route.scope_type, "value", route.scope_type)
+        methods = frozenset(
+            method
+            for handler in chosen
+            for method in getattr(handler, "http_methods", ())
+        )
+        public.append(
+            _Reach(frozenset({kind}), methods or None, _litestar_pattern(route))
+        )
+    return _Routes(public=tuple(public), litestar=app)
+
+
+def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
+    """Return whether Litestar dispatches the request to a public handler.
+
+    Asked of Litestar's own router, which picks the handler by path, by
+    method, and for a websocket, so the handler it names is the one that
+    runs. A request it would refuse is not served publicly.
+    """
+    from litestar.exceptions import HTTPException  # noqa: PLC0415
+    from litestar.utils import normalize_path  # noqa: PLC0415
+
+    root_path = scope.get("root_path", "")
+    path = (
+        scope["path"].split(root_path, maxsplit=1)[-1]
+        if root_path
+        else scope["path"]
+    )
+    try:
+        _, handler, *_ = app.asgi_router.handle_routing(
+            path=normalize_path(path), method=scope.get("method")
+        )
+    except HTTPException:
+        return False
+    return bool(handler.opt.get(ANONYMOUS_OPT))
+
+
+def _litestar_handlers(route: Any) -> list[Any] | None:  # noqa: ANN401
+    """Return a Litestar route's handlers, or `None` for another framework's.
+
+    An HTTP route holds one handler per method, and a websocket route holds
+    a single one.
+    """
+    handlers = getattr(route, "route_handlers", None)
+    if handlers is not None:
+        return list(handlers)
+    handler = getattr(route, "route_handler", None)
+    return None if handler is None else [handler]
 
 
 def _litestar_pattern(route: Any) -> Pattern[str]:  # noqa: ANN401
-    """Compile a Litestar route's path into the pattern it matches."""
+    """Compile a Litestar route's path into a pattern every URL of it fits."""
     template = route.path_format
     parameters = route.path_parameters
     pieces: list[str] = []
@@ -231,12 +350,25 @@ def _litestar_pattern(route: Any) -> Pattern[str]:  # noqa: ANN401
     return re.compile("".join(pieces))
 
 
-def _declares_anonymous(route: Any) -> bool:  # noqa: ANN401
-    """Return whether a route declared `Anonymous()`, itself or through a router."""
+def _declares_anonymous(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...] = (),
+) -> bool:
+    """Return whether a route declared `Anonymous()`.
+
+    On the route, on the router that holds it, or where that router was
+    included.
+    """
     declared = getattr(route, "dependant", None)  # codespell:ignore
-    return any(
-        getattr(dependency.call, _ANONYMOUS_MARKER, False)
+    if any(
+        is_anonymous_declaration(dependency.call)
         for dependency in getattr(declared, "dependencies", ())
+    ):
+        return True
+    return any(
+        is_anonymous_declaration(getattr(dependency, "dependency", None))
+        for context in contexts
+        for dependency in getattr(context, "dependencies", ()) or ()
     )
 
 
@@ -262,15 +394,17 @@ def is_anonymous_declaration(call: object) -> bool:
 def route_is_public(
     route: Any,  # noqa: ANN401
     method: str,
+    contexts: tuple[Any, ...] = (),
 ) -> bool:
-    """Return whether a route serves this method without a credential."""
-    handlers = getattr(route, "route_handlers", None)
+    """Return whether a route declares this method public."""
+    handlers = _litestar_handlers(route)
     if handlers is not None:
         return any(
-            handler.opt.get(ANONYMOUS_OPT) and method in handler.http_methods
+            handler.opt.get(ANONYMOUS_OPT)
+            and method in getattr(handler, "http_methods", ())
             for handler in handlers
         )
-    return _declares_anonymous(route)
+    return _declares_anonymous(route, contexts)
 
 
 def route_scopes(
@@ -284,10 +418,10 @@ def route_scopes(
     the app's included.
     """
     found: list[str] = []
-    handlers = getattr(route, "route_handlers", None)
+    handlers = _litestar_handlers(route)
     if handlers is not None:
         for handler in handlers:
-            if method in handler.http_methods:
+            if method in getattr(handler, "http_methods", ()):
                 for guard in handler.resolve_guards():
                     found.extend(getattr(guard, AUTHENTICATED_MARKER, ()))
         return tuple(dict.fromkeys(found))
