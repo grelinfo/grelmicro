@@ -632,6 +632,21 @@ class TestLifecycle:
                 rotated = token(ROTATED, kid="k2")
                 await until(lambda: verifies(verifier, rotated))
 
+    def test_the_background_pass_waits_out_the_last_attempt(self) -> None:
+        """A refresh a request made brings the next pass forward, never back."""
+        verifier = JWTVerifier.from_config(
+            config(retry_interval=HOUR), fetch=Endpoint(document())
+        )
+        source = verifier.config
+        assert isinstance(source, JWKSConfig)
+        assert verifier._until_next_pass(source) == HOUR
+
+        verifier._attempted_at = time.monotonic() - HOUR / 4
+        assert 0 < verifier._until_next_pass(source) <= HOUR * 3 / 4
+
+        verifier._attempted_at = time.monotonic() - HOUR * 2
+        assert verifier._until_next_pass(source) == HOUR
+
     async def test_closing_can_itself_be_cancelled(self) -> None:
         """Waiting on an abandoned fetch never hides the closer's cancel."""
         endpoint = Lingering()

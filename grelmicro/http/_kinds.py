@@ -32,6 +32,7 @@ from grelmicro.resilience.errors import (
     DeadlineExceededError,
     RateLimitExceededError,
 )
+from grelmicro.security.bans import ClientBannedError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -104,6 +105,17 @@ RATE_LIMIT_EXCEEDED = Kind(
     detail=(
         "The client sent more requests than the rate limit allows. Wait for "
         "the interval in the Retry-After header before sending another."
+    ),
+)
+
+CLIENT_BANNED = Kind(
+    slug="client-banned",
+    status=429,
+    title="Client banned",
+    detail=(
+        "The client presented too many tokens that did not verify, so it is "
+        "refused for a while. Wait for the interval in the Retry-After header "
+        "before sending another request."
     ),
 )
 
@@ -245,6 +257,10 @@ def _from_rate_limit(exc: RateLimitExceededError) -> Occurrence:
     return Occurrence(RATE_LIMIT_EXCEEDED, extensions=_wait(exc.retry_after))
 
 
+def _from_client_banned(exc: ClientBannedError) -> Occurrence:
+    return Occurrence(CLIENT_BANNED, extensions=_wait(exc.retry_after))
+
+
 def _from_circuit_breaker(exc: CircuitBreakerError) -> Occurrence:
     return Occurrence(CIRCUIT_BREAKER_OPEN, extensions=_wait(exc.retry_after))
 
@@ -299,6 +315,7 @@ def _from_in_flight(exc: IdempotencyWaitTimeoutError) -> Occurrence:  # noqa: AR
 
 _RULES: dict[type[BaseException], Callable[[Any], Occurrence]] = {
     RateLimitExceededError: _from_rate_limit,
+    ClientBannedError: _from_client_banned,
     CircuitBreakerError: _from_circuit_breaker,
     BulkheadFullError: _from_bulkhead,
     LockTimeoutError: _from_lock_timeout,

@@ -1279,6 +1279,20 @@ class TestEnvironment:
 
         assert repr(parameters["audience"].default) == "UNSET"
 
+    async def test_turning_the_cache_off_stops_answering_from_memory(
+        self,
+    ) -> None:
+        """A live `cache_size` of zero drops what is already cached."""
+        verifier = JWTVerifier.keys(self.key(), audience=AUDIENCE)
+        token = issue()
+        first = verifier.verify(token)
+
+        await verifier.reconfigure(
+            verifier.config.model_copy(update={"cache_size": 0})
+        )
+
+        assert verifier.verify(token) is not first
+
     async def test_a_reload_never_changes_whose_tokens_pass(self) -> None:
         """A config handed to reconfigure with a new audience is refused."""
         verifier = JWTVerifier.keys(self.key(), audience=AUDIENCE)

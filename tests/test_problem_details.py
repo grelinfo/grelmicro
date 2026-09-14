@@ -63,6 +63,7 @@ from grelmicro.resilience.errors import (
     DeadlineExceededError,
     RateLimitExceededError,
 )
+from grelmicro.security import ClientBannedError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, MutableMapping
@@ -100,6 +101,9 @@ DEADLINE = 2.0
 BREAKER_WAIT = 8.0
 """Delay the open breaker reports."""
 
+BAN_WAIT = 30.0
+"""Seconds the client ban reports it has left."""
+
 
 def _rate_limited() -> RateLimitExceededError:
     """Return a rejection whose message names the key it refused."""
@@ -110,6 +114,11 @@ def _rate_limited() -> RateLimitExceededError:
 
 EXPECTED = [
     (_rate_limited(), HTTP_429_TOO_MANY_REQUESTS, "rate-limit-exceeded"),
+    (
+        ClientBannedError(retry_after=BAN_WAIT),
+        HTTP_429_TOO_MANY_REQUESTS,
+        "client-banned",
+    ),
     (
         CircuitBreakerError(name="payments", retry_after=BREAKER_WAIT),
         HTTP_503_SERVICE_UNAVAILABLE,
@@ -672,6 +681,18 @@ def test_the_component_renders_a_rejection() -> None:
     assert json.loads(rendered.body)["instance"] == "/charge"
 
 
+def test_a_banned_client_is_told_when_to_come_back() -> None:
+    """A ban answers `429` with the seconds it has left, never a `503`."""
+    # Act
+    rendered = ErrorResponses().render(ClientBannedError(retry_after=BAN_WAIT))
+
+    # Assert
+    assert rendered is not None
+    assert rendered.status == HTTP_429_TOO_MANY_REQUESTS
+    assert rendered.headers["retry-after"] == "30"
+    assert json.loads(rendered.body)["retry_after"] == BAN_WAIT
+
+
 def test_the_component_renders_nothing_for_a_server_fault() -> None:
     """An error grelmicro did not raise stays the framework's to answer."""
     # Act & Assert
@@ -755,7 +776,7 @@ def test_every_kind_dereferences_to_its_own_section() -> None:
     )
 
 
-_MIN_KINDS = 12
+_MIN_KINDS = 13
 """Floor for the sweep, so an empty scan cannot pass silently."""
 
 

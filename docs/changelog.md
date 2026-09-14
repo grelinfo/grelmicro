@@ -15,7 +15,7 @@
 
 * 💥 `bans=` and `client=` are gone from `JWTVerifier`. Ban callers with a `ClientBans` beside the verifier: check `banned()` before verifying, and `record()` a rejection after. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `ClientBans(failures=..., window=..., duration=...)` takes its settings as keywords, and `ClientBans.from_config()` takes a `ClientBansConfig`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
-* 💥 `ClientBannedError` is an `AdmissionError` carrying `retry_after`, and `ClientBans.banned_for()` says how long a ban has left. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `ClientBannedError` is an `AdmissionError` carrying `retry_after`, and `ClientBans.banned_for()` says how long a ban has left. `ErrorResponses` answers it with `429`, the `client-banned` type and a `Retry-After` header. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `malformed` no longer counts toward a ban. It is refused before any signature is checked, and a legitimate client presenting an opaque token lands there. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `unverified_header(token)` is a function, and the verifier method is gone. It reads no key, so it never needed a verifier. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 

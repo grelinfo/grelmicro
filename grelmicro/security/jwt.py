@@ -1534,16 +1534,19 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         self._inflight = None
 
     async def _keep_fresh(self, source: JWKSConfig) -> None:
-        """Refresh every `retry_interval` until cancelled.
+        """Refresh once per `retry_interval` until cancelled.
 
         `refresh` fetches only when the keys are stale, so a pass while they
-        are fresh costs nothing, and a key the provider rotated in reaches
-        the verifier within one interval of a token naming it. The interval
-        is read again on every pass, so a reload paces the next one.
+        are fresh costs nothing. Each pass waits out the interval the last
+        fetch attempt began, whoever made it, so a refresh a request made
+        never pushes the next pass a whole interval back, and a key the
+        provider rotated in reaches the verifier within one interval of a
+        token naming it. The interval is read again on every pass, so a
+        reload paces the next one.
         """
         while True:
             source = self._source or source
-            await asyncio.sleep(source.retry_interval)
+            await asyncio.sleep(self._until_next_pass(source))
             try:
                 await self.refresh()
             except SigningKeysUnavailableError as error:
@@ -1559,6 +1562,21 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
                     "signing keys could not be refreshed, keeping the loaded"
                     " keys"
                 )
+
+    def _until_next_pass(self, source: JWKSConfig) -> float:
+        """Return the seconds the background refresh waits before its next pass.
+
+        One interval, or the part of it left when the last fetch attempt was
+        more recent than that. `refresh` refuses to fetch again inside the
+        interval an attempt began, so waking at its end is the soonest the
+        pass can fetch.
+        """
+        interval = source.retry_interval
+        attempted = self._attempted_at
+        if attempted is None:
+            return interval
+        remaining = attempted + interval - monotonic()
+        return remaining if remaining > 0 else interval
 
     async def _apply_reconfigure(
         self, new_config: JWTKeysConfig | JWKSConfig
@@ -1583,7 +1601,15 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
         if changed:
             msg = f"only applies at startup: {', '.join(changed)}"
             raise ValueError(msg)
+        shrunk = new_config.cache_size < self._cache_size
         self._cache_size = new_config.cache_size
+        keys = self._keys
+        if shrunk and keys is not None:
+            # A smaller cache takes effect now rather than at the next store,
+            # so turning it off stops answering from memory at once. The size
+            # is set first, so a store running alongside already sees it.
+            keys.cache.clear()
+            keys.order.clear()
         if isinstance(new_config, JWKSConfig):
             self._source = new_config
 
