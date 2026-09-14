@@ -146,8 +146,8 @@ verifier = JWTVerifier.from_config(
 
 ### From a JWKS URL
 
-`JWKSVerifier` fetches the document itself and follows the provider when it
-rotates. `refresh` is a coroutine, `verify` is not, so no request ever waits on
+`JWTVerifier.jwks` fetches the document itself and follows the provider when
+it rotates. `refresh` is a coroutine, `verify` is not, so no request ever waits on
 the provider.
 
 ```python
@@ -165,8 +165,9 @@ picks the new keys up. `retry_interval` puts a floor under how often that can
 happen, so a caller inventing `kid` values cannot make your service hammer
 your provider.
 
-A refresh that fails raises `JWKSUnavailableError` and leaves the loaded keys
-in place, so a provider outage does not take authentication down with it.
+A refresh that fails raises `SigningKeysUnavailableError` and leaves the
+loaded keys in place, so a provider outage does not take authentication down
+with it. Verifying before any key set has loaded raises it too.
 
 The endpoint must be `https`. Bodies are read in chunks and abandoned past
 `max_bytes`, redirects are not followed, and a document with more than
@@ -191,7 +192,7 @@ async def fetch(url: str, *, timeout: float, max_bytes: int) -> bytes:
     response.raise_for_status()
     return response.content
 
-verifier = JWKSVerifier(config, fetch=fetch)
+verifier = JWTVerifier.from_config(config, fetch=fetch)
 ```
 
 A fetcher that goes through your own client keeps the request inside whatever
@@ -210,13 +211,11 @@ tokens.
 
 ```python
 issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool}"
-verifier = JWKSVerifier(
-    JWKSConfig(
-        url=f"{issuer}/.well-known/jwks.json",
-        audience=None,
-        issuer=[issuer],
-        required=["token_use"],
-    )
+verifier = JWTVerifier.jwks(
+    f"{issuer}/.well-known/jwks.json",
+    audience=None,
+    issuer=issuer,
+    required=["token_use"],
 )
 await verifier.refresh()
 
@@ -234,13 +233,11 @@ implies, and `algorithm=` pins one explicitly.
 
 ```python
 tenant_issuer = f"https://login.microsoftonline.com/{tenant}/v2.0"
-verifier = JWKSVerifier(
-    JWKSConfig(
-        url=f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
-        algorithm="RS256",
-        audience=[client_id],
-        issuer=[tenant_issuer],
-    )
+verifier = JWTVerifier.jwks(
+    f"https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys",
+    algorithm="RS256",
+    audience=client_id,
+    issuer=tenant_issuer,
 )
 await verifier.refresh()
 ```
@@ -323,7 +320,8 @@ without a `client` raises rather than quietly counting nothing.
 token, so answer it with `429` and not `401`: a fresh token would not change
 the answer.
 
-`JWKSVerifier` takes the same argument and behaves the same way.
+A verifier built with `JWTVerifier.jwks` takes the same argument and behaves
+the same way.
 
 The address has to be one the caller cannot choose. Pass what
 [`resolve_client_address`](clientip.md) returns, never a raw

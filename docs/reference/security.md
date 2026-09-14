@@ -17,10 +17,9 @@
         - JWTKey
         - JWTClaims
         - TokenRejectedError
-        - JWKSVerifier
         - JWKSConfig
-        - JWKSFetcher
-        - JWKSUnavailableError
+        - SigningKeysUnavailableError
+        - Fetcher
         - fetch_with_httpx
         - ClientBans
         - ClientBansConfig

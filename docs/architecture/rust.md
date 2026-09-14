@@ -62,7 +62,7 @@ replacement would have to rebuild:
 - **Compatibility.** Owning a protocol client means owning it against every
   server version, forever.
 
-The same reasoning is why `JWKSVerifier` takes a `fetch` argument rather than
+The same reasoning is why `JWTVerifier.jwks` takes a `fetch` argument rather than
 embedding an HTTP client. The default is built on `httpx`, and passing your
 own keeps the request inside whatever instrumentation and retry policy it
 already has.

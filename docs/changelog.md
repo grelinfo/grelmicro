@@ -10,6 +10,8 @@
 * 🔒 `JWTKey` holds its key material as a secret, so a `repr`, a log line or a dumped configuration never shows it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `JWTVerifier.keys()` builds a verifier from keys you hold, and `JWTVerifier.from_config()` builds one from a config that is already whole. `JWTVerifier(config)` is gone, and `JWTConfig` is now `JWTKeysConfig`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🔒 `audience` is required. Name the audience your tokens carry, or pass `audience=None` to answer to none, which refuses any token that names one. An empty list is refused, because it says neither. `audience` and `issuer` also take a single string. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWKSVerifier` is gone. `JWTVerifier.jwks(url, audience=...)` builds the same verifier, and `JWTVerifier.from_config()` takes a `JWKSConfig` too. A verifier built from keys you hold answers `ready`, `stale` and `refresh` as well, so code written against one takes the other. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWKSUnavailableError` is now `SigningKeysUnavailableError`, and verifying before any key set has loaded raises it instead of `OutOfContextError`. `JWKSFetcher` is now `Fetcher`, and `unverified_header` answers before any key set loads. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))

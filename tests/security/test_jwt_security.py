@@ -24,7 +24,7 @@ from grelmicro.security import (
     JWTVerifier,
     TokenRejectedError,
 )
-from tests.security.jwt_signing import Signer, b64u, b64u_json
+from tests.security.jwt_signing import Signer, b64u, b64u_json, loaded
 
 AUDIENCE = "grelmicro-api"
 ISSUER = "https://auth.grel.info/"
@@ -357,7 +357,7 @@ class TestCacheIsNotAnOracle:
             with pytest.raises(TokenRejectedError):
                 subject.verify(token)
 
-        assert subject._cache == {}
+        assert loaded(subject).cache == {}
 
     def test_two_tokens_never_share_an_entry(self) -> None:
         """Entries are keyed by the whole token, so no two tokens collide."""
@@ -516,7 +516,7 @@ class TestBoundTokens:
         with pytest.raises(TokenRejectedError):
             subject.verify(SIGNER.token(claims(cnf={"jkt": "thumbprint"})))
 
-        assert subject._cache == {}
+        assert loaded(subject).cache == {}
 
 
 VALID = SIGNER.token(claims())

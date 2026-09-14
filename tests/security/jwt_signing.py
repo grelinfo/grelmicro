@@ -24,6 +24,8 @@ from cryptography.hazmat.primitives.asymmetric.utils import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from grelmicro.security.jwt import JWTVerifier, _KeySet
+
 HASHES = {
     "256": hashes.SHA256(),
     "384": hashes.SHA384(),
@@ -178,3 +180,12 @@ class Signer:
         head = b64u_json({"alg": algorithm, "typ": "JWT"})
         payload = {k: v for k, v in claims.items() if v is not None}
         return f"{head}.{b64u_json(payload)}.{signature}"
+
+
+def loaded(verifier: JWTVerifier) -> _KeySet:
+    """Return the key set `verifier` has loaded, for tests that read its cache."""
+    keys = verifier._keys
+    if keys is None:
+        msg = "the verifier has no key set loaded"
+        raise AssertionError(msg)
+    return keys

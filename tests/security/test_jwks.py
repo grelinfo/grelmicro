@@ -20,7 +20,6 @@ from pydantic import ValidationError
 
 from grelmicro.errors import (
     DependencyNotFoundError,
-    OutOfContextError,
     SettingsValidationError,
 )
 from grelmicro.security import (
@@ -28,11 +27,10 @@ from grelmicro.security import (
     ClientBans,
     ClientBansConfig,
     JWKSConfig,
-    JWKSUnavailableError,
-    JWKSVerifier,
     JWTKey,
     JWTKeysConfig,
     JWTVerifier,
+    SigningKeysUnavailableError,
     TokenRejectedError,
     TokenVerifier,
 )
@@ -196,7 +194,7 @@ class TestRefresh:
     async def test_the_first_refresh_loads_the_keys(self) -> None:
         """Nothing is loaded until the first refresh."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
 
         assert verifier.ready is False
         assert verifier.stale is True
@@ -207,7 +205,7 @@ class TestRefresh:
     async def test_a_fresh_key_set_is_not_fetched_again(self) -> None:
         """A scheduled refresh costs nothing while the keys are current."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
         await verifier.refresh()
 
         assert await verifier.refresh() is False
@@ -216,7 +214,7 @@ class TestRefresh:
     async def test_an_unchanged_document_does_not_rebuild(self) -> None:
         """Fetching the same bytes twice leaves the verifier alone."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
         await verifier.refresh()
 
         assert await verifier.refresh(force=True) is False
@@ -225,7 +223,7 @@ class TestRefresh:
     async def test_force_fetches_even_when_fresh(self) -> None:
         """An operator can make it look now rather than wait for the TTL."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
         await verifier.refresh()
 
         endpoint.body = document(ROTATED, kid="k2")
@@ -235,7 +233,7 @@ class TestRefresh:
     async def test_an_expired_ttl_fetches_again(self) -> None:
         """Past the TTL the key set is fetched even without a rotation."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(
+        verifier = JWTVerifier.from_config(
             config(ttl=0.01, retry_interval=0.01), fetch=endpoint
         )
         await verifier.refresh()
@@ -248,11 +246,11 @@ class TestRefresh:
     async def test_a_failed_refresh_keeps_the_loaded_keys(self) -> None:
         """A provider going down must not take authentication down."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(ttl=0.01), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(ttl=0.01), fetch=endpoint)
         await verifier.refresh()
-        endpoint.body = JWKSUnavailableError("endpoint is down")
+        endpoint.body = SigningKeysUnavailableError("endpoint is down")
 
-        with pytest.raises(JWKSUnavailableError):
+        with pytest.raises(SigningKeysUnavailableError):
             await verifier.refresh(force=True)
 
         assert verifier.verify(token()).subject == "user-1"
@@ -264,7 +262,7 @@ class TestRotation:
     async def test_an_unknown_kid_marks_the_set_stale(self) -> None:
         """The next scheduled refresh fetches, and the request is refused."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
         await verifier.refresh()
         assert verifier.stale is False
 
@@ -277,7 +275,9 @@ class TestRotation:
     async def test_a_refresh_picks_up_the_new_key(self) -> None:
         """Both the trigger and the recovery work end to end."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(retry_interval=0.01), fetch=endpoint)
+        verifier = JWTVerifier.from_config(
+            config(retry_interval=0.01), fetch=endpoint
+        )
         await verifier.refresh()
         endpoint.body = document(ROTATED, kid="k2")
         rotated = token(ROTATED, kid="k2")
@@ -293,7 +293,9 @@ class TestRotation:
     async def test_the_retry_interval_bounds_fetching(self) -> None:
         """Invented `kid` values cannot make the service hammer its provider."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(retry_interval=60.0), fetch=endpoint)
+        verifier = JWTVerifier.from_config(
+            config(retry_interval=60.0), fetch=endpoint
+        )
         await verifier.refresh()
 
         for index in range(SPRAYED_KIDS):
@@ -306,7 +308,7 @@ class TestRotation:
     async def test_an_ordinary_rejection_does_not_mark_stale(self) -> None:
         """Only an unknown key means the provider may have rotated."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
         await verifier.refresh()
 
         with pytest.raises(TokenRejectedError) as caught:
@@ -321,7 +323,7 @@ class TestRotation:
     async def test_the_header_path_also_marks_stale(self) -> None:
         """`verify_header` follows the same rotation signal."""
         endpoint = Endpoint(document())
-        verifier = JWKSVerifier(config(), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
         await verifier.refresh()
 
         with pytest.raises(TokenRejectedError):
@@ -335,14 +337,14 @@ class TestVerifying:
 
     async def test_a_bearer_header_verifies(self) -> None:
         """The same header handling as a statically keyed verifier."""
-        verifier = JWKSVerifier(config(), fetch=Endpoint(document()))
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(document()))
         await verifier.refresh()
 
         assert verifier.verify_header(f"Bearer {token()}").subject == "user-1"
 
     async def test_claims_are_checked(self) -> None:
         """The policy is enforced, not just the signature."""
-        verifier = JWKSVerifier(config(), fetch=Endpoint(document()))
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(document()))
         await verifier.refresh()
 
         with pytest.raises(TokenRejectedError) as caught:
@@ -350,13 +352,17 @@ class TestVerifying:
 
         assert caught.value.reason == "audience"
 
-    @pytest.mark.parametrize("method", ["verify", "verify_header"])
-    def test_verifying_before_loading_is_refused(self, method: str) -> None:
+    @pytest.mark.parametrize(
+        ("method", "prefix"), [("verify", ""), ("verify_header", "Bearer ")]
+    )
+    def test_verifying_before_loading_is_refused(
+        self, method: str, prefix: str
+    ) -> None:
         """Nothing is trusted before a key set has been fetched."""
-        verifier = JWKSVerifier(config(), fetch=Endpoint(document()))
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(document()))
 
-        with pytest.raises(OutOfContextError, match="refresh"):
-            getattr(verifier, method)(token())
+        with pytest.raises(SigningKeysUnavailableError, match="refresh"):
+            getattr(verifier, method)(prefix + token())
 
 
 class TestInterchangeable:
@@ -377,7 +383,7 @@ class TestInterchangeable:
                 issuer=[ISSUER],
             )
         )
-        fetched: TokenVerifier = JWKSVerifier(
+        fetched: TokenVerifier = JWTVerifier.from_config(
             config(), fetch=Endpoint(document())
         )
         await fetched.refresh()  # type: ignore[attr-defined]
@@ -386,20 +392,19 @@ class TestInterchangeable:
             assert verifier.verify_header(f"Bearer {token(kid='k1')}").subject
             assert verifier.unverified_header(token(kid="k1"))["kid"] == "k1"
 
-    async def test_unverified_header_needs_a_loaded_key_set(self) -> None:
-        """It reads nothing before a key set is there to route against."""
-        verifier = JWKSVerifier(config(), fetch=Endpoint(document()))
+    async def test_unverified_header_needs_no_key_set(self) -> None:
+        """It reads the header alone, so it answers before any key loads."""
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(document()))
 
-        with pytest.raises(OutOfContextError, match="refresh"):
-            verifier.unverified_header(token())
+        assert verifier.unverified_header(token())["kid"] == "k1"
 
 
 class TestBans:
     """The same opt-in ban table, on a verifier fed from an endpoint."""
 
-    async def subject(self) -> JWKSVerifier:
+    async def subject(self) -> JWTVerifier:
         """Return a loaded verifier that bans after two forged tokens."""
-        built = JWKSVerifier(
+        built = JWTVerifier.from_config(
             config(),
             fetch=Endpoint(document()),
             bans=ClientBans(
@@ -453,10 +458,68 @@ class TestBans:
 
     async def test_without_bans_a_client_is_not_required(self) -> None:
         """The default verifier is unchanged."""
-        verifier = JWKSVerifier(config(), fetch=Endpoint(document()))
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(document()))
         await verifier.refresh()
 
         assert verifier.verify(token()).subject == "user-1"
+
+
+class TestFactory:
+    """`JWTVerifier.jwks` and the config door build the same verifier."""
+
+    async def test_jwks_builds_a_verifier_that_refreshes(self) -> None:
+        """Nothing is fetched until `refresh`, and then the keys verify."""
+        verifier = JWTVerifier.jwks(
+            URL, audience=AUDIENCE, issuer=ISSUER, fetch=Endpoint(document())
+        )
+
+        assert verifier.ready is False
+        assert await verifier.refresh() is True
+        assert verifier.verify(token()).subject == "user-1"
+
+    def test_jwks_refuses_an_endpoint_that_is_not_https(self) -> None:
+        """The factory raises the one error every setting raises."""
+        with pytest.raises(SettingsValidationError, match="https"):
+            JWTVerifier.jwks("http://idp.example.com/jwks", audience=AUDIENCE)
+
+    def test_a_fetcher_is_refused_for_keys_held_in_code(self) -> None:
+        """There is nothing to fetch, so a fetcher is a mistake to report."""
+        config = JWTKeysConfig(
+            keys=[JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256")],
+            audience=AUDIENCE,
+        )
+
+        with pytest.raises(TypeError, match="fetch="):
+            JWTVerifier.from_config(config, fetch=Endpoint(document()))
+
+    async def test_keys_held_in_code_are_always_ready(self) -> None:
+        """A static key set never goes stale and never fetches."""
+        verifier = JWTVerifier.keys(
+            JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256"),
+            audience=AUDIENCE,
+        )
+
+        assert verifier.ready is True
+        assert verifier.stale is False
+        assert await verifier.refresh(force=True) is False
+
+    async def test_a_withdrawn_key_takes_its_cached_tokens_with_it(
+        self,
+    ) -> None:
+        """A token cached under a key the provider withdrew is not served."""
+        endpoint = Endpoint(document())
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
+        await verifier.refresh()
+        issued = token()
+        assert verifier.verify(issued).subject == "user-1"
+
+        endpoint.body = document(ROTATED, kid="k1")
+        assert await verifier.refresh(force=True) is True
+
+        with pytest.raises(TokenRejectedError) as caught:
+            verifier.verify(issued)
+
+        assert caught.value.reason == "signature"
 
 
 class TestDocumentLimits:
@@ -477,9 +540,9 @@ class TestDocumentLimits:
         self, body: bytes, message: str
     ) -> None:
         """The verifier is left unloaded rather than half-configured."""
-        verifier = JWKSVerifier(config(), fetch=Endpoint(body))
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(body))
 
-        with pytest.raises(JWKSUnavailableError, match=message):
+        with pytest.raises(SigningKeysUnavailableError, match=message):
             await verifier.refresh()
 
         assert verifier.ready is False
@@ -488,11 +551,11 @@ class TestDocumentLimits:
         """A document with thousands of keys is not a key set."""
         keys = [SIGNER.public_jwk("RS256", kid=f"k{i}") for i in range(BIG)]
         body = json.dumps({"keys": keys}).encode()
-        verifier = JWKSVerifier(
+        verifier = JWTVerifier.from_config(
             config(max_keys=SMALL_LIMIT), fetch=Endpoint(body)
         )
 
-        with pytest.raises(JWKSUnavailableError, match="more than"):
+        with pytest.raises(SigningKeysUnavailableError, match="more than"):
             await verifier.refresh()
 
     async def test_a_key_that_is_not_a_key_is_refused(self) -> None:
@@ -500,9 +563,9 @@ class TestDocumentLimits:
         body = json.dumps(
             {"keys": [{"kty": "unheard-of", "kid": "x"}]}
         ).encode()
-        verifier = JWKSVerifier(config(), fetch=Endpoint(body))
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(body))
 
-        with pytest.raises(JWKSUnavailableError, match="no usable key"):
+        with pytest.raises(SigningKeysUnavailableError, match="no usable key"):
             await verifier.refresh()
 
     async def test_a_key_the_core_refuses_leaves_the_document_unloaded(
@@ -528,9 +591,11 @@ class TestDocumentLimits:
             }
         ).encode()
         endpoint = Endpoint(body)
-        verifier = JWKSVerifier(config(retry_interval=0.01), fetch=endpoint)
+        verifier = JWTVerifier.from_config(
+            config(retry_interval=0.01), fetch=endpoint
+        )
 
-        with pytest.raises(JWKSUnavailableError, match="no usable key"):
+        with pytest.raises(SigningKeysUnavailableError, match="no usable key"):
             await verifier.refresh()
         assert verifier.stale is True
 
@@ -550,7 +615,7 @@ class TestDocumentLimits:
                 ]
             }
         ).encode()
-        verifier = JWKSVerifier(config(), fetch=Endpoint(body))
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(body))
         await verifier.refresh()
 
         assert verifier.verify(token(kid="sig-1")).subject == "user-1"
@@ -560,7 +625,9 @@ class TestDocumentLimits:
         body = json.dumps(
             {"keys": [SIGNER.public_jwk(kid="entra-1", alg=None)]}
         ).encode()
-        verifier = JWKSVerifier(config(algorithm="RS256"), fetch=Endpoint(body))
+        verifier = JWTVerifier.from_config(
+            config(algorithm="RS256"), fetch=Endpoint(body)
+        )
         await verifier.refresh()
 
         assert verifier.verify(token(kid="entra-1")).subject == "user-1"
@@ -599,7 +666,7 @@ class TestDefaultFetcher:
         """An error page is not a key set."""
         self.client(monkeypatch, responder(503, b"down"))
 
-        with pytest.raises(JWKSUnavailableError, match="503"):
+        with pytest.raises(SigningKeysUnavailableError, match="503"):
             await fetch_with_httpx(URL, timeout=1.0, max_bytes=1 << 20)
 
     async def test_an_oversized_body_is_abandoned(
@@ -608,7 +675,7 @@ class TestDefaultFetcher:
         """The cap is enforced while reading, not from the declared length."""
         self.client(monkeypatch, responder(200, b"x" * OVERSIZED))
 
-        with pytest.raises(JWKSUnavailableError, match="larger than"):
+        with pytest.raises(SigningKeysUnavailableError, match="larger than"):
             await fetch_with_httpx(URL, timeout=1.0, max_bytes=100)
 
     async def test_a_missing_httpx_says_what_to_install(
@@ -641,6 +708,6 @@ class TestDefaultFetcher:
 
     async def test_it_is_the_default(self) -> None:
         """A verifier with no fetcher uses it."""
-        verifier = JWKSVerifier(config())
+        verifier = JWTVerifier.from_config(config())
 
         assert verifier._fetch is fetch_with_httpx

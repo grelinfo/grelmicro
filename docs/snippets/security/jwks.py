@@ -1,18 +1,16 @@
 from fastapi import FastAPI
 
-from grelmicro.security import JWKSConfig, JWKSVerifier
+from grelmicro.security import JWTVerifier
 from grelmicro.task import Tasks
 
 app = FastAPI()
 tasks = Tasks()
 
 # The keys come from the provider, and the provider rotates them.
-verifier = JWKSVerifier(
-    JWKSConfig(
-        url="https://auth.example.com/.well-known/jwks.json",
-        audience=["grelmicro-api"],
-        issuer=["https://auth.example.com/"],
-    )
+verifier = JWTVerifier.jwks(
+    "https://auth.example.com/.well-known/jwks.json",
+    audience="grelmicro-api",
+    issuer="https://auth.example.com/",
 )
 
 

@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from dataclasses import dataclass
-from time import time
+from dataclasses import dataclass, field
+from time import monotonic, time
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -46,12 +46,19 @@ from grelmicro.security.bans import (
     ClientBans,
     _responsible_client,
 )
+from grelmicro.security.jwks import (
+    SigningKeysUnavailableError,
+    fetch_with_httpx,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
+
+    from grelmicro.security.jwks import Fetcher
 
 __all__ = [
     "ALGORITHMS",
+    "JWKSConfig",
     "JWTClaims",
     "JWTKey",
     "JWTKeysConfig",
@@ -116,6 +123,12 @@ case-insensitive and clients and proxies do normalise it.
 
 _BEARER_LOWER: Final = BEARER_PREFIX.lower()
 _BEARER_LENGTH: Final = len(BEARER_PREFIX)
+
+_ONE_MIB: Final = 1_048_576
+
+_NOT_LOADED: Final = (
+    "No key set has been loaded. Await refresh() before verifying."
+)
 
 _ASYMMETRIC_KEY_TYPES: Final = frozenset({"EC", "OKP", "RSA"})
 """Key types a JWKS may publish for verifying a signature.
@@ -510,6 +523,90 @@ class JWTKeysConfig(JWTPolicy):
         return value
 
 
+class JWKSConfig(JWTPolicy):
+    """Where the keys are published, and the claim policy they enforce.
+
+    Carries every `JWTPolicy` setting, so a verifier fed from a JWKS endpoint
+    checks exactly what one built from a PEM checks.
+    """
+
+    url: Annotated[
+        str,
+        Doc(
+            "The JWKS endpoint. Must be `https`, because the keys it serves"
+            " decide who is believed."
+        ),
+    ]
+    ttl: Annotated[
+        float,
+        Doc("Seconds a fetched document is treated as current."),
+    ] = 3600.0
+    retry_interval: Annotated[
+        float,
+        Doc(
+            "Least time between two fetches. This is what stops a caller"
+            " presenting invented `kid` values from making the service fetch"
+            " on demand."
+        ),
+    ] = 60.0
+    timeout: Annotated[
+        float,
+        Doc("Seconds to wait for the endpoint before giving up."),
+    ] = 5.0
+    max_bytes: Annotated[
+        int,
+        Doc(
+            "Largest document accepted, so a hostile endpoint cannot exhaust"
+            " memory."
+        ),
+    ] = _ONE_MIB
+    max_keys: Annotated[
+        int,
+        Doc("Most keys accepted from one document."),
+    ] = 32
+    algorithm: Annotated[
+        _AsymmetricAlgorithm | None,
+        Doc("Algorithm to pin for keys that publish none, as Entra ID does."),
+    ] = None
+
+    @field_validator("url")
+    @classmethod
+    def _check_url(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse a URL that is not `https`."""
+        if not str(value).startswith("https://"):
+            msg = "url must be an https URL"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("ttl", "retry_interval", "timeout")
+    @classmethod
+    def _check_positive(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse a duration that is zero or below."""
+        if value <= 0:
+            msg = "value must be greater than zero"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("max_bytes", "max_keys")
+    @classmethod
+    def _check_limit(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse a limit that would accept nothing."""
+        if value < 1:
+            msg = "value must be at least one"
+            raise ValueError(msg)
+        return value
+
+
+_PUBLISHING_FIELDS: Final = frozenset(JWKSConfig.model_fields) - frozenset(
+    JWTPolicy.model_fields
+)
+"""Fields that say where keys are published, never how a token is checked.
+
+Read off the two classes rather than listed, so a field added to either one
+lands on the right side without anybody remembering to add it here.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class JWTClaims:
     """The claims of a verified token.
@@ -582,12 +679,33 @@ def _claims_of(raw: dict[str, Any]) -> JWTClaims:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _KeySet:
+    """One loaded key set, and the tokens verified against it.
+
+    Held together and replaced whole. A request reads the keys and the cache
+    that belongs to them in one attribute read, so a token verified under a
+    key the provider has since withdrawn never survives into the next set.
+
+    The cache is a plain `dict` with its insertion order kept in a `deque`
+    beside it. A verifier is shared across a thread pool, so nothing walks
+    the `dict`: every operation on either is one the interpreter applies
+    whole.
+    """
+
+    verify: Callable[[str], dict[str, Any]]
+    cache: dict[str | bytes, tuple[float, JWTClaims]] = field(
+        default_factory=dict
+    )
+    order: deque[str | bytes] = field(default_factory=deque)
+
+
 class TokenVerifier(Protocol):
     """What every verifier in grelmicro answers.
 
-    `JWTVerifier` and `JWKSVerifier` both satisfy it, so a dependency can be
-    written against this and take either. Where the keys came from is the
-    verifier's business, not the endpoint's.
+    `JWTVerifier` satisfies it whether its keys are held in code or fetched
+    from an endpoint, so a dependency written against this takes either, and
+    a verifier of your own too.
     """
 
     def verify(
@@ -626,13 +744,15 @@ class JWTVerifier:
     """Verifies inbound JWTs against a key set and a claim policy.
 
     Build one with a factory that names where the keys come from:
-    `JWTVerifier.keys` for keys you hold, or `JWTVerifier.from_config` for a
-    config assembled elsewhere. There is no bare constructor, because no key
-    source is a safe default.
+    `JWTVerifier.keys` for keys you hold, `JWTVerifier.jwks` for keys a
+    provider publishes, or `JWTVerifier.from_config` for a config assembled
+    elsewhere. There is no bare constructor, because no key source is a safe
+    default.
 
-    Keys are parsed once, when the verifier is built. Verification runs in
-    the compiled core with the GIL released, so a thread pool verifies in
-    parallel.
+    Keys are parsed once, when they are loaded. Verification runs in the
+    compiled core with the GIL released, so a thread pool verifies in
+    parallel. Keys a provider publishes are fetched by `refresh`, a
+    coroutine, and never on the request path.
 
     Example:
         ```python
@@ -649,8 +769,9 @@ class JWTVerifier:
         """Refuse construction: a verifier has no default key source."""
         msg = (
             "JWTVerifier has no default key source, so it cannot be built from"
-            " a bare constructor. Use JWTVerifier.keys(key, ..., audience=...)"
-            " or JWTVerifier.from_config(config)."
+            " a bare constructor. Use JWTVerifier.keys(key, ..., audience=...),"
+            " JWTVerifier.jwks(url, audience=...) or"
+            " JWTVerifier.from_config(config)."
         )
         raise TypeError(msg)
 
@@ -712,35 +833,152 @@ class JWTVerifier:
         Raises:
             SettingsValidationError: If a key or a setting is refused.
         """
-        settings = {
-            "issuer": issuer,
-            "leeway": leeway,
-            "token_type": token_type,
-            "required": required,
-            "cache_size": cache_size,
-            "cache_key": cache_key,
-            "cache_ttl": cache_ttl,
-        }
         config = build_config(
             JWTKeysConfig,
             keys=list(keys),
             audience=audience,
-            **{
-                name: value
-                for name, value in settings.items()
-                if value is not None
-            },
+            **_given(
+                issuer=issuer,
+                leeway=leeway,
+                token_type=token_type,
+                required=required,
+                cache_size=cache_size,
+                cache_key=cache_key,
+                cache_ttl=cache_ttl,
+            ),
         )
         return cls.from_config(config, bans=bans)
+
+    @classmethod
+    def jwks(  # noqa: PLR0913
+        cls,
+        url: Annotated[
+            str,
+            Doc("The JWKS endpoint. Must be `https`."),
+        ],
+        *,
+        audience: Annotated[
+            str | Sequence[str] | None,
+            Doc(
+                "Accepted `aud` values. `None` answers to no audience, which"
+                " refuses any token that names one."
+            ),
+        ],
+        issuer: Annotated[
+            str | Sequence[str] | None,
+            Doc("Accepted `iss` values. `None` leaves the issuer unchecked."),
+        ] = None,
+        algorithm: Annotated[
+            _AsymmetricAlgorithm | None,
+            Doc(
+                "Algorithm to pin for keys that publish none, as Entra ID does."
+            ),
+        ] = None,
+        ttl: Annotated[
+            float | None,
+            Doc("Seconds a fetched document is treated as current."),
+        ] = None,
+        retry_interval: Annotated[
+            float | None,
+            Doc("Least time between two fetches."),
+        ] = None,
+        timeout: Annotated[
+            float | None,
+            Doc("Seconds to wait for the endpoint before giving up."),
+        ] = None,
+        max_bytes: Annotated[
+            int | None,
+            Doc("Largest document accepted."),
+        ] = None,
+        max_keys: Annotated[
+            int | None,
+            Doc("Most keys accepted from one document."),
+        ] = None,
+        leeway: Annotated[
+            int | None,
+            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+        ] = None,
+        token_type: Annotated[
+            Literal["at+jwt"] | None,
+            Doc("Type every token must declare in its `typ` header."),
+        ] = None,
+        required: Annotated[
+            Sequence[str] | None,
+            Doc("Further claims that must be present. `exp` always is."),
+        ] = None,
+        cache_size: Annotated[
+            int | None,
+            Doc("Verified tokens held in memory. Zero turns the cache off."),
+        ] = None,
+        cache_key: Annotated[
+            Literal["sha256", "token"] | None,
+            Doc("What the cache keys on: a digest, or the encoded token."),
+        ] = None,
+        cache_ttl: Annotated[
+            float | None,
+            Doc("Seconds a verified token stays cached."),
+        ] = None,
+        fetch: Annotated[
+            Fetcher | None,
+            Doc("Fetcher to use. Defaults to one built on `httpx`."),
+        ] = None,
+        bans: Annotated[
+            ClientBans | None,
+            Doc(
+                "Opt in to refusing callers that keep presenting tokens that"
+                " do not verify. Pass `client=` to every call once set, so"
+                " the protection cannot be half wired."
+            ),
+        ] = None,
+    ) -> Self:
+        """Build a verifier from keys a provider publishes at a JWKS endpoint.
+
+        Nothing is fetched here. Await `refresh` before the first request and
+        then on a schedule, so no request ever waits on the provider.
+
+        Raises:
+            SettingsValidationError: If a setting is refused.
+        """
+        config = build_config(
+            JWKSConfig,
+            url=url,
+            audience=audience,
+            **_given(
+                issuer=issuer,
+                algorithm=algorithm,
+                ttl=ttl,
+                retry_interval=retry_interval,
+                timeout=timeout,
+                max_bytes=max_bytes,
+                max_keys=max_keys,
+                leeway=leeway,
+                token_type=token_type,
+                required=required,
+                cache_size=cache_size,
+                cache_key=cache_key,
+                cache_ttl=cache_ttl,
+            ),
+        )
+        return cls.from_config(config, fetch=fetch, bans=bans)
 
     @classmethod
     def from_config(
         cls,
         config: Annotated[
-            JWTKeysConfig,
-            Doc("The keys and claim policy to enforce, taken as they are."),
+            JWTKeysConfig | JWKSConfig,
+            Doc(
+                "The keys, or where they are published, and the claim policy"
+                " to enforce, taken as they are."
+            ),
         ],
         *,
+        fetch: Annotated[
+            Fetcher | None,
+            Doc(
+                "Fetcher for a `JWKSConfig`. Defaults to one built on `httpx`,"
+                " and is refused for keys held in code."
+            ),
+        ] = None,
         bans: Annotated[
             ClientBans | None,
             Doc(
@@ -757,19 +995,53 @@ class JWTVerifier:
 
         Raises:
             SettingsValidationError: If the core cannot read a key.
+            TypeError: If `fetch` is given for keys held in code.
         """
         instance = cls.__new__(cls)
-        instance._setup(config, bans=bans)  # noqa: SLF001
+        instance._setup(config, fetch=fetch, bans=bans)  # noqa: SLF001
         return instance
 
-    def _setup(self, config: JWTKeysConfig, *, bans: ClientBans | None) -> None:
-        """Parse every key and hold what a verification reads."""
+    def _setup(
+        self,
+        config: JWTKeysConfig | JWKSConfig,
+        *,
+        fetch: Fetcher | None,
+        bans: ClientBans | None,
+    ) -> None:
+        """Hold the policy, and load the keys when they are held in code."""
+        if fetch is not None and not isinstance(config, JWKSConfig):
+            msg = (
+                "fetch= applies to keys published at an endpoint. These keys"
+                " are held in code, so there is nothing to fetch."
+            )
+            raise TypeError(msg)
+        compiled = _core()
+        self._compiled = compiled
         self._bans = bans
-        core = _core()
-        self._error = core.CoreVerificationError
-        self._unverified_header = core.unverified_header
+        self._error = compiled.CoreVerificationError
+        self._unverified_header = compiled.unverified_header
+        self._digest = (
+            compiled.sha256_digest if config.cache_key == "sha256" else None
+        )
+        self._cache_size = config.cache_size
+        self._cache_ttl = config.cache_ttl
+        self._leeway = config.leeway
+        self._fetch: Fetcher = fetch or fetch_with_httpx
+        self._document: bytes | None = None
+        self._loaded_at: float | None = None
+        self._attempted_at: float | None = None
+        self._wants_keys = False
+        if isinstance(config, JWKSConfig):
+            self._source: JWKSConfig | None = config
+            self._keys: _KeySet | None = None
+            return
+        self._source = None
+        self._keys = self._key_set(config)
+
+    def _key_set(self, config: JWTKeysConfig) -> _KeySet:
+        """Parse every key in `config` into a key set with an empty cache."""
         try:
-            self._verify = core.Verifier(
+            verify = self._compiled.Verifier(
                 [
                     (
                         key.kid,
@@ -792,20 +1064,91 @@ class JWTVerifier:
             # what makes this safe to render and to log.
             detail = f"keys: {error}"
             raise SettingsValidationError(detail) from None
-        self._cache: dict[str | bytes, tuple[float, JWTClaims]] = {}
-        # Eviction order is kept beside the cache rather than inside it. A
-        # `dict` cannot be iterated while another thread writes to it, and a
-        # verifier is shared across a thread pool, so nothing here may walk
-        # the cache. Every operation below is one the interpreter applies
-        # whole: `get`, `pop` with a default, a single assignment, and the
-        # deque's own append and popleft.
-        self._order: deque[str | bytes] = deque()
-        self._digest = (
-            core.sha256_digest if config.cache_key == "sha256" else None
+        return _KeySet(verify)
+
+    @property
+    def ready(self) -> bool:
+        """Whether a key set is loaded. Always true for keys held in code."""
+        return self._keys is not None
+
+    @property
+    def stale(self) -> bool:
+        """Whether the next `refresh` would fetch.
+
+        Never true for keys held in code. For keys a provider publishes, true
+        before the first load, once `ttl` has passed, and once a token named
+        a key the current set does not hold.
+        """
+        source = self._source
+        if source is None:
+            return False
+        if self._keys is None or self._wants_keys:
+            return True
+        return (
+            self._loaded_at is None
+            or monotonic() - self._loaded_at >= source.ttl
         )
-        self._cache_size = config.cache_size
-        self._cache_ttl = config.cache_ttl
-        self._leeway = config.leeway
+
+    async def refresh(
+        self,
+        *,
+        force: Annotated[
+            bool, Doc("Fetch even when the current keys are still fresh.")
+        ] = False,
+    ) -> bool:
+        """Fetch the published key set, and return whether the keys changed.
+
+        Does nothing for keys held in code. For keys a provider publishes, it
+        does nothing while they are fresh and never fetches more often than
+        `retry_interval`. A failure raises and leaves the loaded keys in
+        place.
+
+        Raises:
+            SigningKeysUnavailableError: If the document cannot be fetched,
+                or holds no usable key.
+        """
+        source = self._source
+        if source is None:
+            return False
+        if not force and not self.stale:
+            return False
+        now = monotonic()
+        if (
+            not force
+            and self._attempted_at is not None
+            and now - self._attempted_at < source.retry_interval
+        ):
+            return False
+        self._attempted_at = now
+
+        document = await self._fetch(
+            source.url, timeout=source.timeout, max_bytes=source.max_bytes
+        )
+        if document == self._document:
+            # Same bytes, so the keys already loaded are the current ones.
+            self._loaded_at = monotonic()
+            self._wants_keys = False
+            return False
+
+        try:
+            keys = self._key_set(_document_config(source, document))
+        except SettingsValidationError as error:
+            # A document can parse and still hold a key the core refuses.
+            # `refresh` promises one error, so it raises that one.
+            msg = f"jwks document holds no usable key: {error}"
+            raise SigningKeysUnavailableError(msg) from None
+
+        # One assignment, so a thread reading it gets the old keys with their
+        # cache or the new keys with an empty one, and never a mix.
+        self._keys = keys
+        self._document = document
+        # Marked current only now. Doing it when the fetch returned would
+        # call a document that failed to build a successful refresh, so a
+        # provider serving a broken key set would stop the next attempt for a
+        # whole `ttl` and clear the rotation signal that asked for it.
+        self._loaded_at = monotonic()
+        self._wants_keys = False
+        return True
 
     def verify(
         self,
@@ -828,6 +1171,10 @@ class JWTVerifier:
 
         With `bans` set, a caller already banned raises `ClientBannedError`
         before the token is looked at, and a rejection is counted against it.
+
+        Raises:
+            TokenRejectedError: If the token does not verify.
+            SigningKeysUnavailableError: If no key set has loaded yet.
         """
         bans = self._bans
         if bans is not None:
@@ -843,18 +1190,28 @@ class JWTVerifier:
 
     def _verified(self, token: str) -> JWTClaims:
         """Return the claims of `token`, with no ban bookkeeping."""
+        keys = self._keys
+        if keys is None:
+            raise SigningKeysUnavailableError(_NOT_LOADED)
         key = self._key(token)
-        cached = self._cache.get(key)
+        cache = keys.cache
+        cached = cache.get(key)
         if cached is not None:
             if cached[0] > time():
                 return cached[1]
-            self._cache.pop(key, None)
+            cache.pop(key, None)
         try:
-            raw = self._verify(token)
+            raw = keys.verify(token)
         except self._error as error:
-            raise TokenRejectedError(error.args[0]) from None
+            reason = error.args[0]
+            if reason == "unknown-key":
+                # The provider has probably rotated. Mark the set stale so the
+                # next refresh fetches, rather than fetching here, which would
+                # put the provider on the request path.
+                self._wants_keys = True
+            raise TokenRejectedError(reason) from None
         claims = _claims_of(raw)
-        self._store(key, claims)
+        self._store(keys, key, claims)
         return claims
 
     def _key(self, token: str) -> str | bytes:
@@ -889,7 +1246,8 @@ class JWTVerifier:
         """Return the `alg` and `kid` of `token` without checking its signature.
 
         Nothing it returns is trustworthy. It routes a token to the right key
-        set, it never decides whether a token is valid.
+        set, it never decides whether a token is valid, and it needs no key
+        set to be loaded.
         """
         try:
             header: dict[str, Any] = self._unverified_header(token)
@@ -897,7 +1255,9 @@ class JWTVerifier:
             raise TokenRejectedError(error.args[0]) from None
         return header
 
-    def _store(self, key: str | bytes, claims: JWTClaims) -> None:
+    def _store(
+        self, keys: _KeySet, key: str | bytes, claims: JWTClaims
+    ) -> None:
         """Cache `claims` until its deadline, making room when the cache is full.
 
         A token with no `exp` is never cached: nothing would bound how long
@@ -913,8 +1273,8 @@ class JWTVerifier:
         deadline = min(claims.expires_at + self._leeway, now + self._cache_ttl)
         if deadline <= now:
             return
-        cache = self._cache
-        order = self._order
+        cache = keys.cache
+        order = keys.order
         size = self._cache_size
         while order:
             try:
@@ -929,6 +1289,40 @@ class JWTVerifier:
             cache.pop(oldest, None)
         cache[key] = (deadline, claims)
         order.append(key)
+
+
+def _given(**settings: object) -> dict[str, object]:
+    """Return the settings a caller passed, leaving the rest to the config."""
+    return {
+        name: value for name, value in settings.items() if value is not None
+    }
+
+
+def _document_config(source: JWKSConfig, document: bytes) -> JWTKeysConfig:
+    """Turn a fetched JWKS document into keys, refusing what it should."""
+    try:
+        parsed = json.loads(document)
+    except ValueError:
+        msg = "jwks document is not valid JSON"
+        raise SigningKeysUnavailableError(msg) from None
+    if not isinstance(parsed, dict):
+        shape = "jwks document is not a JSON object"
+        raise SigningKeysUnavailableError(shape)
+    keys = parsed.get("keys")
+    if not isinstance(keys, list) or not keys:
+        msg = "jwks document carries no keys"
+        raise SigningKeysUnavailableError(msg)
+    if len(keys) > source.max_keys:
+        msg = f"jwks document carries more than {source.max_keys} keys"
+        raise SigningKeysUnavailableError(msg)
+    policy = source.model_dump(exclude=set(_PUBLISHING_FIELDS))
+    try:
+        return JWTKeysConfig.from_jwks(
+            parsed, algorithm=source.algorithm, **policy
+        )
+    except (SettingsValidationError, ValueError) as error:
+        msg = f"jwks document holds no usable key: {error}"
+        raise SigningKeysUnavailableError(msg) from None
 
 
 def _core() -> Any:  # noqa: ANN401

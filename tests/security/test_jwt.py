@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 from typing import Any, Literal
 
 import pytest
@@ -25,7 +26,7 @@ from grelmicro.security import (
     TokenRejectedError,
 )
 from grelmicro.security.jwt import ALGORITHMS, BEARER_PREFIX
-from tests.security.jwt_signing import Signer
+from tests.security.jwt_signing import Signer, loaded
 
 AUDIENCE = "grelmicro-api"
 ISSUER = "https://auth.grel.info/"
@@ -630,7 +631,7 @@ class TestCache:
         result = verifier.verify(token)
 
         assert result.expires_at is not None
-        deadline = verifier._cache[verifier._key(token)][0]
+        deadline = loaded(verifier).cache[verifier._key(token)][0]
         assert deadline <= result.expires_at + SKEW
 
     def test_the_ttl_bounds_a_long_lived_token(self) -> None:
@@ -640,7 +641,7 @@ class TestCache:
 
         verifier.verify(token)
 
-        deadline = verifier._cache[verifier._key(token)][0]
+        deadline = loaded(verifier).cache[verifier._key(token)][0]
         assert deadline <= time.time() + TTL
         assert deadline < int(time.time()) + DAY
 
@@ -656,7 +657,7 @@ class TestCache:
         second = verifier.verify(token)
 
         assert first is not second
-        assert len(verifier._cache) == 1
+        assert len(loaded(verifier).cache) == 1
 
     def test_sha256_keys_are_the_default(self) -> None:
         """A verifier holds digests unless it is asked for raw tokens."""
@@ -664,8 +665,8 @@ class TestCache:
         default = build()
         default.verify(token)
 
-        assert isinstance(next(iter(default._cache)), bytes)
-        assert token not in default._cache
+        assert isinstance(next(iter(loaded(default).cache)), bytes)
+        assert token not in loaded(default).cache
 
     def test_sha256_keys_keep_the_token_out_of_memory(self) -> None:
         """The entry is keyed by a digest, so no live token is held."""
@@ -675,8 +676,8 @@ class TestCache:
         first = verifier.verify(token)
 
         assert verifier.verify(token) is first
-        assert token not in verifier._cache
-        assert len(verifier._cache) == 1
+        assert token not in loaded(verifier).cache
+        assert len(loaded(verifier).cache) == 1
 
     def test_sha256_keys_still_expire(self, frozen: list[float]) -> None:
         """The deadline applies whichever key strategy is in use."""
@@ -713,23 +714,23 @@ class TestCache:
             token_id=None,
         )
 
-        verifier._store("any-key", undated)
+        verifier._store(loaded(verifier), "any-key", undated)
 
-        assert verifier._cache == {}
+        assert loaded(verifier).cache == {}
 
     def test_a_zero_size_cache_holds_nothing(self) -> None:
         """`cache_size=0` turns the cache off."""
         verifier = build(cache_size=0)
         verifier.verify(issue())
 
-        assert verifier._cache == {}
+        assert loaded(verifier).cache == {}
 
     def test_a_zero_ttl_holds_nothing(self) -> None:
         """A deadline that has already passed is not worth storing."""
         verifier = build(cache_ttl=0)
         verifier.verify(issue())
 
-        assert verifier._cache == {}
+        assert loaded(verifier).cache == {}
 
     def test_making_room_drains_expired_entries_first(
         self, frozen: list[float]
@@ -740,12 +741,12 @@ class TestCache:
             verifier.verify(
                 issue(sub=f"user-{index}", exp=int(time.time()) + DAY)
             )
-        assert len(verifier._cache) == CACHE_SIZE
+        assert len(loaded(verifier).cache) == CACHE_SIZE
 
         frozen[0] += TTL + 1
         verifier.verify(issue(sub="fresh", exp=int(time.time()) + DAY))
 
-        assert len(verifier._cache) == 1
+        assert len(loaded(verifier).cache) == 1
 
     def test_a_full_cache_of_live_entries_evicts_the_oldest(self) -> None:
         """With nothing to drain, the oldest insertion makes room."""
@@ -757,8 +758,8 @@ class TestCache:
 
         verifier.verify(issue(sub="one-more"))
 
-        assert len(verifier._cache) == CACHE_SIZE
-        assert verifier._key(tokens[0]) not in verifier._cache
+        assert len(loaded(verifier).cache) == CACHE_SIZE
+        assert verifier._key(tokens[0]) not in loaded(verifier).cache
 
 
 class TestCacheUnderThreads:
@@ -803,7 +804,7 @@ class TestCacheUnderThreads:
             sys.setswitchinterval(previous)
 
         assert escaped == []
-        assert len(verifier._cache) <= RACE_CACHE_SIZE
+        assert len(loaded(verifier).cache) <= RACE_CACHE_SIZE
 
     def test_an_emptied_queue_stops_the_eviction_loop(self) -> None:
         """Another thread can drain the queue while this one is evicting."""
@@ -816,11 +817,12 @@ class TestCacheUnderThreads:
 
         verifier = build(cache_size=1)
         verifier.verify(issue(sub="first"))
-        verifier._order = Drained(verifier._order)
+        keys = loaded(verifier)
+        verifier._keys = replace(keys, order=Drained(keys.order))
 
         verifier.verify(issue(sub="second"))
 
-        assert len(verifier._cache) >= 1
+        assert len(loaded(verifier).cache) >= 1
 
 
 class TestConfiguration:

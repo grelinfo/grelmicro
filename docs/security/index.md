@@ -12,14 +12,12 @@ The `security` module holds the checks a service runs on an inbound request. gre
 Point a verifier at your identity provider's JWKS, schedule `refresh()`, and verify on every request.
 
 ```python
-from grelmicro.security import JWKSConfig, JWKSVerifier
+from grelmicro.security import JWTVerifier
 
-verifier = JWKSVerifier(
-    JWKSConfig(
-        url="https://auth.example.com/.well-known/jwks.json",
-        audience=["my-api"],
-        issuer=["https://auth.example.com/"],
-    )
+verifier = JWTVerifier.jwks(
+    "https://auth.example.com/.well-known/jwks.json",
+    audience="my-api",
+    issuer="https://auth.example.com/",
 )
 
 await verifier.refresh()
