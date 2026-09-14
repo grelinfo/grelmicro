@@ -4,7 +4,7 @@
 
 ### Breaking
 * 🔒 `sub` is always required, as `exp` is, so a token with no subject, a `null` one or one that is not a string is rejected with `missing-claim` and every verified caller has a subject to be keyed by. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
-* 🔒 A token whose `sub` or `jti` is not a string is rejected with `malformed`, one whose `iat` is not a number with `invalid`, and one whose `iat` is still to come with `not-yet-valid`, so a handler never reads a number as a subject. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
+* 🔒 A token whose `jti` is not a string is rejected with `malformed`, one whose `iat` is not a number with `invalid`, and one whose `iat` is still to come with `not-yet-valid`, so a handler never reads a number as a subject. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 💥 A token declaring a `typ` other than `JWT`, `JOSE` or `at+jwt` is rejected with `type`, so a DPoP proof or a logout token signed by the same keys no longer passes as an access token. `token_type="at+jwt"` requires the RFC 9068 type. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 A token carrying a `cnf` claim is rejected with `binding`, because nothing checks the proof of possession it depends on. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 The `subject` rejection reason is gone. No policy ever set a subject, so nothing produced it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))

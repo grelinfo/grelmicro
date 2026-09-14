@@ -835,21 +835,25 @@ def _claims_of(raw: dict[str, Any], scope_claims: tuple[str, ...]) -> JWTClaims:
     )
 
 
-_STRING_CLAIMS: Final = ("sub", "jti")
-"""Registered claims RFC 7519 makes strings, which the core leaves unchecked."""
+_STRING_CLAIMS: Final = ("jti",)
+"""Registered claims RFC 7519 makes strings, which the core leaves unchecked.
+
+`sub` is not one of them: it is always required, and the core refuses one
+that is not a string as a missing claim.
+"""
 
 
 def _check_registered(raw: dict[str, Any], leeway: int) -> None:
     """Refuse a registered claim of the wrong type, or an `iat` still to come.
 
-    RFC 7519 makes `sub` and `jti` strings and `iat` a number of seconds. A
-    token breaking that is refused the way the core refuses a `sub` that is
-    an array and an `nbf` that is not a number. An `iat` past now and the
-    leeway is refused as not yet valid, as an `nbf` there is.
+    RFC 7519 makes `jti` a string and `iat` a number of seconds. A token
+    breaking that is refused the way the core refuses an `nbf` that is not
+    a number. An `iat` past now and the leeway is refused as not yet valid,
+    as an `nbf` there is.
 
     Raises:
-        TokenRejectedError: With `malformed` for a `sub` or `jti` that is
-            not a string, `invalid` for an `iat` that is not a number, and
+        TokenRejectedError: With `malformed` for a `jti` that is not a
+            string, `invalid` for an `iat` that is not a number, and
             `not-yet-valid` for an `iat` in the future.
     """
     for name in _STRING_CLAIMS:
