@@ -29,6 +29,9 @@
 * ✨ `TokenRejectedError.reason` is a `TokenRejectedReason`, one member per way a token fails. Each member compares equal to the string it names, so `error.reason == "expired"` keeps working, and a tag the module does not know reads as `INVALID`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
+### Fixed
+* 🐛 A JWKS endpoint that cannot be reached, or times out, raises `SigningKeysUnavailableError` instead of a raw `httpx` error. `async with verifier:` then opens without keys as documented, and the background refresh keeps retrying instead of stopping for good. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
 

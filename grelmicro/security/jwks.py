@@ -69,23 +69,33 @@ async def fetch_with_httpx(
     `max_bytes`, rather than trusting the length the server declares.
     Redirects are not followed: a key set that answers from somewhere else is
     a key set from somewhere else.
+
+    Raises:
+        SigningKeysUnavailableError: If the endpoint cannot be reached, times
+            out, answers anything but `200`, or serves too large a body.
     """
     httpx = _httpx()
 
-    async with (
-        httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client,
-        client.stream("GET", url) as response,
-    ):
-        if response.status_code != httpx.codes.OK:
-            answered = f"endpoint answered {response.status_code}"
-            raise SigningKeysUnavailableError(answered)
-        body = bytearray()
-        async for chunk in response.aiter_bytes():
-            body += chunk
-            if len(body) > max_bytes:
-                msg = f"document is larger than {max_bytes} bytes"
-                raise SigningKeysUnavailableError(msg)
-        return bytes(body)
+    try:
+        async with (
+            httpx.AsyncClient(
+                timeout=timeout, follow_redirects=False
+            ) as client,
+            client.stream("GET", url) as response,
+        ):
+            if response.status_code != httpx.codes.OK:
+                answered = f"endpoint answered {response.status_code}"
+                raise SigningKeysUnavailableError(answered)
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                body += chunk
+                if len(body) > max_bytes:
+                    msg = f"document is larger than {max_bytes} bytes"
+                    raise SigningKeysUnavailableError(msg)
+            return bytes(body)
+    except httpx.HTTPError as error:
+        msg = f"endpoint could not be reached: {type(error).__name__}"
+        raise SigningKeysUnavailableError(msg) from error
 
 
 def _httpx() -> Any:  # noqa: ANN401

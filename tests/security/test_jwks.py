@@ -533,6 +533,44 @@ class TestLifecycle:
 
         assert "could not be loaded" in caplog.text
 
+    async def test_a_transport_error_does_not_stop_the_app(self) -> None:
+        """A fetcher failing in its own way opens the verifier without keys."""
+        endpoint = Endpoint(OSError("connection refused"))
+
+        async with JWTVerifier.from_config(
+            config(retry_interval=0.01), fetch=endpoint
+        ) as verifier:
+            assert verifier.ready is False
+
+            endpoint.body = document()
+            await until(lambda: verifier.ready)
+
+    async def test_a_transport_error_never_ends_the_background_refresh(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The loop logs it, keeps the keys, and closes cleanly."""
+        endpoint = Endpoint(document())
+
+        with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
+            async with JWTVerifier.from_config(
+                config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+            ) as verifier:
+                endpoint.body = OSError("connection reset")
+                await until(lambda: "OSError" in caplog.text)
+
+                endpoint.body = document(ROTATED, kid="k2")
+                rotated = token(ROTATED, kid="k2")
+                await until(lambda: verifies(verifier, rotated))
+
+    async def test_refresh_raises_only_its_own_error(self) -> None:
+        """Whatever the fetcher raised, the caller catches one error."""
+        verifier = JWTVerifier.from_config(
+            config(), fetch=Endpoint(OSError("connection refused"))
+        )
+
+        with pytest.raises(SigningKeysUnavailableError, match="OSError"):
+            await verifier.refresh()
+
     async def test_a_background_refresh_follows_a_rotation(self) -> None:
         """A token naming a new key verifies once the next pass runs."""
         endpoint = Endpoint(document())
@@ -766,6 +804,20 @@ class TestDefaultFetcher:
 
         with pytest.raises(SigningKeysUnavailableError, match="larger than"):
             await fetch_with_httpx(URL, timeout=1.0, max_bytes=100)
+
+    async def test_an_unreachable_endpoint_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A connection that fails raises the fetcher's own error."""
+
+        def refuse(request: httpx.Request) -> httpx.Response:
+            refused = "connection refused"
+            raise httpx.ConnectError(refused, request=request)
+
+        self.client(monkeypatch, refuse)
+
+        with pytest.raises(SigningKeysUnavailableError, match="ConnectError"):
+            await fetch_with_httpx(URL, timeout=1.0, max_bytes=1 << 20)
 
     async def test_a_missing_httpx_says_what_to_install(
         self, monkeypatch: pytest.MonkeyPatch

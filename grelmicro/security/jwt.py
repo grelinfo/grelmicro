@@ -1423,9 +1423,18 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
 
     async def _load(self, source: JWKSConfig) -> bool:
         """Fetch the document, and swap the keys in when it changed."""
-        document = await self._fetch(
-            source.url, timeout=source.timeout, max_bytes=source.max_bytes
-        )
+        try:
+            document = await self._fetch(
+                source.url, timeout=source.timeout, max_bytes=source.max_bytes
+            )
+        except SigningKeysUnavailableError:
+            raise
+        except Exception as error:
+            # A fetcher of the caller's own can fail in its own way. Left
+            # unwrapped, that error would stop the app at startup and end the
+            # background refresh for good, which only this one is handled for.
+            msg = f"jwks endpoint could not be fetched: {type(error).__name__}"
+            raise SigningKeysUnavailableError(msg) from error
         if document == self._document:
             # Same bytes, so the keys already loaded are the current ones.
             self._loaded_at = monotonic()
