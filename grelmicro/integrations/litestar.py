@@ -145,14 +145,22 @@ def install_middleware(
     components it found, so a direct call is only for an app that never goes
     through `install`.
     """
-    # Each middleware of ours goes in underneath the ones already placed, so
-    # the one wrapped first answers first. The loop below wraps from the end
-    # of `ordered`, so authentication sorts last here to be wrapped first.
-    # Stable, so registration order holds among the rest.
-    ordered = sorted(components, key=_authenticates)
+    # Authentication first, whatever order it was registered in. Stable, so
+    # registration order holds among the rest.
+    ordered = sorted(
+        components, key=lambda component: not _authenticates(component)
+    )
     for component in ordered:
         _answer_for(app, component)
-    for component in reversed(ordered):
+    # One that answers goes in underneath the ones already placed, so those
+    # are wrapped in order and the first answers first. One that only
+    # watches goes on top of everything, so those are wrapped in reverse for
+    # the first of them to end up outermost.
+    wrapping = [
+        *(component for component in ordered if not _observes(component)),
+        *reversed([component for component in ordered if _observes(component)]),
+    ]
+    for component in wrapping:
         middleware, options = component.asgi_middleware()
         if _already_wired(app, middleware):
             # The app passed it to `Litestar(middleware=...)`, which puts it

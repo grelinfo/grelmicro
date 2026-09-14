@@ -37,6 +37,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 On Litestar, grelmicro's middleware answers in the order it was registered, the first one outermost, as on Starlette and FastAPI. It was nesting in reverse. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🐛 A JWKS endpoint that cannot be reached, or times out, raises `SigningKeysUnavailableError` instead of a raw `httpx` error. `async with verifier:` then opens without keys as documented, and the background refresh keeps retrying instead of stopping for good. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A JWKS entry that is not a key object, names its `kty` with anything but a string, or holds key material the core cannot read, is skipped and the document's other keys still load, so one bad key no longer stops `async with verifier:` or ends the background refresh. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A missing `httpx` raises `DependencyNotFoundError` from `async with verifier:` instead of being retried forever, and an unexpected error in the background refresh is logged without ending it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
