@@ -19,6 +19,7 @@ import pytest
 from fastapi import APIRouter, Depends, FastAPI, Security
 from fastapi import Request as FastAPIRequest
 from fastapi import WebSocket as FastAPIWebSocket
+from fastapi.routing import APIRoute
 from fastapi.security import HTTPBearer
 from fastapi.testclient import TestClient
 from litestar import Litestar, asgi, delete, get, post, websocket
@@ -1763,6 +1764,42 @@ class TestRouting:
 
         assert client.get("/catalog").json() == {"catalog": True}
         assert client.get("/catalog/").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_public_route_a_spanning_mount_never_reaches_stays_authenticated(
+        self,
+    ) -> None:
+        """Starlette splits a mount's path on its own, where a joined path would not."""
+
+        async def secret(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        async def listed() -> dict[str, bool]:
+            return {"listed": True}
+
+        def build(mount_path: str, default: Any) -> TestClient:  # noqa: ANN401
+            app = FastAPI()
+            app.mount(
+                mount_path,
+                Router(
+                    routes=[
+                        APIRoute("/a/a", listed, dependencies=[Anonymous()])
+                    ],
+                    default=default,
+                ),
+            )
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+            ).install(app)
+            return TestClient(app)
+
+        spanning = build("/{rest:path}", secret)
+        literal = build("/shop", None)
+
+        assert spanning.get("/x/a/a").status_code == HTTP_401_UNAUTHORIZED
+        assert literal.get("/shop/a/a").json() == {"listed": True}
+        assert literal.get("/elsewhere").status_code == HTTP_401_UNAUTHORIZED
 
 
 class TestConsistency:

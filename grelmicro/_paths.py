@@ -27,6 +27,7 @@ __all__ = [
     "MethodNames",
     "PathPatterns",
     "as_patterns",
+    "compile_mount",
     "compile_route",
     "matches",
     "names_route",
@@ -192,12 +193,30 @@ def compile_route(
     """
     from starlette.routing import compile_path  # noqa: PLC0415
 
+    compiled, _, _ = compile_path(_renamed(template))
+    return compiled
+
+
+def compile_mount(
+    template: Annotated[str, Doc("A mount's own path, as it was declared.")],
+) -> Pattern[str]:
+    """Return the regex Starlette matches a mount's path with.
+
+    What follows the mount's path is captured as `path`, which is the path
+    the mount hands the routes under it.
+    """
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    compiled, _, _ = compile_path(f"{_renamed(template)}/{{path:path}}")
+    return compiled
+
+
+def _renamed(template: str) -> str:
+    """Return the template with each parameter given a name of its own."""
     names = itertools.count()
-    renamed = _ROUTE_PARAMETER.sub(
+    return _ROUTE_PARAMETER.sub(
         lambda match: f"{{p{next(names)}{match.group(2) or ''}}}", template
     )
-    compiled, _, _ = compile_path(renamed)
-    return compiled
 
 
 def route_path(

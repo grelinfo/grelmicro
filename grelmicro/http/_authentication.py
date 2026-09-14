@@ -18,6 +18,7 @@ from grelmicro._paths import (
     _is_route,
     _route_source,
     as_patterns,
+    compile_mount,
     compile_route,
     route_path,
     selects,
@@ -154,14 +155,30 @@ class _Reach:
     pattern: Pattern[str]
     within: frozenset[int] = frozenset()
     """The mounts and hosts the route sits in, which route a request to it."""
+    mounts: tuple[Pattern[str], ...] = ()
+    """The mounts above the route, outermost first, each matched on its own."""
 
     def answers(self, kind: str, method: str | None, path: str) -> bool:
         """Return whether this route could answer the request."""
         return (
             kind in self.kinds
             and (self.methods is None or method in self.methods)
-            and self.pattern.fullmatch(path) is not None
+            and self.reaches(path)
         )
+
+    def reaches(self, path: str) -> bool:
+        """Return whether the URL gets to this route, whatever its method.
+
+        Each mount above it matches on its own and hands on what follows its
+        path, as Starlette does, so a converter that spans segments splits
+        the URL where the framework splits it.
+        """
+        for mount in self.mounts:
+            matched = mount.fullmatch(path)
+            if matched is None:
+                return False
+            path = f"/{matched.group('path')}"
+        return self.pattern.fullmatch(path) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,8 +234,7 @@ class _Routes:
             *(node for _, node in self.nodes),
         )
         return any(
-            "http" in reach.kinds and reach.pattern.fullmatch(path) is not None
-            for reach in reaches
+            "http" in reach.kinds and reach.reaches(path) for reach in reaches
         )
 
     def serves_publicly(
@@ -358,8 +374,19 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
                 _HTTP, frozenset(methods) if methods else None, compiled
             )
         key = (id(route), prefix)
-        if _declares_anonymous(route, contexts) and key not in tree.closed:
-            reach = replace(reach, within=tree.within.get(key, frozenset()))
+        chain = tree.chains.get(key)
+        if (
+            chain is not None
+            and _declares_anonymous(route, contexts)
+            and key not in tree.closed
+        ):
+            mounts, relative = chain
+            reach = replace(
+                reach,
+                pattern=compile_route(f"{relative}{route.path}"),
+                within=tree.within[key],
+                mounts=tuple(compile_mount(mount) for mount in mounts),
+            )
             public.append(reach)
             declared[key] = (reach, template)
         else:
@@ -415,21 +442,29 @@ class _Tree:
     nodes: list[tuple[int, str]] = field(default_factory=list)
     within: dict[tuple[int, str], frozenset[int]] = field(default_factory=dict)
     closed: set[tuple[int, str]] = field(default_factory=set)
+    chains: dict[tuple[int, str], tuple[tuple[str, ...], str]] = field(
+        default_factory=dict
+    )
 
 
 def _read_tree(
     app: Any,  # noqa: ANN401
     tree: _Tree,
+    *,
     prefix: str = "",
     within: frozenset[int] = frozenset(),
-    closed: bool = False,  # noqa: FBT001, FBT002
+    mounts: tuple[str, ...] = (),
+    relative: str = "",
+    closed: bool = False,
     seen: frozenset[int] = frozenset(),
 ) -> None:
-    """Record every mount and host, and the ones each route sits in.
+    """Record every mount and host, and where each route sits under them.
 
     A node answers the paths under it: a mount's own path, or for a host
     or a node of another kind, the path of the router holding it. A route
-    under a node that turns a request away to anything but a `404` is
+    is recorded with the mounts above it and the path it sits under within
+    the innermost one, because Starlette matches each mount on its own. A
+    route under a node that turns a request away to anything but a `404` is
     closed, because what answers instead is not the route.
     """
     routed = _route_source(app, unwrap_middleware=True)
@@ -439,31 +474,39 @@ def _read_tree(
     for route in getattr(routed, "routes", None) or ():
         included = getattr(route, "original_router", None)
         if included is not None:
-            context = getattr(route, "include_context", None)
+            added = getattr(
+                getattr(route, "include_context", None), "prefix", ""
+            )
             _read_tree(
                 included,
                 tree,
-                f"{prefix}{getattr(context, 'prefix', '')}",
-                within,
-                closed,
-                seen,
+                prefix=f"{prefix}{added}",
+                within=within,
+                mounts=mounts,
+                relative=f"{relative}{added}",
+                closed=closed,
+                seen=seen,
             )
             continue
         if _is_route(route):
             key = (id(route), prefix)
             tree.within[key] = within
+            tree.chains[key] = (mounts, relative)
             if closed:
                 tree.closed.add(key)
             continue
-        under = f"{prefix}{route.path}" if _is_mount(route) else prefix
+        mount = _is_mount(route)
+        under = f"{prefix}{route.path}" if mount else prefix
         tree.nodes.append((id(route), under))
         _read_tree(
             getattr(route, "app", None),
             tree,
-            under,
-            within | {id(route)},
-            closed or _turns_away_elsewhere(route, routed),
-            seen,
+            prefix=under,
+            within=within | {id(route)},
+            mounts=(*mounts, route.path) if mount else mounts,
+            relative="" if mount else relative,
+            closed=closed or _turns_away_elsewhere(route, routed),
+            seen=seen,
         )
 
 
