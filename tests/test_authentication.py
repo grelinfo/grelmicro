@@ -38,6 +38,7 @@ from starlette.convertors import (  # codespell:ignore
     register_url_convertor,
 )
 from starlette.endpoints import HTTPEndpoint
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Host, Route, Router, WebSocketRoute
 from starlette.status import (
@@ -45,6 +46,7 @@ from starlette.status import (
     WS_1008_POLICY_VIOLATION,
 )
 from starlette.testclient import WebSocketDenialResponse
+from starlette.websockets import WebSocket
 
 from grelmicro import ComponentAlreadyRegisteredError, Grelmicro
 from grelmicro._describe import _Endpoint, _reads_idempotent
@@ -71,6 +73,9 @@ from grelmicro.integrations.fastapi import (
 from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
 from grelmicro.integrations.litestar import (
     Authenticated as LitestarAuthenticated,
+)
+from grelmicro.integrations.starlette import (
+    Authenticated as StarletteAuthenticated,
 )
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
@@ -513,6 +518,123 @@ class TestPlacement:
 
         assert refused.status_code == HTTP_401_UNAUTHORIZED
         assert served.json() == {"subject": "user-1"}
+
+
+def scoped_app(*uses: Any) -> Starlette:  # noqa: ANN401
+    """Return a Starlette app whose endpoints require `orders:write`."""
+
+    @StarletteAuthenticated(scopes=["orders:write"])
+    async def cancel(request: Request) -> JSONResponse:  # noqa: ARG001
+        return JSONResponse({"cancelled": True})
+
+    @StarletteAuthenticated(scopes=["orders:write"])
+    def cancel_now(request: Request) -> JSONResponse:  # noqa: ARG001
+        return JSONResponse({"cancelled": True})
+
+    class Orders(HTTPEndpoint):
+        @StarletteAuthenticated(scopes=["orders:write"])
+        async def delete(self, request: Request) -> JSONResponse:  # noqa: ARG002
+            return JSONResponse({"cancelled": True})
+
+    @StarletteAuthenticated(scopes=["orders:write"])
+    async def follow(websocket: WebSocket) -> None:
+        await websocket.accept()
+        await websocket.send_json({"following": True})
+        await websocket.close()
+
+    app = Starlette(
+        routes=[
+            Route("/async", cancel, methods=["DELETE"]),
+            Route("/sync", cancel_now, methods=["DELETE"]),
+            Route("/endpoint", Orders),
+            WebSocketRoute("/follow", follow),
+        ]
+    )
+    micro = Grelmicro(uses=[ErrorResponses(), *uses])
+    micro.install(app)
+    app.state.micro = micro
+    return app
+
+
+class TestStarlette:
+    """Scopes required on Starlette endpoints."""
+
+    @pytest.mark.parametrize("path", ["/async", "/sync", "/endpoint"])
+    def test_the_scope_granted_serves_the_endpoint(self, path: str) -> None:
+        """A function, a sync function and an endpoint method alike."""
+        client = TestClient(scoped_app(AuthenticatedRequests(verifier())))
+
+        response = client.delete(
+            path, headers=bearer(token(scope="orders:write"))
+        )
+
+        assert response.json() == {"cancelled": True}
+
+    @pytest.mark.parametrize("path", ["/async", "/sync", "/endpoint"])
+    def test_a_missing_scope_is_forbidden_with_the_challenge(
+        self, path: str
+    ) -> None:
+        """The refusal names the scope, as RFC 6750 asks."""
+        client = TestClient(scoped_app(AuthenticatedRequests(verifier())))
+
+        response = client.delete(path, headers=bearer(token()))
+
+        assert response.status_code == HTTP_403_FORBIDDEN
+        assert response.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write"'
+        )
+
+    def test_a_websocket_without_the_scope_is_denied(self) -> None:
+        """The handshake is refused, and granted with the scope."""
+        client = TestClient(scoped_app(AuthenticatedRequests(verifier())))
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as caught,
+            client.websocket_connect("/follow", headers=bearer(token())),
+        ):
+            pass  # pragma: no cover
+        with client.websocket_connect(
+            "/follow", headers=bearer(token(scope="orders:write"))
+        ) as socket:
+            following = socket.receive_json()
+
+        assert caught.value.status_code == HTTP_403_FORBIDDEN
+        assert following == {"following": True}
+
+    def test_without_the_component_a_credential_is_asked_for(self) -> None:
+        """Nothing verified the caller, so the endpoint asks for a token."""
+        client = TestClient(scoped_app())
+
+        response = client.delete("/async")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.headers["www-authenticate"] == (
+            'Bearer scope="orders:write"'
+        )
+
+    def test_the_report_names_the_scope(self) -> None:
+        """`grelmicro check` reads the decorator as it reads a guard."""
+        app = scoped_app(AuthenticatedRequests(verifier()))
+        report = app.state.micro.describe(app)
+
+        assert next(
+            row.applies
+            for row in report.endpoints
+            if row.method == "DELETE" and row.path == "/async"
+        ) == ("authenticated orders:write",)
+
+    def test_an_endpoint_taking_no_connection_is_refused(self) -> None:
+        """There would be nothing to read the caller from."""
+
+        async def orphan() -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="request or a websocket"):
+            StarletteAuthenticated(scopes=["orders:write"])(orphan)
+
+    def test_scopes_written_as_one_string_are_refused(self) -> None:
+        """One string would otherwise read as one scope per character."""
+        with pytest.raises(TypeError, match="not a single string"):
+            StarletteAuthenticated(scopes="orders:write")
 
 
 class TestWebSocket:

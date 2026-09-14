@@ -5,6 +5,8 @@ anything built from one. `grelmicro.integrations.fastapi` builds on it and
 adds what only FastAPI has, an OpenAPI schema and a health router.
 """
 
+import functools
+import inspect
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
@@ -12,7 +14,14 @@ from typing_extensions import Doc
 
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
+from grelmicro._wrapping import refuse_registered
+from grelmicro.errors import (
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    _scope_tokens,
+)
 from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http._authentication import AUTHENTICATED_MARKER
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 
 if TYPE_CHECKING:
@@ -38,6 +47,7 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 __all__ = [
+    "Authenticated",
     "error_response",
     "install",
     "install_error_responses",
@@ -636,3 +646,89 @@ def is_bound(
         getattr(middleware, "cls", None) is GrelmicroMiddleware
         for middleware in getattr(app, "user_middleware", ())
     )
+
+
+def Authenticated(  # noqa: N802
+    *,
+    scopes: Annotated[
+        "Sequence[str]",
+        Doc("Scopes the caller must hold, every one of them."),
+    ] = (),
+) -> "Callable[[Callable[..., Any]], Callable[..., Any]]":
+    """Require an authenticated caller holding every scope named.
+
+    A decorator for a Starlette endpoint: a function, sync or async, a
+    method of an `HTTPEndpoint`, or a websocket endpoint.
+
+    ```python
+    from grelmicro.integrations.starlette import Authenticated
+
+
+    @Authenticated(scopes=["orders:write"])
+    async def cancel(request: Request) -> JSONResponse: ...
+    ```
+
+    A caller with no credential is answered `401`, and one lacking a scope
+    `403`, each with a `WWW-Authenticate` challenge naming the scopes. It
+    needs a registered `AuthenticatedRequests`, which verifies the token
+    before the endpoint runs.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+
+    Raises:
+        TypeError: If `scopes` is a single string, or the endpoint takes no
+            `request` or `websocket` argument.
+        ValueError: If a scope is not an OAuth scope token.
+    """
+    required = _scope_tokens(scopes)
+
+    def decorate(endpoint: "Callable[..., Any]") -> "Callable[..., Any]":
+        refuse_registered(endpoint, "@Authenticated")
+        name, position = _connection_argument(endpoint)
+
+        def check(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+            connection = kwargs[name] if name in kwargs else args[position]
+            caller = connection.scope.get("user")
+            if caller is None or not getattr(caller, "is_authenticated", False):
+                raise AuthenticationRequiredError(scopes=required)
+            if not set(required) <= set(getattr(caller, "scopes", ())):
+                raise InsufficientScopeError(scopes=required)
+
+        if inspect.iscoroutinefunction(endpoint):
+
+            @functools.wraps(endpoint)
+            async def asynchronous(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+                check(args, kwargs)
+                return await endpoint(*args, **kwargs)
+
+            wrapper: Callable[..., Any] = asynchronous
+        else:
+
+            @functools.wraps(endpoint)
+            def synchronous(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+                check(args, kwargs)
+                return endpoint(*args, **kwargs)
+
+            wrapper = synchronous
+        setattr(wrapper, AUTHENTICATED_MARKER, required)
+        return wrapper
+
+    return decorate
+
+
+def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:
+    """Return the name and position of the argument the connection arrives in.
+
+    Raises:
+        TypeError: If the endpoint takes neither a `request` nor a
+            `websocket` argument.
+    """
+    parameters = inspect.signature(endpoint).parameters.values()
+    for position, parameter in enumerate(parameters):
+        if parameter.name in {"request", "websocket"}:
+            return parameter.name, position
+    msg = (
+        f"Authenticated() decorates an endpoint taking a request or a "
+        f"websocket argument, and {getattr(endpoint, '__qualname__', endpoint)!s} takes neither."
+    )
+    raise TypeError(msg)

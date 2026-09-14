@@ -477,6 +477,9 @@
     }
   },
   "grelmicro.integrations.starlette": {
+    "Authenticated": {
+      "()": "(*, scopes=()) -> 'Callable[[Callable[..., Any]], Callable[..., Any]]'"
+    },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },

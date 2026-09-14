@@ -45,7 +45,7 @@ Starlette, FastAPI and Litestar look.
 |---|---|---|---|
 | read the caller | `principal: CurrentPrincipal` | `request.user` | `request.user` |
 | JWT claims, typed | `claims: Claims` | `request.user` | `request.user` |
-| require scopes | `dependencies=[Authenticated(scopes=[...])]` | `guards=[Authenticated(scopes=[...])]` | `@requires("orders:write")` |
+| require scopes | `dependencies=[Authenticated(scopes=[...])]` | `guards=[Authenticated(scopes=[...])]` | `@Authenticated(scopes=[...])` |
 | public route | `dependencies=[Anonymous()]` | `opt=Anonymous()` | `exclude=` |
 
 On Litestar, `Anonymous()` is `{"exclude_from_auth": True}`, the key Litestar's
@@ -58,7 +58,9 @@ public here too.
 assigned it.
 
 `Authenticated(scopes=...)` requires every scope it names. A caller lacking one
-is answered `403`, never `401`. On FastAPI it is built on `fastapi.Security`,
+is answered `403`, never `401`. On Starlette it decorates a function, an
+`HTTPEndpoint` method or a websocket endpoint. Starlette's own `@requires` works
+too, but answers a plain `403` with no challenge. On FastAPI it is built on `fastapi.Security`,
 so a handler can take the caller from it too, and a router and its route each
 apply their own.
 

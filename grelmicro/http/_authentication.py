@@ -728,7 +728,8 @@ def route_scopes(
 
     A FastAPI route declares them through its dependency tree, a router's
     included. A Litestar handler declares them as guards, a router's and
-    the app's included.
+    the app's included. A Starlette endpoint declares them with the
+    `Authenticated` decorator.
     """
     found: list[str] = []
     handlers = _litestar_handlers(route)
@@ -738,6 +739,9 @@ def route_scopes(
                 for guard in handler.resolve_guards():
                     found.extend(getattr(guard, AUTHENTICATED_MARKER, ()))
         return tuple(dict.fromkeys(found))
+    found.extend(
+        getattr(getattr(route, "endpoint", None), AUTHENTICATED_MARKER, ())
+    )
     declared = getattr(route, "dependant", None)  # codespell:ignore
     pending = [
         *getattr(declared, "dependencies", ()),
