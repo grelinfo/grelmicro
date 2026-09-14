@@ -410,24 +410,27 @@ def CachedResponse(  # noqa: N802
     return _Depends(declare_cached(ttl))
 
 
-async def _current_principal(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
-    """Return the caller the middleware authenticated, or ask for a credential."""
-    caller = connection.scope.get("user")
-    if caller is None or not getattr(caller, "is_authenticated", False):
-        raise AuthenticationRequiredError
-    return caller
+async def _current_principal(
+    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+) -> Any:  # noqa: ANN401
+    """Return the caller, holding every scope a `Security` around it names."""
+    return await _authenticated(connection, security_scopes)
 
 
-async def _current_claims(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
+async def _current_claims(
+    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+) -> Any:  # noqa: ANN401
     """Return the verified JWT claims of the caller.
 
     Raises:
         AuthenticationRequiredError: If the request carried no credential.
+        InsufficientScopeError: If the caller lacks a scope a `Security`
+            around it names.
         TypeError: If the caller was authenticated by something other than
             a JWT, which is a route asking for what its verifier never
             produces.
     """
-    caller = await _current_principal(connection)
+    caller = await _authenticated(connection, security_scopes)
     if not isinstance(caller, JWTClaims):
         msg = (
             f"Claims reads a caller authenticated by a JWT, and this one is "
@@ -451,6 +454,8 @@ async def _authenticated(
 
 
 setattr(_authenticated, AUTHENTICATED_MARKER, True)
+setattr(_current_principal, AUTHENTICATED_MARKER, True)
+setattr(_current_claims, AUTHENTICATED_MARKER, True)
 
 
 CurrentPrincipal = Annotated[
@@ -468,8 +473,9 @@ async def list_orders(principal: CurrentPrincipal) -> list[Order]:
 ```
 
 A request that reached the route without a credential is answered `401`.
-It needs a registered `AuthenticatedRequests`, which verifies the token
-before the route runs.
+Read inside `Security(..., scopes=[...])`, it requires those scopes too,
+and a caller lacking one is answered `403`. It needs a registered
+`AuthenticatedRequests`, which verifies the token before the route runs.
 """
 
 Claims = Annotated[

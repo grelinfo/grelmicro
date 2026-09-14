@@ -1984,6 +1984,55 @@ class TestConsistency:
         }
         assert paths["/codes/{code}"]["get"]["security"] == [{SCHEME: []}]
 
+    def test_scopes_a_security_passes_to_the_caller_are_enforced(self) -> None:
+        """`Security` around a dependency reading the caller requires its scopes."""
+
+        async def reader(principal: CurrentPrincipal) -> Any:  # noqa: ANN401
+            return principal
+
+        async def claims_reader(claims: Claims) -> Any:  # noqa: ANN401
+            return claims
+
+        def declare(app: FastAPI) -> None:
+            @app.get(
+                "/items/mine",
+                dependencies=[Security(reader, scopes=["items:read"])],
+            )
+            async def mine() -> dict[str, bool]:
+                return {"mine": True}
+
+            @app.get(
+                "/items/signed",
+                dependencies=[Security(claims_reader, scopes=["items:sign"])],
+            )
+            async def signed() -> dict[str, bool]:
+                return {"signed": True}  # pragma: no cover
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        client = TestClient(app)
+        paths = app.openapi()["paths"]
+
+        assert (
+            client.get("/items/mine", headers=bearer(token())).status_code
+            == HTTP_403_FORBIDDEN
+        )
+        assert client.get(
+            "/items/mine", headers=bearer(token(scope="items:read"))
+        ).json() == {"mine": True}
+        assert (
+            client.get("/items/signed", headers=bearer(token())).status_code
+            == HTTP_403_FORBIDDEN
+        )
+        assert paths["/items/mine"]["get"]["security"] == [
+            {SCHEME: ["items:read"]}
+        ]
+        assert paths["/items/signed"]["get"]["security"] == [
+            {SCHEME: ["items:sign"]}
+        ]
+        assert self.applies(app, "GET", "/items/mine") == (
+            "authenticated items:read",
+        )
+
 
 class TestIncludedScopes:
     """Scopes a router was included with are described like its own."""
