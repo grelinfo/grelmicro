@@ -10,9 +10,12 @@ Read more in the [JWT](../security/jwt.md) docs.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass, field
+from logging import getLogger
 from time import monotonic, time
 from types import MappingProxyType
 from typing import (
@@ -53,6 +56,7 @@ from grelmicro.security.jwks import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+    from types import TracebackType
 
     from grelmicro.security.jwks import Fetcher
 
@@ -67,6 +71,8 @@ __all__ = [
     "TokenRejectedError",
     "TokenVerifier",
 ]
+
+logger = getLogger("grelmicro.security.jwt")
 
 _JWK_ALGORITHM: Final[Mapping[tuple[str, str], str]] = {
     ("RSA", ""): "RS256",
@@ -127,7 +133,8 @@ _BEARER_LENGTH: Final = len(BEARER_PREFIX)
 _ONE_MIB: Final = 1_048_576
 
 _NOT_LOADED: Final = (
-    "No key set has been loaded. Await refresh() before verifying."
+    "No key set has been loaded. Open the verifier with `async with`, or"
+    " await refresh(), before verifying."
 )
 
 _ASYMMETRIC_KEY_TYPES: Final = frozenset({"EC", "OKP", "RSA"})
@@ -1031,6 +1038,8 @@ class JWTVerifier:
         self._loaded_at: float | None = None
         self._attempted_at: float | None = None
         self._wants_keys = False
+        self._inflight: asyncio.Task[bool] | None = None
+        self._task: asyncio.Task[None] | None = None
         if isinstance(config, JWKSConfig):
             self._source: JWKSConfig | None = config
             self._keys: _KeySet | None = None
@@ -1103,6 +1112,21 @@ class JWTVerifier:
         `retry_interval`. A failure raises and leaves the loaded keys in
         place.
 
+        One fetch runs at a time. A caller arriving while one runs waits for
+        it and gets its answer, so a burst of tokens naming a new key costs
+        the provider one request. That makes it safe to await from a request
+        that was refused with `unknown-key`, and to verify again when it
+        returns `True`:
+
+        ```python
+        try:
+            claims = verifier.verify(token)
+        except TokenRejectedError as error:
+            if error.reason != "unknown-key" or not await verifier.refresh():
+                raise
+            claims = verifier.verify(token)
+        ```
+
         Raises:
             SigningKeysUnavailableError: If the document cannot be fetched,
                 or holds no usable key.
@@ -1110,6 +1134,9 @@ class JWTVerifier:
         source = self._source
         if source is None:
             return False
+        inflight = self._inflight
+        if inflight is not None:
+            return await asyncio.shield(inflight)
         if not force and not self.stale:
             return False
         now = monotonic()
@@ -1120,7 +1147,25 @@ class JWTVerifier:
         ):
             return False
         self._attempted_at = now
+        task = asyncio.create_task(self._load(source))
+        self._inflight = task
+        task.add_done_callback(self._settled)
+        # Shielded, so a request that gives up waiting does not cancel the
+        # fetch every other caller is waiting on.
+        return await asyncio.shield(task)
 
+    def _settled(self, task: asyncio.Task[bool]) -> None:
+        """Let the next refresh fetch again, once this one has finished.
+
+        The outcome is read here, so a fetch that failed after every caller
+        stopped waiting is not reported as an exception nobody retrieved.
+        """
+        self._inflight = None
+        if not task.cancelled():
+            task.exception()
+
+    async def _load(self, source: JWKSConfig) -> bool:
+        """Fetch the document, and swap the keys in when it changed."""
         document = await self._fetch(
             source.url, timeout=source.timeout, max_bytes=source.max_bytes
         )
@@ -1149,6 +1194,63 @@ class JWTVerifier:
         self._loaded_at = monotonic()
         self._wants_keys = False
         return True
+
+    async def __aenter__(self) -> Self:
+        """Load the published keys, then keep them fresh until exit.
+
+        Keys held in code need nothing. A provider that cannot be reached
+        does not stop the app: the verifier opens without keys, every
+        verification raises `SigningKeysUnavailableError`, and the background
+        refresh keeps trying every `retry_interval`.
+        """
+        source = self._source
+        if source is None or self._task is not None:
+            return self
+        try:
+            await self.refresh()
+        except SigningKeysUnavailableError as error:
+            logger.warning(
+                "signing keys could not be loaded, retrying every %ss: %s",
+                source.retry_interval,
+                error,
+            )
+        self._task = asyncio.create_task(self._keep_fresh(source))
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Stop refreshing, and abandon a fetch still running."""
+        for task in (self._task, self._inflight):
+            if task is not None:
+                task.cancel()
+                with suppress(
+                    asyncio.CancelledError, SigningKeysUnavailableError
+                ):
+                    await task
+        self._task = None
+        self._inflight = None
+
+    async def _keep_fresh(self, source: JWKSConfig) -> None:
+        """Refresh every `retry_interval` until cancelled.
+
+        `refresh` fetches only when the keys are stale, so a pass while they
+        are fresh costs nothing, and a key the provider rotated in reaches
+        the verifier within one interval of a token naming it.
+        """
+        while True:
+            await asyncio.sleep(source.retry_interval)
+            try:
+                await self.refresh()
+            except SigningKeysUnavailableError as error:
+                logger.warning(
+                    "signing keys could not be refreshed, keeping the loaded"
+                    " keys: %s",
+                    error,
+                )
 
     def verify(
         self,

@@ -154,14 +154,24 @@ the provider.
 --8<-- "security/jwks.py"
 ```
 
-`refresh` fetches only when the keys are stale, so a task calling it every
-minute costs nothing and bounds how long a rotation takes to reach you. Call
-it once before serving too, so the first request does not arrive before the
-keys do.
+Open the verifier with `async with`, in your app's lifespan. It loads the keys
+before the first request and refreshes them in the background every
+`retry_interval` until it closes. A refresh fetches only when the keys are
+stale, so a pass while they are fresh costs nothing, and a rotation reaches you
+within one interval.
+
+A provider that cannot be reached at startup does not stop the app. The
+verifier opens without keys, every verification raises
+`SigningKeysUnavailableError`, and the background refresh keeps trying.
+
+`refresh()` is still yours to await, for a request refused with `unknown-key`
+that wants the new keys now. A caller arriving while a fetch runs waits for
+that one rather than starting another, so a burst of such requests costs your
+provider one fetch.
 
 Nothing fetches on the request path. A token naming a key the verifier does
-not hold is refused and marks the key set stale, so the next scheduled refresh
-picks the new keys up. `retry_interval` puts a floor under how often that can
+not hold is refused and marks the key set stale, so the next background
+refresh picks the new keys up. `retry_interval` puts a floor under how often that can
 happen, so a caller inventing `kid` values cannot make your service hammer
 your provider.
 
@@ -217,11 +227,10 @@ verifier = JWTVerifier.jwks(
     issuer=issuer,
     required=["token_use"],
 )
-await verifier.refresh()
-
-claims = verifier.verify(token)
-if claims.raw["token_use"] != "access" or claims.raw["client_id"] != client_id:
-    raise TokenRejectedError("audience")
+async with verifier:
+    claims = verifier.verify(token)
+    if claims.raw["token_use"] != "access" or claims.raw["client_id"] != client_id:
+        raise TokenRejectedError("audience")
 ```
 
 ## Microsoft Entra ID
@@ -239,7 +248,6 @@ verifier = JWTVerifier.jwks(
     audience=client_id,
     issuer=tenant_issuer,
 )
-await verifier.refresh()
 ```
 
 ## Repeated tokens

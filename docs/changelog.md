@@ -13,6 +13,10 @@
 * 💥 `JWKSVerifier` is gone. `JWTVerifier.jwks(url, audience=...)` builds the same verifier, and `JWTVerifier.from_config()` takes a `JWKSConfig` too. A verifier built from keys you hold answers `ready`, `stale` and `refresh` as well, so code written against one takes the other. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `JWKSUnavailableError` is now `SigningKeysUnavailableError`, and verifying before any key set has loaded raises it instead of `OutOfContextError`. `JWKSFetcher` is now `Fetcher`, and `unverified_header` answers before any key set loads. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
+### Added
+* ✨ `JWTVerifier` is an async context manager. `async with verifier:` loads the keys a provider publishes before the first request and refreshes them in the background every `retry_interval` until it closes, so no task has to be scheduled by hand. A provider that cannot be reached at startup leaves the verifier open without keys rather than stopping the app. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
 

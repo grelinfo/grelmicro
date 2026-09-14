@@ -9,7 +9,7 @@ The `security` module holds the checks a service runs on an inbound request. gre
 
 ### Verify a token
 
-Point a verifier at your identity provider's JWKS, schedule `refresh()`, and verify on every request.
+Point a verifier at your identity provider's JWKS, open it with `async with`, and verify on every request.
 
 ```python
 from grelmicro.security import JWTVerifier
@@ -20,8 +20,8 @@ verifier = JWTVerifier.jwks(
     issuer="https://auth.example.com/",
 )
 
-await verifier.refresh()
-claims = verifier.verify_header(request.headers.get("authorization"))
+async with verifier:
+    claims = verifier.verify_header(request.headers.get("authorization"))
 ```
 
 Read the [JWT](jwt.md) guide for static keys, key rotation, and client bans.

@@ -7,10 +7,12 @@ exercises the limits without depending on a network or on a provider.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import sys
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import anyio
 import httpx
@@ -36,6 +38,9 @@ from grelmicro.security import (
 )
 from grelmicro.security.jwks import fetch_with_httpx
 from tests.security.jwt_signing import Signer
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 URL = "https://idp.example.com/.well-known/jwks.json"
 AUDIENCE = "grelmicro-api"
@@ -520,6 +525,165 @@ class TestFactory:
             verifier.verify(issued)
 
         assert caught.value.reason == "signature"
+
+
+class Slow(Endpoint):
+    """An endpoint that takes a moment to answer, so fetches can overlap."""
+
+    async def __call__(
+        self,
+        url: str,
+        *,
+        timeout: float,  # noqa: ASYNC109
+        max_bytes: int,
+    ) -> bytes:
+        """Wait, then serve the current body."""
+        await anyio.sleep(0.05)
+        return await super().__call__(url, timeout=timeout, max_bytes=max_bytes)
+
+
+async def until(condition: Callable[[], bool], *, within: float = 5.0) -> None:
+    """Wait for `condition` to hold, failing once `within` seconds pass."""
+    deadline = time.monotonic() + within
+    while not condition():
+        if time.monotonic() > deadline:
+            msg = "the condition never held"
+            raise AssertionError(msg)
+        await anyio.sleep(0.005)
+
+
+def verifies(verifier: JWTVerifier, presented: str) -> bool:
+    """Return whether `presented` verifies right now."""
+    try:
+        verifier.verify(presented)
+    except TokenRejectedError:
+        return False
+    return True
+
+
+class TestLifecycle:
+    """Opening a verifier loads its keys and keeps them fresh until it closes."""
+
+    async def test_entering_loads_the_keys(self) -> None:
+        """The first request never arrives before the keys do."""
+        endpoint = Endpoint(document())
+
+        async with JWTVerifier.from_config(
+            config(), fetch=endpoint
+        ) as verifier:
+            assert verifier.ready is True
+            assert verifier.verify(token()).subject == "user-1"
+
+        assert endpoint.calls == 1
+
+    async def test_keys_held_in_code_need_nothing(self) -> None:
+        """There is nothing to fetch, so nothing runs in the background."""
+        static = JWTVerifier.keys(
+            JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256"),
+            audience=AUDIENCE,
+        )
+
+        async with static as verifier:
+            assert verifier.ready is True
+            assert verifier._task is None
+
+    async def test_an_unreachable_provider_does_not_stop_the_app(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The verifier opens without keys and loads them once it can."""
+        endpoint = Endpoint(SigningKeysUnavailableError("endpoint is down"))
+
+        with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
+            async with JWTVerifier.from_config(
+                config(retry_interval=0.01), fetch=endpoint
+            ) as verifier:
+                assert verifier.ready is False
+                with pytest.raises(SigningKeysUnavailableError):
+                    verifier.verify(token())
+
+                endpoint.body = document()
+                await until(lambda: verifier.ready)
+
+                assert verifier.verify(token()).subject == "user-1"
+
+        assert "could not be loaded" in caplog.text
+
+    async def test_a_background_refresh_follows_a_rotation(self) -> None:
+        """A token naming a new key verifies once the next pass runs."""
+        endpoint = Endpoint(document())
+
+        async with JWTVerifier.from_config(
+            config(retry_interval=0.01), fetch=endpoint
+        ) as verifier:
+            endpoint.body = document(ROTATED, kid="k2")
+            rotated = token(ROTATED, kid="k2")
+
+            await until(lambda: verifies(verifier, rotated))
+
+    async def test_a_failed_background_refresh_keeps_the_keys(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A provider going down later is logged, and verification goes on."""
+        endpoint = Endpoint(document())
+
+        with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
+            async with JWTVerifier.from_config(
+                config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+            ) as verifier:
+                endpoint.body = SigningKeysUnavailableError("endpoint is down")
+
+                await until(lambda: "could not be refreshed" in caplog.text)
+
+                assert verifier.verify(token()).subject == "user-1"
+
+    async def test_closing_stops_the_refresh(self) -> None:
+        """Nothing keeps fetching after the verifier closes."""
+        endpoint = Endpoint(document())
+        verifier = JWTVerifier.from_config(
+            config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+        )
+
+        async with verifier:
+            await until(lambda: endpoint.calls >= EXPECTED_FETCHES)
+        calls = endpoint.calls
+        await anyio.sleep(0.05)
+
+        assert endpoint.calls == calls
+        assert verifier._task is None
+
+    async def test_entering_twice_starts_one_refresh(self) -> None:
+        """An open verifier opened again keeps the loop it already has."""
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(document()))
+
+        async with verifier:
+            running = verifier._task
+            async with verifier:
+                assert verifier._task is running
+
+    async def test_concurrent_refreshes_share_one_fetch(self) -> None:
+        """A burst of callers costs the provider one request."""
+        endpoint = Slow(document())
+        verifier = JWTVerifier.from_config(config(), fetch=endpoint)
+
+        results = await asyncio.gather(
+            *(verifier.refresh() for _ in range(SPRAYED_KIDS))
+        )
+
+        assert results == [True] * SPRAYED_KIDS
+        assert endpoint.calls == 1
+
+    async def test_closing_during_a_fetch_abandons_it(self) -> None:
+        """A fetch still running when the verifier closes is cancelled."""
+        endpoint = Slow(document())
+        verifier = JWTVerifier.from_config(
+            config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+        )
+
+        async with verifier:
+            await until(lambda: verifier._inflight is not None)
+
+        assert verifier._inflight is None
+        assert verifier._task is None
 
 
 class TestDocumentLimits:
