@@ -154,6 +154,20 @@ A verifier built with `discover` publishes an `openIdConnect` scheme, so a
 client can find the provider from the schema. Any other publishes a bearer
 token. Pass `openapi=False` to leave the schema alone.
 
+## Serving the API docs
+
+The docs pages and the schema are routes like any other, so a browser opening
+them needs a token too. Name them in `exclude` to publish them:
+
+```python
+AuthenticatedRequests(verifier, exclude=("/docs/*", "/redoc", "/openapi.json"))  # FastAPI
+AuthenticatedRequests(verifier, exclude=("/schema/*",))  # Litestar
+```
+
+The schema lists every route and the scopes each one needs, so publish it only
+where that is meant to be seen. [Testing](../testing.md#test-an-authenticated-app)
+shows how to test the routes behind it.
+
 ## Reading it back
 
 ```bash

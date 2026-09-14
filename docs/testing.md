@@ -101,6 +101,21 @@ async def test_login_takes_the_lock() -> None:
     assert log.count("acquire", name="user:u1") == 1
 ```
 
+## Test an authenticated app
+
+`AuthenticatedRequests` takes any verifier that answers `verify(token)`. In a
+test, hand it one that maps a token to the caller it stands for, so no key is
+generated and no token is signed:
+
+```python
+--8<-- "http/authentication_testing.py"
+```
+
+A token the verifier does not know is refused the way a bad one is in
+production, so the `401` and its challenge are tested too. To test the verifier
+itself, build a `JWTVerifier.keys(...)` from a key made for the test, as the
+[JWT](security/jwt.md) guide shows.
+
 ## Going deeper
 
 The [Testing architecture](architecture/testing.md) page covers override
