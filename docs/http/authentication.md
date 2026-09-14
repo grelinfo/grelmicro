@@ -156,4 +156,5 @@ issuer and audience, can come from the deployment, as the
 [JWT](../security/jwt.md#configure-from-the-deployment) guide shows.
 
 For a middleware stack built by hand, `AuthenticatedRequestsMiddleware` takes
-the same options.
+the same options. It serves public paths through `exclude` alone, because
+only `micro.install(app)` reads `Anonymous()` off the routes.

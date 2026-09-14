@@ -569,11 +569,22 @@ def _served_publicly(app: object) -> Callable[[Any, str], bool]:
     """Return what says whether a route is served without a credential.
 
     Read off the app the report is about, never off the running middleware,
-    so a report on one app changes nothing another one serves.
+    so a report on one app changes nothing another one serves. An
+    authentication the app added by hand serves no route publicly.
     """
-    from grelmicro.http._authentication import routes_of  # noqa: PLC0415
+    from grelmicro.http._authentication import (  # noqa: PLC0415
+        routes_of,
+        serves_anonymous_routes,
+    )
 
+    if not serves_anonymous_routes(app):
+        return _served_by_no_route
     return routes_of(app).serves_publicly
+
+
+def _served_by_no_route(route: Any, method: str) -> bool:  # noqa: ANN401, ARG001
+    """Return that no route is served without a credential."""
+    return False
 
 
 def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401

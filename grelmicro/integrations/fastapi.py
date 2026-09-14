@@ -984,7 +984,9 @@ def document_authenticated_requests(
     route declares through `Authenticated`, and adds the `401` it answers,
     the `403` where scopes are required, and the `429` when `bans` is set.
 
-    A path in `exclude` and a route declaring `Anonymous()` stay without it.
+    A path in `exclude` stays without it, and so does a route declaring
+    `Anonymous()` when `micro.install(app)` added the middleware. One added
+    by hand serves public paths through `exclude` alone.
     The scheme is `openIdConnect` for a verifier that found the issuer's
     OpenID Connect discovery document, and `http` bearer otherwise.
 
@@ -1037,7 +1039,9 @@ def _annotate_authenticated(
         "securitySchemes", {}
     ).setdefault(_SECURITY_SCHEME, _security_scheme(options["verifier"]))
     exclude = tuple(options["exclude"])
-    public, scopes = _route_authentication(app)
+    public, scopes = _route_authentication(
+        app, anonymous=options["public"] is not None
+    )
     for path, _, operation, method in _paths_with_method(schema, _HTTP_METHODS):
         if (path, method) in public or not selects(
             path, include=(), exclude=exclude
@@ -1123,6 +1127,8 @@ def _security_scheme(verifier: object) -> dict[str, Any]:
 
 def _route_authentication(
     app: "FastAPI",
+    *,
+    anonymous: bool,
 ) -> tuple[set[tuple[str, str]], dict[tuple[str, str], list[str]]]:
     """Return the public operations, and the scopes each covered one needs.
 
@@ -1130,6 +1136,8 @@ def _route_authentication(
     both read straight against the schema's paths. An operation is public
     only when the middleware serves it without a credential, which a
     declaration alone does not settle: another route may answer its URL.
+    With `anonymous` false no declaration counts, as for a middleware added
+    by hand.
     """
     served = routes_of(app)
     public: set[tuple[str, str]] = set()
@@ -1139,7 +1147,7 @@ def _route_authentication(
         # `None` for an endpoint class, which answers whatever it defines.
         for method in getattr(route, "methods", None) or ():
             key = (path, method.lower())
-            if served.serves_publicly(route, method):
+            if anonymous and served.serves_publicly(route, method):
                 public.add(key)
             else:
                 scopes[key] = list(route_scopes(route, method, contexts))

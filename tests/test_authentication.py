@@ -21,9 +21,13 @@ from fastapi import Request as FastAPIRequest
 from fastapi import WebSocket as FastAPIWebSocket
 from fastapi.security import HTTPBearer
 from fastapi.testclient import TestClient
-from litestar import Litestar, delete, get, post, websocket
+from litestar import Litestar, asgi, delete, get, post, websocket
 from litestar import Request as LitestarRequest
 from litestar import WebSocket as LitestarWebSocket
+from litestar.exceptions import (
+    WebSocketDisconnect as LitestarWebSocketDisconnect,
+)
+from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
@@ -35,6 +39,7 @@ from starlette.convertors import (  # codespell:ignore
 from starlette.endpoints import HTTPEndpoint
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
+from starlette.status import WS_1008_POLICY_VIOLATION
 from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import ComponentAlreadyRegisteredError, Grelmicro
@@ -1414,6 +1419,51 @@ class TestRouting:
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
 
+    def test_a_public_litestar_url_is_served_however_litestar_spells_it(
+        self,
+    ) -> None:
+        """A trailing slash reaches the public handler Litestar routes it to."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier()))
+        ) as client:
+            response = client.get("/status/")
+
+        assert response.json() == {"up": True}
+
+    def test_a_public_litestar_mount_serves_every_path_under_it(self) -> None:
+        """`opt=Anonymous()` on a mounted ASGI handler covers what it answers."""
+
+        @asgi(
+            "/assets", is_mount=True, copy_scope=False, opt=LitestarAnonymous()
+        )
+        async def assets(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"asset": True})(scope, receive, send)
+
+        app = Litestar(route_handlers=[assets])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            response = client.get("/assets/css/site.css")
+
+        assert response.json() == {"asset": True}
+
+    def test_a_websocket_to_a_public_litestar_http_route_is_refused(
+        self,
+    ) -> None:
+        """A handshake no public handler answers stays authenticated."""
+        with (
+            LitestarTestClient(
+                litestar_app(AuthenticatedRequests(verifier()))
+            ) as client,
+            pytest.raises(LitestarWebSocketDisconnect) as refused,
+            client.websocket_connect("/status"),
+        ):
+            pass  # pragma: no cover
+
+        assert refused.value.code == WS_1008_POLICY_VIOLATION
+
 
 class TestConsistency:
     """The schema and the report say what the middleware does."""
@@ -1509,6 +1559,59 @@ class TestConsistency:
 
         assert TestClient(app).get("/me").status_code == HTTP_401_UNAUTHORIZED
 
+    def test_a_middleware_added_by_hand_describes_anonymous_as_authenticated(
+        self,
+    ) -> None:
+        """It answers `401` on an `Anonymous()` route, and the schema says so."""
+        app = FastAPI()
+
+        @app.get("/catalog", dependencies=[Anonymous()])
+        async def catalog() -> dict[str, bool]:
+            return {"public": True}  # pragma: no cover
+
+        app.add_middleware(AuthenticatedRequestsMiddleware, verifier=verifier())
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+        app.state.micro = micro
+
+        assert app.openapi()["paths"]["/catalog"]["get"]["security"] == [
+            {SCHEME: []}
+        ]
+        assert self.applies(app, "GET", "/catalog") == ("authenticated",)
+        assert TestClient(app).get("/catalog").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    def test_a_litestar_middleware_added_by_hand_reports_authenticated(
+        self,
+    ) -> None:
+        """It answers `401` on an `Anonymous()` handler, and the report says so."""
+
+        @get("/status", opt=LitestarAnonymous())
+        async def status() -> dict[str, bool]:
+            return {"up": True}  # pragma: no cover
+
+        app = Litestar(
+            route_handlers=[status],
+            middleware=[
+                DefineMiddleware(
+                    AuthenticatedRequestsMiddleware,  # ty: ignore[invalid-argument-type]
+                    verifier=verifier(),
+                )
+            ],
+        )
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+        app.state.micro = micro
+
+        assert self.applies(app, "GET", "/status") == ("authenticated",)
+        with LitestarTestClient(app) as client:
+            assert client.get("/status").status_code == HTTP_401_UNAUTHORIZED
+
 
 class TestIncludedScopes:
     """Scopes a router was included with are described like its own."""
@@ -1544,6 +1647,35 @@ class TestIncludedScopes:
             .status_code
             == HTTP_403_FORBIDDEN
         )
+
+
+class TestRepeatedParameters:
+    """A mount and a route under it may name the same parameter."""
+
+    def test_a_parameter_a_mount_and_its_route_both_name_is_read(self) -> None:
+        """Install, the schema and the report read the app Starlette serves."""
+
+        async def member(request: Any) -> JSONResponse:  # noqa: ANN401
+            return JSONResponse(dict(request.path_params))
+
+        def declare(app: FastAPI) -> None:
+            app.mount(
+                "/orgs/{id}",
+                Starlette(routes=[Route("/members/{id}", member)]),
+            )
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        client = TestClient(app)
+
+        assert "security" not in app.openapi()["paths"]["/catalog"]["get"]
+        assert TestReport.applies(app, "GET", "/catalog") == ("anonymous",)
+        assert client.get("/catalog").status_code == HTTP_200_OK
+        assert client.get("/orgs/1/members/2").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+        assert client.get(
+            "/orgs/1/members/2", headers=bearer(token())
+        ).json() == {"id": "2"}
 
 
 class TestBoundaries:

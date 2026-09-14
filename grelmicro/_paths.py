@@ -6,6 +6,8 @@ once: `include` narrows, `exclude` carves out, and `exclude` wins.
 
 from __future__ import annotations
 
+import itertools
+import re
 from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -25,6 +27,7 @@ __all__ = [
     "MethodNames",
     "PathPatterns",
     "as_patterns",
+    "compile_route",
     "matches",
     "names_route",
     "refuse_bare_method",
@@ -168,6 +171,33 @@ _INVALID_PORT = object()
 
 _MAX_PORT = 65535
 """Largest valid TCP port."""
+
+
+_ROUTE_PARAMETER = re.compile(
+    r"\{([a-zA-Z_][a-zA-Z0-9_]*)(:[a-zA-Z_][a-zA-Z0-9_]*)?\}"
+)
+"""A path parameter in a Starlette route's path, with its optional converter."""
+
+
+def compile_route(
+    template: Annotated[
+        str, Doc("A route's path, joined with every mount path above it.")
+    ],
+) -> Pattern[str]:
+    """Return the regex Starlette matches this path with.
+
+    Starlette compiles a mount and each route under it apart, so the two may
+    name the same parameter. Each parameter is given a name of its own before
+    the joined path is compiled, which changes no URL it matches.
+    """
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    names = itertools.count()
+    renamed = _ROUTE_PARAMETER.sub(
+        lambda match: f"{{p{next(names)}{match.group(2) or ''}}}", template
+    )
+    compiled, _, _ = compile_path(renamed)
+    return compiled
 
 
 def route_path(

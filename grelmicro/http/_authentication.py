@@ -15,6 +15,7 @@ from grelmicro._config import build_config
 from grelmicro._paths import (
     PathPatterns,
     as_patterns,
+    compile_route,
     route_path,
     selects,
     walk_routes,
@@ -77,9 +78,6 @@ _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 
 ANONYMOUS_OPT = "grelmicro_anonymous"
 """The `opt` key a Litestar handler declares itself public under."""
-
-_LITESTAR_PARAMETER = re.compile(r"\{([^}]+)\}")
-"""A path parameter in a Litestar route's `path_format`."""
 
 
 async def _anonymous_route() -> None:
@@ -223,6 +221,8 @@ class _PublicRoutes:
     def matches(self, scope: Scope) -> bool:
         """Return whether the request is served by a route declared public."""
         routes = self._routes
+        if routes.litestar is not None:
+            return _litestar_serves_publicly(routes.litestar, scope)
         if not routes.public:
             return False
         kind = scope["type"]
@@ -232,8 +232,6 @@ class _PublicRoutes:
             reach.answers(kind, method, path) for reach in routes.public
         ):
             return False
-        if routes.litestar is not None:
-            return _litestar_serves_publicly(routes.litestar, scope)
         rivals = (*routes.by_depth.get(path.count("/"), ()), *routes.anywhere)
         return not any(reach.answers(kind, method, path) for reach in rivals)
 
@@ -245,6 +243,25 @@ def routes_of(app: Any) -> _Routes:  # noqa: ANN401
     return _starlette_routes(app)
 
 
+def serves_anonymous_routes(app: Any) -> bool:  # noqa: ANN401
+    """Return whether the authentication in front of `app` reads `Anonymous()`.
+
+    One `micro.install(app)` added does. One the app added itself serves
+    public paths through `exclude` alone, and `install` adds none beside it.
+    An app carrying neither is described as `install` would wire it.
+    """
+    entries = getattr(app, "user_middleware", None)
+    if entries is None:
+        entries = getattr(app, "middleware", None) or ()
+    for entry in entries:
+        cls = getattr(entry, "cls", None) or getattr(entry, "middleware", None)
+        if isinstance(cls, type) and issubclass(
+            cls, AuthenticatedRequestsMiddleware
+        ):
+            return getattr(entry, "kwargs", {}).get("public") is not None
+    return True
+
+
 def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     """Read a Starlette or FastAPI app's public routes, and all the others.
 
@@ -253,14 +270,14 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     whose routes cannot be read answers anything under its path, so it
     counts as a route that could answer every one of those URLs.
     """
-    from starlette.routing import WebSocketRoute, compile_path  # noqa: PLC0415
+    from starlette.routing import WebSocketRoute  # noqa: PLC0415
 
     public: list[_Reach] = []
     declared: dict[int, tuple[_Reach, str]] = {}
     rivals: list[tuple[str, _Reach]] = []
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{route.path}"
-        compiled, _, _ = compile_path(template)
+        compiled = compile_route(template)
         if isinstance(route, WebSocketRoute):
             reach = _Reach(_WEBSOCKET, None, compiled)
         else:
@@ -278,7 +295,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     for prefix, route, _ in walk_routes(app):
         if getattr(route, "routes", None) is not None:
             template = f"{prefix}{route.path.rstrip('/')}/{{path:path}}"
-            compiled, _, _ = compile_path(template)
+            compiled = compile_route(template)
             rivals.append((template, _Reach(_EITHER, None, compiled)))
     by_depth: dict[int, list[_Reach]] = {}
     anywhere: list[_Reach] = []
@@ -298,31 +315,18 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
 
 
 def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401
-    """Read a Litestar app's public handlers.
+    """Read whether a Litestar app declares any handler public.
 
-    The patterns only narrow the question. Litestar's own router answers it,
-    because it picks a fixed segment before a parameter whatever the order
-    the handlers were declared in.
+    Litestar's own router answers which handler serves a request, however
+    its path is spelled and whatever a mount answers under it, so what is
+    kept is the app to ask.
     """
-    public: list[_Reach] = []
-    for _, route, _ in walk_routes(app):
-        chosen = [
-            handler
-            for handler in _litestar_handlers(route) or ()
-            if handler.opt.get(ANONYMOUS_OPT)
-        ]
-        if not chosen:
-            continue
-        kind = getattr(route.scope_type, "value", route.scope_type)
-        methods = frozenset(
-            method
-            for handler in chosen
-            for method in getattr(handler, "http_methods", ())
-        )
-        public.append(
-            _Reach(frozenset({kind}), methods or None, _litestar_pattern(route))
-        )
-    return _Routes(public=tuple(public), litestar=app)
+    declared = any(
+        handler.opt.get(ANONYMOUS_OPT)
+        for _, route, _ in walk_routes(app)
+        for handler in _litestar_handlers(route) or ()
+    )
+    return _Routes(litestar=app) if declared else _Routes()
 
 
 def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
@@ -345,7 +349,8 @@ def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
         _, handler, *_ = app.asgi_router.handle_routing(
             path=normalize_path(path), method=scope.get("method")
         )
-    except HTTPException:
+    except (HTTPException, KeyError):
+        # `KeyError` for a websocket asking a path only HTTP handlers answer.
         return False
     return bool(handler.opt.get(ANONYMOUS_OPT))
 
@@ -407,22 +412,6 @@ def _litestar_handlers(route: Any) -> list[Any] | None:  # noqa: ANN401
         return list(handlers)
     handler = getattr(route, "route_handler", None)
     return None if handler is None else [handler]
-
-
-def _litestar_pattern(route: Any) -> Pattern[str]:  # noqa: ANN401
-    """Compile a Litestar route's path into a pattern every URL of it fits."""
-    template = route.path_format
-    parameters = route.path_parameters
-    pieces: list[str] = []
-    last = 0
-    for match in _LITESTAR_PARAMETER.finditer(template):
-        pieces.append(re.escape(template[last : match.start()]))
-        definition = parameters.get(match.group(1))
-        spans = definition is not None and definition.full.endswith(":path")
-        pieces.append(".*" if spans else "[^/]+")
-        last = match.end()
-    pieces.append(re.escape(template[last:]))
-    return re.compile("".join(pieces))
 
 
 def _declares_anonymous(
