@@ -2934,6 +2934,28 @@ class TestRouting:
 
         assert TestClient(app).get("/sub/status").json() == {"up": True}
 
+    def test_a_trailing_newline_never_opens_a_protected_literal_route(
+        self,
+    ) -> None:
+        """Starlette's `$` matches before a final newline, a public route's never."""
+        app = FastAPI()
+
+        @app.get("/users/me")
+        async def me() -> dict[str, bool]:
+            return {"secret": True}  # pragma: no cover
+
+        @app.get("/users/{uid}", dependencies=[Anonymous()])
+        async def user(uid: str) -> dict[str, str]:
+            return {"user": uid}
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/users/me%0A").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/users/alice").json() == {"user": "alice"}
+
 
 class TestConsistency:
     """The schema and the report say what the middleware does."""

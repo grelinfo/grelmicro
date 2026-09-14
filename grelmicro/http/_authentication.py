@@ -287,6 +287,15 @@ class _Routes:
         )
 
 
+_CONTROL_CHARACTER: Final = re.compile(r"[\x00-\x1f\x7f]")
+"""A character no route is declared with, though a URL can decode to one.
+
+Starlette matches a route with `$`, which also matches before a final
+newline, so `/users/me` followed by a newline reaches the route declared
+`/users/me`. A path holding one is never served without a credential.
+"""
+
+
 class _PublicRoutes:
     """The routes that declared `Anonymous()`, read off the app.
 
@@ -326,7 +335,7 @@ class _PublicRoutes:
         serves each by its own routes.
         """
         routes = self._apps.get(scope.get("app"))
-        if routes is None:
+        if routes is None or _CONTROL_CHARACTER.search(scope["path"]):
             return False
         if routes.litestar is not None:
             return _litestar_serves_publicly(routes.litestar, scope)

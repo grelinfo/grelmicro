@@ -338,6 +338,9 @@ def request_of(data: st.DataObject, built: Built) -> tuple[str, str, bool]:
         host, websocket = None, data.draw(st.booleans())
     if data.draw(st.integers(0, 5)) == 0:
         path = "/" + path
+    if data.draw(st.integers(0, 7)) == 0:
+        # A URL decoding to a trailing newline, which Starlette's `$` accepts.
+        path += "%0A"
     return path, host or data.draw(st.sampled_from(HOSTS)), websocket
 
 
