@@ -432,6 +432,16 @@ class JWTPolicy(BaseModel):
             " client asks for it."
         ),
     ] = None
+    scope_claims: Annotated[
+        list[str],
+        Doc(
+            "Claims the granted scopes are read from, in order. The first one"
+            " the token carries decides, as a space-separated string or an"
+            " array of strings. Microsoft Entra ID writes `scp` as a string"
+            " and Okta writes it as an array. A claim of any other shape"
+            " grants nothing."
+        ),
+    ] = Field(default_factory=lambda: ["scope", "scp"])
     required: Annotated[
         list[str],
         Doc(
@@ -470,7 +480,7 @@ class JWTPolicy(BaseModel):
         ),
     ] = 300.0
 
-    @field_validator("audience", "issuer", mode="before")
+    @field_validator("audience", "issuer", "scope_claims", mode="before")
     @classmethod
     def _as_list(cls, value: Any) -> Any:  # noqa: ANN401
         """Read a single value as a list of one."""
@@ -485,6 +495,15 @@ class JWTPolicy(BaseModel):
                 "audience must name at least one value, or be None to answer"
                 " to no audience"
             )
+            raise ValueError(msg)
+        return value
+
+    @field_validator("scope_claims")
+    @classmethod
+    def _check_scope_claims(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse an empty list, which would grant no scope to any token."""
+        if not value:
+            msg = "scope_claims must name at least one claim"
             raise ValueError(msg)
         return value
 
@@ -682,11 +701,13 @@ lands on the right side without anybody remembering to add it here.
 class JWTClaims:
     """The claims of a verified token.
 
-    `raw` holds every claim as it arrived. The named fields are the registered
-    claims lifted out of it, so the common path needs no dict lookups.
+    `claims` holds every claim as it arrived. The named fields are the
+    registered claims lifted out of it, so the common path needs no dict
+    lookups. It satisfies `Principal`, and answers what Starlette reads off
+    `request.user`, so it can stand for the caller in a request scope.
     """
 
-    raw: Annotated[
+    claims: Annotated[
         Mapping[str, Any],
         Doc(
             "Every claim the token carries, read-only. A verified claim set"
@@ -701,14 +722,25 @@ class JWTClaims:
     expires_at: Annotated[int | None, Doc("The `exp` claim, in seconds.")]
     issued_at: Annotated[int | None, Doc("The `iat` claim, in seconds.")]
     token_id: Annotated[str | None, Doc("The `jti` claim.")]
+    scopes: Annotated[
+        frozenset[str],
+        Doc("What the token grants, read from the policy's `scope_claims`."),
+    ] = frozenset()
 
     @property
-    def scopes(self) -> frozenset[str]:
-        """The `scope` claim, split on whitespace."""
-        scope = self.raw.get("scope")
-        return (
-            frozenset(scope.split()) if isinstance(scope, str) else frozenset()
-        )
+    def is_authenticated(self) -> bool:
+        """Always true: a verified token authenticates its caller."""
+        return True
+
+    @property
+    def identity(self) -> str:
+        """The subject, or an empty string for a token that names none."""
+        return self.subject or ""
+
+    @property
+    def display_name(self) -> str:
+        """The subject, which is what a token names its caller by."""
+        return self.subject or ""
 
 
 def _usable_for_signatures(
@@ -736,18 +768,42 @@ def _usable_for_signatures(
     return isinstance(operations, list) and "verify" in operations
 
 
-def _claims_of(raw: dict[str, Any]) -> JWTClaims:
+def _claims_of(raw: dict[str, Any], scope_claims: tuple[str, ...]) -> JWTClaims:
     """Wrap a verified claim set, lifting the registered claims out of it."""
     get = raw.get
     return JWTClaims(
-        raw=MappingProxyType(raw),
+        claims=MappingProxyType(raw),
         subject=get("sub"),
         issuer=get("iss"),
         audience=get("aud"),
         expires_at=get("exp"),
         issued_at=get("iat"),
         token_id=get("jti"),
+        scopes=_scopes_of(raw, scope_claims),
     )
+
+
+def _scopes_of(
+    raw: Mapping[str, Any], names: tuple[str, ...]
+) -> frozenset[str]:
+    """Return the scopes the first of `names` the token carries grants.
+
+    A space-separated string or an array of strings. The first claim present
+    decides, so a claim of the wrong shape grants nothing rather than passing
+    the question on to the next one.
+    """
+    for name in names:
+        value = raw.get(name)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            return frozenset(value.split())
+        if isinstance(value, list) and all(
+            isinstance(item, str) for item in value
+        ):
+            return frozenset(value)
+        return frozenset()
+    return frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -857,6 +913,10 @@ class JWTVerifier:
             Literal["at+jwt"] | None,
             Doc("Type every token must declare in its `typ` header."),
         ] = None,
+        scope_claims: Annotated[
+            str | Sequence[str] | None,
+            Doc("Claims the granted scopes are read from, in order."),
+        ] = None,
         required: Annotated[
             Sequence[str] | None,
             Doc("Further claims that must be present. `exp` always is."),
@@ -889,6 +949,7 @@ class JWTVerifier:
                 issuer=issuer,
                 leeway=leeway,
                 token_type=token_type,
+                scope_claims=scope_claims,
                 required=required,
                 cache_size=cache_size,
                 cache_key=cache_key,
@@ -950,6 +1011,10 @@ class JWTVerifier:
             Literal["at+jwt"] | None,
             Doc("Type every token must declare in its `typ` header."),
         ] = None,
+        scope_claims: Annotated[
+            str | Sequence[str] | None,
+            Doc("Claims the granted scopes are read from, in order."),
+        ] = None,
         required: Annotated[
             Sequence[str] | None,
             Doc("Further claims that must be present. `exp` always is."),
@@ -993,6 +1058,7 @@ class JWTVerifier:
                 max_keys=max_keys,
                 leeway=leeway,
                 token_type=token_type,
+                scope_claims=scope_claims,
                 required=required,
                 cache_size=cache_size,
                 cache_key=cache_key,
@@ -1055,6 +1121,7 @@ class JWTVerifier:
         self._cache_size = config.cache_size
         self._cache_ttl = config.cache_ttl
         self._leeway = config.leeway
+        self._scope_claims = tuple(config.scope_claims)
         self._fetch: Fetcher = fetch or fetch_with_httpx
         self._document: bytes | None = None
         self._loaded_at: float | None = None
@@ -1308,7 +1375,7 @@ class JWTVerifier:
                 # put the provider on the request path.
                 self._wants_keys = True
             raise TokenRejectedError(reason) from None
-        claims = _claims_of(raw)
+        claims = _claims_of(raw, self._scope_claims)
         self._store(keys, key, claims)
         return claims
 

@@ -42,6 +42,7 @@ from grelmicro.security.jwt import (
     TokenVerifier,
     unverified_header,
 )
+from grelmicro.security.principal import Principal
 
 __all__ = [
     "ABUSIVE_REASONS",
@@ -59,6 +60,7 @@ __all__ = [
     "JWTKeysConfig",
     "JWTPolicy",
     "JWTVerifier",
+    "Principal",
     "SigningKeysUnavailableError",
     "TokenRejectedError",
     "TokenRejectedReason",

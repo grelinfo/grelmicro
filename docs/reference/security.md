@@ -16,6 +16,7 @@
         - JWTPolicy
         - JWTKey
         - JWTClaims
+        - Principal
         - TokenRejectedError
         - TokenRejectedReason
         - unverified_header

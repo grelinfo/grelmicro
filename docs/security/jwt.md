@@ -119,6 +119,26 @@ JWTVerifier.keys(..., audience="my-api", required=["tenant"])
 That rejects a token with no `tenant`, a token whose `tenant` is `null`, and
 a token with no `exp`.
 
+## Reading the caller
+
+`verify` returns a `JWTClaims`. The registered claims are fields, `subject`,
+`issuer`, `audience`, `expires_at`, `issued_at` and `token_id`, and `claims`
+holds every claim as it arrived, read-only.
+
+`scopes` is what the token grants. It is read from `scope`, then `scp`, as a
+space-separated string or an array of strings, so Microsoft Entra ID's `scp`
+string and Okta's `scp` array both work. The first of those claims the token
+carries decides, and a claim of any other shape grants nothing. Name other
+claims with `scope_claims`:
+
+```python
+JWTVerifier.keys(..., audience="my-api", scope_claims=["permissions"])
+```
+
+`JWTClaims` satisfies `Principal`, the protocol a handler reads the caller
+through, whatever proved who it is. Key a caller by `issuer` and `subject`
+together, never by an email or a username, which an issuer can reassign.
+
 ## Keys
 
 Pass one `JWTKey` per key you accept. A key with a `kid` serves tokens whose
@@ -231,7 +251,7 @@ verifier = JWTVerifier.jwks(
 )
 async with verifier:
     claims = verifier.verify(token)
-    if claims.raw["token_use"] != "access" or claims.raw["client_id"] != client_id:
+    if claims.claims["token_use"] != "access" or claims.claims["client_id"] != client_id:
         raise TokenRejectedError("audience")
 ```
 

@@ -250,7 +250,7 @@ class TestCognitoAccessTokens:
         )
 
         assert claims.audience is None
-        assert claims.raw["client_id"] == "app-1"
+        assert claims.claims["client_id"] == "app-1"
 
     async def test_a_token_without_token_use_is_refused(self) -> None:
         """`required` covers the claim Cognito uses to separate its tokens."""

@@ -23,6 +23,7 @@ from grelmicro.security import (
     JWTKey,
     JWTKeysConfig,
     JWTVerifier,
+    Principal,
     TokenRejectedError,
     TokenRejectedReason,
     unverified_header,
@@ -135,7 +136,7 @@ def test_verify_lifts_the_registered_claims() -> None:
 
     assert result.issued_at == now
     assert result.expires_at == now + HOUR
-    assert result.raw["scope"] == "orders:read orders:write"
+    assert result.claims["scope"] == "orders:read orders:write"
 
 
 @pytest.mark.parametrize(
@@ -212,7 +213,7 @@ def test_a_claim_outside_the_registered_set_can_be_required() -> None:
     """`required` covers any claim, not only the ones RFC 7519 registers."""
     verifier = build(required=["exp", "tenant"])
 
-    assert verifier.verify(issue(tenant="acme")).raw["tenant"] == "acme"
+    assert verifier.verify(issue(tenant="acme")).claims["tenant"] == "acme"
 
     with pytest.raises(TokenRejectedError) as caught:
         verifier.verify(issue())
@@ -611,7 +612,7 @@ class TestCache:
             # is read-only in the types as well as at runtime. The runtime
             # check stays, because a caller without a type checker is
             # exactly who this protects.
-            claims.raw["scope"] = "admin"  # type: ignore[index]  # ty: ignore[invalid-assignment]
+            claims.claims["scope"] = "admin"  # type: ignore[index]  # ty: ignore[invalid-assignment]
 
         assert verifier.verify(token).scopes == {
             "orders:read",
@@ -707,7 +708,7 @@ class TestCache:
         """
         verifier = build()
         undated = JWTClaims(
-            raw={},
+            claims={},
             subject="nobody",
             issuer=None,
             audience=None,
@@ -1027,30 +1028,88 @@ class TestErrors:
 
 
 class TestClaims:
-    """The claim wrapper the verifier hands back."""
+    """The claims the verifier hands back, and the scopes they grant."""
 
-    def wrap(self, **raw: Any) -> JWTClaims:  # noqa: ANN401
-        """Build a claims object straight from `raw`."""
-        return JWTClaims(
-            raw=raw,
-            subject=None,
-            issuer=None,
-            audience=None,
-            expires_at=None,
-            issued_at=None,
-            token_id=None,
-        )
-
-    def test_scopes_splits_on_whitespace(self) -> None:
+    def test_scopes_split_a_string_on_whitespace(self) -> None:
         """A scope claim is a space-delimited list, per RFC 6749."""
-        assert self.wrap(scope="a  b\tc").scopes == frozenset({"a", "b", "c"})
+        claims = build().verify(issue(scope="a  b\tc"))
 
-    @pytest.mark.parametrize("scope", [None, 42, ["a", "b"], ""])
-    def test_scopes_is_empty_when_the_claim_is_not_a_string(
+        assert claims.scopes == frozenset({"a", "b", "c"})
+
+    def test_scopes_read_an_array_of_strings(self) -> None:
+        """Okta writes `scp` as an array."""
+        claims = build().verify(issue(scope=None, scp=["a", "b"]))
+
+        assert claims.scopes == frozenset({"a", "b"})
+
+    def test_scp_is_read_when_scope_is_absent(self) -> None:
+        """Microsoft Entra ID writes `scp` as a string."""
+        claims = build().verify(issue(scope=None, scp="a b"))
+
+        assert claims.scopes == frozenset({"a", "b"})
+
+    def test_the_first_claim_present_decides(self) -> None:
+        """A `scope` of the wrong shape grants nothing, even beside `scp`."""
+        claims = build().verify(issue(scope=42, scp="a"))
+
+        assert claims.scopes == frozenset()
+
+    @pytest.mark.parametrize("scope", [42, True, ["a", 1], {"a": "b"}])
+    def test_a_claim_of_the_wrong_shape_grants_nothing(
         self,
         scope: Any,  # noqa: ANN401
     ) -> None:
-        """A claim of the wrong shape grants nothing."""
-        raw = {} if scope is None else {"scope": scope}
+        """Only a string or an array of strings grants a scope."""
+        assert build().verify(issue(scope=scope)).scopes == frozenset()
 
-        assert self.wrap(**raw).scopes == frozenset()
+    def test_no_scope_claim_grants_nothing(self) -> None:
+        """A token that carries no scope claim is granted none."""
+        assert build().verify(issue(scope=None)).scopes == frozenset()
+
+    def test_the_claims_to_read_can_be_chosen(self) -> None:
+        """A provider that writes `permissions` is read from there."""
+        verifier = build(scope_claims=["permissions"])
+
+        claims = verifier.verify(issue(permissions=["orders:read"]))
+
+        assert claims.scopes == frozenset({"orders:read"})
+
+    def test_a_single_claim_name_needs_no_list(self) -> None:
+        """The factory takes one name the way it takes one audience."""
+        verifier = JWTVerifier.keys(
+            JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256"),
+            audience=AUDIENCE,
+            scope_claims="permissions",
+        )
+
+        claims = verifier.verify(issue(permissions="orders:write"))
+
+        assert claims.scopes == frozenset({"orders:write"})
+
+    def test_an_empty_list_of_scope_claims_is_refused(self) -> None:
+        """A policy that reads no claim would grant no scope to anyone."""
+        with pytest.raises(ValidationError, match="scope_claims"):
+            JWTKeysConfig(
+                keys=[
+                    JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256")
+                ],
+                audience=AUDIENCE,
+                scope_claims=[],
+            )
+
+    def test_the_claims_answer_for_the_caller(self) -> None:
+        """A verified token is a `Principal`, and reads as Starlette's user."""
+        claims = build().verify(issue())
+        principal: Principal = claims
+
+        assert principal.is_authenticated is True
+        assert principal.subject == "user-1"
+        assert principal.claims["jti"] == "token-1"
+        assert claims.identity == claims.display_name == "user-1"
+
+    def test_a_token_with_no_subject_has_an_empty_identity(self) -> None:
+        """Starlette reads these as strings, so a missing subject is empty."""
+        claims = build().verify(issue(sub=None))
+
+        assert claims.identity == ""
+        assert claims.display_name == ""

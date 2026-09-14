@@ -19,7 +19,11 @@
 * 💥 `malformed` no longer counts toward a ban. It is refused before any signature is checked, and a legitimate client presenting an opaque token lands there. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `unverified_header(token)` is a function, and the verifier method is gone. It reads no key, so it never needed a verifier. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
+* 💥 `JWTClaims.raw` is now `JWTClaims.claims`, the name `Principal` reads the claim set by. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
 ### Added
+* ✨ `Principal` is the caller a handler reads, whatever proved who it is, and `JWTClaims` satisfies it. A verified token also answers `is_authenticated`, `identity` and `display_name`, which Starlette reads off `request.user`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* ✨ `scopes` is read from `scope`, then `scp`, as a space-separated string or an array of strings, so Microsoft Entra ID and Okta tokens both grant their scopes. `scope_claims` names other claims. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * ✨ `JWTVerifier` is an async context manager. `async with verifier:` loads the keys a provider publishes before the first request and refreshes them in the background every `retry_interval` until it closes, so no task has to be scheduled by hand. A provider that cannot be reached at startup leaves the verifier open without keys rather than stopping the app. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * ✨ `TokenRejectedError.reason` is a `TokenRejectedReason`, one member per way a token fails. Each member compares equal to the string it names, so `error.reason == "expired"` keeps working, and a tag the module does not know reads as `INVALID`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))

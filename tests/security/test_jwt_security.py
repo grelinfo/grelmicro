@@ -564,7 +564,7 @@ class TestInvariants:
             return
         # A mutation inside the signature's unused trailing bits can decode to
         # the same signature, which is a property of base64 and not a defect.
-        assert claims_out.raw == verifier().verify(VALID).raw
+        assert claims_out.claims == verifier().verify(VALID).claims
 
     @settings(max_examples=150, suppress_health_check=[HealthCheck.too_slow])
     @given(
