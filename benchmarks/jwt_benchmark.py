@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import (
     decode_dss_signature,
 )
 
-from grelmicro.security import JWTConfig, JWTKey, JWTVerifier
+from grelmicro.security import JWTKey, JWTVerifier
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -117,13 +117,11 @@ def _token(algorithm: str, subject: str = "user-1") -> str:
 
 def _verifier(algorithm: str, **options: Any) -> JWTVerifier:  # noqa: ANN401
     """Return a verifier for `algorithm` with the benchmark's policy."""
-    return JWTVerifier(
-        JWTConfig(
-            keys=[JWTKey(algorithm=algorithm, key=VERIFYING[algorithm])],  # ty: ignore[invalid-argument-type]
-            audience=[AUDIENCE],
-            issuer=[ISSUER],
-            **options,
-        )
+    return JWTVerifier.keys(
+        JWTKey(algorithm=algorithm, key=VERIFYING[algorithm]),  # ty: ignore[invalid-argument-type]
+        audience=AUDIENCE,
+        issuer=ISSUER,
+        **options,
     )
 
 

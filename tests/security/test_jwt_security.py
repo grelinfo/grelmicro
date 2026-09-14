@@ -19,8 +19,8 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from grelmicro.security import (
-    JWTConfig,
     JWTKey,
+    JWTKeysConfig,
     JWTVerifier,
     TokenRejectedError,
 )
@@ -53,8 +53,8 @@ def verifier(algorithm: str = "RS256", **options: Any) -> JWTVerifier:  # noqa: 
     """Return a verifier pinned to `algorithm`."""
     options.setdefault("audience", [AUDIENCE])
     options.setdefault("issuer", [ISSUER])
-    return JWTVerifier(
-        JWTConfig(
+    return JWTVerifier.from_config(
+        JWTKeysConfig(
             keys=[
                 JWTKey(algorithm=algorithm, key=SIGNER.public_pem(algorithm))  # ty: ignore[invalid-argument-type]
             ],
@@ -157,8 +157,8 @@ class TestKeyConfusion:
 
     def test_a_kid_cannot_select_a_key_that_is_not_configured(self) -> None:
         """Key selection is a lookup in a fixed map, not a path."""
-        subject = JWTVerifier(
-            JWTConfig(
+        subject = JWTVerifier.from_config(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(
                         algorithm="RS256",
@@ -291,7 +291,7 @@ class TestClaimTypeConfusion:
         somebody else's. A wrongly typed one reads as absent to the crate, so
         this is the case where it would otherwise be waved through.
         """
-        open_ = verifier(audience=[], required=["exp"])
+        open_ = verifier(audience=None, required=["exp"])
 
         assert refuses(SIGNER.token(claims(aud=aud)), open_) == "audience"
 
@@ -299,7 +299,7 @@ class TestClaimTypeConfusion:
         self,
     ) -> None:
         """An AWS Cognito access token carries no `aud`, and is not forged."""
-        open_ = verifier(audience=[], required=["exp"])
+        open_ = verifier(audience=None, required=["exp"])
         token = SIGNER.token({**claims(), "aud": None})
 
         assert open_.verify(token).subject == "victim"
@@ -330,8 +330,10 @@ class TestNoLeakage:
     def test_the_message_never_quotes_the_key(self) -> None:
         """A configuration failure must not print the key material either."""
         secret = b"super-secret-hmac-key-do-not-log"
-        subject = JWTVerifier(
-            JWTConfig(keys=[JWTKey(algorithm="HS256", key=secret)])
+        subject = JWTVerifier.from_config(
+            JWTKeysConfig(
+                keys=[JWTKey(algorithm="HS256", key=secret)], audience=None
+            )
         )
 
         with pytest.raises(TokenRejectedError) as caught:
@@ -458,10 +460,11 @@ class TestTokenType:
     def test_only_a_known_type_can_be_required(self) -> None:
         """A type the verifier would never see is a configuration mistake."""
         with pytest.raises(ValueError, match="token_type"):
-            JWTConfig(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
                 ],
+                audience=AUDIENCE,
                 token_type="JWT",  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             )
 

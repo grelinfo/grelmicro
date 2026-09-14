@@ -35,6 +35,7 @@ from pydantic import (
 )
 from typing_extensions import Doc
 
+from grelmicro._config import build_config
 from grelmicro.errors import (
     DependencyNotFoundError,
     GrelmicroError,
@@ -47,13 +48,13 @@ from grelmicro.security.bans import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
     "ALGORITHMS",
     "JWTClaims",
-    "JWTConfig",
     "JWTKey",
+    "JWTKeysConfig",
     "JWTPolicy",
     "JWTVerifier",
     "TokenRejectedError",
@@ -318,15 +319,16 @@ class JWTPolicy(BaseModel):
     """
 
     audience: Annotated[
-        list[str],
+        list[str] | None,
         Doc(
-            "Accepted `aud` values. Leaving this empty says the service"
-            " identifies with no audience, and RFC 7519 then requires"
-            " refusing any token that carries an `aud` claim, so set it"
-            " whenever your tokens have one. A token that carries no `aud`"
-            " passes this check: add `aud` to `required` to insist on one."
+            "Accepted `aud` values, one or several. Required, because a"
+            " resource server has to check that a token was issued for it."
+            " `None` says the service identifies with no audience, and RFC"
+            " 7519 then requires refusing any token that carries an `aud`"
+            " claim, which fits a provider whose access tokens carry none,"
+            " such as AWS Cognito."
         ),
-    ] = Field(default_factory=list)
+    ]
     issuer: Annotated[
         list[str],
         Doc("Accepted `iss` values. Empty leaves the issuer unchecked."),
@@ -384,6 +386,24 @@ class JWTPolicy(BaseModel):
         ),
     ] = 300.0
 
+    @field_validator("audience", "issuer", mode="before")
+    @classmethod
+    def _as_list(cls, value: Any) -> Any:  # noqa: ANN401
+        """Read a single value as a list of one."""
+        return [value] if isinstance(value, str) else value
+
+    @field_validator("audience")
+    @classmethod
+    def _check_audience(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse an empty audience, which says neither which one nor none."""
+        if value is not None and not value:
+            msg = (
+                "audience must name at least one value, or be None to answer"
+                " to no audience"
+            )
+            raise ValueError(msg)
+        return value
+
     @field_validator("cache_key")
     @classmethod
     def _check_cache_key(cls, value: Any) -> Any:  # noqa: ANN401
@@ -408,7 +428,7 @@ class JWTPolicy(BaseModel):
         Naming an `audience` or an `issuer` requires the matching claim. A
         token that simply omits `aud` satisfies an audience check otherwise,
         which turns a configured check into one that silently does not apply
-        to the tokens most worth checking. Leave `audience` empty for a
+        to the tokens most worth checking. Set `audience=None` for a
         provider whose tokens carry none, such as an AWS Cognito access
         token.
         """
@@ -425,7 +445,7 @@ class JWTPolicy(BaseModel):
         return enforced
 
 
-class JWTConfig(JWTPolicy):
+class JWTKeysConfig(JWTPolicy):
     """A claim policy together with the keys that verify against it."""
 
     keys: Annotated[
@@ -445,8 +465,8 @@ class JWTConfig(JWTPolicy):
             _AsymmetricAlgorithm | None,
             Doc("Algorithm to pin for keys that name none."),
         ] = None,
-        **policy: Annotated[Any, Doc("Any other `JWTConfig` setting.")],  # noqa: ANN401
-    ) -> JWTConfig:
+        **policy: Annotated[Any, Doc("Any other `JWTKeysConfig` setting.")],  # noqa: ANN401
+    ) -> JWTKeysConfig:
         """Build a config from a JWKS document.
 
         Keys marked for encryption are skipped, and so are symmetric keys: a
@@ -457,8 +477,8 @@ class JWTConfig(JWTPolicy):
         Example:
             ```python
             jwks = httpx.get(f"{issuer}/.well-known/jwks.json").json()
-            config = JWTConfig.from_jwks(
-                jwks, audience=["my-api"], issuer=[issuer]
+            config = JWTKeysConfig.from_jwks(
+                jwks, audience="my-api", issuer=issuer
             )
             ```
         """
@@ -603,27 +623,123 @@ class TokenVerifier(Protocol):
 
 
 class JWTVerifier:
-    """Verifies inbound JWTs against a fixed key set and claim policy.
+    """Verifies inbound JWTs against a key set and a claim policy.
 
-    Keys are parsed once at construction. Verification runs in the compiled
-    core with the GIL released, so a thread pool verifies in parallel.
+    Build one with a factory that names where the keys come from:
+    `JWTVerifier.keys` for keys you hold, or `JWTVerifier.from_config` for a
+    config assembled elsewhere. There is no bare constructor, because no key
+    source is a safe default.
+
+    Keys are parsed once, when the verifier is built. Verification runs in
+    the compiled core with the GIL released, so a thread pool verifies in
+    parallel.
 
     Example:
         ```python
-        verifier = JWTVerifier(
-            JWTConfig(
-                keys=[JWTKey(algorithm="RS256", key=public_pem)],
-                audience=["grelmicro-api"],
-                issuer=["https://auth.example.com/"],
-            )
+        verifier = JWTVerifier.keys(
+            JWTKey.pem(public_pem, algorithm="RS256"),
+            audience="grelmicro-api",
+            issuer="https://auth.example.com/",
         )
         claims = verifier.verify(token)
         ```
     """
 
-    def __init__(
-        self,
-        config: Annotated[JWTConfig, Doc("Keys and claim policy to enforce.")],
+    def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: ARG002
+        """Refuse construction: a verifier has no default key source."""
+        msg = (
+            "JWTVerifier has no default key source, so it cannot be built from"
+            " a bare constructor. Use JWTVerifier.keys(key, ..., audience=...)"
+            " or JWTVerifier.from_config(config)."
+        )
+        raise TypeError(msg)
+
+    @classmethod
+    def keys(
+        cls,
+        *keys: Annotated[
+            JWTKey,
+            Doc("Keys this verifier accepts, selected by the token's `kid`."),
+        ],
+        audience: Annotated[
+            str | Sequence[str] | None,
+            Doc(
+                "Accepted `aud` values. `None` answers to no audience, which"
+                " refuses any token that names one."
+            ),
+        ],
+        issuer: Annotated[
+            str | Sequence[str] | None,
+            Doc("Accepted `iss` values. `None` leaves the issuer unchecked."),
+        ] = None,
+        leeway: Annotated[
+            int | None,
+            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+        ] = None,
+        token_type: Annotated[
+            Literal["at+jwt"] | None,
+            Doc("Type every token must declare in its `typ` header."),
+        ] = None,
+        required: Annotated[
+            Sequence[str] | None,
+            Doc("Further claims that must be present. `exp` always is."),
+        ] = None,
+        cache_size: Annotated[
+            int | None,
+            Doc("Verified tokens held in memory. Zero turns the cache off."),
+        ] = None,
+        cache_key: Annotated[
+            Literal["sha256", "token"] | None,
+            Doc("What the cache keys on: a digest, or the encoded token."),
+        ] = None,
+        cache_ttl: Annotated[
+            float | None,
+            Doc("Seconds a verified token stays cached."),
+        ] = None,
+        bans: Annotated[
+            ClientBans | None,
+            Doc(
+                "Opt in to refusing callers that keep presenting tokens that"
+                " do not verify. Pass `client=` to every call once set, so"
+                " the protection cannot be half wired."
+            ),
+        ] = None,
+    ) -> Self:
+        """Build a verifier from keys you hold, such as a PEM or a secret.
+
+        A setting left out takes the default `JWTKeysConfig` gives it.
+
+        Raises:
+            SettingsValidationError: If a key or a setting is refused.
+        """
+        settings = {
+            "issuer": issuer,
+            "leeway": leeway,
+            "token_type": token_type,
+            "required": required,
+            "cache_size": cache_size,
+            "cache_key": cache_key,
+            "cache_ttl": cache_ttl,
+        }
+        config = build_config(
+            JWTKeysConfig,
+            keys=list(keys),
+            audience=audience,
+            **{
+                name: value
+                for name, value in settings.items()
+                if value is not None
+            },
+        )
+        return cls.from_config(config, bans=bans)
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Annotated[
+            JWTKeysConfig,
+            Doc("The keys and claim policy to enforce, taken as they are."),
+        ],
         *,
         bans: Annotated[
             ClientBans | None,
@@ -633,8 +749,21 @@ class JWTVerifier:
                 " the protection cannot be half wired."
             ),
         ] = None,
-    ) -> None:
-        """Initialize the verifier, parsing every key."""
+    ) -> Self:
+        """Build a verifier from a configuration that is already whole.
+
+        The one declarative door. What you pass is what runs: no environment
+        variable is read.
+
+        Raises:
+            SettingsValidationError: If the core cannot read a key.
+        """
+        instance = cls.__new__(cls)
+        instance._setup(config, bans=bans)  # noqa: SLF001
+        return instance
+
+    def _setup(self, config: JWTKeysConfig, *, bans: ClientBans | None) -> None:
+        """Parse every key and hold what a verification reads."""
         self._bans = bans
         core = _core()
         self._error = core.CoreVerificationError

@@ -19,8 +19,8 @@ from pydantic import ValidationError
 from grelmicro.errors import DependencyNotFoundError, SettingsValidationError
 from grelmicro.security import (
     JWTClaims,
-    JWTConfig,
     JWTKey,
+    JWTKeysConfig,
     JWTVerifier,
     TokenRejectedError,
 )
@@ -74,8 +74,8 @@ def build(
     """Return a verifier for `algorithm` with the suite's default policy."""
     options.setdefault("audience", [AUDIENCE])
     options.setdefault("issuer", [ISSUER])
-    return JWTVerifier(
-        JWTConfig(
+    return JWTVerifier.from_config(
+        JWTKeysConfig(
             keys=[
                 JWTKey(
                     algorithm=algorithm,  # ty: ignore[invalid-argument-type]
@@ -168,7 +168,7 @@ def test_naming_a_claim_does_not_drop_the_expiry_requirement() -> None:
     carrying no `exp` would then be accepted for as long as its key is
     published.
     """
-    policy = JWTConfig(
+    policy = JWTKeysConfig(
         keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
         audience=[AUDIENCE],
         required=["tenant"],
@@ -177,13 +177,13 @@ def test_naming_a_claim_does_not_drop_the_expiry_requirement() -> None:
     assert policy.enforced_claims() == ["exp", "tenant", "aud"]
 
     with pytest.raises(TokenRejectedError) as caught:
-        JWTVerifier(policy).verify(issue(exp=None, tenant="acme"))
+        JWTVerifier.from_config(policy).verify(issue(exp=None, tenant="acme"))
     assert caught.value.reason == "missing-claim"
 
 
 def test_an_empty_required_list_still_requires_an_expiry() -> None:
     """There is no spelling of `required` that turns the expiry check off."""
-    policy = JWTConfig(
+    policy = JWTKeysConfig(
         keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
         audience=[AUDIENCE],
         required=[],
@@ -192,7 +192,7 @@ def test_an_empty_required_list_still_requires_an_expiry() -> None:
     assert policy.enforced_claims() == ["exp", "aud"]
 
     with pytest.raises(TokenRejectedError):
-        JWTVerifier(policy).verify(issue(exp=None))
+        JWTVerifier.from_config(policy).verify(issue(exp=None))
 
 
 def test_a_required_claim_written_as_null_is_absent() -> None:
@@ -218,9 +218,10 @@ def test_a_claim_outside_the_registered_set_can_be_required() -> None:
 
 def test_an_audience_is_required_once_the_token_carries_one() -> None:
     """RFC 7519 refuses a token whose `aud` the service does not answer to."""
-    verifier = JWTVerifier(
-        JWTConfig(
-            keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))]
+    verifier = JWTVerifier.from_config(
+        JWTKeysConfig(
+            keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+            audience=None,
         )
     )
 
@@ -254,12 +255,13 @@ def test_declaring_an_issuer_requires_the_claim() -> None:
 def test_a_token_with_no_audience_verifies_when_none_is_declared() -> None:
     """An AWS Cognito access token names the app in `client_id`, not `aud`.
 
-    Leaving `audience` empty is what accepts it, and is what the Cognito
+    Setting `audience=None` is what accepts it, and is what the Cognito
     recipe in the docs does.
     """
-    verifier = JWTVerifier(
-        JWTConfig(
+    verifier = JWTVerifier.from_config(
+        JWTKeysConfig(
             keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+            audience=None,
             issuer=[ISSUER],
         )
     )
@@ -279,8 +281,8 @@ class TestKeySelection:
 
     def test_a_kid_selects_its_key(self) -> None:
         """A token names the key it was signed with."""
-        verifier = JWTVerifier(
-            JWTConfig(
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(
                         algorithm="RS256",
@@ -305,8 +307,8 @@ class TestKeySelection:
 
     def test_both_keys_of_a_rotation_stay_live(self) -> None:
         """A rotation does not reject the tokens issued before it."""
-        verifier = JWTVerifier(
-            JWTConfig(
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(
                         algorithm="RS256",
@@ -339,8 +341,8 @@ class TestKeySelection:
 
     def test_a_token_without_a_kid_needs_a_default_key(self) -> None:
         """Two keyed keys and no default leaves nothing to try."""
-        verifier = JWTVerifier(
-            JWTConfig(
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(
                         algorithm="RS256",
@@ -408,8 +410,8 @@ class TestJWKS:
     def test_a_jwks_builds_a_verifier(self) -> None:
         """A fetched JWKS document goes straight into a config."""
         jwks = {"keys": [SIGNER.public_jwk("RS256", kid="signing-1")]}
-        verifier = JWTVerifier(
-            JWTConfig.from_jwks(jwks, audience=[AUDIENCE], issuer=[ISSUER])
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig.from_jwks(jwks, audience=[AUDIENCE], issuer=[ISSUER])
         )
 
         token = issue(header={"kid": "signing-1"})
@@ -425,7 +427,7 @@ class TestJWKS:
             ]
         }
 
-        config = JWTConfig.from_jwks(jwks, audience=[AUDIENCE])
+        config = JWTKeysConfig.from_jwks(jwks, audience=[AUDIENCE])
 
         assert [key.kid for key in config.keys] == ["sig-1"]
 
@@ -443,14 +445,14 @@ class TestJWKS:
             ]
         }
 
-        config = JWTConfig.from_jwks(jwks, audience=[AUDIENCE])
+        config = JWTKeysConfig.from_jwks(jwks, audience=[AUDIENCE])
 
         assert [key.kid for key in config.keys] == ["sig-1"]
 
     def test_a_jwks_with_no_usable_key_is_refused(self) -> None:
         """A verifier with no key can verify nothing."""
         with pytest.raises(ValidationError):
-            JWTConfig.from_jwks({"keys": []})
+            JWTKeysConfig.from_jwks({"keys": []})
 
 
 class TestKeys:
@@ -459,8 +461,8 @@ class TestKeys:
     def test_a_pem_key_verifies(self) -> None:
         """A PEM given as text is read the same as one given as bytes."""
         key = JWTKey.pem(SIGNER.public_pem("ES256").decode(), algorithm="ES256")
-        verifier = JWTVerifier(
-            JWTConfig(keys=[key], audience=[AUDIENCE], issuer=[ISSUER])
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig(keys=[key], audience=[AUDIENCE], issuer=[ISSUER])
         )
 
         assert key.format == "pem"
@@ -469,8 +471,8 @@ class TestKeys:
     def test_a_secret_key_verifies(self) -> None:
         """A shared secret verifies the tokens it signed."""
         key = JWTKey.secret(SIGNER.secret, algorithm="HS512", kid="shared")
-        verifier = JWTVerifier(
-            JWTConfig(keys=[key], audience=[AUDIENCE], issuer=[ISSUER])
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig(keys=[key], audience=[AUDIENCE], issuer=[ISSUER])
         )
 
         assert key.format == "secret"
@@ -516,7 +518,9 @@ class TestKeys:
     ) -> None:
         """A key that arrives as data needs no format for the common case."""
         key = JWTKey(algorithm=algorithm, key=SIGNER.public_pem(algorithm))
-        verifier = JWTVerifier(JWTConfig(keys=[key], audience=[AUDIENCE]))
+        verifier = JWTVerifier.from_config(
+            JWTKeysConfig(keys=[key], audience=[AUDIENCE])
+        )
 
         assert key.format is None
         assert verifier.verify(issue(algorithm)).subject == "user-1"
@@ -530,7 +534,7 @@ class TestKeys:
             repr(key),
             str(key),
             key.model_dump_json(),
-            repr(JWTConfig(keys=[key])),
+            repr(JWTKeysConfig(keys=[key], audience=None)),
         ):
             assert secret.decode() not in rendered
 
@@ -835,22 +839,23 @@ class TestConfiguration:
     def test_an_unknown_cache_key_strategy_is_refused(self) -> None:
         """The verifier keys by the token or by a digest, nothing else."""
         with pytest.raises(ValidationError):
-            JWTConfig(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
                 ],
+                audience=AUDIENCE,
                 cache_key="md5",
             )
 
     def test_an_empty_key_set_is_refused(self) -> None:
         """A verifier with no key can verify nothing."""
         with pytest.raises(ValidationError):
-            JWTConfig(keys=[])
+            JWTKeysConfig(keys=[], audience=AUDIENCE)
 
     def test_two_keys_claiming_one_kid_are_refused(self) -> None:
         """One of them would silently never be used."""
         with pytest.raises(ValidationError):
-            JWTConfig(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(
                         algorithm="RS256",
@@ -862,17 +867,19 @@ class TestConfiguration:
                         key=OTHER.public_pem("RS256"),
                         kid="same",
                     ),
-                ]
+                ],
+                audience=AUDIENCE,
             )
 
     def test_two_keys_without_a_kid_are_refused(self) -> None:
         """Only one key can serve tokens that name none."""
         with pytest.raises(ValidationError):
-            JWTConfig(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256")),
                     JWTKey(algorithm="ES256", key=SIGNER.public_pem("ES256")),
-                ]
+                ],
+                audience=AUDIENCE,
             )
 
     @pytest.mark.parametrize("setting", ["leeway", "cache_size", "cache_ttl"])
@@ -880,25 +887,30 @@ class TestConfiguration:
         """None of these means anything below zero."""
         policy: dict[str, Any] = {
             "keys": [JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+            "audience": AUDIENCE,
             setting: -1,
         }
 
         with pytest.raises(ValidationError):
-            JWTConfig(**policy)
+            JWTKeysConfig(**policy)
 
     def test_key_material_that_is_not_a_key_is_refused(self) -> None:
         """The failure names the setting, not a stack trace from the core."""
         with pytest.raises(SettingsValidationError):
-            JWTVerifier(
-                JWTConfig(keys=[JWTKey(algorithm="RS256", key=b"not a pem")])
+            JWTVerifier.from_config(
+                JWTKeysConfig(
+                    keys=[JWTKey(algorithm="RS256", key=b"not a pem")],
+                    audience=AUDIENCE,
+                )
             )
 
     def test_a_jwk_that_is_not_a_key_is_refused(self) -> None:
         """Same for key material published as JSON."""
         with pytest.raises(SettingsValidationError):
-            JWTVerifier(
-                JWTConfig(
-                    keys=[JWTKey(algorithm="RS256", key=b"{}", format="jwk")]
+            JWTVerifier.from_config(
+                JWTKeysConfig(
+                    keys=[JWTKey(algorithm="RS256", key=b"{}", format="jwk")],
+                    audience=AUDIENCE,
                 )
             )
 
@@ -907,6 +919,68 @@ class TestConfiguration:
         assert "none" not in ALGORITHMS
         for algorithm in ALGORITHMS:
             JWTKey(algorithm=algorithm, key=SIGNER.secret)
+
+
+class TestConstruction:
+    """How a verifier is built, and what building one insists on."""
+
+    @staticmethod
+    def key() -> JWTKey:
+        """Return the suite's RSA key, built the way a caller builds one."""
+        return JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256")
+
+    def test_there_is_no_bare_constructor(self) -> None:
+        """The factory names where the keys come from, so none is assumed."""
+        with pytest.raises(TypeError, match=r"JWTVerifier\.keys"):
+            JWTVerifier()
+
+    def test_keys_takes_a_single_audience_and_issuer(self) -> None:
+        """The common case needs no list around one value."""
+        verifier = JWTVerifier.keys(
+            self.key(), audience=AUDIENCE, issuer=ISSUER
+        )
+
+        assert verifier.verify(issue()).subject == "user-1"
+
+    def test_keys_takes_several_audiences(self) -> None:
+        """A token naming any accepted audience passes."""
+        verifier = JWTVerifier.keys(
+            self.key(), audience=["other-api", AUDIENCE]
+        )
+
+        assert verifier.verify(issue()).subject == "user-1"
+
+    def test_from_config_takes_a_config_as_it_is(self) -> None:
+        """A config assembled elsewhere, from YAML or a vault, verifies."""
+        config = JWTKeysConfig(
+            keys=[self.key()], audience=AUDIENCE, issuer=ISSUER
+        )
+
+        assert config.audience == [AUDIENCE]
+        assert config.issuer == [ISSUER]
+        assert JWTVerifier.from_config(config).verify(issue()).subject == (
+            "user-1"
+        )
+
+    def test_an_audience_must_be_given(self) -> None:
+        """A resource server has to say which tokens were issued for it."""
+        with pytest.raises(ValidationError, match="audience"):
+            JWTKeysConfig(keys=[self.key()])  # ty: ignore[missing-argument]
+
+    def test_an_empty_audience_is_refused(self) -> None:
+        """An empty list says neither which audience nor none at all."""
+        with pytest.raises(ValidationError, match="None to answer"):
+            JWTKeysConfig(keys=[self.key()], audience=[])
+
+    def test_none_answers_to_no_audience(self) -> None:
+        """RFC 7519 refuses a token naming an audience the service is not."""
+        verifier = JWTVerifier.keys(self.key(), audience=None)
+
+        with pytest.raises(TokenRejectedError) as caught:
+            verifier.verify(issue())
+
+        assert caught.value.reason == "audience"
+        assert verifier.verify(issue(aud=None)).subject == "user-1"
 
 
 class TestErrors:

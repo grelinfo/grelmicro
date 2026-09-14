@@ -36,7 +36,7 @@ from grelmicro.security.bans import (
     _responsible_client,
 )
 from grelmicro.security.jwt import (
-    JWTConfig,
+    JWTKeysConfig,
     JWTPolicy,
     JWTVerifier,
     TokenRejectedError,
@@ -323,7 +323,7 @@ class JWKSVerifier:
             return False
 
         try:
-            verifier = JWTVerifier(self._build(document))
+            verifier = JWTVerifier.from_config(self._build(document))
         except SettingsValidationError as error:
             # A document can parse and still hold a key the core refuses.
             # `refresh` promises one error, so it raises that one.
@@ -419,7 +419,7 @@ class JWKSVerifier:
                 self._wants_keys = True
             raise
 
-    def _build(self, document: bytes) -> JWTConfig:
+    def _build(self, document: bytes) -> JWTKeysConfig:
         """Turn a fetched document into a config, refusing what it should."""
         try:
             parsed = json.loads(document)
@@ -451,7 +451,7 @@ class JWKSVerifier:
             }
         )
         try:
-            return JWTConfig.from_jwks(
+            return JWTKeysConfig.from_jwks(
                 parsed, algorithm=self._config.algorithm, **policy
             )
         except (SettingsValidationError, ValueError) as error:

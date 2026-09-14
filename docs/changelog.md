@@ -8,6 +8,8 @@
 * 💥 The `subject` rejection reason is gone. No policy ever set a subject, so nothing produced it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 💥 `JWTKey.pem()`, `JWTKey.secret()` and `JWTKey.jwk()` build a key, and `JWTKey.from_jwk()` is gone. A secret goes with an `HS*` algorithm and nothing else, so a PEM can no longer be read as an HMAC secret, and a secret shorter than its hash output is refused, as RFC 7518 requires. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🔒 `JWTKey` holds its key material as a secret, so a `repr`, a log line or a dumped configuration never shows it. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 💥 `JWTVerifier.keys()` builds a verifier from keys you hold, and `JWTVerifier.from_config()` builds one from a config that is already whole. `JWTVerifier(config)` is gone, and `JWTConfig` is now `JWTKeysConfig`. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🔒 `audience` is required. Name the audience your tokens carry, or pass `audience=None` to answer to none, which refuses any token that names one. An empty list is refused, because it says neither. `audience` and `issuer` also take a single string. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))

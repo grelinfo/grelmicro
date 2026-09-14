@@ -30,8 +30,8 @@ from grelmicro.security import (
     JWKSConfig,
     JWKSUnavailableError,
     JWKSVerifier,
-    JWTConfig,
     JWTKey,
+    JWTKeysConfig,
     JWTVerifier,
     TokenRejectedError,
     TokenVerifier,
@@ -141,13 +141,17 @@ class TestConfiguration:
     def test_only_https_is_accepted(self, url: str) -> None:
         """The endpoint decides who is believed, so the channel is checked."""
         with pytest.raises(ValidationError):
-            JWKSConfig(url=url)
+            JWKSConfig(url=url, audience=AUDIENCE)
 
     @pytest.mark.parametrize("setting", ["ttl", "retry_interval", "timeout"])
     @pytest.mark.parametrize("value", [0, -1])
     def test_durations_must_be_positive(self, setting: str, value: int) -> None:
         """A refresh every zero seconds is not a schedule."""
-        settings: dict[str, Any] = {"url": URL, setting: value}
+        settings: dict[str, Any] = {
+            "url": URL,
+            "audience": AUDIENCE,
+            setting: value,
+        }
 
         with pytest.raises(ValidationError):
             JWKSConfig(**settings)
@@ -155,7 +159,11 @@ class TestConfiguration:
     @pytest.mark.parametrize("setting", ["max_bytes", "max_keys"])
     def test_limits_must_accept_something(self, setting: str) -> None:
         """A limit of zero would refuse every document."""
-        settings: dict[str, Any] = {"url": URL, setting: 0}
+        settings: dict[str, Any] = {
+            "url": URL,
+            "audience": AUDIENCE,
+            setting: 0,
+        }
 
         with pytest.raises(ValidationError):
             JWKSConfig(**settings)
@@ -172,7 +180,7 @@ class TestConfiguration:
 
     def test_secure_defaults(self) -> None:
         """The defaults are the safe ones, not the permissive ones."""
-        built = JWKSConfig(url=URL)
+        built = JWKSConfig(url=URL, audience=AUDIENCE)
 
         assert built.timeout > 0
         assert built.max_bytes <= MAX_BYTES
@@ -356,8 +364,8 @@ class TestInterchangeable:
 
     async def test_both_satisfy_the_protocol(self) -> None:
         """A caller types against `TokenVerifier` and takes either."""
-        static: TokenVerifier = JWTVerifier(
-            JWTConfig(
+        static: TokenVerifier = JWTVerifier.from_config(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(
                         algorithm="RS256",

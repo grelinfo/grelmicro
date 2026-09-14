@@ -91,18 +91,18 @@ omits `aud` does not slip past a configured audience, because a check that
 applied only to the tokens carrying the claim would be the wrong way round.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], issuer=["https://auth.example.com/"])
+JWTVerifier.keys(..., audience="my-api", issuer="https://auth.example.com/")
 ```
 
 That rejects a token with no `aud`, a token with no `iss`, and a token naming
 either differently.
 
-Leave `audience` empty for a provider whose tokens carry none. An AWS Cognito
+Set `audience=None` for a provider whose tokens carry none. An AWS Cognito
 access token names the application in `client_id` instead, so declaring an
 audience would reject every one of them.
 [RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.3) also
-requires refusing a token whose `aud` the service does not answer to, so an
-empty `audience` rejects any token that does carry one.
+requires refusing a token whose `aud` the service does not answer to, so
+`audience=None` rejects any token that does carry one.
 
 ### Required claims
 
@@ -111,7 +111,7 @@ adds: `exp` is enforced whether or not you name it, and so is any `audience`
 or `issuer` you configured.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], required=["tenant"])
+JWTVerifier.keys(..., audience="my-api", required=["tenant"])
 ```
 
 That rejects a token with no `tenant`, a token whose `tenant` is `null`, and
@@ -119,16 +119,14 @@ a token with no `exp`.
 
 ## Keys
 
-List one `JWTKey` per key you accept. A key with a `kid` serves tokens whose
+Pass one `JWTKey` per key you accept. A key with a `kid` serves tokens whose
 header names it, and a key without one serves tokens that carry no `kid`.
 
 ```python
-JWTConfig(
-    keys=[
-        JWTKey.pem(current_pem, algorithm="RS256", kid="2026-09"),
-        JWTKey.pem(previous_pem, algorithm="RS256", kid="2026-06"),
-    ],
-    audience=["grelmicro-api"],
+JWTVerifier.keys(
+    JWTKey.pem(current_pem, algorithm="RS256", kid="2026-09"),
+    JWTKey.pem(previous_pem, algorithm="RS256", kid="2026-06"),
+    audience="grelmicro-api",
 )
 ```
 
@@ -141,8 +139,8 @@ have to `from_jwks`, which reads the `kid` and `alg` off each key and skips the
 ones published for encryption.
 
 ```python
-verifier = JWTVerifier(
-    JWTConfig.from_jwks(jwks, audience=["my-api"], issuer=[issuer])
+verifier = JWTVerifier.from_config(
+    JWTKeysConfig.from_jwks(jwks, audience="my-api", issuer=issuer)
 )
 ```
 
@@ -215,6 +213,7 @@ issuer = f"https://cognito-idp.{region}.amazonaws.com/{pool}"
 verifier = JWKSVerifier(
     JWKSConfig(
         url=f"{issuer}/.well-known/jwks.json",
+        audience=None,
         issuer=[issuer],
         required=["token_use"],
     )
@@ -258,7 +257,7 @@ a 24 hour lifetime would keep being accepted from memory for 24 hours after it
 was withdrawn upstream.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], cache_size=1024, cache_ttl=300)
+JWTVerifier.keys(..., audience="my-api", cache_size=1024, cache_ttl=300)
 ```
 
 Set `cache_size=0` to turn the cache off.
@@ -289,7 +288,7 @@ Set `cache_key="token"` to key on the encoded token instead, which is faster by
 that 94 nanoseconds and is what an in-process cache normally does.
 
 ```python
-JWTConfig(keys=[...], audience=["my-api"], cache_key="token")
+JWTVerifier.keys(..., audience="my-api", cache_key="token")
 ```
 
 ## Shedding a caller that keeps forging
@@ -306,7 +305,7 @@ give every call the address to hold responsible:
 ```python
 from grelmicro.security import ClientBans, ClientBannedError
 
-verifier = JWTVerifier(config, bans=ClientBans())
+verifier = JWTVerifier.from_config(config, bans=ClientBans())
 
 try:
     claims = verifier.verify_header(authorization, client=client_ip)

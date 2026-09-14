@@ -23,8 +23,8 @@ from grelmicro.security import (
     ClientBannedError,
     ClientBans,
     ClientBansConfig,
-    JWTConfig,
     JWTKey,
+    JWTKeysConfig,
     JWTVerifier,
     TokenRejectedError,
 )
@@ -345,8 +345,8 @@ def token(**claims: Any) -> str:  # noqa: ANN401
 
 def verifier(**overrides: Any) -> JWTVerifier:  # noqa: ANN401
     """Return a verifier that bans after `FAILURES` forged tokens."""
-    return JWTVerifier(
-        JWTConfig(
+    return JWTVerifier.from_config(
+        JWTKeysConfig(
             keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
             audience=[AUDIENCE],
             issuer=[ISSUER],
@@ -364,8 +364,8 @@ class TestOptIn:
 
     def test_a_verifier_without_bans_is_unchanged(self) -> None:
         """The default path does no ban bookkeeping."""
-        plain = JWTVerifier(
-            JWTConfig(
+        plain = JWTVerifier.from_config(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
                 ],
@@ -379,8 +379,8 @@ class TestOptIn:
 
     def test_a_client_without_bans_needs_no_address(self) -> None:
         """`client=` is accepted and ignored when nothing counts it."""
-        plain = JWTVerifier(
-            JWTConfig(
+        plain = JWTVerifier.from_config(
+            JWTKeysConfig(
                 keys=[
                     JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
                 ],

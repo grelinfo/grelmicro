@@ -226,6 +226,7 @@ class TestCognitoAccessTokens:
         built = JWKSVerifier(
             JWKSConfig(
                 url="https://idp.example.com/jwks.json",
+                audience=None,
                 issuer=[self.ISSUER],
                 required=["exp", "token_use"],
             ),
@@ -313,7 +314,9 @@ class TestAwkwardDocuments:
         """Skipping every key leaves nothing to verify with, which is an error."""
         document = {"keys": [{"kty": "unheard-of", "kid": "future"}]}
         verifier = JWKSVerifier(
-            JWKSConfig(url="https://idp.example.com/jwks.json"),
+            JWKSConfig(
+                url="https://idp.example.com/jwks.json", audience="my-api"
+            ),
             fetch=served(document),
         )
 
