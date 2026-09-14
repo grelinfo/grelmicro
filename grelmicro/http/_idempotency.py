@@ -51,6 +51,7 @@ from grelmicro._paths import (
     _scope_text,
     _wrapped_app,
     as_patterns,
+    compile_route,
     route_path,
     selects,
     walk_routes,
@@ -235,7 +236,6 @@ class _GatedRoutes:
             self._authenticated = ()
             self._routes = ()
             return
-        from starlette.routing import compile_path  # noqa: PLC0415
 
         protected: list[tuple[str, re.Pattern[str], frozenset[str] | None]] = []
         for prefix, nested, methods in sorted(
@@ -246,7 +246,7 @@ class _GatedRoutes:
                 tuple(sorted(boundary[2] or ())),
             ),
         ):
-            exact, _, _ = compile_path(prefix or "/")
+            exact = compile_route(prefix or "/")
             protected.append((prefix or "/", exact, methods))
             if nested:
                 template = (
@@ -254,7 +254,7 @@ class _GatedRoutes:
                     if prefix
                     else "/{path:path}"
                 )
-                descendant, _, _ = compile_path(template)
+                descendant = compile_route(template)
                 protected.append((template, descendant, methods))
         self._authenticated = tuple(protected)
 
@@ -264,7 +264,7 @@ class _GatedRoutes:
                 root, unwrap_middleware=True
             ):
                 template = f"{prefix}{route.path}"
-                compiled, _, _ = compile_path(template)
+                compiled = compile_route(template)
                 methods = frozenset(
                     method.upper()
                     for method in (getattr(route, "methods", None) or ())

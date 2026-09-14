@@ -11,7 +11,7 @@ from litestar import Litestar, post
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Route, Router
 
 from grelmicro import (
     Grelmicro,
@@ -1114,3 +1114,27 @@ def test_litestar_stays_under_the_error_layer_with_cors_configured() -> None:
     assert second.status_code == HTTP_500_INTERNAL_SERVER_ERROR
     assert "idempotent-replayed" not in second.headers
     assert calls == [1, 1]
+
+
+def test_a_parameter_a_mount_and_its_route_both_name_is_served() -> None:
+    """Starlette compiles a mount and its routes apart, and so does idempotency."""
+
+    # Arrange
+    async def member(request: Any) -> JSONResponse:  # noqa: ANN401
+        return JSONResponse(dict(request.path_params))
+
+    app = FastAPI()
+    app.mount("/orgs/{id}", Router(routes=[Route("/members/{id}", member)]))
+
+    @app.post("/charge")
+    async def charge() -> dict[str, int]:
+        return {"amount": 100}
+
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+
+    # Act
+    with TestClient(app) as client:
+        response = client.post("/charge", headers={"Idempotency-Key": "k-1"})
+
+    # Assert
+    assert response.json() == {"amount": 100}

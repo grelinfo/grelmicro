@@ -53,6 +53,7 @@ from grelmicro._paths import (
     _routing_app,
     _same_routing_root,
     as_patterns,
+    compile_route,
     matches,
     names_route,
     route_path,
@@ -624,8 +625,6 @@ def _marked_routes(
             is refused the same way, because a hit answers over the gate
             whichever of the two put the path here.
     """
-    from starlette.routing import compile_path  # noqa: PLC0415
-
     found: list[tuple[Pattern[str], float | None]] = []
     refused = [
         *_middleware_refusals(app, include_root=include_root_middleware),
@@ -638,7 +637,7 @@ def _marked_routes(
         on_the_route = ttl is not _UNMARKED
         ttl = _inherited(ttl, contexts)
         declared = f"{prefix}{route.path}"
-        compiled, _, _ = compile_path(declared)
+        compiled = compile_route(declared)
         # Against the URL as well as the template. A route declared
         # `/users/{uid}` answers `/users/me`, so a pattern naming that
         # URL matches no template at all, and reading the template alone
@@ -689,8 +688,6 @@ def _middleware_refusals(
     include_root: bool = False,
 ) -> list[tuple[str, Pattern[str]]]:
     """Compile exact and descendant refusals for every middleware boundary."""
-    from starlette.routing import compile_path  # noqa: PLC0415
-
     found: list[tuple[str, Pattern[str]]] = []
     for boundary, nested, methods in _middleware_boundaries(
         app, include_root=include_root
@@ -698,7 +695,7 @@ def _middleware_refusals(
         if methods is not None and methods.isdisjoint(_SAFE_METHODS):
             continue
         exact = boundary or "/"
-        exact_pattern, _, _ = compile_path(exact)
+        exact_pattern = compile_route(exact)
         found.append((exact, exact_pattern))
         if not nested:
             continue
@@ -707,7 +704,7 @@ def _middleware_refusals(
             if boundary
             else "/{path:path}"
         )
-        descendant_pattern, _, _ = compile_path(descendants)
+        descendant_pattern = compile_route(descendants)
         found.append((descendants, descendant_pattern))
     return found
 
@@ -718,8 +715,6 @@ def _authentication_refusals(
     include_root: bool,
 ) -> list[tuple[str, Pattern[str]]]:
     """Compile exact and descendant refusals for authentication boundaries."""
-    from starlette.routing import compile_path  # noqa: PLC0415
-
     found: list[tuple[str, Pattern[str]]] = []
     for boundary, nested, methods in _authentication_paths(app):
         if not include_root and not boundary:
@@ -727,7 +722,7 @@ def _authentication_refusals(
         if methods is not None and methods.isdisjoint(_SAFE_METHODS):
             continue
         exact = boundary or "/"
-        exact_pattern, _, _ = compile_path(exact)
+        exact_pattern = compile_route(exact)
         found.append((exact, exact_pattern))
         if not nested:
             continue
@@ -736,7 +731,7 @@ def _authentication_refusals(
             if boundary
             else "/{path:path}"
         )
-        descendant_pattern, _, _ = compile_path(descendants)
+        descendant_pattern = compile_route(descendants)
         found.append((descendants, descendant_pattern))
     return found
 
