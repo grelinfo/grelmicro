@@ -72,6 +72,11 @@ client that honours the header without reading the body.
 |---|---|---|---|
 | `RateLimitExceededError` | 429 | [`rate-limit-exceeded`](#rate-limit-exceeded) | `retry_after` |
 | `ClientBannedError` | 429 | [`client-banned`](#client-banned) | `retry_after` |
+| `AuthenticationRequiredError` | 401 | [`authentication-required`](#authentication-required) | a `Bearer` challenge |
+| `TokenRejectedError` | 401 | [`token-rejected`](#token-rejected) | `reason`, and a `Bearer` challenge |
+| `AmbiguousCredentialsError` | 400 | [`ambiguous-credentials`](#ambiguous-credentials) | a `Bearer` challenge |
+| `InsufficientScopeError` | 403 | [`insufficient-scope`](#insufficient-scope) | a `Bearer` challenge naming the scopes |
+| `SigningKeysUnavailableError` | 503 | [`signing-keys-unavailable`](#signing-keys-unavailable) | nothing to wait on |
 | `CircuitBreakerError` | 503 | [`circuit-breaker-open`](#circuit-breaker-open) | `retry_after` |
 | `BulkheadFullError` | 503 | [`bulkhead-full`](#bulkhead-full) | nothing to wait on |
 | `WouldBlockError` | 503 | [`lock-unavailable`](#lock-unavailable) | nothing to wait on |
@@ -333,6 +338,40 @@ seconds until the next request is allowed. Wait that long, then retry.
 did not verify, so its token was not looked at. `retry_after` is the seconds
 the ban has left. A fresh token does not lift it, so wait that long before
 sending another request.
+
+### Authentication required { #authentication-required }
+
+`401`. The request carried no bearer token, or a credential in another scheme
+such as `Basic`. `WWW-Authenticate` says `Bearer`, and names the scopes the
+route needs when it declares any, as
+[RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) asks. Send a token
+in `Authorization: Bearer`.
+
+### Token rejected { #token-rejected }
+
+`401`. The bearer token did not verify. `reason` says why, as one of the
+`TokenRejectedReason` values such as `expired` or `audience`, and never quotes
+the token. `WWW-Authenticate` carries `error="invalid_token"`. Get a new token
+before retrying.
+
+### Ambiguous credentials { #ambiguous-credentials }
+
+`400`. The request carried more than one credential, such as two
+`Authorization` headers, so the service used neither. Send exactly one.
+`WWW-Authenticate` carries `error="invalid_request"`.
+
+### Insufficient scope { #insufficient-scope }
+
+`403`. The token verified, and does not grant every scope the request needs.
+`WWW-Authenticate` carries `error="insufficient_scope"` and a `scope`
+parameter naming each scope required. A fresh token with the same grants gets
+the same answer, so ask the authorization server for the missing scopes.
+
+### Signing keys unavailable { #signing-keys-unavailable }
+
+`503`. The service has not loaded the keys it verifies tokens with, usually
+because its identity provider could not be reached at startup. It cannot tell
+a valid token from a forged one, so it refuses both. Retry with a backoff.
 
 ### Circuit breaker open { #circuit-breaker-open }
 

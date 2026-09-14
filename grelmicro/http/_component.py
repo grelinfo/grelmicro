@@ -172,10 +172,13 @@ def _render_problem_details(
         instance=instance,
         extensions=occurrence.extensions,
     )
+    headers = framework_headers_of(problem)
+    headers.update(occurrence.headers)
+    headers.update(SAFETY_HEADERS)
     return RenderedError(
         status=problem.status,
         media_type=PROBLEM_MEDIA_TYPE,
-        headers=framework_headers_of(problem),
+        headers=headers,
         body=body_of(problem),
     )
 
@@ -198,6 +201,8 @@ def _render_tmf(
         wait = retry_after_seconds(occurrence.extensions.get("retry_after"))
         if wait is not None:
             headers["retry-after"] = wait
+        headers.update(occurrence.headers)
+        headers.update(SAFETY_HEADERS)
         return RenderedError(
             status=status,
             media_type=_tmf.TMF_MEDIA_TYPE,

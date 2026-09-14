@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING, Any
 
 from grelmicro.errors import (
     AdmissionError,
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
     LockTimeoutError,
     WouldBlockError,
 )
@@ -33,6 +36,8 @@ from grelmicro.resilience.errors import (
     RateLimitExceededError,
 )
 from grelmicro.security.bans import ClientBannedError
+from grelmicro.security.jwks import SigningKeysUnavailableError
+from grelmicro.security.jwt import TokenRejectedError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -116,6 +121,53 @@ CLIENT_BANNED = Kind(
         "The client presented too many tokens that did not verify, so it is "
         "refused for a while. Wait for the interval in the Retry-After header "
         "before sending another request."
+    ),
+)
+
+AUTHENTICATION_REQUIRED = Kind(
+    slug="authentication-required",
+    status=401,
+    title="Authentication required",
+    detail=(
+        "This request needs a credential. Send a bearer token in the "
+        "Authorization header."
+    ),
+)
+
+TOKEN_REJECTED = Kind(
+    slug="token-rejected",
+    status=401,
+    title="Token rejected",
+    detail=(
+        "The bearer token this request carried did not verify. The reason "
+        "member says why. Get a new token before retrying."
+    ),
+)
+
+AMBIGUOUS_CREDENTIALS = Kind(
+    slug="ambiguous-credentials",
+    status=400,
+    title="Ambiguous credentials",
+    detail="This request carries more than one credential. Send exactly one.",
+)
+
+INSUFFICIENT_SCOPE = Kind(
+    slug="insufficient-scope",
+    status=403,
+    title="Insufficient scope",
+    detail=(
+        "The token does not grant every scope this request needs. The "
+        "WWW-Authenticate header names them."
+    ),
+)
+
+SIGNING_KEYS_UNAVAILABLE = Kind(
+    slug="signing-keys-unavailable",
+    status=503,
+    title="Signing keys unavailable",
+    detail=(
+        "The service has not loaded the keys it verifies tokens with, so it "
+        "cannot tell a valid token from a forged one. Retry shortly."
     ),
 )
 
@@ -245,12 +297,14 @@ class Occurrence:
 
     The kind says which rejection it is, and is the same whatever standard
     the body follows. `detail` and `extensions` carry what is specific to
-    this occurrence.
+    this occurrence. `headers` carries what the protocol puts beside the
+    body, such as a `WWW-Authenticate` challenge, which every format sends.
     """
 
     kind: Kind
     detail: str | None = None
     extensions: dict[str, Any] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 def _from_rate_limit(exc: RateLimitExceededError) -> Occurrence:
@@ -259,6 +313,59 @@ def _from_rate_limit(exc: RateLimitExceededError) -> Occurrence:
 
 def _from_client_banned(exc: ClientBannedError) -> Occurrence:
     return Occurrence(CLIENT_BANNED, extensions=_wait(exc.retry_after))
+
+
+def _challenge(
+    *, error: str | None = None, scopes: tuple[str, ...] = ()
+) -> dict[str, str]:
+    """Return the `WWW-Authenticate` header of a bearer refusal.
+
+    RFC 6750 section 3. `error_description` is never sent, so no claim value
+    can reach the header. The scopes are the route's, checked as scope
+    tokens when the error was raised.
+    """
+    parameters = []
+    if error is not None:
+        parameters.append(f'error="{error}"')
+    if scopes:
+        parameters.append(f'scope="{" ".join(scopes)}"')
+    value = f"Bearer {', '.join(parameters)}" if parameters else "Bearer"
+    return {"www-authenticate": value}
+
+
+def _from_authentication_required(
+    exc: AuthenticationRequiredError,
+) -> Occurrence:
+    return Occurrence(
+        AUTHENTICATION_REQUIRED, headers=_challenge(scopes=exc.scopes)
+    )
+
+
+def _from_token_rejected(exc: TokenRejectedError) -> Occurrence:
+    return Occurrence(
+        TOKEN_REJECTED,
+        extensions={"reason": str(exc.reason)},
+        headers=_challenge(error="invalid_token"),
+    )
+
+
+def _from_ambiguous_credentials(exc: AmbiguousCredentialsError) -> Occurrence:  # noqa: ARG001
+    return Occurrence(
+        AMBIGUOUS_CREDENTIALS, headers=_challenge(error="invalid_request")
+    )
+
+
+def _from_insufficient_scope(exc: InsufficientScopeError) -> Occurrence:
+    return Occurrence(
+        INSUFFICIENT_SCOPE,
+        headers=_challenge(error="insufficient_scope", scopes=exc.scopes),
+    )
+
+
+def _from_signing_keys_unavailable(
+    exc: SigningKeysUnavailableError,  # noqa: ARG001
+) -> Occurrence:
+    return Occurrence(SIGNING_KEYS_UNAVAILABLE)
 
 
 def _from_circuit_breaker(exc: CircuitBreakerError) -> Occurrence:
@@ -316,6 +423,11 @@ def _from_in_flight(exc: IdempotencyWaitTimeoutError) -> Occurrence:  # noqa: AR
 _RULES: dict[type[BaseException], Callable[[Any], Occurrence]] = {
     RateLimitExceededError: _from_rate_limit,
     ClientBannedError: _from_client_banned,
+    AuthenticationRequiredError: _from_authentication_required,
+    TokenRejectedError: _from_token_rejected,
+    AmbiguousCredentialsError: _from_ambiguous_credentials,
+    InsufficientScopeError: _from_insufficient_scope,
+    SigningKeysUnavailableError: _from_signing_keys_unavailable,
     CircuitBreakerError: _from_circuit_breaker,
     BulkheadFullError: _from_bulkhead,
     LockTimeoutError: _from_lock_timeout,
@@ -335,6 +447,11 @@ otherwise, so a rejection nobody anticipated still renders as one.
 
 HANDLED = (
     AdmissionError,
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    SigningKeysUnavailableError,
+    TokenRejectedError,
     DeadlineExceededError,
     IdempotencyConflictError,
     IdempotencyWaitTimeoutError,

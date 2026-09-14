@@ -22,6 +22,7 @@ from starlette.status import (
 )
 
 from grelmicro import Grelmicro
+from grelmicro.errors import InsufficientScopeError
 from grelmicro.http import ERROR_DOCS_BASE, ErrorResponses, TMFError
 from grelmicro.http._kinds import (
     REQUEST_REFUSED,
@@ -124,6 +125,21 @@ def test_the_delay_survives_as_a_header() -> None:
     assert rendered is not None
     assert rendered.headers["retry-after"] == "2"
     assert "retry_after" not in json.loads(rendered.body)
+
+
+def test_the_challenge_survives_as_a_header() -> None:
+    """A `WWW-Authenticate` challenge is protocol, whatever the body format."""
+    # Act
+    rendered = ErrorResponses.tmf().render(
+        InsufficientScopeError(scopes=["orders:write"])
+    )
+
+    # Assert
+    assert rendered is not None
+    assert rendered.status == 403  # noqa: PLR2004
+    assert rendered.headers["www-authenticate"] == (
+        'Bearer error="insufficient_scope", scope="orders:write"'
+    )
 
 
 def test_the_code_prefix_is_configurable() -> None:

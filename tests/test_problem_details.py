@@ -19,6 +19,9 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 from starlette.status import (
     HTTP_200_OK,
+    HTTP_400_BAD_REQUEST,
+    HTTP_401_UNAUTHORIZED,
+    HTTP_403_FORBIDDEN,
     HTTP_409_CONFLICT,
     HTTP_418_IM_A_TEAPOT,
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -34,7 +37,13 @@ from grelmicro import (
     ComponentAlreadyRegisteredError,
     Grelmicro,
 )
-from grelmicro.errors import LockTimeoutError, WouldBlockError
+from grelmicro.errors import (
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    LockTimeoutError,
+    WouldBlockError,
+)
 from grelmicro.http import (
     ERROR_DOCS_BASE,
     PROBLEM_MEDIA_TYPE,
@@ -63,7 +72,12 @@ from grelmicro.resilience.errors import (
     DeadlineExceededError,
     RateLimitExceededError,
 )
-from grelmicro.security import ClientBannedError
+from grelmicro.security import (
+    ClientBannedError,
+    SigningKeysUnavailableError,
+    TokenRejectedError,
+    TokenRejectedReason,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, MutableMapping
@@ -118,6 +132,31 @@ EXPECTED = [
         ClientBannedError(retry_after=BAN_WAIT),
         HTTP_429_TOO_MANY_REQUESTS,
         "client-banned",
+    ),
+    (
+        AuthenticationRequiredError(),
+        HTTP_401_UNAUTHORIZED,
+        "authentication-required",
+    ),
+    (
+        TokenRejectedError(TokenRejectedReason.EXPIRED),
+        HTTP_401_UNAUTHORIZED,
+        "token-rejected",
+    ),
+    (
+        AmbiguousCredentialsError(),
+        HTTP_400_BAD_REQUEST,
+        "ambiguous-credentials",
+    ),
+    (
+        InsufficientScopeError(scopes=["orders:write"]),
+        HTTP_403_FORBIDDEN,
+        "insufficient-scope",
+    ),
+    (
+        SigningKeysUnavailableError("no key set has loaded"),
+        HTTP_503_SERVICE_UNAVAILABLE,
+        "signing-keys-unavailable",
     ),
     (
         CircuitBreakerError(name="payments", retry_after=BREAKER_WAIT),
@@ -693,6 +732,65 @@ def test_a_banned_client_is_told_when_to_come_back() -> None:
     assert json.loads(rendered.body)["retry_after"] == BAN_WAIT
 
 
+CHALLENGES = [
+    (AuthenticationRequiredError(), "Bearer"),
+    (
+        AuthenticationRequiredError(scopes=["orders:read", "orders:write"]),
+        'Bearer scope="orders:read orders:write"',
+    ),
+    (
+        TokenRejectedError(TokenRejectedReason.EXPIRED),
+        'Bearer error="invalid_token"',
+    ),
+    (AmbiguousCredentialsError(), 'Bearer error="invalid_request"'),
+    (
+        InsufficientScopeError(scopes=["orders:write"]),
+        'Bearer error="insufficient_scope", scope="orders:write"',
+    ),
+]
+"""Each authentication refusal, and the challenge RFC 6750 gives it."""
+
+
+@pytest.mark.parametrize(("exc", "challenge"), CHALLENGES)
+def test_an_authentication_refusal_carries_its_challenge(
+    exc: Exception, challenge: str
+) -> None:
+    """The scheme and the error travel in `WWW-Authenticate`."""
+    # Act
+    rendered = ErrorResponses().render(exc)
+
+    # Assert
+    assert rendered is not None
+    assert rendered.headers["www-authenticate"] == challenge
+    assert rendered.headers["cache-control"] == "no-store"
+
+
+def test_a_rejected_token_says_why_without_quoting_it() -> None:
+    """`reason` is the stable tag, and the body never carries the token."""
+    # Act
+    rendered = ErrorResponses().render(
+        TokenRejectedError(TokenRejectedReason.AUDIENCE)
+    )
+
+    # Assert
+    assert rendered is not None
+    assert json.loads(rendered.body)["reason"] == "audience"
+
+
+def test_a_scope_that_would_break_the_challenge_is_refused() -> None:
+    """A quote inside a scope would end the header parameter early."""
+    # Act & Assert
+    with pytest.raises(ValueError, match="scope token"):
+        InsufficientScopeError(scopes=['orders" admin'])
+
+
+def test_scopes_given_as_one_string_are_refused() -> None:
+    """One string would otherwise read as one scope per character."""
+    # Act & Assert
+    with pytest.raises(TypeError, match="not a single string"):
+        AuthenticationRequiredError(scopes="orders:read")
+
+
 def test_the_component_renders_nothing_for_a_server_fault() -> None:
     """An error grelmicro did not raise stays the framework's to answer."""
     # Act & Assert
@@ -776,7 +874,7 @@ def test_every_kind_dereferences_to_its_own_section() -> None:
     )
 
 
-_MIN_KINDS = 13
+_MIN_KINDS = 18
 """Floor for the sweep, so an empty scan cannot pass silently."""
 
 
