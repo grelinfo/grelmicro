@@ -2,8 +2,8 @@
 
 Hypothesis builds random apps out of everything Starlette and FastAPI route
 with: literal and converter segments, trailing slashes, included routers,
-mounts, hosts, routers with a default of their own, opaque applications and
-websocket routes. Every endpoint answers with its own id, so the framework
+mounts, hosts, routers with a default of their own, opaque applications, websocket routes
+and a root path. Every endpoint answers with its own id, so the framework
 itself is the oracle: a request the middleware let through without a
 credential says which endpoint served it.
 
@@ -90,6 +90,7 @@ class AppSpec:
     nodes: tuple[Leaf | Include | Mounted, ...]
     redirect_slashes: bool
     default: bool
+    root_path: str
 
 
 @dataclass
@@ -179,6 +180,7 @@ APPS = st.builds(
     ).map(tuple),
     redirect_slashes=st.booleans(),
     default=st.booleans(),
+    root_path=st.sampled_from(("", "/api", "/api/")),
 )
 
 
@@ -308,7 +310,9 @@ def mounted(
 def build(spec: AppSpec) -> tuple[FastAPI, Built]:
     """Build and install an app from its spec."""
     built = Built()
-    app = FastAPI(redirect_slashes=spec.redirect_slashes)
+    app = FastAPI(
+        redirect_slashes=spec.redirect_slashes, root_path=spec.root_path
+    )
     apply(app, spec.nodes, built, prefix="", public_above=False)
     if spec.default:
         app.router.default = opaque(built.endpoint(public=False))
@@ -338,6 +342,9 @@ def request_of(data: st.DataObject, built: Built) -> tuple[str, str, bool]:
         host, websocket = None, data.draw(st.booleans())
     if data.draw(st.integers(0, 5)) == 0:
         path = "/" + path
+    if data.draw(st.integers(0, 3)) == 0:
+        # Under the prefix a proxy or a mount adds, which `root_path` names.
+        path = "/api" + path
     if data.draw(st.integers(0, 7)) == 0:
         # A URL decoding to a trailing newline, which Starlette's `$` accepts.
         path += "%0A"

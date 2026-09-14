@@ -55,6 +55,7 @@ from starlette.routing import (
     BaseRoute,
     Host,
     Match,
+    Mount,
     Route,
     Router,
     WebSocketRoute,
@@ -929,6 +930,21 @@ class TestUnreachable:
 
         with pytest.raises(TypeError, match="GET /probe is in exclude"):
             self.install(app, exclude=("/probe",))
+
+    def test_a_security_scope_that_is_not_a_token_is_refused(self) -> None:
+        """A scope a `Security` around the caller names is checked at install."""
+        app = FastAPI()
+
+        async def outer(principal: CurrentPrincipal) -> Any:  # noqa: ANN401
+            return principal  # pragma: no cover
+
+        @app.get("/read", dependencies=[Security(outer, scopes=["réad"])])
+        async def read() -> None: ...  # pragma: no cover
+
+        with pytest.raises(
+            ValueError, match="GET /read requires the scope 'réad'"
+        ):
+            self.install(app)
 
     def test_a_litestar_handler_public_and_guarded_is_refused(self) -> None:
         """`opt=Anonymous()` and an `Authenticated` guard contradict each other."""
@@ -2984,6 +3000,118 @@ class TestRouting:
 
         assert client.get("/api/x").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/api/livez").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_url_outside_the_root_path_is_matched_as_starlette_matches_it(
+        self,
+    ) -> None:
+        """Beneath a mount, every level reads the whole path again, as Starlette does."""
+
+        async def secret(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        async def listed() -> dict[str, bool]:
+            return {"listed": True}
+
+        app = FastAPI(root_path="/api")
+        app.mount(
+            "/{tenant}",
+            Router(
+                routes=[
+                    Mount(
+                        "/{region}/{zone}",
+                        app=Router(
+                            routes=[
+                                APIRoute(
+                                    "/{item}/a/a",
+                                    listed,
+                                    dependencies=[Anonymous()],
+                                )
+                            ],
+                            default=secret,
+                        ),
+                    )
+                ]
+            ),
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/x/x/x/x/a/a").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/api/x/x/x/x/a/a").json() == {"listed": True}
+
+    def test_a_mount_mounted_as_an_app_is_matched_through(self) -> None:
+        """A mount holding a mount itself matches by both paths."""
+
+        async def listed() -> dict[str, bool]:
+            return {"listed": True}
+
+        app = FastAPI(root_path="/api")
+        app.mount(
+            "/{tenant}",
+            Mount(
+                "/{region}",
+                routes=[
+                    APIRoute("/{item}/a", listed, dependencies=[Anonymous()])
+                ],
+            ),
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/api/x/x/x/a").json() == {"listed": True}
+        assert client.get("/x/x/x/a").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_route_mounted_as_an_app_is_matched_through(self) -> None:
+        """A route mounted in place of an app matches beneath the mount."""
+
+        async def listed() -> dict[str, bool]:
+            return {"listed": True}
+
+        app = FastAPI(root_path="/api")
+        app.mount(
+            "/{tenant}", APIRoute("/{item}", listed, dependencies=[Anonymous()])
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/api/x/y").json() == {"listed": True}
+        assert client.get("/x/y").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_route_of_another_kind_rivals_the_public_routes_beside_it(
+        self,
+    ) -> None:
+        """What such a route answers is unknown, so it may answer any path."""
+
+        class Everything(BaseRoute):
+            path = "/{anything:path}"
+
+            def matches(self, scope: Any) -> tuple[Match, dict[str, Any]]:  # noqa: ANN401, ARG002
+                return Match.FULL, {}
+
+            async def handle(self, scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+                await JSONResponse({"secret": True})(
+                    scope, receive, send
+                )  # pragma: no cover
+
+        async def listed() -> dict[str, bool]:
+            return {"listed": True}  # pragma: no cover
+
+        app = FastAPI()
+        app.router.routes.append(Everything())
+        app.add_api_route("/open", listed, dependencies=[Anonymous()])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/open").status_code == HTTP_401_UNAUTHORIZED
 
 
 class TestConsistency:

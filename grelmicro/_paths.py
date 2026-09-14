@@ -38,6 +38,7 @@ __all__ = [
     "refuse_bare_string",
     "route_path",
     "selects",
+    "starlette_route_path",
     "walk_routes",
 ]
 
@@ -260,16 +261,27 @@ def route_path(
     """
     path = _scope_text(scope["path"])
     root = _scope_text(scope.get("root_path", ""))
-    if not root:
-        return path
-    if "litestar_app" in scope:
+    if root and "litestar_app" in scope:
         return _litestar_normalize()(path.split(root, maxsplit=1)[-1])
-    if not path.startswith(root):
+    return starlette_route_path(path, root)
+
+
+def starlette_route_path(
+    path: Annotated[str, Doc("The request path, prefix included.")],
+    root_path: Annotated[str, Doc("The prefix a mount or a proxy added.")],
+) -> str:
+    """Return the path Starlette's router matches, as it reads it.
+
+    The root path is taken off whole and as given, only where the path
+    starts with it at a segment boundary, and a path equal to it reads as
+    empty. A path that does not start with it is read whole.
+    """
+    if not root_path or not path.startswith(root_path):
         return path
-    if path == root:
+    if path == root_path:
         return ""
-    if path[len(root)] == "/":
-        return path[len(root) :]
+    if path[len(root_path)] == "/":
+        return path[len(root_path) :]
     return path
 
 

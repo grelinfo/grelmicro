@@ -33,12 +33,14 @@ from grelmicro._paths import (
     holds_control_character,
     route_path,
     selects,
+    starlette_route_path,
     walk_routes,
 )
 from grelmicro.errors import (
     AmbiguousCredentialsError,
     AuthenticationRequiredError,
     InsufficientScopeError,
+    _scope_tokens,
 )
 from grelmicro.http._component import (
     ErrorResponses,
@@ -177,29 +179,40 @@ class _Reach:
     within: frozenset[int] = frozenset()
     """The mounts and hosts the route sits in, which route a request to it."""
     mounts: tuple[Pattern[str], ...] = ()
-    """The mounts above the route, outermost first, each matched on its own."""
+    """The mounts above the route, outermost first, as `Mount` matches them."""
 
-    def answers(self, kind: str, method: str | None, path: str) -> bool:
+    def answers(
+        self,
+        kind: str,
+        method: str | None,
+        path: str,
+        root_path: str = "",
+    ) -> bool:
         """Return whether this route could answer the request."""
         return (
             kind in self.kinds
             and (self.methods is None or method in self.methods)
-            and self.reaches(path)
+            and self.reaches(path, root_path)
         )
 
-    def reaches(self, path: str) -> bool:
+    def reaches(self, path: str, root_path: str = "") -> bool:
         """Return whether the URL gets to this route, whatever its method.
 
-        Each mount above it matches on its own and hands on what follows its
-        path, as Starlette does, so a converter that spans segments splits
-        the URL where the framework splits it.
+        Each mount above it matches the way Starlette's `Mount` does: against
+        the route path the root path leaves, adding what it matched to the
+        root path the routes beneath it read theirs with. A URL outside the
+        root path is therefore read whole at every level, as Starlette reads
+        it, and a converter that spans segments splits it where Starlette
+        splits it.
         """
         for mount in self.mounts:
-            matched = mount.fullmatch(path)
+            routed = starlette_route_path(path, root_path)
+            matched = mount.match(routed)
             if matched is None:
                 return False
-            path = f"/{matched.group('path')}"
-        return self.pattern.fullmatch(path) is not None
+            root_path += routed[: -len(matched.group("path")) - 1]
+        routed = starlette_route_path(path, root_path)
+        return self.pattern.match(routed) is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,16 +233,27 @@ class _Routes:
     nodes: tuple[tuple[int, _Reach], ...] = ()
     redirects: bool = False
 
-    def serves(self, kind: str, method: str | None, path: str) -> bool:
+    def serves(
+        self,
+        kind: str,
+        method: str | None,
+        path: str,
+        root_path: str = "",
+    ) -> bool:
         """Return whether a public route answers the URL and no other could."""
         return any(
-            reach.answers(kind, method, path)
-            and self._unrivalled(reach, kind, method, path)
+            reach.answers(kind, method, path, root_path)
+            and self._unrivalled(reach, kind, method, path, root_path)
             for reach in self.public
         )
 
     def _unrivalled(
-        self, reach: _Reach, kind: str, method: str | None, path: str
+        self,
+        reach: _Reach,
+        kind: str,
+        method: str | None,
+        path: str,
+        root_path: str,
     ) -> bool:
         """Return whether nothing but what routes to `reach` answers the URL.
 
@@ -237,25 +261,28 @@ class _Routes:
         a host the public route does not sit in, which answers every path
         under it whatever routes it holds.
         """
-        leaves = (*self.by_depth.get(path.count("/"), ()), *self.anywhere)
-        if any(leaf.answers(kind, method, path) for leaf in leaves):
+        depth = starlette_route_path(path, root_path).count("/")
+        leaves = (*self.by_depth.get(depth, ()), *self.anywhere)
+        if any(leaf.answers(kind, method, path, root_path) for leaf in leaves):
             return False
         return not any(
-            node.answers(kind, method, path)
+            node.answers(kind, method, path, root_path)
             for owner, node in self.nodes
             if owner not in reach.within
         )
 
-    def routed(self, path: str) -> bool:
+    def routed(self, path: str, root_path: str = "") -> bool:
         """Return whether anything matches the path over HTTP, whatever the method."""
+        depth = starlette_route_path(path, root_path).count("/")
         reaches = (
             *self.public,
-            *self.by_depth.get(path.count("/"), ()),
+            *self.by_depth.get(depth, ()),
             *self.anywhere,
             *(node for _, node in self.nodes),
         )
         return any(
-            "http" in reach.kinds and reach.reaches(path) for reach in reaches
+            "http" in reach.kinds and reach.reaches(path, root_path)
+            for reach in reaches
         )
 
     def serves_publicly(
@@ -284,7 +311,7 @@ class _Routes:
             return False
         kind = next(iter(reach.kinds))
         return reach.answers(kind, method, sample) and self._unrivalled(
-            reach, kind, method, sample
+            reach, kind, method, sample, ""
         )
 
 
@@ -335,17 +362,19 @@ class _PublicRoutes:
         if not routes.public:
             return False
         kind = scope["type"]
-        path = route_path(scope)
-        if routes.serves(kind, scope.get("method"), path):
+        path = scope["path"]
+        root_path = scope.get("root_path", "")
+        if routes.serves(kind, scope.get("method"), path, root_path):
             return True
-        if kind != "http" or path == "/" or not routes.redirects:
+        routed = starlette_route_path(path, root_path)
+        if kind != "http" or routed == "/" or not routes.redirects:
             return False
         # Starlette redirects a path no route matches to the same path with
         # its trailing slash added or removed, when a route matches that one.
-        toggled = path.rstrip("/") if path.endswith("/") else f"{path}/"
-        return routes.serves(kind, scope["method"], toggled) and not (
-            routes.routed(path)
-        )
+        toggled = path.rstrip("/") if routed.endswith("/") else f"{path}/"
+        return routes.serves(
+            kind, scope["method"], toggled, root_path
+        ) and not routes.routed(path, root_path)
 
 
 def routes_of(app: Any) -> _Routes:  # noqa: ANN401
@@ -392,21 +421,19 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     rivals: list[tuple[str, _Reach]] = []
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{route.path}"
-        compiled = compile_route(template)
         if isinstance(route, WebSocketRoute):
-            reach = _Reach(_WEBSOCKET, None, compiled)
+            reach = _Reach(_WEBSOCKET, None, compile_route(template))
         else:
             methods = getattr(route, "methods", None)
             reach = _Reach(
-                _HTTP, frozenset(methods) if methods else None, compiled
+                _HTTP,
+                frozenset(methods) if methods else None,
+                compile_route(template),
             )
         key = (id(route), prefix)
         chain = tree.chains.get(key)
-        if (
-            chain is not None
-            and _declares_anonymous(route, contexts)
-            and key not in tree.closed
-        ):
+        if chain is not None:
+            # Matched through each mount above it, as Starlette matches it.
             mounts, relative = chain
             reach = replace(
                 reach,
@@ -414,6 +441,11 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
                 within=tree.within[key],
                 mounts=tuple(compile_mount(mount) for mount in mounts),
             )
+        if (
+            chain is not None
+            and _declares_anonymous(route, contexts)
+            and key not in tree.closed
+        ):
             public.append(reach)
             declared[key] = (reach, template)
         else:
@@ -423,7 +455,9 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     by_depth: dict[int, list[_Reach]] = {}
     anywhere: list[_Reach] = []
     for template, reach in rivals:
-        if _spans_depths(template):
+        # A route beneath a mount is matched against a path the root path may
+        # leave whole, so its depth says nothing about the URLs it answers.
+        if reach.mounts or _spans_depths(template):
             anywhere.append(reach)
         else:
             by_depth.setdefault(template.count("/"), []).append(reach)
@@ -441,10 +475,11 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
                 _Reach(
                     _EITHER,
                     None,
-                    compile_route(f"{under.rstrip('/')}/{{path:path}}"),
+                    _ANY_PATH if own is None else compile_mount(own),
+                    mounts=tuple(compile_mount(mount) for mount in mounts),
                 ),
             )
-            for node, under in tree.nodes
+            for node, mounts, own in tree.nodes
         ),
     )
 
@@ -462,11 +497,17 @@ def _redirects_slashes(app: Any) -> bool:  # noqa: ANN401
     )
 
 
+_ANY_PATH: Final = re.compile(r"(?s).*")
+"""What a host, or a node of another kind, answers: any path at all."""
+
+
 @dataclass(slots=True)
 class _Tree:
     """Where each routing node of an app sits, and what each route sits in."""
 
-    nodes: list[tuple[int, str]] = field(default_factory=list)
+    nodes: list[tuple[int, tuple[str, ...], str | None]] = field(
+        default_factory=list
+    )
     within: dict[tuple[int, str], frozenset[int]] = field(default_factory=dict)
     closed: set[tuple[int, str]] = field(default_factory=set)
     chains: dict[tuple[int, str], tuple[tuple[str, ...], str]] = field(
@@ -498,7 +539,13 @@ def _read_tree(
     if routed is None or id(routed) in seen:
         return
     seen |= {id(routed)}
-    for route in getattr(routed, "routes", None) or ():
+    # A mount or a route mounted as an app is matched itself, as a route is.
+    held = (
+        (routed,)
+        if _is_mount(routed) or _is_route(routed)
+        else getattr(routed, "routes", None) or ()
+    )
+    for route in held:
         included = getattr(route, "original_router", None)
         if included is not None:
             added = getattr(
@@ -524,7 +571,11 @@ def _read_tree(
             continue
         mount = _is_mount(route)
         under = f"{prefix}{route.path}" if mount else prefix
-        tree.nodes.append((id(route), under))
+        # A mount matches by its own path beneath the mounts above it. A
+        # host, or a node of another kind, matches by something else.
+        tree.nodes.append(
+            (id(route), mounts, f"{relative}{route.path}" if mount else None)
+        )
         _read_tree(
             getattr(route, "app", None),
             tree,
@@ -761,19 +812,6 @@ def route_scopes(
     )
 
 
-def requires_caller(
-    route: Any,  # noqa: ANN401
-    method: str,
-    contexts: tuple[Any, ...] = (),
-) -> bool:
-    """Return whether the route refuses a request that sends no credential.
-
-    True when it declares `Authenticated`, or on FastAPI reads the caller
-    through `CurrentPrincipal` or `Claims`, whatever scopes it names.
-    """
-    return bool(_declarations(route, method, contexts))
-
-
 def _declarations(
     route: Any,  # noqa: ANN401
     method: str,
@@ -846,9 +884,14 @@ def refuse_unreachable_routes(
     A route in `exclude` never has a token read, so one requiring a caller
     answers `401` to every request. A route declaring `Anonymous()` and
     requiring a caller refuses the requests `Anonymous()` is there to serve.
+    A route requiring a scope that is not an OAuth scope token, such as one
+    a `Security` around `CurrentPrincipal` names, could never name it in
+    the challenge refusing a caller.
 
     Raises:
         TypeError: Naming the method and the path of the first such route.
+        ValueError: Naming the method, the path and the scope of the first
+            route requiring a scope that is not an OAuth scope token.
     """
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{getattr(route, 'path_format', route.path)}"
@@ -857,7 +900,10 @@ def refuse_unreachable_routes(
         for method in sorted(
             getattr(route, "methods", None) or _ENDPOINT_METHODS
         ):
-            if not requires_caller(route, method, contexts):
+            declarations = _declarations(route, method, contexts)
+            for scope in (scope for found in declarations for scope in found):
+                _refuse_malformed_scope(scope, method, template)
+            if not declarations:
                 continue
             if excluded:
                 where = "is in exclude, so a token is never read there,"
@@ -873,6 +919,23 @@ def refuse_unreachable_routes(
                 f"makes the route public."
             )
             raise TypeError(msg)
+
+
+def _refuse_malformed_scope(scope: str, method: str, template: str) -> None:
+    """Refuse a scope a route requires that is not an OAuth scope token.
+
+    Raises:
+        ValueError: Naming the method, the path and the scope.
+    """
+    try:
+        _scope_tokens((scope,))
+    except ValueError:
+        msg = (
+            f"{method} {template} requires the scope {scope!r}, which is not "
+            f"an OAuth scope token, so the challenge refusing a caller could "
+            f"not name it."
+        )
+        raise ValueError(msg) from None
 
 
 def _declares_public(
