@@ -8,8 +8,14 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 from typing_extensions import Doc
 
 from grelmicro._asgi import GrelmicroMiddleware
-from grelmicro.errors import MiddlewarePlacementWarning
+from grelmicro.errors import (
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    MiddlewarePlacementWarning,
+    _scope_tokens,
+)
 from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http._authentication import ANONYMOUS_OPT
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._openapi import add_error_schema
 
@@ -17,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping, Sequence
 
     from litestar import Litestar, Request
+    from litestar.connection import ASGIConnection
+    from litestar.handlers.base import BaseRouteHandler
     from litestar.response import Response
 
     from grelmicro import Grelmicro
@@ -28,6 +36,8 @@ if TYPE_CHECKING:
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 __all__ = [
+    "Anonymous",
+    "Authenticated",
     "error_response",
     "install",
     "install_error_responses",
@@ -135,10 +145,11 @@ def install_middleware(
     components it found, so a direct call is only for an app that never goes
     through `install`.
     """
+    # Each middleware of ours goes in underneath the ones already placed, so
+    # the one wrapped first answers first. The loop below wraps from the end
+    # of `ordered`, so authentication sorts last here to be wrapped first.
     # Stable, so registration order holds among the rest.
-    ordered = sorted(
-        components, key=lambda component: not _authenticates(component)
-    )
+    ordered = sorted(components, key=_authenticates)
     for component in ordered:
         _answer_for(app, component)
     for component in reversed(ordered):
@@ -171,6 +182,88 @@ def install_middleware(
                     app,
                 ),
             )
+    for component in ordered:
+        if _authenticates(component):
+            # The public routes it serves without a credential. The rest of
+            # ours name their paths in `include=` on Litestar.
+            component.read_routes(app)
+
+
+def Anonymous() -> dict[str, Any]:  # noqa: N802
+    """Serve this route without a credential.
+
+    Every route is authenticated once `AuthenticatedRequests` is registered.
+    Pass this as the handler's `opt` on the one that is public:
+
+    ```python
+    from litestar import get
+
+    from grelmicro.integrations.litestar import Anonymous
+
+
+    @get("/catalog", opt=Anonymous())
+    async def catalog() -> list[Product]: ...
+    ```
+
+    It is a mapping, so it merges with options of your own:
+    `opt={**Anonymous(), "tag": "public"}`. `micro.install(app)` reads it off
+    every handler, per method, so a public read keeps its writes
+    authenticated, and the app is read again when it starts.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+    """
+    return {ANONYMOUS_OPT: True}
+
+
+def Authenticated(  # noqa: N802
+    *,
+    scopes: Annotated[
+        Sequence[str],
+        Doc("Scopes the caller must hold, every one of them."),
+    ] = (),
+) -> Callable[[ASGIConnection, BaseRouteHandler], Awaitable[None]]:
+    """Require an authenticated caller holding every scope named.
+
+    A Litestar guard:
+
+    ```python
+    from litestar import delete
+
+    from grelmicro.integrations.litestar import Authenticated
+
+
+    @delete(
+        "/orders/{order_id:int}",
+        guards=[Authenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: int) -> None: ...
+    ```
+
+    A caller with no credential is answered `401`, and one lacking a scope
+    `403`, each with a `WWW-Authenticate` challenge naming the scopes. It
+    needs a registered `AuthenticatedRequests`, which verifies the token
+    before the handler runs.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+
+    Raises:
+        TypeError: If `scopes` is a single string.
+        ValueError: If a scope is not an OAuth scope token.
+    """
+    required = _scope_tokens(scopes)
+
+    async def authenticated(
+        connection: ASGIConnection,
+        handler: BaseRouteHandler,  # noqa: ARG001
+    ) -> None:
+        """Refuse a caller that is not authenticated or lacks a scope."""
+        caller = connection.scope.get("user")
+        if caller is None or not getattr(caller, "is_authenticated", False):
+            raise AuthenticationRequiredError(scopes=required)
+        if not set(required) <= set(getattr(caller, "scopes", ())):
+            raise InsufficientScopeError(scopes=required)
+
+    return authenticated
 
 
 def _wrap_outside(

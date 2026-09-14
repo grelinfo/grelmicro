@@ -11,15 +11,16 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi import Request as FastAPIRequest
 from fastapi.security import HTTPBearer
 from fastapi.testclient import TestClient
-from litestar import Litestar, get
+from litestar import Litestar, delete, get, post
 from litestar import Request as LitestarRequest
+from litestar.params import Parameter
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
@@ -40,6 +41,10 @@ from grelmicro.integrations.fastapi import (
     Claims,
     CurrentPrincipal,
     document_authenticated_requests,
+)
+from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
+from grelmicro.integrations.litestar import (
+    Authenticated as LitestarAuthenticated,
 )
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
@@ -956,3 +961,126 @@ class TestOpenAPI:
         """There is nothing to describe on an app nothing authenticates."""
         with pytest.raises(TypeError, match="AuthenticatedRequestsMiddleware"):
             document_authenticated_requests(FastAPI())
+
+
+def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401
+    """Return a Litestar app with handlers declaring how they are authenticated."""
+
+    @get("/catalog/{item_id:int}", opt=LitestarAnonymous())
+    async def read_item(item_id: Annotated[int, Parameter()]) -> dict[str, int]:
+        return {"item": item_id}
+
+    @post("/catalog/{item_id:int}")
+    async def write_item(
+        item_id: Annotated[int, Parameter()],
+    ) -> dict[str, int]:
+        return {"item": item_id}
+
+    @get("/files/{rest:path}", opt={**LitestarAnonymous(), "tag": "files"})
+    async def read_file(rest: Annotated[str, Parameter()]) -> dict[str, str]:
+        return {"file": rest}
+
+    @get("/status", opt=LitestarAnonymous())
+    async def status() -> dict[str, bool]:
+        return {"up": True}
+
+    @delete(
+        "/orders/{order_id:int}",
+        guards=[LitestarAuthenticated(scopes=["orders:write"])],
+        status_code=HTTP_200_OK,
+    )
+    async def cancel(order_id: Annotated[int, Parameter()]) -> dict[str, int]:
+        return {"cancelled": order_id}
+
+    app = Litestar(
+        route_handlers=[read_item, write_item, read_file, status, cancel]
+    )
+    Grelmicro(uses=[ErrorResponses(), *uses]).install(app)
+    return app
+
+
+class TestLitestar:
+    """Handler declarations on Litestar."""
+
+    def test_an_anonymous_handler_needs_no_credential(self) -> None:
+        """A public read is served, typed path parameter and all."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier()))
+        ) as client:
+            response = client.get("/catalog/7")
+
+        assert response.json() == {"item": 7}
+
+    def test_anonymous_applies_to_the_method_that_declared_it(self) -> None:
+        """The write on the same path stays authenticated."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier()))
+        ) as client:
+            response = client.post("/catalog/7")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_public_path_parameter_spans_slashes(self) -> None:
+        """A `path` parameter matches a nested path, merged options and all."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier()))
+        ) as client:
+            nested = client.get("/files/reports/2026/q3.csv")
+            static = client.get("/status")
+
+        assert nested.status_code == HTTP_200_OK
+        assert static.json() == {"up": True}
+
+    def test_a_missing_scope_is_forbidden_and_named(self) -> None:
+        """The guard answers `403` with the challenge naming the scope."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier()))
+        ) as client:
+            refused = client.delete(
+                "/orders/7", headers=bearer(token(scope="orders:read"))
+            )
+            served = client.delete(
+                "/orders/7", headers=bearer(token(scope="orders:write"))
+            )
+
+        assert refused.status_code == HTTP_403_FORBIDDEN
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write"'
+        )
+        assert served.json() == {"cancelled": 7}
+
+    def test_the_guard_without_the_component_asks_for_a_credential(
+        self,
+    ) -> None:
+        """With nothing verifying tokens, nobody is authenticated."""
+        with LitestarTestClient(litestar_app()) as client:
+            response = client.delete("/orders/7", headers=bearer(token()))
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.headers["www-authenticate"] == (
+            'Bearer scope="orders:write"'
+        )
+
+    def test_authentication_runs_before_the_rate_limit_on_litestar(
+        self,
+    ) -> None:
+        """Registered after, it still answers first."""
+        limiter = RateLimiter.sliding_window(
+            "burst", limit=100, window=60, backend=MemoryRateLimiterAdapter()
+        )
+        app = litestar_app(
+            RateLimitedRequests(limiter, trusted=TrustedProxies(PROXIES)),
+            AuthenticatedRequests(verifier()),
+        )
+
+        # Litestar types its scope more narrowly than Starlette's client does.
+        with TestClient(app, client=CALLER) as client:  # ty: ignore[invalid-argument-type]
+            response = client.delete("/orders/7")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert "ratelimit" not in response.headers
+
+    def test_scopes_written_as_one_string_are_refused(self) -> None:
+        """One string would otherwise read as one scope per character."""
+        with pytest.raises(TypeError, match="not a single string"):
+            LitestarAuthenticated(scopes="orders:write")

@@ -454,6 +454,12 @@
     }
   },
   "grelmicro.integrations.litestar": {
+    "Anonymous": {
+      "()": "() -> 'dict[str, Any]'"
+    },
+    "Authenticated": {
+      "()": "(*, scopes=()) -> 'Callable[[ASGIConnection, BaseRouteHandler], Awaitable[None]]'"
+    },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },

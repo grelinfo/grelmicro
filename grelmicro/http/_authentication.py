@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -73,6 +74,12 @@ _REFUSALS = (
 
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 """Set on the callable a route declares to be served without a credential."""
+
+ANONYMOUS_OPT = "grelmicro_anonymous"
+"""The `opt` key a Litestar handler declares itself public under."""
+
+_LITESTAR_PARAMETER = re.compile(r"\{([^}]+)\}")
+"""A path parameter in a Litestar route's `path_format`."""
 
 
 async def _anonymous_route() -> None:
@@ -172,6 +179,10 @@ def _public_routes(
     """
     found: list[tuple[Pattern[str], frozenset[str] | None]] = []
     for prefix, route, _ in walk_routes(app):
+        handlers = getattr(route, "route_handlers", None)
+        if handlers is not None:
+            found.extend(_public_litestar_route(route, handlers))
+            continue
         if not _declares_anonymous(route):
             continue
         from starlette.routing import compile_path  # noqa: PLC0415
@@ -180,6 +191,44 @@ def _public_routes(
         methods = getattr(route, "methods", None)
         found.append((compiled, frozenset(methods) if methods else None))
     return tuple(found)
+
+
+def _public_litestar_route(
+    route: Any,  # noqa: ANN401
+    handlers: Any,  # noqa: ANN401
+) -> list[tuple[Pattern[str], frozenset[str] | None]]:
+    """Return one Litestar route's public handlers, by path and method.
+
+    A Litestar handler declares itself public through its `opt`. Its path
+    parameters carry types Starlette's compiler does not read, so the path
+    is compiled here: a `path` parameter spans slashes, and every other one
+    spans a single segment.
+    """
+    methods = frozenset(
+        method
+        for handler in handlers
+        if handler.opt.get(ANONYMOUS_OPT)
+        for method in handler.http_methods
+    )
+    if not methods:
+        return []
+    return [(_litestar_pattern(route), methods)]
+
+
+def _litestar_pattern(route: Any) -> Pattern[str]:  # noqa: ANN401
+    """Compile a Litestar route's path into the pattern it matches."""
+    template = route.path_format
+    parameters = route.path_parameters
+    pieces: list[str] = []
+    last = 0
+    for match in _LITESTAR_PARAMETER.finditer(template):
+        pieces.append(re.escape(template[last : match.start()]))
+        definition = parameters.get(match.group(1))
+        spans = definition is not None and definition.full.endswith(":path")
+        pieces.append(".*" if spans else "[^/]+")
+        last = match.end()
+    pieces.append(re.escape(template[last:]))
+    return re.compile("".join(pieces))
 
 
 def _declares_anonymous(route: Any) -> bool:  # noqa: ANN401
