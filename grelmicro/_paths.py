@@ -6,6 +6,7 @@ once: `include` narrows, `exclude` carves out, and `exclude` wins.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import re
 from ipaddress import IPv6Address, ip_address
@@ -15,7 +16,7 @@ from pydantic import BeforeValidator
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
-    from collections.abc import MutableMapping
+    from collections.abc import Callable, MutableMapping
     from re import Pattern
 
 __all__ = [
@@ -242,7 +243,7 @@ def route_path(
         MutableMapping[str, Any], Doc("The ASGI scope of the request.")
     ],
 ) -> str:
-    """Return the path the app declares its routes under.
+    """Return the path the app's router matches the request with.
 
     `scope["path"]` carries the prefix a mount or a proxy adds, and
     `root_path` carries that prefix, so what is left is the path the route
@@ -250,19 +251,34 @@ def route_path(
     the root, mounted under another app, or behind a proxy, and the same
     as the path the OpenAPI schema publishes.
 
-    Only a whole segment is a prefix, so a `root_path` of `/api` leaves
-    `/apikeys` alone and shortens `/api/keys`. An app answering at its
-    prefix reads as `/`, which is the route it declares.
+    It is read exactly the way the framework's router reads it, because a
+    check made against any other path checks a route other than the one
+    that answers. Starlette takes `root_path` off whole and as given, so a
+    `root_path` of `/api` leaves `/apikeys` alone and shortens `/api/keys`,
+    and a path equal to it reads as empty. Litestar takes it off where it
+    first appears and normalizes what is left.
     """
     path = _scope_text(scope["path"])
-    root = _request_root_path(scope)
-    if not root or not path.startswith(root):
+    root = _scope_text(scope.get("root_path", ""))
+    if not root:
+        return path
+    if "litestar_app" in scope:
+        return _litestar_normalize()(path.split(root, maxsplit=1)[-1])
+    if not path.startswith(root):
         return path
     if path == root:
-        return "/"
+        return ""
     if path[len(root)] == "/":
         return path[len(root) :]
     return path
+
+
+@functools.cache
+def _litestar_normalize() -> Callable[[str], str]:
+    """Return how Litestar normalizes a path, looked up once."""
+    from litestar.utils import normalize_path  # noqa: PLC0415
+
+    return normalize_path
 
 
 def _scope_text(value: str | bytes) -> str:

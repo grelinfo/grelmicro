@@ -1679,7 +1679,7 @@ def test_default_key_canonicalizes_authority_and_route_path() -> None:
     host_scope: Scope = {
         "type": "http",
         "scheme": "HTTP",
-        "root_path": "/api/",
+        "root_path": "/api",
         "method": "POST",
         "path": "/api/charge",
         "query_string": b"",

@@ -2956,6 +2956,35 @@ class TestRouting:
         assert client.get("/users/me%0A").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/users/alice").json() == {"user": "alice"}
 
+    def test_a_root_path_ending_in_a_slash_is_read_as_the_router_reads_it(
+        self,
+    ) -> None:
+        """The route a credential is checked for is the route that answers."""
+        app = FastAPI(root_path="/api/")
+
+        @app.get("/x", dependencies=[Anonymous()])
+        async def public() -> dict[str, str]:
+            return {"route": "public"}  # pragma: no cover
+
+        @app.get("/api/x")
+        async def private() -> dict[str, str]:
+            return {"route": "private"}  # pragma: no cover
+
+        @app.get("/api/livez")
+        async def probe() -> dict[str, bool]:
+            return {"live": False}  # pragma: no cover
+
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(verifier(), exclude=("/livez",)),
+            ]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/api/x").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/api/livez").status_code == HTTP_401_UNAUTHORIZED
+
 
 class TestConsistency:
     """The schema and the report say what the middleware does."""

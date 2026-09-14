@@ -577,15 +577,9 @@ def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
     from litestar.exceptions import HTTPException  # noqa: PLC0415
     from litestar.utils import normalize_path  # noqa: PLC0415
 
-    root_path = scope.get("root_path", "")
-    path = (
-        scope["path"].split(root_path, maxsplit=1)[-1]
-        if root_path
-        else scope["path"]
-    )
     try:
         _, handler, *_ = app.asgi_router.handle_routing(
-            path=normalize_path(path), method=scope.get("method")
+            path=normalize_path(route_path(scope)), method=scope.get("method")
         )
     except (HTTPException, KeyError):
         # `KeyError` for a websocket asking a path only HTTP handlers answer.

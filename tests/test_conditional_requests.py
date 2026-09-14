@@ -1785,14 +1785,18 @@ def test_a_pattern_names_the_route_under_any_prefix() -> None:
     # Assert
     assert route_path({"path": "/charge", "root_path": ""}) == "/charge"
     assert route_path({"path": "/sub/charge", "root_path": "/sub"}) == "/charge"
+    # Taken off exactly as given, as the router takes it off, so a root path
+    # ending in a slash leaves a path whose next character is not one whole.
     assert (
-        route_path({"path": "/sub/charge", "root_path": "/sub/"}) == "/charge"
+        route_path({"path": "/sub/charge", "root_path": "/sub/"})
+        == "/sub/charge"
     )
     # A prefix is a whole segment, and `/` is no prefix at all.
     assert route_path({"path": "/charge", "root_path": "/"}) == "/charge"
     assert route_path({"path": "/apikeys", "root_path": "/api"}) == "/apikeys"
-    # An app answering at its prefix reads as the route it declares.
-    assert route_path({"path": "/api", "root_path": "/api"}) == "/"
+    # An app answering at its prefix reads as the empty path, as its router
+    # reads it, which no declared route matches.
+    assert route_path({"path": "/api", "root_path": "/api"}) == ""
 
 
 def test_a_router_prefix_selects_the_router_root() -> None:
