@@ -164,6 +164,16 @@ class TestDiscovery:
         assert verifier.verify(token()).subject == "user-1"
         assert provider.calls == [OAUTH, OIDC, JWKS]
 
+    async def test_the_verifier_names_the_document_it_read(self) -> None:
+        """`metadata_url` is empty before discovery, then the document found."""
+        provider = Provider({OIDC: metadata(), JWKS: key_set()})
+        verifier = discovering(provider)
+        assert verifier.metadata_url is None
+
+        await verifier.refresh()
+
+        assert verifier.metadata_url == OIDC
+
     async def test_authorization_server_metadata_alone(self) -> None:
         """A provider publishing only RFC 8414 metadata is found first."""
         provider = Provider({OAUTH: metadata(), JWKS: key_set()})

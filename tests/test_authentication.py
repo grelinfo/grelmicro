@@ -14,8 +14,9 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi import Request as FastAPIRequest
+from fastapi.security import HTTPBearer
 from fastapi.testclient import TestClient
 from litestar import Litestar, get
 from litestar import Request as LitestarRequest
@@ -38,6 +39,7 @@ from grelmicro.integrations.fastapi import (
     Authenticated,
     Claims,
     CurrentPrincipal,
+    document_authenticated_requests,
 )
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
@@ -648,6 +650,13 @@ def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401
     async def export() -> dict[str, bool]:
         return {"exported": True}
 
+    @reports.get(
+        "/reports/daily",
+        dependencies=[Authenticated(scopes=["reports:read"])],
+    )
+    async def daily() -> dict[str, bool]:
+        return {"daily": True}
+
     app.include_router(reports)
     if declare is not None:
         declare(app)
@@ -806,3 +815,144 @@ class TestFastAPI:
 
         async with component:
             assert component.verifier is not None
+
+
+OAUTH_METADATA = "https://auth.grel.info/.well-known/oauth-authorization-server"
+OIDC_METADATA = "https://auth.grel.info/.well-known/openid-configuration"
+SCHEME = "AuthenticatedRequests"
+
+
+class TestOpenAPI:
+    """What the schema says about the token every covered operation needs."""
+
+    def test_every_covered_operation_requires_the_scheme(self) -> None:
+        """The bearer token is required, and its refusal is described."""
+        schema = fastapi_app(AuthenticatedRequests(verifier())).openapi()
+
+        operation = schema["paths"]["/me"]["get"]
+
+        assert schema["components"]["securitySchemes"][SCHEME] == {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+        }
+        assert operation["security"] == [{SCHEME: []}]
+        assert "401" in operation["responses"]
+        assert "403" not in operation["responses"]
+
+    def test_the_scopes_a_route_declares_are_required(self) -> None:
+        """A route requiring a scope says so, and can answer `403`."""
+        schema = fastapi_app(AuthenticatedRequests(verifier())).openapi()
+
+        cancel = schema["paths"]["/orders/{order_id}"]["delete"]
+        export = schema["paths"]["/reports/export"]["get"]
+
+        assert cancel["security"] == [{SCHEME: ["orders:write"]}]
+        assert "403" in cancel["responses"]
+        assert export["security"] == [
+            {SCHEME: ["reports:read", "reports:export"]}
+        ]
+        assert schema["paths"]["/reports/daily"]["get"]["security"] == [
+            {SCHEME: ["reports:read"]}
+        ]
+
+    def test_public_and_excluded_operations_need_nothing(self) -> None:
+        """An anonymous read and an excluded path carry no requirement."""
+        schema = fastapi_app(
+            AuthenticatedRequests(verifier(), exclude=("/claims",))
+        ).openapi()
+
+        assert "security" not in schema["paths"]["/catalog"]["get"]
+        assert "security" not in schema["paths"]["/claims"]["get"]
+        assert schema["paths"]["/catalog"]["post"]["security"] == [{SCHEME: []}]
+
+    def test_bans_add_the_429(self) -> None:
+        """A banned caller is answered `429`, so the schema says so."""
+        component = AuthenticatedRequests(
+            verifier(), bans=ClientBans(), trusted=TrustedProxies(PROXIES)
+        )
+
+        schema = fastapi_app(component).openapi()
+
+        assert "429" in schema["paths"]["/me"]["get"]["responses"]
+
+    def test_a_discovering_verifier_points_at_the_discovery_document(
+        self,
+    ) -> None:
+        """A client can find the authorization server from the schema."""
+        discovering = JWTVerifier.discover(
+            "https://auth.grel.info/",
+            audience=AUDIENCE,
+            fetch=Endpoint(document()),
+        )
+
+        schema = fastapi_app(AuthenticatedRequests(discovering)).openapi()
+
+        assert schema["components"]["securitySchemes"][SCHEME] == {
+            "type": "openIdConnect",
+            "openIdConnectUrl": OIDC_METADATA,
+        }
+
+    def test_metadata_found_only_under_rfc_8414_is_a_bearer_token(
+        self,
+    ) -> None:
+        """No OpenID Connect document to point at, so none is named."""
+        discovering = JWTVerifier.discover(
+            "https://auth.grel.info/",
+            audience=AUDIENCE,
+            fetch=Endpoint(document()),
+        )
+        discovering._metadata_url = OAUTH_METADATA
+
+        schema = fastapi_app(AuthenticatedRequests(discovering)).openapi()
+
+        assert schema["components"]["securitySchemes"][SCHEME]["type"] == (
+            "http"
+        )
+
+    def test_building_the_schema_again_adds_nothing_twice(self) -> None:
+        """FastAPI hands back the schema it cached, and it stays whole."""
+        app = fastapi_app(AuthenticatedRequests(verifier()))
+
+        app.openapi()
+        schema = app.openapi()
+
+        assert schema["paths"]["/me"]["get"]["security"] == [{SCHEME: []}]
+
+    def test_the_apps_own_security_scheme_is_kept_and_joined(self) -> None:
+        """A route checking FastAPI's own scheme still needs the token too."""
+        own = HTTPBearer()
+
+        def declare(app: FastAPI) -> None:
+            @app.get("/legacy", dependencies=[Depends(own)])
+            async def legacy() -> dict[str, bool]:
+                return {"legacy": True}
+
+        schema = fastapi_app(
+            AuthenticatedRequests(verifier()), declare=declare
+        ).openapi()
+
+        assert schema["paths"]["/legacy"]["get"]["security"] == [
+            {"HTTPBearer": [], SCHEME: []}
+        ]
+        assert set(schema["components"]["securitySchemes"]) == {
+            "HTTPBearer",
+            SCHEME,
+        }
+
+    def test_openapi_false_leaves_the_schema_alone(self) -> None:
+        """The component can stay out of the document."""
+        schema = fastapi_app(
+            AuthenticatedRequests(verifier(), openapi=False)
+        ).openapi()
+
+        assert SCHEME not in schema.get("components", {}).get(
+            "securitySchemes", {}
+        )
+
+    def test_documenting_an_app_without_the_middleware_is_refused(
+        self,
+    ) -> None:
+        """There is nothing to describe on an app nothing authenticates."""
+        with pytest.raises(TypeError, match="AuthenticatedRequestsMiddleware"):
+            document_authenticated_requests(FastAPI())

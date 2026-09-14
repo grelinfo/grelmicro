@@ -57,7 +57,11 @@ from grelmicro.http import (
     ProblemDetail,
     check_freshness,
 )
-from grelmicro.http._authentication import declare_anonymous
+from grelmicro.http._authentication import (
+    AuthenticatedRequestsMiddleware,
+    _declares_anonymous,
+    declare_anonymous,
+)
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
 from grelmicro.http._idempotency import _KEY_PATTERN, _MAX_KEY_LENGTH
@@ -84,7 +88,7 @@ from grelmicro.integrations.starlette import (
     install_middleware as _install_middleware_starlette,
 )
 from grelmicro.resilience.errors import RateLimitExceededError
-from grelmicro.security.jwt import JWTClaims
+from grelmicro.security.jwt import DiscoveryConfig, JWTClaims
 from grelmicro.security.principal import Principal
 
 if TYPE_CHECKING:
@@ -112,6 +116,7 @@ __all__ = [
     "CurrentPrincipal",
     "HealthzResponse",
     "RateLimited",
+    "document_authenticated_requests",
     "document_conditional_requests",
     "document_idempotency",
     "document_rate_limited_requests",
@@ -427,6 +432,14 @@ async def _current_claims(request: "_Request") -> Any:  # noqa: ANN401
     return caller
 
 
+_AUTHENTICATED_MARKER: Final = "__grelmicro_authenticated__"
+"""Set on the dependency `Authenticated` declares, so the schema finds it.
+
+Read by attribute rather than by identity, so a declaration made before
+this module was imported again is still recognised as one.
+"""
+
+
 async def _authenticated(
     request: "_Request", security_scopes: "_SecurityScopes"
 ) -> Any:  # noqa: ANN401
@@ -438,6 +451,9 @@ async def _authenticated(
     if not set(required) <= set(getattr(caller, "scopes", ())):
         raise InsufficientScopeError(scopes=required)
     return caller
+
+
+setattr(_authenticated, _AUTHENTICATED_MARKER, True)
 
 
 CurrentPrincipal = Annotated[
@@ -937,6 +953,213 @@ def document_rate_limited_requests(
 
     app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     app.openapi_schema = None
+
+
+_SECURITY_SCHEME: Final = "AuthenticatedRequests"
+"""Name the schema publishes the bearer token scheme under."""
+
+_OPENID_CONFIGURATION: Final = "/.well-known/openid-configuration"
+"""Where OpenID Connect discovery appends its metadata to an issuer."""
+
+_HTTP_METHODS: Final = (
+    "get",
+    "put",
+    "post",
+    "delete",
+    "options",
+    "head",
+    "patch",
+    "trace",
+)
+"""Every method an OpenAPI path item can carry an operation under."""
+
+
+def document_authenticated_requests(
+    app: Annotated[
+        "FastAPI",
+        Doc("The app carrying an `AuthenticatedRequestsMiddleware`."),
+    ],
+) -> None:
+    """Describe the bearer token every covered operation needs, in the schema.
+
+    A middleware runs outside the routing layer, so nothing it does reaches
+    the generated schema. This publishes the security scheme, requires it
+    on every operation the middleware authenticates, with the scopes its
+    route declares through `Authenticated`, and adds the `401` it answers,
+    the `403` where scopes are required, and the `429` when `bans` is set.
+
+    A path in `exclude` and a route declaring `Anonymous()` stay without it.
+    The scheme is `openIdConnect` for a verifier that found the issuer's
+    OpenID Connect discovery document, and `http` bearer otherwise.
+
+    Registering `AuthenticatedRequests(...)` calls this for you, so a direct
+    call is for a middleware added by hand. Pass `openapi=False` to the
+    component to leave the schema alone.
+
+    Raises:
+        DependencyNotFoundError: If `fastapi` is not installed.
+        TypeError: If `app` is not a `FastAPI` app, or carries no
+            `AuthenticatedRequestsMiddleware`.
+    """
+    _require_fastapi(app, "document_authenticated_requests")
+    options = _middleware_options(
+        app,
+        AuthenticatedRequestsMiddleware,
+        "document_authenticated_requests() found no "
+        "AuthenticatedRequestsMiddleware on the app. Add it with "
+        "app.add_middleware(AuthenticatedRequestsMiddleware) first.",
+    )
+    original = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        errors = getattr(app.state, "grelmicro_error_responses", None)
+        schema = original()
+        _annotate_authenticated(
+            schema,
+            app,
+            options,
+            PROBLEM_MEDIA_TYPE if errors is None else errors.media_type,
+            ProblemDetail if errors is None else errors.model,
+        )
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    app.openapi_schema = None
+
+
+def _annotate_authenticated(
+    schema: dict[str, Any],
+    app: "FastAPI",
+    options: dict[str, Any],
+    media_type: str,
+    model: type[BaseModel],
+) -> None:
+    """Require the scheme on every covered operation, with its refusals."""
+    ref = add_error_schema(schema, model)
+    content = {media_type: {"schema": {"$ref": ref}}} if ref else {}
+    schema.setdefault("components", {}).setdefault(
+        "securitySchemes", {}
+    ).setdefault(_SECURITY_SCHEME, _security_scheme(options["verifier"]))
+    exclude = tuple(options["exclude"])
+    public, scopes = _route_authentication(app)
+    for path, _, operation, method in _paths_with_method(schema, _HTTP_METHODS):
+        if (path, method) in public or not selects(
+            path, include=(), exclude=exclude
+        ):
+            continue
+        required = scopes.get((path, method), [])
+        # OpenAPI lists alternatives, each naming what is required together.
+        # The middleware requires the bearer token whichever alternative
+        # the route checks itself, so it joins every one of them rather
+        # than standing beside them as a way around them.
+        security = operation.get("security")
+        if security:
+            for alternative in security:
+                alternative.setdefault(_SECURITY_SCHEME, required)
+        else:
+            operation["security"] = [{_SECURITY_SCHEME: required}]
+        responses = operation.setdefault("responses", {})
+        responses.setdefault(
+            "401",
+            {
+                "description": (
+                    "The request carried no valid bearer token. "
+                    "`WWW-Authenticate` says how to authenticate."
+                ),
+                "headers": {"WWW-Authenticate": _CHALLENGE_HEADER},
+                "content": content,
+            },
+        )
+        if required:
+            responses.setdefault(
+                "403",
+                {
+                    "description": (
+                        "The token does not grant every scope this "
+                        "operation needs. `WWW-Authenticate` names them."
+                    ),
+                    "headers": {"WWW-Authenticate": _CHALLENGE_HEADER},
+                    "content": content,
+                },
+            )
+        if options["bans"] is not None:
+            responses.setdefault(
+                _TOO_MANY_REQUESTS,
+                {
+                    "description": (
+                        "The caller is banned for presenting forged "
+                        "tokens. Retry after the delay in `Retry-After`."
+                    ),
+                    "headers": {
+                        "Retry-After": {
+                            "schema": {"type": "integer"},
+                            "description": "Seconds to wait before retrying.",
+                        }
+                    },
+                    "content": content,
+                },
+            )
+
+
+_CHALLENGE_HEADER: Final = {
+    "schema": {"type": "string"},
+    "description": "The bearer token challenge, as RFC 6750 defines it.",
+}
+"""The `WWW-Authenticate` header a refusal carries."""
+
+
+def _security_scheme(verifier: object) -> dict[str, Any]:
+    """Return the security scheme a verifier's tokens are described by.
+
+    `openIdConnect` points a client at the issuer's discovery document, so
+    it is published only when that is the document the verifier found, or
+    before discovery has run. A provider publishing RFC 8414 metadata alone
+    is described as a bearer token, which every client can send.
+    """
+    config = getattr(verifier, "config", None)
+    if isinstance(config, DiscoveryConfig):
+        url = f"{config.issuer[0].rstrip('/')}{_OPENID_CONFIGURATION}"
+        found = getattr(verifier, "metadata_url", None)
+        if found is None or found == url:
+            return {"type": "openIdConnect", "openIdConnectUrl": url}
+    return {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+
+
+def _route_authentication(
+    app: "FastAPI",
+) -> tuple[set[tuple[str, str]], dict[tuple[str, str], list[str]]]:
+    """Return the public operations, and the scopes each covered one needs.
+
+    Keyed by the path the schema publishes and the lowercased method, so
+    both read straight against the schema's paths.
+    """
+    public: set[tuple[str, str]] = set()
+    scopes: dict[tuple[str, str], list[str]] = {}
+    for prefix, route, _ in walk_routes(app):
+        path = f"{prefix}{getattr(route, 'path_format', route.path)}"
+        methods = [method.lower() for method in getattr(route, "methods", ())]
+        if _declares_anonymous(route):
+            public.update((path, method) for method in methods)
+            continue
+        required = _scopes_declared(route)
+        for method in methods:
+            scopes[(path, method)] = required
+    return public, scopes
+
+
+def _scopes_declared(route: Any) -> list[str]:  # noqa: ANN401
+    """Return every scope an `Authenticated` in the route's tree requires."""
+    found: list[str] = []
+    declared = getattr(route, "dependant", None)  # codespell:ignore
+    pending = list(getattr(declared, "dependencies", ()))
+    while pending:
+        dependency = pending.pop(0)
+        if getattr(dependency.call, _AUTHENTICATED_MARKER, False):
+            for scope in getattr(dependency, "own_oauth_scopes", None) or ():
+                if scope not in found:
+                    found.append(scope)
+        pending.extend(dependency.dependencies)
+    return found
 
 
 _RATE_LIMIT_HEADERS: Final = {

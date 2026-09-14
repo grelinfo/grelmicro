@@ -258,8 +258,8 @@
   },
   "grelmicro.http": {
     "AuthenticatedRequests": {
-      "()": "(verifier, *, exclude=(), bans=None, trusted=None, name='default') -> 'None'",
-      ".from_config": "(config, verifier, *, bans=None, trusted=None, name='default') -> 'Self'"
+      "()": "(verifier, *, exclude=(), bans=None, trusted=None, name='default', openapi=True) -> 'None'",
+      ".from_config": "(config, verifier, *, bans=None, trusted=None, name='default', openapi=True) -> 'Self'"
     },
     "AuthenticatedRequestsConfig": {
       "()": "(*, exclude=()) -> None"
@@ -413,6 +413,9 @@
     },
     "RateLimited": {
       "()": "(*limiters, cost=1, max_wait=0.0, key=None, trusted=None, legacy_headers=False) -> Any"
+    },
+    "document_authenticated_requests": {
+      "()": "(app) -> None"
     },
     "document_conditional_requests": {
       "()": "(app) -> None"

@@ -541,6 +541,14 @@ class AuthenticatedRequests:
             str,
             Doc("Registration name, for a second verifier on one app."),
         ] = "default",
+        openapi: Annotated[
+            bool,
+            Doc(
+                "Describe the security scheme, and the `401` and `403` a "
+                "covered operation answers, in the OpenAPI schema. Only "
+                "FastAPI builds one."
+            ),
+        ] = True,
     ) -> None:
         """Authenticate every request through the registered middleware.
 
@@ -553,7 +561,12 @@ class AuthenticatedRequests:
             exclude=as_patterns(exclude, name="exclude"),
         )
         self._setup(
-            config, verifier=verifier, bans=bans, trusted=trusted, name=name
+            config,
+            verifier=verifier,
+            bans=bans,
+            trusted=trusted,
+            name=name,
+            openapi=openapi,
         )
 
     @classmethod
@@ -580,6 +593,14 @@ class AuthenticatedRequests:
             str,
             Doc("Registration name, for a second verifier on one app."),
         ] = "default",
+        openapi: Annotated[
+            bool,
+            Doc(
+                "Describe the security scheme, and the `401` and `403` a "
+                "covered operation answers, in the OpenAPI schema. Only "
+                "FastAPI builds one."
+            ),
+        ] = True,
     ) -> Self:
         """Build the component from a configuration that is already whole.
 
@@ -588,7 +609,12 @@ class AuthenticatedRequests:
         """
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001
-            config, verifier=verifier, bans=bans, trusted=trusted, name=name
+            config,
+            verifier=verifier,
+            bans=bans,
+            trusted=trusted,
+            name=name,
+            openapi=openapi,
         )
         return instance
 
@@ -600,6 +626,7 @@ class AuthenticatedRequests:
         bans: ClientBans | None,
         trusted: TrustedProxies | None,
         name: str,
+        openapi: bool,
     ) -> None:
         """Hold the configuration and the objects the middleware reads."""
         self._config = config
@@ -607,6 +634,7 @@ class AuthenticatedRequests:
         self._bans = bans
         self._trusted = trusted
         self._name = name
+        self._openapi = openapi
         self._stack: AsyncExitStack | None = None
         self._public = _PublicRoutes()
         # Built once here so a mistake is refused where it is written,
@@ -641,6 +669,23 @@ class AuthenticatedRequests:
     def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
         """Return the middleware class and the arguments to build it with."""
         return AuthenticatedRequestsMiddleware, self._options()
+
+    def document_openapi(
+        self,
+        app: Annotated[Any, Doc("The FastAPI application to describe.")],  # noqa: ANN401
+    ) -> None:
+        """Describe the security scheme and its refusals in the schema.
+
+        Called by the FastAPI integration after the middleware is added. A
+        framework that builds no schema never calls it.
+        """
+        if not self._openapi:
+            return
+        from grelmicro.integrations.fastapi import (  # noqa: PLC0415
+            document_authenticated_requests,
+        )
+
+        document_authenticated_requests(app)
 
     def read_routes(
         self,

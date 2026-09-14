@@ -1572,6 +1572,15 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         return self._keys is not None
 
     @property
+    def metadata_url(self) -> str | None:
+        """The issuer metadata document discovery last read keys through.
+
+        `None` for a verifier that does not discover, and until its first
+        discovery succeeds.
+        """
+        return self._metadata_url
+
+    @property
     def stale(self) -> bool:
         """Whether the next `refresh` would fetch.
 
