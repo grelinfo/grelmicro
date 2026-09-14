@@ -15,7 +15,13 @@ from grelmicro.errors import (
     _scope_tokens,
 )
 from grelmicro.http import ErrorResponses, merge_headers
-from grelmicro.http._authentication import ANONYMOUS_OPT, AUTHENTICATED_MARKER
+from grelmicro.http._authentication import (
+    ANONYMOUS_OPT,
+    AUTHENTICATED_MARKER,
+    document_operations,
+    operation_authentication,
+    serves_anonymous_routes,
+)
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._openapi import add_error_schema
 
@@ -195,6 +201,7 @@ def install_middleware(
             # The public routes it serves without a credential. The rest of
             # ours name their paths in `include=` on Litestar.
             component.read_routes(app)
+            component.document_openapi(app)
 
 
 def Anonymous() -> dict[str, Any]:  # noqa: N802
@@ -217,6 +224,10 @@ def Anonymous() -> dict[str, Any]:  # noqa: N802
     `opt={**Anonymous(), "tag": "public"}`. `micro.install(app)` reads it off
     every handler, per method, so a public read keeps its writes
     authenticated, and the app is read again when it starts.
+
+    It is `{"exclude_from_auth": True}`, the key Litestar's own
+    authentication middleware reads, so a handler written for that one is
+    public here too.
 
     Read more in the [Authentication](../http/authentication.md) docs.
     """
@@ -606,6 +617,41 @@ def _document_error_responses(app: Litestar, errors: ErrorResponses) -> None:
         _rewrite_error_responses(plugin.provide_openapi_schema(), errors)
 
     app.on_startup.append(rewrite)
+
+
+def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
+    """Describe the bearer token every covered operation needs, in the schema.
+
+    Runs on startup, as the error responses do, so a handler registered
+    after `install` is described too. A handler declaring `Anonymous()`
+    stays without it when `micro.install(app)` added the middleware, and a
+    path in `exclude` always does.
+    """
+
+    async def document() -> None:
+        from litestar._openapi.plugin import (  # noqa: PLC0415
+            OpenAPIPlugin,
+        )
+
+        if app.openapi_config is None:
+            return
+        registered = getattr(app.state, "grelmicro_error_responses", None)
+        errors = ErrorResponses() if registered is None else registered
+        public, scopes = operation_authentication(
+            app, anonymous=serves_anonymous_routes(app)
+        )
+        document_operations(
+            app.plugins.get(OpenAPIPlugin).provide_openapi_schema(),
+            verifier=options["verifier"],
+            bans=options["bans"] is not None,
+            exclude=tuple(options["exclude"]),
+            public=public,
+            scopes=scopes,
+            media_type=errors.media_type,
+            model=errors.model,
+        )
+
+    app.on_startup.append(document)
 
 
 def _rewrite_error_responses(

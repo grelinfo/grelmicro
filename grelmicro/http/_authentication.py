@@ -33,10 +33,15 @@ from grelmicro.http._component import (
     raw_headers_of,
     send_error,
 )
+from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
-from grelmicro.security.jwt import TokenRejectedError, TokenRejectedReason
+from grelmicro.security.jwt import (
+    DiscoveryConfig,
+    TokenRejectedError,
+    TokenRejectedReason,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, MutableMapping
@@ -79,8 +84,12 @@ _REFUSALS = (
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 """Set on the callable a route declares to be served without a credential."""
 
-ANONYMOUS_OPT = "grelmicro_anonymous"
-"""The `opt` key a Litestar handler declares itself public under."""
+ANONYMOUS_OPT = "exclude_from_auth"
+"""The `opt` key a Litestar handler declares itself public under.
+
+The key Litestar's own authentication middleware reads, so a handler
+written for it is public here too.
+"""
 
 
 async def _anonymous_route() -> None:
@@ -737,6 +746,171 @@ def _included_dependency_trees(
     ]
 
 
+SECURITY_SCHEME: Final = "AuthenticatedRequests"
+"""Name the schema publishes the bearer token scheme under."""
+
+_OPENID_CONFIGURATION: Final = "/.well-known/openid-configuration"
+"""Where OpenID Connect discovery appends its metadata to an issuer."""
+
+_OPERATION_METHODS: Final = frozenset(
+    {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+)
+"""Every method an OpenAPI path item can carry an operation under."""
+
+_CHALLENGE_HEADER: Final = {
+    "schema": {"type": "string"},
+    "description": "The bearer token challenge, as RFC 6750 defines it.",
+}
+"""The `WWW-Authenticate` header a refusal carries."""
+
+_TOO_MANY_REQUESTS: Final = "429"
+"""Status a banned caller is answered with."""
+
+
+def operation_authentication(
+    app: Any,  # noqa: ANN401
+    *,
+    anonymous: bool,
+) -> tuple[set[tuple[str, str]], dict[tuple[str, str], list[str]]]:
+    """Return the public operations, and the scopes each covered one needs.
+
+    Keyed by the path the schema publishes and the lowercased method, so
+    both read straight against the schema's paths. An operation is public
+    only when the middleware serves it without a credential, which a
+    declaration alone does not settle: another route may answer its URL.
+    With `anonymous` false no declaration counts, as for a middleware added
+    by hand.
+    """
+    served = routes_of(app)
+    public: set[tuple[str, str]] = set()
+    scopes: dict[tuple[str, str], list[str]] = {}
+    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
+        path = f"{prefix}{getattr(route, 'path_format', route.path)}"
+        # `None` for an endpoint class, which answers whatever it defines.
+        for method in getattr(route, "methods", None) or ():
+            key = (path, method.lower())
+            if anonymous and served.serves_publicly(route, method, prefix):
+                public.add(key)
+            else:
+                scopes[key] = list(route_scopes(route, method, contexts))
+    return public, scopes
+
+
+def document_operations(
+    schema: dict[str, Any],
+    *,
+    verifier: object,
+    bans: bool,
+    exclude: tuple[str, ...],
+    public: set[tuple[str, str]],
+    scopes: dict[tuple[str, str], list[str]],
+    media_type: str,
+    model: type[BaseModel],
+) -> None:
+    """Require the scheme on every covered operation, with its refusals.
+
+    Shared by every framework that builds a schema, so the same app is
+    described the same way whichever one serves it.
+    """
+    ref = add_error_schema(schema, model)
+    content = {media_type: {"schema": {"$ref": ref}}} if ref else {}
+    schema.setdefault("components", {}).setdefault(
+        "securitySchemes", {}
+    ).setdefault(SECURITY_SCHEME, security_scheme(verifier))
+    for path, item in (schema.get("paths") or {}).items():
+        for method, operation in item.items():
+            if (
+                method not in _OPERATION_METHODS
+                or (path, method) in public
+                or not selects(path, include=(), exclude=exclude)
+            ):
+                continue
+            _require_scheme(
+                operation,
+                scopes.get((path, method), []),
+                content,
+                bans=bans,
+            )
+
+
+def _require_scheme(
+    operation: dict[str, Any],
+    required: list[str],
+    content: dict[str, Any],
+    *,
+    bans: bool,
+) -> None:
+    """Require the scheme on one operation, and describe what it answers."""
+    # OpenAPI lists alternatives, each naming what is required together.
+    # The middleware requires the bearer token whichever alternative the
+    # route checks itself, so it joins every one of them rather than
+    # standing beside them as a way around them.
+    security = operation.get("security")
+    if security:
+        for alternative in security:
+            alternative.setdefault(SECURITY_SCHEME, required)
+    else:
+        operation["security"] = [{SECURITY_SCHEME: required}]
+    responses = operation.setdefault("responses", {})
+    responses.setdefault(
+        "401",
+        {
+            "description": (
+                "The request carried no valid bearer token. "
+                "`WWW-Authenticate` says how to authenticate."
+            ),
+            "headers": {"WWW-Authenticate": _CHALLENGE_HEADER},
+            "content": content,
+        },
+    )
+    if required:
+        responses.setdefault(
+            "403",
+            {
+                "description": (
+                    "The token does not grant every scope this operation "
+                    "needs. `WWW-Authenticate` names them."
+                ),
+                "headers": {"WWW-Authenticate": _CHALLENGE_HEADER},
+                "content": content,
+            },
+        )
+    if bans:
+        responses.setdefault(
+            _TOO_MANY_REQUESTS,
+            {
+                "description": (
+                    "The caller is banned for presenting forged tokens. "
+                    "Retry after the delay in `Retry-After`."
+                ),
+                "headers": {
+                    "Retry-After": {
+                        "schema": {"type": "integer"},
+                        "description": "Seconds to wait before retrying.",
+                    }
+                },
+                "content": content,
+            },
+        )
+
+
+def security_scheme(verifier: object) -> dict[str, Any]:
+    """Return the security scheme a verifier's tokens are described by.
+
+    `openIdConnect` points a client at the issuer's discovery document, so
+    it is published only when that is the document the verifier found, or
+    before discovery has run. A provider publishing RFC 8414 metadata alone
+    is described as a bearer token, which every client can send.
+    """
+    config = getattr(verifier, "config", None)
+    if isinstance(config, DiscoveryConfig):
+        url = f"{config.issuer[0].rstrip('/')}{_OPENID_CONFIGURATION}"
+        found = getattr(verifier, "metadata_url", None)
+        if found is None or found == url:
+            return {"type": "openIdConnect", "openIdConnectUrl": url}
+    return {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+
+
 class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
     """Authenticated Requests Config.
 
@@ -1228,10 +1402,17 @@ class AuthenticatedRequests:
     ) -> None:
         """Describe the security scheme and its refusals in the schema.
 
-        Called by the FastAPI integration after the middleware is added. A
-        framework that builds no schema never calls it.
+        Called by the FastAPI and Litestar integrations after the middleware
+        is added. A framework that builds no schema never calls it.
         """
         if not self._openapi:
+            return
+        if getattr(app, "asgi_router", None) is not None:
+            from grelmicro.integrations.litestar import (  # noqa: PLC0415
+                _document_authentication,
+            )
+
+            _document_authentication(app, self._options())
             return
         from grelmicro.integrations.fastapi import (  # noqa: PLC0415
             document_authenticated_requests,

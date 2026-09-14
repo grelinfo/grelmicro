@@ -1132,6 +1132,61 @@ class TestLitestar:
         with pytest.raises(TypeError, match="not a single string"):
             LitestarAuthenticated(scopes="orders:write")
 
+    def test_litestars_own_opt_out_key_serves_a_handler_publicly(self) -> None:
+        """A handler written for Litestar's own authentication is public here."""
+
+        @get("/health", opt={"exclude_from_auth": True})
+        async def health() -> dict[str, bool]:
+            return {"ok": True}
+
+        app = Litestar(route_handlers=[health])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            response = client.get("/health")
+
+        assert response.json() == {"ok": True}
+        assert LitestarAnonymous() == {"exclude_from_auth": True}
+
+    def test_the_litestar_schema_describes_what_each_operation_needs(
+        self,
+    ) -> None:
+        """The scheme, the scopes and the refusals, public handlers left open."""
+        with LitestarTestClient(
+            litestar_app(
+                AuthenticatedRequests(verifier(), exclude=("/schema/*",))
+            )
+        ) as client:
+            schema = client.get("/schema/openapi.json").json()
+        paths = schema["paths"]
+
+        assert SCHEME in schema["components"]["securitySchemes"]
+        assert "security" not in paths["/status"]["get"]
+        assert "security" not in paths["/catalog/{item_id}"]["get"]
+        assert paths["/catalog/{item_id}"]["post"]["security"] == [{SCHEME: []}]
+        assert "401" in paths["/catalog/{item_id}"]["post"]["responses"]
+        assert paths["/orders/{order_id}"]["delete"]["security"] == [
+            {SCHEME: ["orders:write"]}
+        ]
+        assert "403" in paths["/orders/{order_id}"]["delete"]["responses"]
+
+    def test_a_litestar_app_without_a_schema_starts_all_the_same(self) -> None:
+        """No schema is published, so there is nothing to describe."""
+
+        @get("/status", opt=LitestarAnonymous())
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        app = Litestar(route_handlers=[status], openapi_config=None)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            assert client.get("/status").json() == {"up": True}
+
 
 class TestReport:
     """What `grelmicro check` says about each endpoint."""

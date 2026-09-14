@@ -64,8 +64,8 @@ from grelmicro.http._authentication import (
     AUTHENTICATED_MARKER,
     AuthenticatedRequestsMiddleware,
     declare_anonymous,
-    route_scopes,
-    routes_of,
+    document_operations,
+    operation_authentication,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
@@ -93,7 +93,7 @@ from grelmicro.integrations.starlette import (
     install_middleware as _install_middleware_starlette,
 )
 from grelmicro.resilience.errors import RateLimitExceededError
-from grelmicro.security.jwt import DiscoveryConfig, JWTClaims
+from grelmicro.security.jwt import JWTClaims
 from grelmicro.security.principal import Principal
 
 if TYPE_CHECKING:
@@ -954,12 +954,6 @@ def document_rate_limited_requests(
     app.openapi_schema = None
 
 
-_SECURITY_SCHEME: Final = "AuthenticatedRequests"
-"""Name the schema publishes the bearer token scheme under."""
-
-_OPENID_CONFIGURATION: Final = "/.well-known/openid-configuration"
-"""Where OpenID Connect discovery appends its metadata to an issuer."""
-
 _HTTP_METHODS: Final = (
     "get",
     "put",
@@ -1036,125 +1030,19 @@ def _annotate_authenticated(
     model: type[BaseModel],
 ) -> None:
     """Require the scheme on every covered operation, with its refusals."""
-    ref = add_error_schema(schema, model)
-    content = {media_type: {"schema": {"$ref": ref}}} if ref else {}
-    schema.setdefault("components", {}).setdefault(
-        "securitySchemes", {}
-    ).setdefault(_SECURITY_SCHEME, _security_scheme(options["verifier"]))
-    exclude = tuple(options["exclude"])
-    public, scopes = _route_authentication(
+    public, scopes = operation_authentication(
         app, anonymous=options["public"] is not None
     )
-    for path, _, operation, method in _paths_with_method(schema, _HTTP_METHODS):
-        if (path, method) in public or not selects(
-            path, include=(), exclude=exclude
-        ):
-            continue
-        required = scopes.get((path, method), [])
-        # OpenAPI lists alternatives, each naming what is required together.
-        # The middleware requires the bearer token whichever alternative
-        # the route checks itself, so it joins every one of them rather
-        # than standing beside them as a way around them.
-        security = operation.get("security")
-        if security:
-            for alternative in security:
-                alternative.setdefault(_SECURITY_SCHEME, required)
-        else:
-            operation["security"] = [{_SECURITY_SCHEME: required}]
-        responses = operation.setdefault("responses", {})
-        responses.setdefault(
-            "401",
-            {
-                "description": (
-                    "The request carried no valid bearer token. "
-                    "`WWW-Authenticate` says how to authenticate."
-                ),
-                "headers": {"WWW-Authenticate": _CHALLENGE_HEADER},
-                "content": content,
-            },
-        )
-        if required:
-            responses.setdefault(
-                "403",
-                {
-                    "description": (
-                        "The token does not grant every scope this "
-                        "operation needs. `WWW-Authenticate` names them."
-                    ),
-                    "headers": {"WWW-Authenticate": _CHALLENGE_HEADER},
-                    "content": content,
-                },
-            )
-        if options["bans"] is not None:
-            responses.setdefault(
-                _TOO_MANY_REQUESTS,
-                {
-                    "description": (
-                        "The caller is banned for presenting forged "
-                        "tokens. Retry after the delay in `Retry-After`."
-                    ),
-                    "headers": {
-                        "Retry-After": {
-                            "schema": {"type": "integer"},
-                            "description": "Seconds to wait before retrying.",
-                        }
-                    },
-                    "content": content,
-                },
-            )
-
-
-_CHALLENGE_HEADER: Final = {
-    "schema": {"type": "string"},
-    "description": "The bearer token challenge, as RFC 6750 defines it.",
-}
-"""The `WWW-Authenticate` header a refusal carries."""
-
-
-def _security_scheme(verifier: object) -> dict[str, Any]:
-    """Return the security scheme a verifier's tokens are described by.
-
-    `openIdConnect` points a client at the issuer's discovery document, so
-    it is published only when that is the document the verifier found, or
-    before discovery has run. A provider publishing RFC 8414 metadata alone
-    is described as a bearer token, which every client can send.
-    """
-    config = getattr(verifier, "config", None)
-    if isinstance(config, DiscoveryConfig):
-        url = f"{config.issuer[0].rstrip('/')}{_OPENID_CONFIGURATION}"
-        found = getattr(verifier, "metadata_url", None)
-        if found is None or found == url:
-            return {"type": "openIdConnect", "openIdConnectUrl": url}
-    return {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
-
-
-def _route_authentication(
-    app: "FastAPI",
-    *,
-    anonymous: bool,
-) -> tuple[set[tuple[str, str]], dict[tuple[str, str], list[str]]]:
-    """Return the public operations, and the scopes each covered one needs.
-
-    Keyed by the path the schema publishes and the lowercased method, so
-    both read straight against the schema's paths. An operation is public
-    only when the middleware serves it without a credential, which a
-    declaration alone does not settle: another route may answer its URL.
-    With `anonymous` false no declaration counts, as for a middleware added
-    by hand.
-    """
-    served = routes_of(app)
-    public: set[tuple[str, str]] = set()
-    scopes: dict[tuple[str, str], list[str]] = {}
-    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
-        path = f"{prefix}{getattr(route, 'path_format', route.path)}"
-        # `None` for an endpoint class, which answers whatever it defines.
-        for method in getattr(route, "methods", None) or ():
-            key = (path, method.lower())
-            if anonymous and served.serves_publicly(route, method, prefix):
-                public.add(key)
-            else:
-                scopes[key] = list(route_scopes(route, method, contexts))
-    return public, scopes
+    document_operations(
+        schema,
+        verifier=options["verifier"],
+        bans=options["bans"] is not None,
+        exclude=tuple(options["exclude"]),
+        public=public,
+        scopes=scopes,
+        media_type=media_type,
+        model=model,
+    )
 
 
 _RATE_LIMIT_HEADERS: Final = {

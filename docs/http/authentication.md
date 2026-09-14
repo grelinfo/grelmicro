@@ -48,6 +48,10 @@ Starlette, FastAPI and Litestar look.
 | require scopes | `dependencies=[Authenticated(scopes=[...])]` | `guards=[Authenticated(scopes=[...])]` | `@requires("orders:write")` |
 | public route | `dependencies=[Anonymous()]` | `opt=Anonymous()` | `exclude=` |
 
+On Litestar, `Anonymous()` is `{"exclude_from_auth": True}`, the key Litestar's
+own authentication middleware reads, so a handler written for that one is
+public here too.
+
 `CurrentPrincipal` is a `Principal`: `subject`, `issuer`, `scopes` and
 `claims`, whatever proved who the caller is. Key a caller by `issuer` and
 `subject` together, because a subject is unique only within the issuer that
@@ -127,7 +131,8 @@ builds its own key. An `Anonymous()` route stays cacheable and replayable.
 
 ## In the schema
 
-On FastAPI, the OpenAPI schema carries the security scheme and requires it on
+On FastAPI and Litestar, the OpenAPI schema carries the security scheme and
+requires it on
 every operation authentication covers, with the scopes its route declares. Each
 of those operations lists the `401` it can answer, the `403` where scopes are
 required, and the `429` when `bans` is set.
