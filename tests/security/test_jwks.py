@@ -774,6 +774,41 @@ class TestDocumentLimits:
 
         assert verifier.verify(token()).subject == "user-1"
 
+    async def test_a_key_the_core_refuses_is_skipped(self) -> None:
+        """One key nothing can verify with never takes the good ones down."""
+        unreadable = {
+            "kty": "RSA",
+            "kid": "no-modulus",
+            "use": "sig",
+            "alg": "RS256",
+        }
+        body = json.dumps(
+            {"keys": [unreadable, SIGNER.public_jwk("RS256", kid="k1")]}
+        ).encode()
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(body))
+
+        await verifier.refresh()
+
+        assert verifier.verify(token()).subject == "user-1"
+
+    async def test_a_document_the_core_reads_no_key_from_is_refused(
+        self,
+    ) -> None:
+        """Skipping every key leaves nothing to verify with."""
+        unreadable = {
+            "kty": "RSA",
+            "kid": "no-modulus",
+            "use": "sig",
+            "alg": "RS256",
+        }
+        body = json.dumps({"keys": [unreadable]}).encode()
+        verifier = JWTVerifier.from_config(config(), fetch=Endpoint(body))
+
+        with pytest.raises(SigningKeysUnavailableError, match="usable key"):
+            await verifier.refresh()
+
+        assert verifier.ready is False
+
     async def test_encryption_keys_are_skipped(self) -> None:
         """A signature is never verified with an encryption key."""
         body = json.dumps(

@@ -1339,6 +1339,32 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
             raise SettingsValidationError(detail) from None
         return _KeySet(verify)
 
+    def _readable_key_set(self, config: JWTKeysConfig) -> _KeySet:
+        """Build a key set from the published keys the core reads.
+
+        A provider is free to publish a key the core does not read. Skipping
+        it keeps the keys that do work, where failing the document would take
+        authentication down over a key nothing was going to be verified with.
+        Each key is tried on its own only once the whole set was refused, so a
+        healthy document has its keys parsed once.
+
+        Raises:
+            SigningKeysUnavailableError: If the core reads none of the keys.
+        """
+        readable = []
+        for key in config.keys:
+            try:
+                self._key_set(config.model_copy(update={"keys": [key]}))
+            except SettingsValidationError:
+                continue
+            readable.append(key)
+        if not readable:
+            msg = (
+                "jwks document holds no usable key: the core reads none of them"
+            )
+            raise SigningKeysUnavailableError(msg)
+        return self._key_set(config.model_copy(update={"keys": readable}))
+
     @property
     def ready(self) -> bool:
         """Whether a key set is loaded. Always true for keys held in code."""
@@ -1450,13 +1476,12 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig]):
             self._wants_keys = False
             return False
 
+        config = _document_config(source, document)
         try:
-            keys = self._key_set(_document_config(source, document))
-        except SettingsValidationError as error:
+            keys = self._key_set(config)
+        except SettingsValidationError:
             # A document can parse and still hold a key the core refuses.
-            # `refresh` promises one error, so it raises that one.
-            msg = f"jwks document holds no usable key: {error}"
-            raise SigningKeysUnavailableError(msg) from None
+            keys = self._readable_key_set(config)
 
         # One assignment, so a thread reading it gets the old keys with their
         # cache or the new keys with an empty one, and never a mix.
