@@ -13,7 +13,7 @@ import json
 import time
 from dataclasses import replace
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Self
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Security
@@ -340,6 +340,16 @@ class TestCredential:
         assert tmf.media_type != ErrorResponses().media_type
         assert problem.json()["instance"] == "/whoami"
 
+    def test_a_tab_after_the_scheme_is_not_a_separator(self) -> None:
+        """RFC 7235 separates the scheme from the token with spaces only."""
+        client = TestClient(app_with(AuthenticatedRequests(verifier())))
+
+        response = client.get(
+            "/whoami", headers={"authorization": f"Bearer \t{token()}"}
+        )
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
     def test_the_scheme_is_read_without_regard_to_case(self) -> None:
         """RFC 7235 makes the scheme name case-insensitive."""
         client = TestClient(app_with(AuthenticatedRequests(verifier())))
@@ -467,6 +477,35 @@ class TestKeys:
             response = client.get("/whoami", headers=bearer(token()))
 
         assert response.status_code == HTTP_200_OK
+
+    async def test_the_component_closes_the_verifier_it_opened(self) -> None:
+        """Its background refresh stops when the app stops."""
+
+        class Tracked:
+            opened = False
+            closed = False
+
+            def verify(self, token: str) -> JWTClaims:
+                raise NotImplementedError  # pragma: no cover
+
+            def verify_header(self, header: str | None) -> JWTClaims:
+                raise NotImplementedError  # pragma: no cover
+
+            async def __aenter__(self) -> Self:
+                self.opened = True
+                return self
+
+            async def __aexit__(self, *exc: object) -> None:
+                self.closed = True
+
+        tracked = Tracked()
+        component = AuthenticatedRequests(tracked)
+
+        async with component:
+            opened = tracked.opened
+
+        assert opened
+        assert tracked.closed
 
     def test_keys_that_never_loaded_answer_503(self) -> None:
         """A service that cannot check a token refuses every one of them."""
@@ -728,6 +767,7 @@ async def identified(request: Request) -> JSONResponse:
             "identity": request.user.identity,
             "display": request.user.display_name,
             "authenticated": request.user.is_authenticated,
+            "scopes": sorted(request.auth.scopes),
         }
     )
 
@@ -763,11 +803,13 @@ class TestCallerShape:
             "identity": "",
             "display": "",
             "authenticated": False,
+            "scopes": [],
         }
         assert client.get("/closed", headers=bearer(token())).json() == {
             "identity": "user-1",
             "display": "user-1",
             "authenticated": True,
+            "scopes": [],
         }
 
     def test_an_excluded_path_keeps_the_caller_an_outer_middleware_set(
@@ -1096,10 +1138,51 @@ class TestConstruction:
 
         assert component.config.exclude == ("/internal/*",)
 
+    def test_from_config_keeps_every_argument(self) -> None:
+        """The verifier, the bans, the proxies, the name and the schema opt-out."""
+        bans = ClientBans()
+        trusted = TrustedProxies(PROXIES)
+        trusting = verifier()
+        component = AuthenticatedRequests.from_config(
+            AuthenticatedRequestsConfig(),
+            trusting,
+            bans=bans,
+            trusted=trusted,
+            name="edge",
+            openapi=False,
+        )
+        _, options = component.asgi_middleware()
+        app = FastAPI()
+        Grelmicro(uses=[ErrorResponses(), component]).install(app)
+
+        assert component.verifier is trusting
+        assert component.name == "edge"
+        assert options["bans"] is bans
+        assert options["trusted"] is trusted
+        assert SCHEME not in app.openapi().get("components", {}).get(
+            "securitySchemes", {}
+        )
+
+    def test_from_config_describes_the_schema_by_default(self) -> None:
+        """Only `openapi=False` leaves the schema alone."""
+        component = AuthenticatedRequests.from_config(
+            AuthenticatedRequestsConfig(), verifier()
+        )
+        app = FastAPI()
+        Grelmicro(uses=[ErrorResponses(), component]).install(app)
+
+        assert SCHEME in app.openapi()["components"]["securitySchemes"]
+
     def test_exclude_written_as_one_string_is_refused(self) -> None:
         """A missing comma would otherwise exclude by single characters."""
-        with pytest.raises(TypeError, match="string"):
+        with pytest.raises(TypeError, match="exclude"):
             AuthenticatedRequests(verifier(), exclude="/livez")  # ty: ignore[invalid-argument-type]
+        with pytest.raises(TypeError, match="exclude"):
+            AuthenticatedRequestsMiddleware(
+                app_with(),
+                verifier=verifier(),
+                exclude="/livez",  # ty: ignore[invalid-argument-type]
+            )
 
     def test_the_component_reports_what_it_was_built_with(self) -> None:
         """What `grelmicro check` and a caller read back is what was given."""
@@ -1419,6 +1502,28 @@ class TestFastAPI:
             == HTTP_400_BAD_REQUEST
         )
 
+    def test_an_anonymous_route_refuses_two_credentials(self) -> None:
+        """Two credentials of another scheme are refused, not ignored."""
+
+        def declare(app: FastAPI) -> None:
+            @app.get("/brochure", dependencies=[Anonymous()])
+            async def brochure() -> dict[str, bool]:
+                return {"brochure": True}  # pragma: no cover
+
+        client = TestClient(
+            fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        )
+
+        response = client.get(
+            "/brochure",
+            headers=[
+                ("authorization", "Basic YQ=="),
+                ("authorization", "Basic Yg=="),
+            ],
+        )
+
+        assert response.status_code == HTTP_400_BAD_REQUEST
+
 
 OAUTH_METADATA = "https://auth.grel.info/.well-known/oauth-authorization-server"
 OIDC_METADATA = "https://auth.grel.info/.well-known/openid-configuration"
@@ -1613,6 +1718,65 @@ class TestOpenAPI:
 
         assert "security" not in operation
         assert "401" not in operation["responses"]
+
+    def test_a_websocket_route_never_breaks_the_schema(self) -> None:
+        """A route that names no method is left out of what is read."""
+
+        def declare(app: FastAPI) -> None:
+            @app.websocket("/live")
+            async def live(
+                socket: FastAPIWebSocket,
+            ) -> None: ...  # pragma: no cover
+
+        schema = fastapi_app(
+            AuthenticatedRequests(verifier()), declare=declare
+        ).openapi()
+
+        assert "/me" in schema["paths"]
+
+    def test_each_refusal_names_its_body_and_its_header(self) -> None:
+        """The `401`, `403` and `429` carry the error body and their headers."""
+        component = AuthenticatedRequests(
+            verifier(), bans=ClientBans(), trusted=TrustedProxies(PROXIES)
+        )
+        schema = fastapi_app(component).openapi()
+        covered = schema["paths"]["/orders/{order_id}"]["delete"]["responses"]
+        public = schema["paths"]["/catalog"]["get"]["responses"]
+
+        for responses, statuses in (
+            (covered, ("401", "403", "429")),
+            (public, ("401", "429")),
+        ):
+            for status in statuses:
+                response = responses[status]
+                assert response["description"]
+                assert response["content"]["application/problem+json"][
+                    "schema"
+                ]["$ref"].endswith("ProblemDetail")
+        assert "WWW-Authenticate" in covered["401"]["headers"]
+        assert "WWW-Authenticate" in covered["403"]["headers"]
+        assert "Retry-After" in covered["429"]["headers"]
+        assert "403" not in public
+
+    def test_a_public_route_keeps_its_own_security_beside_the_token(
+        self,
+    ) -> None:
+        """What the route checks itself stays required, the token optional."""
+        own = HTTPBearer(scheme_name="Own", auto_error=False)
+
+        def declare(app: FastAPI) -> None:
+            @app.get("/offers", dependencies=[Anonymous(), Depends(own)])
+            async def offers() -> dict[str, bool]:
+                return {"offers": True}  # pragma: no cover
+
+        schema = fastapi_app(
+            AuthenticatedRequests(verifier()), declare=declare
+        ).openapi()
+
+        assert schema["paths"]["/offers"]["get"]["security"] == [
+            {"Own": []},
+            {"Own": [], SCHEME: []},
+        ]
 
     def test_openapi_false_leaves_the_schema_alone(self) -> None:
         """The component can stay out of the document."""
@@ -1858,6 +2022,27 @@ class TestLitestar:
         assert served.json() == {"up": True}
         assert refused.status_code == HTTP_401_UNAUTHORIZED
 
+    def test_the_root_path_is_taken_off_once(self) -> None:
+        """A path repeating the root path is routed as Litestar routes it."""
+
+        @get("/status", opt=LitestarAnonymous())
+        async def status() -> dict[str, bool]:
+            return {"up": True}  # pragma: no cover
+
+        @get("/v1/api/status")
+        async def nested() -> dict[str, bool]:
+            return {"nested": True}  # pragma: no cover
+
+        app = Litestar(route_handlers=[status, nested])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with LitestarTestClient(app, root_path="/api") as client:
+            response = client.get("/api/v1/api/status")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
 
 class TestReport:
     """What `grelmicro check` says about each endpoint."""
@@ -1931,6 +2116,36 @@ class TestReport:
 
         assert read(public) == "idempotent 3600s"
         assert read(replace(public, authenticated=True)) is None
+
+    def test_a_guard_on_one_method_is_reported_on_that_method(self) -> None:
+        """A route answering two methods keeps each one's scopes apart."""
+
+        @get("/orders/{order_id:int}")
+        async def read(
+            order_id: Annotated[int, Parameter()],
+        ) -> None: ...  # pragma: no cover
+
+        @delete(
+            "/orders/{order_id:int}",
+            guards=[LitestarAuthenticated(scopes=["orders:write"])],
+        )
+        async def remove(
+            order_id: Annotated[int, Parameter()],
+        ) -> None: ...  # pragma: no cover
+
+        app = Litestar(route_handlers=[read, remove])
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+        app.state.micro = micro
+
+        assert self.applies(app, "GET", "/orders/{order_id:int}") == (
+            "authenticated",
+        )
+        assert self.applies(app, "DELETE", "/orders/{order_id:int}") == (
+            "authenticated orders:write",
+        )
 
 
 class TestDeclarationsElsewhere:
@@ -2601,6 +2816,76 @@ class TestRouting:
         ).install(outer)
 
         assert TestClient(outer).get("/status").json() == {"up": True}
+
+    def test_a_public_route_is_redirected_to_without_the_slash_sent(
+        self,
+    ) -> None:
+        """A slash the public route does not have is redirected away."""
+        app = FastAPI()
+
+        @app.get("/catalog", dependencies=[Anonymous()])
+        async def catalog() -> dict[str, bool]:
+            return {"catalog": True}  # pragma: no cover
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        redirect = TestClient(app).get("/catalog/", follow_redirects=False)
+
+        assert redirect.status_code == HTTP_307_TEMPORARY_REDIRECT
+        assert redirect.headers["location"].endswith("/catalog")
+
+    def test_a_protected_socket_beside_a_public_one_stays_refused(
+        self,
+    ) -> None:
+        """A websocket route is held against the public one it overlaps."""
+        app = FastAPI()
+
+        @app.websocket("/live/me")
+        async def mine(
+            socket: FastAPIWebSocket,
+        ) -> None: ...  # pragma: no cover
+
+        @app.websocket("/live/{room}", dependencies=[Anonymous()])
+        async def room(socket: FastAPIWebSocket, room: str) -> None:
+            await socket.accept()
+            await socket.send_json({"room": room})
+            await socket.close()
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as refused,
+            client.websocket_connect("/live/me"),
+        ):
+            pass  # pragma: no cover
+        with client.websocket_connect("/live/lobby") as socket:
+            joined = socket.receive_json()
+
+        assert refused.value.status_code == HTTP_401_UNAUTHORIZED
+        assert joined == {"room": "lobby"}
+
+    def test_a_public_route_in_a_mount_wrapped_by_middleware_is_served(
+        self,
+    ) -> None:
+        """Middleware wrapped around a mounted app hides none of its routes."""
+        sub = FastAPI()
+
+        @sub.get("/status", dependencies=[Anonymous()])
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        app = FastAPI()
+        app.mount("/sub", GZipMiddleware(sub))
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/sub/status").json() == {"up": True}
 
 
 class TestConsistency:
