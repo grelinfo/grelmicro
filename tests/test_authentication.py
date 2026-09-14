@@ -100,6 +100,7 @@ HOUR = 3600
 HTTP_200_OK = 200
 HTTP_400_BAD_REQUEST = 400
 HTTP_403_FORBIDDEN = 403
+HTTP_404_NOT_FOUND = 404
 HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_401_UNAUTHORIZED = 401
 HTTP_429_TOO_MANY_REQUESTS = 429
@@ -1613,6 +1614,76 @@ class TestRouting:
         )
         assert TestClient(looped).get("/status").json() == {"up": True}
 
+    def test_a_mounted_router_never_serves_a_public_path_outside_its_routes(
+        self,
+    ) -> None:
+        """Everything under a mount is its own to answer, its default included."""
+
+        async def secret(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        async def listed(_request: Any) -> JSONResponse:  # noqa: ANN401
+            return JSONResponse({"listed": True})  # pragma: no cover
+
+        app = FastAPI()
+        app.mount("/sub", Router(routes=[Route("/a", listed)], default=secret))
+
+        @app.get("/sub/x", dependencies=[Anonymous()])
+        async def beside() -> dict[str, bool]:
+            return {"beside": True}  # pragma: no cover
+
+        @app.get("/status", dependencies=[Anonymous()])
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/sub/x").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/status").json() == {"up": True}
+
+    def test_a_public_route_under_a_host_is_public_only_when_others_get_a_404(
+        self,
+    ) -> None:
+        """A request no `Host` takes falls to its router's default, which decides."""
+
+        async def secret(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        def build(default: Any) -> FastAPI:  # noqa: ANN401
+            api = FastAPI()
+
+            @api.get("/x", dependencies=[Anonymous()])
+            async def x() -> dict[str, bool]:
+                return {"x": True}
+
+            app = FastAPI()
+            app.host("api.example.com", api)
+            if default is not None:
+                app.router.default = default
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+            ).install(app)
+            return app
+
+        standard = build(None)
+        fallback = build(secret)
+        api_host = "http://api.example.com"
+
+        assert TestClient(standard, base_url=api_host).get("/x").json() == {
+            "x": True
+        }
+        assert TestClient(standard).get("/x").status_code == HTTP_404_NOT_FOUND
+        assert TestClient(fallback).get("/x").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+
 
 class TestConsistency:
     """The schema and the report say what the middleware does."""
@@ -1783,6 +1854,55 @@ class TestConsistency:
         assert self.applies(app, "GET", "/v2/items") == ("anonymous",)
         assert client.get("/v1/items").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/v2/items").json() == {"items": True}
+
+    def test_a_public_route_with_a_registered_converter_is_described_public(
+        self,
+    ) -> None:
+        """A sample that fits the converter describes the route as it is served."""
+
+        class Day(Convertor[str]):  # codespell:ignore
+            regex = r"\d{4}-\d{2}-\d{2}"
+
+            def convert(self, value: str) -> str:
+                return value
+
+            def to_string(self, value: str) -> str:
+                return value  # pragma: no cover
+
+        class Nines(Convertor[str]):  # codespell:ignore
+            regex = "9{12}"
+
+            def convert(self, value: str) -> str:
+                return value  # pragma: no cover
+
+            def to_string(self, value: str) -> str:
+                return value  # pragma: no cover
+
+        register_url_convertor("grelmicro_day", Day())
+        register_url_convertor("grelmicro_nines", Nines())
+
+        def declare(app: FastAPI) -> None:
+            @app.get("/days/{day:grelmicro_day}", dependencies=[Anonymous()])
+            async def day(day: str) -> dict[str, str]:
+                return {"day": day}
+
+            @app.get(
+                "/codes/{code:grelmicro_nines}", dependencies=[Anonymous()]
+            )
+            async def code(code: str) -> dict[str, str]:
+                return {"code": code}  # pragma: no cover
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        paths = app.openapi()["paths"]
+
+        assert "security" not in paths["/days/{day}"]["get"]
+        assert self.applies(app, "GET", "/days/{day:grelmicro_day}") == (
+            "anonymous",
+        )
+        assert TestClient(app).get("/days/2026-01-01").json() == {
+            "day": "2026-01-01"
+        }
+        assert paths["/codes/{code}"]["get"]["security"] == [{SCHEME: []}]
 
 
 class TestIncludedScopes:

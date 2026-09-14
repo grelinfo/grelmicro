@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self, cast
 
@@ -143,6 +143,8 @@ class _Reach:
     kinds: frozenset[str]
     methods: frozenset[str] | None
     pattern: Pattern[str]
+    within: frozenset[int] = frozenset()
+    """The mounts and hosts the route sits in, which route a request to it."""
 
     def answers(self, kind: str, method: str | None, path: str) -> bool:
         """Return whether this route could answer the request."""
@@ -168,20 +170,41 @@ class _Routes:
     declared: Mapping[tuple[int, str], tuple[_Reach, str]] = MappingProxyType(
         {}
     )
+    nodes: tuple[tuple[int, _Reach], ...] = ()
 
     def serves(self, kind: str, method: str | None, path: str) -> bool:
         """Return whether a public route answers the URL and no other could."""
-        if not any(reach.answers(kind, method, path) for reach in self.public):
+        return any(
+            reach.answers(kind, method, path)
+            and self._unrivalled(reach, kind, method, path)
+            for reach in self.public
+        )
+
+    def _unrivalled(
+        self, reach: _Reach, kind: str, method: str | None, path: str
+    ) -> bool:
+        """Return whether nothing but what routes to `reach` answers the URL.
+
+        A route that is not public could answer it, and so could a mount or
+        a host the public route does not sit in, which answers every path
+        under it whatever routes it holds.
+        """
+        leaves = (*self.by_depth.get(path.count("/"), ()), *self.anywhere)
+        if any(leaf.answers(kind, method, path) for leaf in leaves):
             return False
-        rivals = (*self.by_depth.get(path.count("/"), ()), *self.anywhere)
-        return not any(reach.answers(kind, method, path) for reach in rivals)
+        return not any(
+            node.answers(kind, method, path)
+            for owner, node in self.nodes
+            if owner not in reach.within
+        )
 
     def routed(self, path: str) -> bool:
-        """Return whether any HTTP route matches the path, whatever its method."""
+        """Return whether anything matches the path over HTTP, whatever the method."""
         reaches = (
             *self.public,
             *self.by_depth.get(path.count("/"), ()),
             *self.anywhere,
+            *(node for _, node in self.nodes),
         )
         return any(
             "http" in reach.kinds and reach.pattern.fullmatch(path) is not None
@@ -210,10 +233,11 @@ class _Routes:
             return False
         reach, template = entry
         sample = _sample_url(template)
+        if sample is None:
+            return False
         kind = next(iter(reach.kinds))
-        rivals = (*self.by_depth.get(sample.count("/"), ()), *self.anywhere)
-        return reach.answers(kind, method, sample) and not any(
-            rival.answers(kind, method, sample) for rival in rivals
+        return reach.answers(kind, method, sample) and self._unrivalled(
+            reach, kind, method, sample
         )
 
 
@@ -301,13 +325,15 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     """Read a Starlette or FastAPI app's public routes, and all the others.
 
     Each path is compiled with the framework's own compiler, so it fits
-    exactly the URLs the router matches it against. A mounted application,
-    a `Host`, or a route of another kind whose routes cannot be read answers
-    anything under the path it sits at, so it counts as a route that could
-    answer every one of those URLs.
+    exactly the URLs the router matches it against. A mount or a host
+    answers every path under it, its router's default included, so it
+    counts as a route that could answer each of them, except for the
+    public routes it holds.
     """
     from starlette.routing import WebSocketRoute  # noqa: PLC0415
 
+    tree = _Tree()
+    _read_tree(app, tree)
     public: list[_Reach] = []
     declared: dict[tuple[int, str], tuple[_Reach, str]] = {}
     rivals: list[tuple[str, _Reach]] = []
@@ -321,18 +347,15 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             reach = _Reach(
                 _HTTP, frozenset(methods) if methods else None, compiled
             )
-        if _declares_anonymous(route, contexts):
+        key = (id(route), prefix)
+        if _declares_anonymous(route, contexts) and key not in tree.closed:
+            reach = replace(reach, within=tree.within.get(key, frozenset()))
             public.append(reach)
-            declared[id(route), prefix] = (reach, template)
+            declared[key] = (reach, template)
         else:
             rivals.append((template, reach))
     if not public:
         return _Routes()
-    for under in _unreadable_paths(app):
-        template = f"{under.rstrip('/')}/{{path:path}}"
-        rivals.append(
-            (template, _Reach(_EITHER, None, compile_route(template)))
-        )
     by_depth: dict[int, list[_Reach]] = {}
     anywhere: list[_Reach] = []
     for template, reach in rivals:
@@ -347,49 +370,92 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         ),
         anywhere=tuple(anywhere),
         declared=MappingProxyType(declared),
+        nodes=tuple(
+            (
+                node,
+                _Reach(
+                    _EITHER,
+                    None,
+                    compile_route(f"{under.rstrip('/')}/{{path:path}}"),
+                ),
+            )
+            for node, under in tree.nodes
+        ),
     )
 
 
-def _unreadable_paths(
-    app: Any,  # noqa: ANN401
-    prefix: str = "",
-    ancestors: frozenset[int] = frozenset(),
-) -> list[str]:
-    """Return the path of every routing node whose routes cannot be read.
+@dataclass(slots=True)
+class _Tree:
+    """Where each routing node of an app sits, and what each route sits in."""
 
-    A mounted application, a `Host` or a route of another kind answers
-    whatever it matches, so all that narrows it is the path it sits at: a
-    mount's own path, or for anything else the path of the router holding
-    it.
+    nodes: list[tuple[int, str]] = field(default_factory=list)
+    within: dict[tuple[int, str], frozenset[int]] = field(default_factory=dict)
+    closed: set[tuple[int, str]] = field(default_factory=set)
+
+
+def _read_tree(
+    app: Any,  # noqa: ANN401
+    tree: _Tree,
+    prefix: str = "",
+    within: frozenset[int] = frozenset(),
+    closed: bool = False,  # noqa: FBT001, FBT002
+    seen: frozenset[int] = frozenset(),
+) -> None:
+    """Record every mount and host, and the ones each route sits in.
+
+    A node answers the paths under it: a mount's own path, or for a host
+    or a node of another kind, the path of the router holding it. A route
+    under a node that turns a request away to anything but a `404` is
+    closed, because what answers instead is not the route.
     """
     routed = _route_source(app, unwrap_middleware=True)
-    if routed is None or id(routed) in ancestors:
-        return []
-    ancestors |= {id(routed)}
-    found: list[str] = []
+    if routed is None or id(routed) in seen:
+        return
+    seen |= {id(routed)}
     for route in getattr(routed, "routes", None) or ():
         included = getattr(route, "original_router", None)
         if included is not None:
             context = getattr(route, "include_context", None)
-            found.extend(
-                _unreadable_paths(
-                    included,
-                    f"{prefix}{getattr(context, 'prefix', '')}",
-                    ancestors,
-                )
+            _read_tree(
+                included,
+                tree,
+                f"{prefix}{getattr(context, 'prefix', '')}",
+                within,
+                closed,
+                seen,
             )
             continue
         if _is_route(route):
+            key = (id(route), prefix)
+            tree.within[key] = within
+            if closed:
+                tree.closed.add(key)
             continue
         under = f"{prefix}{route.path}" if _is_mount(route) else prefix
-        nested = _route_source(
-            getattr(route, "app", None), unwrap_middleware=True
+        tree.nodes.append((id(route), under))
+        _read_tree(
+            getattr(route, "app", None),
+            tree,
+            under,
+            within | {id(route)},
+            closed or _turns_away_elsewhere(route, routed),
+            seen,
         )
-        if getattr(nested, "routes", None) is None:
-            found.append(under)
-        else:
-            found.extend(_unreadable_paths(nested, under, ancestors))
-    return found
+
+
+def _turns_away_elsewhere(route: Any, holder: Any) -> bool:  # noqa: ANN401
+    """Return whether a request this node does not take is answered by more than a `404`.
+
+    A mount takes every path under it. Any other node, such as a host, may
+    turn a request for its paths away, and its router then answers with its
+    default.
+    """
+    if _is_mount(route):
+        return False
+    from starlette.routing import Router  # noqa: PLC0415
+
+    default = getattr(getattr(holder, "router", holder), "default", None)
+    return getattr(default, "__func__", None) is not Router.not_found
 
 
 def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401
@@ -447,6 +513,15 @@ _SAMPLES: Final = {
 }
 """A value for each converter that no literal route is likely declared with."""
 
+_FALLBACK_SAMPLES: Final = (
+    "4096-12-31",
+    "4096-12-31T23:59:59",
+    "grelmicro",
+    "4096",
+    "g",
+)
+"""Values tried for a converter the app registered itself."""
+
 
 def _spans_depths(template: str) -> bool:
     """Return whether a URL this template matches may have more segments.
@@ -471,12 +546,40 @@ def _spans_depths(template: str) -> bool:
     )
 
 
-def _sample_url(template: str) -> str:
-    """Return a URL of this route whose parameters avoid literal paths."""
-    return _STARLETTE_PARAMETER.sub(
-        lambda match: _SAMPLES.get(match.group(2) or "str", _SAMPLES["str"]),
-        template,
+def _sample_url(template: str) -> str | None:
+    """Return a URL of this route whose parameters avoid literal paths.
+
+    Each value is one the parameter's converter accepts. `None` when no
+    sample fits a converter the app registered itself.
+    """
+    from starlette.convertors import (  # noqa: PLC0415  # codespell:ignore
+        CONVERTOR_TYPES,
     )
+
+    pieces: list[str] = []
+    last = 0
+    for match in _STARLETTE_PARAMETER.finditer(template):
+        name = match.group(2) or "str"
+        regex = CONVERTOR_TYPES[name].regex
+        candidates = (
+            _SAMPLES.get(name),
+            *_SAMPLES.values(),
+            *_FALLBACK_SAMPLES,
+        )
+        value = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate is not None and re.fullmatch(regex, candidate)
+            ),
+            None,
+        )
+        if value is None:
+            return None
+        pieces.extend((template[last : match.start()], value))
+        last = match.end()
+    pieces.append(template[last:])
+    return "".join(pieces)
 
 
 def _litestar_handlers(route: Any) -> list[Any] | None:  # noqa: ANN401
