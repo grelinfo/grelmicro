@@ -1134,7 +1134,7 @@ def _route_authentication(
     served = routes_of(app)
     public: set[tuple[str, str]] = set()
     scopes: dict[tuple[str, str], list[str]] = {}
-    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
+    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         path = f"{prefix}{getattr(route, 'path_format', route.path)}"
         # `None` for an endpoint class, which answers whatever it defines.
         for method in getattr(route, "methods", None) or ():
@@ -1142,7 +1142,7 @@ def _route_authentication(
             if served.serves_publicly(route, method):
                 public.add(key)
             else:
-                scopes[key] = list(route_scopes(route, method))
+                scopes[key] = list(route_scopes(route, method, contexts))
     return public, scopes
 
 

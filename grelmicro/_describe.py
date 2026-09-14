@@ -540,7 +540,9 @@ def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  
             return None
         if endpoint.public:
             return "anonymous"
-        scopes = " ".join(route_scopes(endpoint.route, endpoint.method))
+        scopes = " ".join(
+            route_scopes(endpoint.route, endpoint.method, endpoint.contexts)
+        )
         return (
             f"authenticated {scopes}{reach}"
             if scopes

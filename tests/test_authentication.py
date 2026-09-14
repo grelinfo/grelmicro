@@ -1510,6 +1510,42 @@ class TestConsistency:
         assert TestClient(app).get("/me").status_code == HTTP_401_UNAUTHORIZED
 
 
+class TestIncludedScopes:
+    """Scopes a router was included with are described like its own."""
+
+    def test_scopes_an_include_declares_are_described(self) -> None:
+        """The schema and the report name what FastAPI enforces."""
+        reports = APIRouter()
+
+        @reports.get("/quarterly")
+        async def quarterly() -> dict[str, bool]:
+            return {"quarterly": True}
+
+        def declare(app: FastAPI) -> None:
+            app.include_router(
+                reports, dependencies=[Authenticated(scopes=["reports:read"])]
+            )
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        report = app.state.micro.describe(app)
+        row = next(
+            entry.applies
+            for entry in report.endpoints
+            if entry.method == "GET" and entry.path == "/quarterly"
+        )
+
+        assert app.openapi()["paths"]["/quarterly"]["get"]["security"] == [
+            {SCHEME: ["reports:read"]}
+        ]
+        assert row == ("authenticated reports:read",)
+        assert (
+            TestClient(app)
+            .get("/quarterly", headers=bearer(token()))
+            .status_code
+            == HTTP_403_FORBIDDEN
+        )
+
+
 class TestBoundaries:
     """Where one route's reach ends, and how many authentications an app has."""
 

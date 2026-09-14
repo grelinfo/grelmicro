@@ -485,6 +485,7 @@ def _litestar_declares_public(
 def route_scopes(
     route: Any,  # noqa: ANN401
     method: str,
+    contexts: tuple[Any, ...] = (),
 ) -> tuple[str, ...]:
     """Return every scope an `Authenticated` on this route requires, in order.
 
@@ -501,7 +502,10 @@ def route_scopes(
                     found.extend(getattr(guard, AUTHENTICATED_MARKER, ()))
         return tuple(dict.fromkeys(found))
     declared = getattr(route, "dependant", None)  # codespell:ignore
-    pending = list(getattr(declared, "dependencies", ()))
+    pending = [
+        *getattr(declared, "dependencies", ()),
+        *_included_dependency_trees(route, contexts),
+    ]
     while pending:
         dependency = pending.pop(0)
         if getattr(dependency.call, AUTHENTICATED_MARKER, False):
@@ -516,6 +520,36 @@ def route_scopes(
             )
         pending.extend(dependency.dependencies)
     return tuple(dict.fromkeys(found))
+
+
+def _included_dependency_trees(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...],
+) -> list[Any]:
+    """Return the dependency trees a route's routers were included with.
+
+    FastAPI keeps what `include_router(dependencies=...)` names on the
+    include context rather than in the route's own tree, and resolves it
+    only when it serves the route, so the trees are built here the same way.
+    """
+    declared = [
+        dependency
+        for context in contexts
+        for dependency in getattr(context, "dependencies", ()) or ()
+        if callable(getattr(dependency, "dependency", None))
+    ]
+    if not declared:
+        return []
+    from fastapi.dependencies.utils import (  # noqa: PLC0415
+        get_parameterless_sub_dependant,  # codespell:ignore
+    )
+
+    return [
+        get_parameterless_sub_dependant(
+            depends=dependency, path=route.path
+        )  # codespell:ignore
+        for dependency in declared
+    ]
 
 
 class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
