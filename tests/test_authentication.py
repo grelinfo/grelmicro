@@ -32,12 +32,19 @@ from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
+from starlette.authentication import (
+    AuthCredentials,
+    AuthenticationBackend,
+    SimpleUser,
+)
 from starlette.convertors import (  # codespell:ignore
     CONVERTOR_TYPES,
     Convertor,  # codespell:ignore
     register_url_convertor,
 )
 from starlette.endpoints import HTTPEndpoint
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Host, Route, Router, WebSocketRoute
@@ -637,6 +644,91 @@ class TestStarlette:
             StarletteAuthenticated(scopes="orders:write")
 
 
+async def shown(request: Request) -> JSONResponse:
+    """Answer with how the caller in the scope reads."""
+    return JSONResponse(
+        {
+            "display": request.user.display_name,
+            "authenticated": request.user.is_authenticated,
+        }
+    )
+
+
+async def identified(request: Request) -> JSONResponse:
+    """Answer with the caller's identity as well."""
+    return JSONResponse(
+        {
+            "identity": request.user.identity,
+            "display": request.user.display_name,
+            "authenticated": request.user.is_authenticated,
+        }
+    )
+
+
+class Outer(AuthenticationBackend):
+    """An authentication the app runs itself, outside ours."""
+
+    async def authenticate(
+        self,
+        conn: Any,  # noqa: ANN401, ARG002
+    ) -> tuple[AuthCredentials, SimpleUser]:
+        """Name every caller `outer`."""
+        return AuthCredentials(["outer"]), SimpleUser("outer")
+
+
+class TestCallerShape:
+    """What an endpoint reads as its caller, wherever it is served."""
+
+    def test_the_caller_reads_the_way_starlette_reads_a_user(self) -> None:
+        """Empty and not authenticated on an excluded path, named on the rest."""
+        app = Starlette(
+            routes=[Route("/open", identified), Route("/closed", identified)]
+        )
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(verifier(), exclude=("/open",)),
+            ]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/open").json() == {
+            "identity": "",
+            "display": "",
+            "authenticated": False,
+        }
+        assert client.get("/closed", headers=bearer(token())).json() == {
+            "identity": "user-1",
+            "display": "user-1",
+            "authenticated": True,
+        }
+
+    def test_an_excluded_path_keeps_the_caller_an_outer_middleware_set(
+        self,
+    ) -> None:
+        """Only a path it authenticates has its caller replaced."""
+        app = Starlette(
+            routes=[Route("/open", shown), Route("/closed", shown)],
+            middleware=[Middleware(AuthenticationMiddleware, backend=Outer())],
+        )
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(verifier(), exclude=("/open",)),
+            ]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/open").json() == {
+            "display": "outer",
+            "authenticated": True,
+        }
+        assert client.get("/closed", headers=bearer(token())).json() == {
+            "display": "user-1",
+            "authenticated": True,
+        }
+
+
 class TestWebSocket:
     """A handshake is authenticated like a request."""
 
@@ -1037,6 +1129,34 @@ OIDC_METADATA = "https://auth.grel.info/.well-known/openid-configuration"
 SCHEME = "AuthenticatedRequests"
 
 
+class TestAppWide:
+    """Declarations the app makes for every route at once."""
+
+    def test_scopes_the_app_declares_apply_to_every_route(self) -> None:
+        """`FastAPI(dependencies=[...])` requires its scopes everywhere."""
+        app = FastAPI(dependencies=[Authenticated(scopes=["global"])])
+
+        @app.get("/anything")
+        async def anything() -> dict[str, bool]:
+            return {"ok": True}
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert (
+            client.get("/anything", headers=bearer(token())).status_code
+            == HTTP_403_FORBIDDEN
+        )
+        assert client.get(
+            "/anything", headers=bearer(token(scope="global"))
+        ).json() == {"ok": True}
+        assert app.openapi()["paths"]["/anything"]["get"]["security"] == [
+            {SCHEME: ["global"]}
+        ]
+
+
 class TestOpenAPI:
     """What the schema says about the token every covered operation needs."""
 
@@ -1173,6 +1293,22 @@ class TestOpenAPI:
 
         assert paths["/me"]["get"]["security"] == [{"ApiKey": [], SCHEME: []}]
         assert "security" not in paths["/catalog"]["get"]
+
+    def test_a_webhook_is_left_without_the_scheme(self) -> None:
+        """A webhook is a request the app sends, not one it answers."""
+
+        def declare(app: FastAPI) -> None:
+            @app.webhooks.post("new-order")
+            def new_order(order: dict[str, str]) -> None:
+                """Describe the call made when an order is placed."""
+
+        schema = fastapi_app(
+            AuthenticatedRequests(verifier()), declare=declare
+        ).openapi()
+        operation = schema["webhooks"]["new-order"]["post"]
+
+        assert "security" not in operation
+        assert "401" not in operation["responses"]
 
     def test_openapi_false_leaves_the_schema_alone(self) -> None:
         """The component can stay out of the document."""
