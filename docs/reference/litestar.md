@@ -11,3 +11,5 @@
         - install_middleware
         - is_bound
         - error_response
+        - Authenticated
+        - Anonymous

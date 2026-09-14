@@ -7,6 +7,7 @@ service puts on the wire, whichever framework you picked.
 |---|---|
 | [Where a rule applies](where.md) | `include`, `exclude`, what wins, and how to read it back. Learn it once for all of them. |
 | [Error Responses](errors.md) | Every rejection answered in one standard format, RFC 9457 or TM Forum. |
+| [Authentication](authentication.md) | Every request authenticated with a bearer token, and the verified caller handed to the route. |
 | [Conditional Requests](conditional.md) | `ETag` on reads, `If-Match` on writes, so a write cannot erase a change it never saw. |
 | [Idempotency Middleware](idempotency.md) | A repeated `Idempotency-Key` replays the stored response instead of running the operation again. |
 | [Response Cache](cache.md) | A repeated read is answered from the store instead of the handler, once per key across replicas. |
@@ -36,11 +37,11 @@ micro.install(app)
 Nothing happens without the component. grelmicro installs into a framework you
 chose, so it changes nothing about how that framework answers until you ask.
 
-Every one of them takes `include` and `exclude` to say which paths it acts on.
-The response cache, the rate limiter and the access log are tuned from a
-mounted ConfigMap while the service runs. Conditional and idempotent requests
-are configured at startup, because what they protect is not a thing to change
-without a deploy. [Where a rule applies](where.md) covers both, once, for all
+Every one of them takes `exclude` to say which paths it leaves alone, and all
+but authentication take `include` too. The response cache, the rate limiter
+and the access log are tuned from a mounted ConfigMap while the service runs.
+Authentication, conditional requests and idempotent requests are configured at
+startup, because what they protect is not a thing to change without a deploy. [Where a rule applies](where.md) covers both, once, for all
 of them.
 
 Every one of them is pure ASGI underneath, so it runs on FastAPI, Starlette,

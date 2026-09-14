@@ -47,6 +47,7 @@
 * 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs
+* 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
 
 ## 0.41.1 - 2026-09-12

@@ -29,6 +29,9 @@ key at construction, never per request.
 microseconds, so moving it to a thread costs more than it saves. The
 [architecture notes](../architecture/jwt.md) have the measurements.
 
+To authenticate every request rather than calling `verify` yourself, register
+[`AuthenticatedRequests`](../http/authentication.md).
+
 ## Reject a token
 
 Anything that fails raises `TokenRejectedError`. Its `reason` is a

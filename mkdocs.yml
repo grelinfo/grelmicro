@@ -99,6 +99,7 @@ nav:
         - http/index.md
         - http/where.md
         - http/errors.md
+        - http/authentication.md
         - http/conditional.md
         - http/idempotency.md
         - http/cache.md

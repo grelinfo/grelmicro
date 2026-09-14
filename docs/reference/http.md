@@ -9,6 +9,10 @@ rejection raised in a route handler answers the client as an
 `application/problem+json` body. Import `ProblemDetail` to return one of your
 own, and `send_error` to write one from a pure-ASGI middleware.
 
+Register `AuthenticatedRequests(verifier)` and every request is authenticated
+with a bearer token, the verified caller in `request.user`. Read
+[Authentication](../http/authentication.md).
+
 Register `IdempotentRequests()` and `install` adds `IdempotencyMiddleware`,
 which replays a stored response when a request repeats its `Idempotency-Key`.
 
@@ -34,6 +38,9 @@ and the Prometheus endpoint answer on a port of their own.
         - OpsServerConfig
         - OpsServerError
         - ErrorResponses
+        - AuthenticatedRequests
+        - AuthenticatedRequestsConfig
+        - AuthenticatedRequestsMiddleware
         - IdempotentRequests
         - IdempotencyMiddleware
         - StoredResponse
