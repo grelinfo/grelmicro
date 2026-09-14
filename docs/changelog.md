@@ -42,6 +42,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🔒 The response cache and idempotent replays read a URL ending in a newline as the route Starlette serves it with, so a gated read is never cached, and a gated write never replayed, through that spelling. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🐛 `CachedResponses` and `IdempotentRequests` serve an app that mounts routes naming a parameter the mount names too, such as `/members/{id}` under `/orgs/{id}`. They failed with `ValueError` where Starlette serves it. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🐛 On Litestar, grelmicro's middleware answers in the order it was registered, the first one outermost, as on Starlette and FastAPI. It was nesting in reverse. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🐛 A JWKS endpoint that cannot be reached, or times out, raises `SigningKeysUnavailableError` instead of a raw `httpx` error. `async with verifier:` then opens without keys as documented, and the background refresh keeps retrying instead of stopping for good. ([#850](https://github.com/grelinfo/grelmicro/issues/850))

@@ -321,8 +321,12 @@ def _gate_path_matches(
     regex: re.Pattern[str],
     path: str,
 ) -> bool:
-    """Match runtime URLs and the route templates used by endpoint reports."""
-    return template == path or regex.fullmatch(path) is not None
+    """Match runtime URLs and the route templates used by endpoint reports.
+
+    A URL is matched as Starlette routes it, with `match` on the anchored
+    regex, whose `$` also matches before a final newline.
+    """
+    return template == path or regex.match(path) is not None
 
 
 def _unique_apps(apps: tuple[Any, ...]) -> tuple[Any, ...]:

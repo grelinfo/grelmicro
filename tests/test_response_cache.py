@@ -4438,3 +4438,33 @@ def test_a_parameter_a_mount_and_its_route_both_name_is_served() -> None:
     # Assert
     assert found.json() == {"id": "2"}
     assert first.json() == second.json() == {"calls": 1}
+
+
+def test_a_trailing_newline_never_caches_a_gated_read() -> None:
+    """Starlette routes `/users/me` and a final newline to the gated route."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    app = FastAPI()
+    app.state.calls = 0
+    key = APIKeyHeader(name="X-API-Key")
+
+    @app.get("/users/me", dependencies=[Security(key)])
+    async def me() -> dict[str, int]:
+        app.state.calls += 1
+        return {"calls": app.state.calls}
+
+    @app.get("/users/{uid}", dependencies=[CachedResponse(ttl=TTL)])
+    async def user(uid: str) -> dict[str, str]:
+        return {"user": uid}  # pragma: no cover
+
+    micro.install(app)
+
+    # Act
+    with TestClient(app) as client:
+        allowed = client.get("/users/me%0A", headers={"X-API-Key": "key"})
+        without_key = client.get("/users/me%0A")
+
+    # Assert
+    assert allowed.json() == {"calls": 1}
+    assert without_key.status_code != allowed.status_code
+    assert "age" not in without_key.headers

@@ -29,6 +29,7 @@ __all__ = [
     "as_patterns",
     "compile_mount",
     "compile_route",
+    "holds_control_character",
     "matches",
     "names_route",
     "refuse_bare_method",
@@ -217,6 +218,23 @@ def _renamed(template: str) -> str:
     return _ROUTE_PARAMETER.sub(
         lambda match: f"{{p{next(names)}{match.group(2) or ''}}}", template
     )
+
+
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
+"""A character no route is declared with, though a URL can decode to one."""
+
+
+def holds_control_character(
+    path: Annotated[str, Doc("The path the request is asking for.")],
+) -> bool:
+    """Return whether the path holds a control character, such as a newline.
+
+    Starlette matches a route with `$`, which also matches before a final
+    newline, so `/users/me` followed by a newline reaches the route declared
+    `/users/me`. A check keyed on the declared path misses that spelling, so
+    a guard that must not be bypassed treats such a path as its own case.
+    """
+    return _CONTROL_CHARACTER.search(path) is not None
 
 
 def route_path(

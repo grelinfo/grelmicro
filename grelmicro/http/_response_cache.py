@@ -54,6 +54,7 @@ from grelmicro._paths import (
     _same_routing_root,
     as_patterns,
     compile_route,
+    holds_control_character,
     matches,
     names_route,
     route_path,
@@ -397,8 +398,14 @@ class _Policies:
         before the app is routed, so caching either one answers over the
         gate or hands back what was never a read.
         """
-        return path in self._refused_paths or any(
-            regex.fullmatch(path) for regex in self._refused
+        # A path holding a control character is refused whatever it names:
+        # Starlette's `$` matches before a final newline, so it can reach a
+        # literal route the set below holds without that newline. The regex
+        # is matched the way Starlette matches it, for the same reason.
+        return (
+            path in self._refused_paths
+            or holds_control_character(path)
+            or any(regex.match(path) for regex in self._refused)
         )
 
     def _refuses_template(self, path: str) -> bool:
@@ -549,7 +556,7 @@ class _Policies:
         kept, so a request nothing names costs no scan of it.
         """
         for regex, marked in self._routes:
-            if regex.fullmatch(path):
+            if regex.match(path):
                 return (
                     None
                     if self._is_refused(path)
