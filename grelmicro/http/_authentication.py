@@ -171,6 +171,7 @@ class _Routes:
         {}
     )
     nodes: tuple[tuple[int, _Reach], ...] = ()
+    redirects: bool = False
 
     def serves(self, kind: str, method: str | None, path: str) -> bool:
         """Return whether a public route answers the URL and no other could."""
@@ -285,7 +286,7 @@ class _PublicRoutes:
         path = route_path(scope)
         if routes.serves(kind, scope.get("method"), path):
             return True
-        if kind != "http" or path == "/":
+        if kind != "http" or path == "/" or not routes.redirects:
             return False
         # Starlette redirects a path no route matches to the same path with
         # its trailing slash added or removed, when a route matches that one.
@@ -370,6 +371,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         ),
         anywhere=tuple(anywhere),
         declared=MappingProxyType(declared),
+        redirects=_redirects_slashes(app),
         nodes=tuple(
             (
                 node,
@@ -381,6 +383,19 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             )
             for node, under in tree.nodes
         ),
+    )
+
+
+def _redirects_slashes(app: Any) -> bool:  # noqa: ANN401
+    """Return whether the app's router redirects a path to its other spelling.
+
+    Without the redirect, a path that misses a route by its trailing slash
+    goes to what the router answers when nothing matched, such as a frontend
+    fallback or a default app.
+    """
+    routed = _route_source(app, unwrap_middleware=True)
+    return bool(
+        getattr(getattr(routed, "router", routed), "redirect_slashes", False)
     )
 
 

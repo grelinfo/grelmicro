@@ -1684,6 +1684,31 @@ class TestRouting:
             HTTP_401_UNAUTHORIZED
         )
 
+    def test_a_router_that_never_redirects_keeps_the_other_spelling_authenticated(
+        self,
+    ) -> None:
+        """Without the redirect, what answers a missed slash is not the route."""
+
+        async def secret(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        app = FastAPI(redirect_slashes=False)
+
+        @app.get("/catalog", dependencies=[Anonymous()])
+        async def catalog() -> dict[str, bool]:
+            return {"catalog": True}
+
+        app.router.default = secret
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/catalog").json() == {"catalog": True}
+        assert client.get("/catalog/").status_code == HTTP_401_UNAUTHORIZED
+
 
 class TestConsistency:
     """The schema and the report say what the middleware does."""
