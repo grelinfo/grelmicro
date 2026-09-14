@@ -20,7 +20,10 @@ from fastapi import APIRouter, Depends, FastAPI, Security
 from fastapi import Request as FastAPIRequest
 from fastapi import WebSocket as FastAPIWebSocket
 from fastapi.routing import APIRoute
-from fastapi.security import HTTPBearer
+from fastapi.security import (
+    HTTPBearer,
+    SecurityScopes,
+)
 from fastapi.testclient import TestClient
 from litestar import Litestar, asgi, delete, get, post, websocket
 from litestar import Request as LitestarRequest
@@ -45,9 +48,17 @@ from starlette.convertors import (  # codespell:ignore
 from starlette.endpoints import HTTPEndpoint
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette.routing import Host, Route, Router, WebSocketRoute
+from starlette.routing import (
+    BaseRoute,
+    Host,
+    Match,
+    Route,
+    Router,
+    WebSocketRoute,
+)
 from starlette.status import (
     HTTP_307_TEMPORARY_REDIRECT,
     WS_1008_POLICY_VIOLATION,
@@ -310,6 +321,24 @@ class TestCredential:
         response = client.get("/livez", headers=bearer(token(FORGER)))
 
         assert response.json() == {"live": True}
+
+    def test_a_refusal_is_rendered_in_the_format_the_app_registered(
+        self,
+    ) -> None:
+        """A service answering in TMF refuses a credential in TMF too."""
+        tmf = ErrorResponses.tmf()
+        app = Starlette(routes=[Route("/whoami", whoami)])
+        Grelmicro(uses=[tmf, AuthenticatedRequests(verifier())]).install(app)
+
+        response = TestClient(app).get("/whoami")
+        problem = TestClient(app_with(AuthenticatedRequests(verifier()))).get(
+            "/whoami"
+        )
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.headers["content-type"].split(";")[0] == tmf.media_type
+        assert tmf.media_type != ErrorResponses().media_type
+        assert problem.json()["instance"] == "/whoami"
 
     def test_the_scheme_is_read_without_regard_to_case(self) -> None:
         """RFC 7235 makes the scheme name case-insensitive."""
@@ -1619,6 +1648,29 @@ class TestLitestar:
         assert known.json() == {"authenticated": True}
         assert forged.status_code == HTTP_401_UNAUTHORIZED
 
+    def test_a_public_handler_is_found_under_the_root_path(self) -> None:
+        """The root path is taken off the way Litestar's router takes it off."""
+
+        @get("/status", opt=LitestarAnonymous())
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        @get("/private")
+        async def private() -> dict[str, bool]:
+            return {"private": True}  # pragma: no cover
+
+        app = Litestar(route_handlers=[status, private])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with LitestarTestClient(app, root_path="/api") as client:
+            served = client.get("/api/status")
+            refused = client.get("/api/private")
+
+        assert served.json() == {"up": True}
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
 
 class TestReport:
     """What `grelmicro check` says about each endpoint."""
@@ -2232,6 +2284,137 @@ class TestRouting:
         assert literal.get("/shop/a/a").json() == {"listed": True}
         assert literal.get("/elsewhere").status_code == HTTP_401_UNAUTHORIZED
 
+    def test_public_routes_in_a_wrapped_mounted_app_need_no_credential(
+        self,
+    ) -> None:
+        """Middleware of its own, an included router and a default beside it."""
+
+        async def secret(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        sub = FastAPI()
+
+        @sub.get("/status", dependencies=[Anonymous()])
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        daily = APIRouter()
+
+        @daily.get("/daily", dependencies=[Anonymous()])
+        async def report() -> dict[str, bool]:
+            return {"daily": True}
+
+        sub.include_router(daily, prefix="/reports")
+        sub.add_middleware(GZipMiddleware)
+        top = APIRouter()
+
+        @top.get("/news", dependencies=[Anonymous()])
+        async def news() -> dict[str, bool]:
+            return {"news": True}
+
+        app = FastAPI()
+        app.mount("/sub", sub)
+        app.include_router(top, prefix="/top")
+        app.router.default = secret
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/sub/status").json() == {"up": True}
+        assert client.get("/sub/reports/daily").json() == {"daily": True}
+        assert client.get("/top/news").json() == {"news": True}
+
+    def test_a_host_turning_requests_away_closes_its_included_routes(
+        self,
+    ) -> None:
+        """Through an include, a public route still sits under the host."""
+
+        async def secret(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(
+                scope, receive, send
+            )  # pragma: no cover
+
+        versioned = APIRouter()
+
+        @versioned.get("/x", dependencies=[Anonymous()])
+        async def x() -> dict[str, bool]:
+            return {"x": True}  # pragma: no cover
+
+        api = FastAPI()
+        api.include_router(versioned, prefix="/v1")
+        app = FastAPI()
+        app.host("api.example.com", api)
+        app.router.default = secret
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/v1/x").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_host_inside_a_mounted_router_serves_its_public_route(
+        self,
+    ) -> None:
+        """A plain router answers what no host takes with a `404`."""
+        api = FastAPI()
+
+        @api.get("/x", dependencies=[Anonymous()])
+        async def x() -> dict[str, bool]:
+            return {"x": True}
+
+        app = FastAPI()
+        app.mount("/tenants", Router(routes=[Host("api.example.com", app=api)]))
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app, base_url="http://api.example.com")
+
+        assert client.get("/tenants/x").json() == {"x": True}
+
+    def test_a_route_of_another_kind_keeps_the_app_authenticated(self) -> None:
+        """A route with no path and no app could answer anything."""
+
+        class Silent(BaseRoute):
+            def matches(self, scope: Any) -> tuple[Match, dict[str, Any]]:  # noqa: ANN401, ARG002
+                return Match.NONE, {}
+
+            async def handle(self, scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+                """Answer nothing."""  # pragma: no cover
+
+        app = FastAPI()
+
+        @app.get("/status", dependencies=[Anonymous()])
+        async def status() -> dict[str, bool]:
+            return {"up": True}  # pragma: no cover
+
+        app.router.routes.append(Silent())
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/status").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    def test_apps_mounted_in_each_other_are_read_once(self) -> None:
+        """A cycle of mounts ends the reading rather than the process."""
+        outer = FastAPI()
+        inner = FastAPI()
+
+        @outer.get("/status", dependencies=[Anonymous()])
+        async def status() -> dict[str, bool]:
+            return {"up": True}
+
+        outer.mount("/inner", inner)
+        inner.mount("/outer", outer)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(outer)
+
+        assert TestClient(outer).get("/status").json() == {"up": True}
+
 
 class TestConsistency:
     """The schema and the report say what the middleware does."""
@@ -2500,6 +2683,31 @@ class TestConsistency:
         assert self.applies(app, "GET", "/items/mine") == (
             "authenticated items:read",
         )
+
+    def test_scopes_of_another_security_stay_off_the_bearer_scheme(
+        self,
+    ) -> None:
+        """Only `Authenticated` and the caller dependencies name its scopes."""
+
+        async def audited(security_scopes: SecurityScopes) -> None:  # noqa: ARG001
+            return None
+
+        def declare(app: FastAPI) -> None:
+            @app.get(
+                "/audit",
+                dependencies=[Security(audited, scopes=["audit:read"])],
+            )
+            async def audit() -> dict[str, bool]:
+                return {"audit": True}
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+
+        assert app.openapi()["paths"]["/audit"]["get"]["security"] == [
+            {SCHEME: []}
+        ]
+        assert TestClient(app).get(
+            "/audit", headers=bearer(token())
+        ).json() == {"audit": True}
 
 
 class TestIncludedScopes:
