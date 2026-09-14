@@ -59,7 +59,9 @@ the message reaches your logs.
 ## What gets checked
 
 Every verification checks the signature against the key the `kid` names, then
-`exp`, `nbf`, and any `aud` and `iss` you configured.
+`exp`, `nbf` and `iat`, and any `aud` and `iss` you configured. `sub` and `jti`
+must be strings and `iat` a number of seconds, as RFC 7519 defines them, and a
+token whose `iat` is still to come is not valid yet.
 
 `exp` is always required. A token with no expiry is rejected rather than
 trusted forever, and there is no setting that turns that off. Set `leeway` to

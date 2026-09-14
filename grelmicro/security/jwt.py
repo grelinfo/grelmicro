@@ -187,7 +187,7 @@ class TokenRejectedReason(StrEnum):
     """The token lacks a claim the policy requires."""
 
     NOT_YET_VALID = "not-yet-valid"
-    """The token is before its `nbf`."""
+    """The token is before its `nbf`, or claims an `iat` still to come."""
 
     SCHEME = "scheme"
     """The `Authorization` header carries no bearer token."""
@@ -432,7 +432,7 @@ class JWTPolicy(BaseModel, frozen=True):
     ] = Field(default_factory=list)
     leeway: Annotated[
         int,
-        Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+        Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
     ] = 0
     token_type: Annotated[
         Literal["at+jwt"] | None,
@@ -834,6 +834,36 @@ def _claims_of(raw: dict[str, Any], scope_claims: tuple[str, ...]) -> JWTClaims:
     )
 
 
+_STRING_CLAIMS: Final = ("sub", "jti")
+"""Registered claims RFC 7519 makes strings, which the core leaves unchecked."""
+
+
+def _check_registered(raw: dict[str, Any], leeway: int) -> None:
+    """Refuse a registered claim of the wrong type, or an `iat` still to come.
+
+    RFC 7519 makes `sub` and `jti` strings and `iat` a number of seconds. A
+    token breaking that is refused the way the core refuses a `sub` that is
+    an array and an `nbf` that is not a number. An `iat` past now and the
+    leeway is refused as not yet valid, as an `nbf` there is.
+
+    Raises:
+        TokenRejectedError: With `malformed` for a `sub` or `jti` that is not
+            a string, `invalid` for an `iat` that is not a number, and
+            `not-yet-valid` for an `iat` in the future.
+    """
+    for name in _STRING_CLAIMS:
+        value = raw.get(name)
+        if value is not None and not isinstance(value, str):
+            raise TokenRejectedError(TokenRejectedReason.MALFORMED)
+    issued = raw.get("iat")
+    if issued is None:
+        return
+    if isinstance(issued, bool) or not isinstance(issued, int | float):
+        raise TokenRejectedError(TokenRejectedReason.INVALID)
+    if issued > time() + leeway:
+        raise TokenRejectedError(TokenRejectedReason.NOT_YET_VALID)
+
+
 def _frozen(value: Any) -> Any:  # noqa: ANN401
     """Return `value` with every object and array in it made read-only.
 
@@ -1037,7 +1067,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         leeway: Annotated[
             int | None,
-            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+            Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
         ] = None,
         token_type: Annotated[
             Literal["at+jwt"] | None,
@@ -1160,7 +1190,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         leeway: Annotated[
             int | None,
-            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+            Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
         ] = None,
         token_type: Annotated[
             Literal["at+jwt"] | None,
@@ -1290,7 +1320,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         leeway: Annotated[
             int | None,
-            Doc("Seconds of clock skew allowed on `exp` and `nbf`."),
+            Doc("Seconds of clock skew allowed on `exp`, `nbf` and `iat`."),
         ] = None,
         token_type: Annotated[
             Literal["at+jwt"] | None,
@@ -1927,6 +1957,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 # put the provider on the request path.
                 self._wants_keys = True
             raise TokenRejectedError(reason) from None
+        _check_registered(raw, self._leeway)
         claims = _claims_of(raw, self._scope_claims)
         self._store(keys, key, claims)
         return claims

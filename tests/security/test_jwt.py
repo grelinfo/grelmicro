@@ -1158,6 +1158,42 @@ class TestClaims:
         assert claims.identity == ""
         assert claims.display_name == ""
 
+    @pytest.mark.parametrize(
+        ("overrides", "reason"),
+        [
+            ({"sub": 42}, "malformed"),
+            ({"jti": 7}, "malformed"),
+            ({"iat": "yesterday"}, "invalid"),
+            ({"iat": True}, "invalid"),
+        ],
+    )
+    def test_a_registered_claim_of_the_wrong_type_is_rejected(
+        self,
+        overrides: dict[str, Any],
+        reason: str,
+    ) -> None:
+        """RFC 7519 makes `sub` and `jti` strings and `iat` a number of seconds."""
+        with pytest.raises(TokenRejectedError) as caught:
+            build().verify(issue(**overrides))
+
+        assert caught.value.reason == reason
+
+    def test_a_token_with_no_issue_time_verifies(self) -> None:
+        """`iat` is optional, so a token without one is read as having none."""
+        assert build().verify(issue(iat=None)).issued_at is None
+
+    def test_a_token_issued_in_the_future_is_not_yet_valid(self) -> None:
+        """An `iat` past now and the leeway is refused, as an `nbf` there is."""
+        issued = int(time.time()) + HOUR
+
+        with pytest.raises(TokenRejectedError) as caught:
+            build().verify(issue(iat=issued))
+
+        assert caught.value.reason == "not-yet-valid"
+        assert (
+            build(leeway=2 * HOUR).verify(issue(iat=issued)).issued_at == issued
+        )
+
 
 class TestEnvironment:
     """Settings a deployment supplies, and the ones only code may choose."""
