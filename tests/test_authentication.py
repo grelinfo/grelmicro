@@ -75,6 +75,7 @@ from grelmicro.integrations.fastapi import (
     CachedResponse,
     Claims,
     CurrentPrincipal,
+    OptionalPrincipal,
     document_authenticated_requests,
 )
 from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
@@ -299,6 +300,16 @@ class TestCredential:
         )
 
         assert response.status_code == HTTP_200_OK
+
+    def test_an_excluded_path_never_reads_a_token(self) -> None:
+        """A token sent to a path authentication leaves alone is not looked at."""
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), exclude=("/livez",)))
+        )
+
+        response = client.get("/livez", headers=bearer(token(FORGER)))
+
+        assert response.json() == {"live": True}
 
     def test_the_scheme_is_read_without_regard_to_case(self) -> None:
         """RFC 7235 makes the scheme name case-insensitive."""
@@ -1150,6 +1161,48 @@ class TestFastAPI:
         ) as socket:
             assert socket.receive_json() == {"subject": "user-1"}
 
+    def test_an_anonymous_route_reads_a_caller_that_presents_a_token(
+        self,
+    ) -> None:
+        """No token is anonymous, a valid one is the caller, a bad one is refused."""
+
+        def declare(app: FastAPI) -> None:
+            @app.get("/offers", dependencies=[Anonymous()])
+            async def offers(principal: OptionalPrincipal) -> dict[str, Any]:
+                return {
+                    "subject": None if principal is None else principal.subject
+                }
+
+        client = TestClient(
+            fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+        )
+        refused = client.get("/offers", headers=bearer(token(FORGER)))
+
+        assert client.get("/offers").json() == {"subject": None}
+        assert client.get("/offers", headers=bearer(token())).json() == {
+            "subject": "user-1"
+        }
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="invalid_token"'
+        )
+        assert client.get(
+            "/offers", headers={"authorization": "Basic dXNlcjpwYXNz"}
+        ).json() == {"subject": None}
+        assert client.get(
+            "/offers", headers={"authorization": "Bearer"}
+        ).json() == {"subject": None}
+        assert (
+            client.get(
+                "/offers",
+                headers=[
+                    ("authorization", f"Bearer {token()}"),
+                    ("authorization", "Basic dXNlcjpwYXNz"),
+                ],
+            ).status_code
+            == HTTP_400_BAD_REQUEST
+        )
+
 
 OAUTH_METADATA = "https://auth.grel.info/.well-known/oauth-authorization-server"
 OIDC_METADATA = "https://auth.grel.info/.well-known/openid-configuration"
@@ -1219,12 +1272,17 @@ class TestOpenAPI:
         ]
 
     def test_public_and_excluded_operations_need_nothing(self) -> None:
-        """An anonymous read and an excluded path carry no requirement."""
+        """An anonymous read offers the scheme, an excluded path names none."""
         schema = fastapi_app(
             AuthenticatedRequests(verifier(), exclude=("/claims",))
         ).openapi()
 
-        assert "security" not in schema["paths"]["/catalog"]["get"]
+        assert schema["paths"]["/catalog"]["get"]["security"] == [
+            {},
+            {SCHEME: []},
+        ]
+        assert "401" in schema["paths"]["/catalog"]["get"]["responses"]
+        assert "401" not in schema["paths"]["/claims"]["get"]["responses"]
         assert "security" not in schema["paths"]["/claims"]["get"]
         assert schema["paths"]["/catalog"]["post"]["security"] == [{SCHEME: []}]
 
@@ -1319,7 +1377,10 @@ class TestOpenAPI:
         paths = app.openapi()["paths"]
 
         assert paths["/me"]["get"]["security"] == [{"ApiKey": [], SCHEME: []}]
-        assert "security" not in paths["/catalog"]["get"]
+        assert paths["/catalog"]["get"]["security"] == [
+            {"ApiKey": []},
+            {"ApiKey": [], SCHEME: []},
+        ]
 
     def test_a_webhook_is_left_without_the_scheme(self) -> None:
         """A webhook is a request the app sends, not one it answers."""
@@ -1500,7 +1561,7 @@ class TestLitestar:
     def test_the_litestar_schema_describes_what_each_operation_needs(
         self,
     ) -> None:
-        """The scheme, the scopes and the refusals, public handlers left open."""
+        """The scheme, the scopes and the refusals, optional on public handlers."""
         with LitestarTestClient(
             litestar_app(
                 AuthenticatedRequests(verifier(), exclude=("/schema/*",))
@@ -1510,8 +1571,11 @@ class TestLitestar:
         paths = schema["paths"]
 
         assert SCHEME in schema["components"]["securitySchemes"]
-        assert "security" not in paths["/status"]["get"]
-        assert "security" not in paths["/catalog/{item_id}"]["get"]
+        assert paths["/status"]["get"]["security"] == [{}, {SCHEME: []}]
+        assert paths["/catalog/{item_id}"]["get"]["security"] == [
+            {},
+            {SCHEME: []},
+        ]
         assert paths["/catalog/{item_id}"]["post"]["security"] == [{SCHEME: []}]
         assert "401" in paths["/catalog/{item_id}"]["post"]["responses"]
         assert paths["/orders/{order_id}"]["delete"]["security"] == [
@@ -1533,6 +1597,27 @@ class TestLitestar:
 
         with LitestarTestClient(app) as client:
             assert client.get("/status").json() == {"up": True}
+
+    def test_an_anonymous_handler_verifies_a_token_it_is_sent(self) -> None:
+        """A valid token is the caller, one that does not verify is refused."""
+
+        @get("/hello", opt=LitestarAnonymous())
+        async def hello(request: LitestarRequest) -> dict[str, bool]:
+            return {"authenticated": request.user.is_authenticated}
+
+        app = Litestar(route_handlers=[hello])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            anonymous = client.get("/hello")
+            known = client.get("/hello", headers=bearer(token()))
+            forged = client.get("/hello", headers=bearer(token(FORGER)))
+
+        assert anonymous.json() == {"authenticated": False}
+        assert known.json() == {"authenticated": True}
+        assert forged.status_code == HTTP_401_UNAUTHORIZED
 
 
 class TestReport:
@@ -2312,7 +2397,7 @@ class TestConsistency:
         client = TestClient(app)
 
         assert paths["/v1/items"]["get"]["security"] == [{SCHEME: []}]
-        assert "security" not in paths["/v2/items"]["get"]
+        assert paths["/v2/items"]["get"]["security"] == [{}, {SCHEME: []}]
         assert self.applies(app, "GET", "/v1/items") == ("authenticated",)
         assert self.applies(app, "GET", "/v2/items") == ("anonymous",)
         assert client.get("/v1/items").status_code == HTTP_401_UNAUTHORIZED
@@ -2358,7 +2443,7 @@ class TestConsistency:
         app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
         paths = app.openapi()["paths"]
 
-        assert "security" not in paths["/days/{day}"]["get"]
+        assert paths["/days/{day}"]["get"]["security"] == [{}, {SCHEME: []}]
         assert self.applies(app, "GET", "/days/{day:grelmicro_day}") == (
             "anonymous",
         )
@@ -2471,7 +2556,10 @@ class TestRepeatedParameters:
         app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
         client = TestClient(app)
 
-        assert "security" not in app.openapi()["paths"]["/catalog"]["get"]
+        assert app.openapi()["paths"]["/catalog"]["get"]["security"] == [
+            {},
+            {SCHEME: []},
+        ]
         assert TestReport.applies(app, "GET", "/catalog") == ("anonymous",)
         assert client.get("/catalog").status_code == HTTP_200_OK
         assert client.get("/orgs/1/members/2").status_code == (

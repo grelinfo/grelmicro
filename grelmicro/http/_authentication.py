@@ -867,11 +867,14 @@ def document_operations(
     inherited = schema.get("security")
     for path, item in (schema.get("paths") or {}).items():
         for method, operation in item.items():
-            if (
-                method not in _OPERATION_METHODS
-                or (path, method) in public
-                or not selects(path, include=(), exclude=exclude)
+            if method not in _OPERATION_METHODS or not selects(
+                path, include=(), exclude=exclude
             ):
+                continue
+            if (path, method) in public:
+                _offer_scheme(
+                    operation, content, bans=bans, inherited=inherited
+                )
                 continue
             _require_scheme(
                 operation,
@@ -910,6 +913,44 @@ def _require_scheme(
             alternative.setdefault(SECURITY_SCHEME, required)
     else:
         operation["security"] = [{SECURITY_SCHEME: required}]
+    _describe_refusals(operation, required, content, bans=bans)
+
+
+def _offer_scheme(
+    operation: dict[str, Any],
+    content: dict[str, Any],
+    *,
+    bans: bool,
+    inherited: list[dict[str, list[str]]] | None,
+) -> None:
+    """Offer the scheme on a public operation, where a caller may leave it out.
+
+    Each alternative the operation already names is kept, and joined by a
+    copy that adds the bearer token, so a client sees the token as optional
+    and whatever else the route checks as still required.
+    """
+    security = operation.get("security")
+    if security is None and inherited:
+        security = [dict(alternative) for alternative in inherited]
+    if not security:
+        security = [{}]
+    if not any(SECURITY_SCHEME in alternative for alternative in security):
+        security = [
+            *security,
+            *({**alternative, SECURITY_SCHEME: []} for alternative in security),
+        ]
+    operation["security"] = security
+    _describe_refusals(operation, [], content, bans=bans)
+
+
+def _describe_refusals(
+    operation: dict[str, Any],
+    required: list[str],
+    content: dict[str, Any],
+    *,
+    bans: bool,
+) -> None:
+    """Describe the refusals an operation covered by the scheme can answer."""
     responses = operation.setdefault("responses", {})
     responses.setdefault(
         "401",
@@ -1126,13 +1167,22 @@ class AuthenticatedRequestsMiddleware:
         await self.app(scope, receive, send)
 
     def _serves_anonymously(self, scope: Scope) -> bool:
-        """Return whether the request asks for a path served without a credential."""
+        """Return whether the request is served without verifying a credential.
+
+        An excluded path never reads one. A public route reads one only when
+        a bearer token is presented, so a request sending none is served
+        anonymously and one sending a token is verified like any other.
+        """
         if self._exclude and not selects(
             route_path(scope), include=(), exclude=self._exclude
         ):
             return True
         public = self._public
-        return public is not None and public.matches(scope)
+        return (
+            public is not None
+            and not _presents_bearer(scope)
+            and public.matches(scope)
+        )
 
     async def _authenticate(self, scope: Scope) -> JWTClaims:
         """Return the verified caller, or raise what the caller is told."""
@@ -1212,19 +1262,42 @@ def _bearer_token(scope: Scope) -> str:
         AuthenticationRequiredError: If it carries none, one in another
             scheme, or the bearer scheme with no token behind it.
     """
-    credentials = [
-        value for name, value in scope["headers"] if name == b"authorization"
-    ]
+    credentials = _credentials(scope)
     if len(credentials) > 1:
         raise AmbiguousCredentialsError
-    if not credentials:
-        raise AuthenticationRequiredError
-    scheme, _, rest = credentials[0].decode("latin-1").partition(" ")
-    # RFC 7235 allows one or more spaces between the scheme and the token.
-    token = rest.lstrip(" ")
-    if scheme.lower() != _BEARER or not token:
+    token = _bearer_of(credentials[0]) if credentials else ""
+    if not token:
         raise AuthenticationRequiredError
     return token
+
+
+def _presents_bearer(scope: Scope) -> bool:
+    """Return whether the request presents a bearer token, or several credentials.
+
+    Several credentials count, so a public route refuses them as ambiguous
+    rather than choosing one to ignore.
+    """
+    credentials = _credentials(scope)
+    return len(credentials) > 1 or any(
+        _bearer_of(credential) for credential in credentials
+    )
+
+
+def _credentials(scope: Scope) -> list[bytes]:
+    """Return every `Authorization` header the request carries."""
+    return [
+        value for name, value in scope["headers"] if name == b"authorization"
+    ]
+
+
+def _bearer_of(credential: bytes) -> str:
+    """Return the bearer token in a credential, or an empty string for none.
+
+    RFC 7235 allows one or more spaces between the scheme and the token.
+    """
+    scheme, _, rest = credential.decode("latin-1").partition(" ")
+    token = rest.lstrip(" ")
+    return token if scheme.lower() == _BEARER else ""
 
 
 async def _refuse(
@@ -1302,8 +1375,9 @@ class AuthenticatedRequests:
     )
     ```
 
-    Every request is authenticated except the paths in `exclude` and the
-    routes that declare `Anonymous()`. The verifier is opened with the app,
+    Every request is authenticated except the paths in `exclude`. A route
+    declaring `Anonymous()` authenticates a request only when it sends a
+    token. The verifier is opened with the app,
     so its keys load before the first request and stay fresh while it
     serves.
 

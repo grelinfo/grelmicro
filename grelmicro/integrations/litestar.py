@@ -225,6 +225,9 @@ def Anonymous() -> dict[str, Any]:  # noqa: N802
     every handler, per method, so a public read keeps its writes
     authenticated, and the app is read again when it starts.
 
+    A token sent to it is verified: a valid one is the caller in
+    `request.user`, and one that does not verify is answered `401`.
+
     It is `{"exclude_from_auth": True}`, the key Litestar's own
     authentication middleware reads, so a handler written for that one is
     public here too.
@@ -624,8 +627,8 @@ def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
 
     Runs on startup, as the error responses do, so a handler registered
     after `install` is described too. A handler declaring `Anonymous()`
-    stays without it when `micro.install(app)` added the middleware, and a
-    path in `exclude` always does.
+    lists it as optional when `micro.install(app)` added the middleware, and
+    a path in `exclude` names none.
     """
 
     async def document() -> None:

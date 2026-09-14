@@ -18,6 +18,7 @@ and the health router.
         - CachedResponse
         - RateLimited
         - CurrentPrincipal
+        - OptionalPrincipal
         - Claims
         - Authenticated
         - Anonymous

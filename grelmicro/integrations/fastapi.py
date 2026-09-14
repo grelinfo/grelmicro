@@ -120,6 +120,7 @@ __all__ = [
     "ConditionalRequired",
     "CurrentPrincipal",
     "HealthzResponse",
+    "OptionalPrincipal",
     "RateLimited",
     "document_authenticated_requests",
     "document_conditional_requests",
@@ -440,6 +441,12 @@ async def _current_claims(
     return caller
 
 
+async def _optional_principal(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
+    """Return the authenticated caller, or `None` for a request that sent no token."""
+    caller = connection.scope.get("user")
+    return caller if getattr(caller, "is_authenticated", False) else None
+
+
 async def _authenticated(
     connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
 ) -> Any:  # noqa: ANN401
@@ -494,6 +501,26 @@ async def me(claims: Claims) -> dict[str, str]:
 
 Read `CurrentPrincipal` instead in a handler that should not care how the
 caller was authenticated.
+"""
+
+OptionalPrincipal = Annotated[
+    Principal | None, _Depends(_optional_principal) if HAS_FASTAPI else None
+]
+"""The caller when the request sent a valid token, and `None` when it sent none.
+
+```python
+from grelmicro.integrations.fastapi import Anonymous, OptionalPrincipal
+
+
+@app.get("/catalog", dependencies=[Anonymous()])
+async def catalog(principal: OptionalPrincipal) -> list[Product]:
+    if principal is None:
+        return await public_catalog()
+    return await catalog_for(principal.subject)
+```
+
+Read on a route declaring `Anonymous()`, where a credential is optional. A
+token that does not verify never reaches it: the request is answered `401`.
 """
 
 
@@ -569,9 +596,11 @@ def Anonymous() -> Any:  # noqa: N802, ANN401
     read again when it starts. It applies per method, so a path serving a
     public read keeps its writes authenticated. A URL another route without
     it could also answer stays authenticated, whichever route would serve it,
-    so a declaration never opens a route it was not written on. The route is not
-    authenticated at all, even when the request carries a token, and
-    `request.user` there is a caller that is not authenticated.
+    so a declaration never opens a route it was not written on. A credential
+    is optional there. A request sending none is served with a caller that is
+    not authenticated, and a bearer token that is sent is verified, so a valid
+    one hands the route its caller through `OptionalPrincipal` and one that
+    does not verify is answered `401`.
 
     Read more in the [Authentication](../http/authentication.md) docs.
     """
@@ -987,9 +1016,10 @@ def document_authenticated_requests(
     route declares through `Authenticated`, and adds the `401` it answers,
     the `403` where scopes are required, and the `429` when `bans` is set.
 
-    A path in `exclude` stays without it, and so does a route declaring
-    `Anonymous()` when `micro.install(app)` added the middleware. One added
-    by hand serves public paths through `exclude` alone.
+    A path in `exclude` stays without it. A route declaring `Anonymous()`
+    lists it as optional, with the `401` a token that does not verify gets,
+    when `micro.install(app)` added the middleware. One added by hand serves
+    public paths through `exclude` alone.
     The scheme is `openIdConnect` for a verifier that found the issuer's
     OpenID Connect discovery document, and `http` bearer otherwise.
 

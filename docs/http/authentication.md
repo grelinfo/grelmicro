@@ -19,10 +19,11 @@ leave an endpoint public without a word.
 
 Two things say otherwise:
 
-- `exclude` names the paths served without a credential, such as health probes.
+- `exclude` names the paths never authenticated, such as health probes. A token
+  sent to them is not read.
   The patterns are the ones every other component takes: an exact path, or a
   prefix ending in `*`. A pattern matching every path, `*` or `/*`, is refused.
-- `Anonymous()` declared on a route serves that route without one. It applies
+- `Anonymous()` declared on a route makes the credential optional there. It applies
   per method, so a public read keeps the writes on the same path
   authenticated. A URL another route could also answer stays authenticated,
   whichever route would serve it, so a declaration never opens a route it was
@@ -30,9 +31,10 @@ Two things say otherwise:
   public routes it holds. A route under a `Host` is served without one only
   where a request the host turns away is answered `404`.
 
-A path that is not authenticated is not authenticated at all, even when the
-request carries a token. `request.user` there is a caller that is not
-authenticated.
+On an `Anonymous()` route, a request sending no token is served with a caller
+that is not authenticated. A bearer token that is sent is verified as on any
+other route: a valid one is the caller, and one that does not verify is answered
+`401`. On an excluded path the caller is never authenticated, token or not.
 
 HTTP requests and websocket handshakes are both covered.
 
@@ -44,6 +46,7 @@ Starlette, FastAPI and Litestar look.
 | | FastAPI | Litestar | Starlette |
 |---|---|---|---|
 | read the caller | `principal: CurrentPrincipal` | `request.user` | `request.user` |
+| the caller, if any | `principal: OptionalPrincipal` | `request.user` | `request.user` |
 | JWT claims, typed | `claims: Claims` | `request.user` | `request.user` |
 | require scopes | `dependencies=[Authenticated(scopes=[...])]` | `guards=[Authenticated(scopes=[...])]` | `@Authenticated(scopes=[...])` |
 | public route | `dependencies=[Anonymous()]` | `opt=Anonymous()` | `exclude=` |
@@ -134,10 +137,13 @@ builds its own key. An `Anonymous()` route stays cacheable and replayable.
 ## In the schema
 
 On FastAPI and Litestar, the OpenAPI schema carries the security scheme and
-requires it on
-every operation authentication covers, with the scopes its route declares. Each
-of those operations lists the `401` it can answer, the `403` where scopes are
-required, and the `429` when `bans` is set.
+requires it on every operation authentication covers, with the scopes its route
+declares. Each of those operations lists the `401` it can answer, the `403`
+where scopes are required, and the `429` when `bans` is set.
+
+A route declaring `Anonymous()` lists the scheme as optional, beside an
+alternative that requires nothing, with the `401` a token that does not verify
+gets. An excluded path names no scheme at all.
 
 A verifier built with `discover` publishes an `openIdConnect` scheme, so a
 client can find the provider from the schema. Any other publishes a bearer
