@@ -16,6 +16,7 @@ import hashlib
 import importlib
 import json
 import logging
+import math
 import sys
 import threading
 from typing import TYPE_CHECKING, Any
@@ -2086,3 +2087,113 @@ class TestEdges:
             for record in caplog.records
             if record.name == "grelmicro.security.events"
         ]
+
+
+JSON_VALUES = st.recursive(
+    st.none()
+    | st.booleans()
+    | st.integers()
+    | st.floats(allow_nan=True, allow_infinity=True)
+    | st.text(),
+    lambda children: (
+        st.lists(children, max_size=3)
+        | st.dictionaries(st.text(max_size=5), children, max_size=3)
+    ),
+    max_leaves=5,
+)
+"""Any value a token response can carry where a number belongs."""
+
+
+class TestUnreadableNumbers:
+    """A server's numbers either read as seconds or are ignored, never raise."""
+
+    @settings(max_examples=300, suppress_health_check=[HealthCheck.too_slow])
+    @given(expires_in=JSON_VALUES, refresh_in=JSON_VALUES)
+    def test_any_lifetime_a_server_sends_is_read_or_ignored(
+        self, expires_in: object, refresh_in: object
+    ) -> None:
+        """A lifetime is always finite and positive, and a hint is one or absent."""
+        client = OAuthClient.endpoint(
+            TOKEN_ENDPOINT,
+            client_id="orders-api",
+            client_auth=ClientAuth.secret(SECRET),
+            env_load=False,
+        )
+        body = json.dumps(
+            {
+                "access_token": "token",
+                "token_type": "Bearer",
+                "expires_in": expires_in,
+                "refresh_in": refresh_in,
+            }
+        ).encode()
+
+        _, lifetime, hint = client._issued(body)
+
+        assert math.isfinite(lifetime)
+        assert lifetime > 0
+        assert hint is None or (math.isfinite(hint) and hint > 0)
+
+    @settings(max_examples=500, suppress_health_check=[HealthCheck.too_slow])
+    @given(header=st.text())
+    def test_any_retry_after_is_read_or_ignored(self, header: str) -> None:
+        """A `Retry-After` reads as seconds no longer than an hour, or as nothing."""
+        seconds = oauth._retry_after(header)
+
+        assert seconds is None or 0 <= seconds <= HOUR
+
+    @pytest.mark.parametrize("value", ["²", "9" * 5000, 10**400, "1e400"])
+    def test_numbers_that_cannot_be_read_are_ignored(
+        self, value: object
+    ) -> None:
+        """A digit that is not ASCII, or a number too large to hold, is no lifetime."""
+        assert oauth._seconds(value) is None
+
+    @pytest.mark.parametrize("header", ["9" * 400, "9" * 5000])
+    def test_retry_after_too_large_to_read_asks_for_the_longest_wait(
+        self, header: str
+    ) -> None:
+        """A server asking for more than can be held gets the hour cap."""
+        assert oauth._retry_after(header) == HOUR
+
+    @pytest.mark.parametrize("expires_in", ["²", "9" * 5000, 10**400])
+    async def test_unreadable_expires_in_takes_the_default_lifetime(
+        self, server: AuthServer, clock: Clock, expires_in: object
+    ) -> None:
+        """A token with an unreadable lifetime lives the default, never raises."""
+        server.answers.append(token_response("token", expires_in=expires_in))
+
+        async with secret_client() as client:
+            token = await payments(client).token()
+
+        assert token.expires_at == int(clock.wall) + DEFAULT_LIFETIME
+
+    @pytest.mark.parametrize("retry_after", ["9" * 400, "9" * 5000])
+    async def test_unreadable_retry_after_is_still_remembered(
+        self, server: AuthServer, retry_after: str
+    ) -> None:
+        """A throttled answer with a huge `Retry-After` still stops the next fetch."""
+        server.answers.append(
+            httpx.Response(429, headers={"Retry-After": retry_after})
+        )
+
+        async with secret_client() as client:
+            pattern = payments(client)
+            with pytest.raises(TokenUnavailableError, match="429"):
+                await pattern.token()
+            with pytest.raises(TokenUnavailableError):
+                await pattern.token()
+
+        assert_fetches(server, 1)
+
+    async def test_deeply_nested_response_is_a_failure(
+        self, server: AuthServer
+    ) -> None:
+        """A body nested too deeply to parse is refused like any other bad body."""
+        server.answers.append(httpx.Response(200, content=b"[" * 100_000))
+
+        async with secret_client() as client:
+            with pytest.raises(
+                TokenUnavailableError, match="not a JSON object"
+            ):
+                await payments(client).token()

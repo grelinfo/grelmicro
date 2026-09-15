@@ -670,6 +670,9 @@ const PKCS8: &str = "PRIVATE KEY";
 /// PEM label of a key encrypted under a passphrase.
 const ENCRYPTED: &str = "ENCRYPTED PRIVATE KEY";
 
+/// PEM labels a private key is written under, in any format this reads.
+const PRIVATE_KEY_LABELS: [&str; 4] = [PKCS8, "RSA PRIVATE KEY", "EC PRIVATE KEY", ENCRYPTED];
+
 /// Build the error for a key that cannot sign under `algorithm`.
 ///
 /// The key is never part of the message: it is a credential and the message
@@ -720,8 +723,19 @@ fn ecdsa_key(
 
 /// Parse the PEM `material` into a key that signs under `algorithm`.
 fn signing_key(algorithm: &str, material: &[u8]) -> PyResult<SigningKey> {
-    let document = pem::parse(material)
+    let documents = pem::parse_many(material)
         .map_err(|_| PyValueError::new_err("the private key is not a PEM document"))?;
+    if documents.is_empty() {
+        return Err(PyValueError::new_err(
+            "the private key is not a PEM document",
+        ));
+    }
+    // A key file can carry other blocks ahead of the key, such as the curve
+    // parameters `openssl ecparam -genkey` writes, or a certificate.
+    let document = documents
+        .iter()
+        .find(|document| PRIVATE_KEY_LABELS.contains(&document.tag()))
+        .ok_or_else(|| PyValueError::new_err("the PEM document holds no private key"))?;
     let label = document.tag();
     if label == ENCRYPTED {
         return Err(PyValueError::new_err(

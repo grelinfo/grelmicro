@@ -348,3 +348,32 @@ class TestRefusals:
                 if line and not line.startswith("-----")
             ]
             assert not any(line in message for line in body)
+
+
+P256_PARAMETERS = (
+    b"-----BEGIN EC PARAMETERS-----\n"
+    b"BggqhkjOPQMBBw==\n"
+    b"-----END EC PARAMETERS-----\n"
+)
+"""The P-256 curve parameters `openssl ecparam -genkey` writes ahead of a key."""
+
+
+class TestKeyFiles:
+    """A key file can hold other blocks, and the private key is the one read."""
+
+    def test_key_after_curve_parameters_is_read(self) -> None:
+        """The file `openssl ecparam -genkey` writes signs as its key alone does."""
+        signer = CORE.Signer("ES256", P256_PARAMETERS + traditional(P256_KEY))
+
+        verify("ES256", b"data", signer.sign(b"data"))
+
+    def test_key_after_another_block_is_read(self) -> None:
+        """A public key or certificate ahead of the private key is passed over."""
+        document = public_pem(RSA_KEY) + pkcs8(RSA_KEY)
+        signer = CORE.Signer("RS256", document)
+
+        verify("RS256", b"data", signer.sign(b"data"))
+
+    def test_file_with_no_private_key_is_refused(self) -> None:
+        """Curve parameters alone are not a key, and the refusal says so."""
+        assert "no private key" in refusal("ES256", P256_PARAMETERS)

@@ -2393,32 +2393,54 @@ def _token_endpoint_of(
 
 
 def _json_object(body: bytes) -> dict[str, Any] | None:
-    """Return `body` as a JSON object, or `None` when it is not one."""
+    """Return `body` as a JSON object, or `None` when it is not one.
+
+    A body nested too deeply to parse is not one either.
+    """
     try:
         parsed = json.loads(body)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     return parsed if isinstance(parsed, dict) else None
 
 
 def _seconds(value: object) -> float | None:
-    """Return a positive number of seconds a response states, or `None`."""
+    """Return a positive, finite number of seconds a response states, or `None`.
+
+    A number written as a string counts when it is plain ASCII digits. One
+    too large to read, or to hold as a float, does not.
+    """
     if isinstance(value, bool):
         return None
-    if isinstance(value, str) and value.isdigit():
-        value = int(value)
-    if isinstance(value, (int, float)) and math.isfinite(value) and value > 0:
-        return float(value)
-    return None
+    if isinstance(value, str):
+        if not (value.isascii() and value.isdigit()):
+            return None
+        try:
+            value = int(value)
+        except ValueError:
+            return None
+    if not isinstance(value, (int, float)):
+        return None
+    try:
+        seconds = float(value)
+    except OverflowError:
+        return None
+    return seconds if math.isfinite(seconds) and seconds > 0 else None
 
 
 def _retry_after(value: str | None) -> float | None:
-    """Return the seconds a `Retry-After` header asks for, or `None`."""
+    """Return the seconds a `Retry-After` header asks for, or `None`.
+
+    A number too large to read asks for the longest wait honoured.
+    """
     if value is None:
         return None
     text = value.strip()
-    if text.isdigit():
-        return float(int(text))
+    if text.isascii() and text.isdigit():
+        try:
+            return min(float(int(text)), _RETRY_AFTER_CEILING)
+        except (ValueError, OverflowError):
+            return _RETRY_AFTER_CEILING
     try:
         when = parsedate_to_datetime(text)
     except (TypeError, ValueError):
