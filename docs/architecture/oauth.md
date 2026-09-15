@@ -263,6 +263,11 @@ seconds would otherwise be inside its window the moment it arrived, and every
 request would start a fetch. The point inside the window is random, so replicas
 started together spread their fetches out.
 
+An exchanged token cut short by the caller's own expiry is kept to its end and
+never refreshed ahead. A refresh exchanges the same caller token, so the new
+token would end at the same moment, and every refresh would only schedule the
+next one.
+
 Discovery runs when the client opens, so the first request after startup waits
 for a token and not for metadata too.
 
@@ -290,7 +295,10 @@ What is remembered, and for whom, depends on what failed:
   so it is remembered for the whole client, for as long as it asks and at most
   an hour, which bounds a server sending a mistaken value.
 - A refusal of one token, such as `invalid_grant` on one user's exchange, says
-  nothing about anyone else, so it is remembered for that token only.
+  nothing about anyone else, so it is remembered for that token only. That
+  holds for any `4xx` but `408` and `429`, with or without an error code: a
+  server that denies one user with a `403` must not let that user stop every
+  other token the client asks for.
 
 A connection lost before any answer is retried once, at once. It is the one
 failure a retry fixes, because a keep-alive connection closed by the other side

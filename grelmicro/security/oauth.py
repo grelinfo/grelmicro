@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from email.utils import parsedate_to_datetime
 from functools import cache
+from http import HTTPStatus
 from importlib import import_module
 from pathlib import Path
 from time import monotonic, time
@@ -1334,13 +1335,22 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         wall = time()
         expires = now + lifetime
         expires_at = wall + lifetime
+        capped = False
         if not_after is not None:
-            expires = min(expires, now + (not_after - wall))
+            until_caller = not_after - wall
+            capped = until_caller < lifetime
+            expires = min(expires, now + until_caller)
             expires_at = min(expires_at, float(not_after))
         token = replace(token, expires_at=math.floor(expires_at))
         remaining = expires - now
         if request.cacheable and remaining > 0:
-            refresh_at = self._refresh_at(now, remaining, refresh_in)
+            # A token cut short by the caller's own expiry cannot be renewed
+            # for longer, so it is kept to its end, not refreshed ahead.
+            refresh_at = (
+                expires
+                if capped
+                else self._refresh_at(now, remaining, refresh_in)
+            )
             cache.put(key, _Entry(token, refresh_at, expires), now)
         _record(attributes, "success", None, started)
         return token
@@ -1459,37 +1469,6 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         if status == ok:
             return self._issued(body)
         interval = self._config.retry_interval
-        if status in (400, 401):
-            parsed = _json_object(body)
-            code = None if parsed is None else parsed.get("error")
-            if isinstance(code, str) and _ERROR_CODE.fullmatch(code):
-                description = _description(
-                    None if parsed is None else parsed.get("error_description")
-                )
-                if code in ("invalid_client", "unauthorized_client"):
-                    # `invalid_client` refuses the service, and
-                    # `unauthorized_client` one grant it may not use.
-                    raise _Failure(
-                        ClientRejectedError(
-                            self._rejected_message(code),
-                            error=code,
-                            description=description,
-                        ),
-                        scope="client" if code == "invalid_client" else "grant",
-                        seconds=interval,
-                        outcome="rejected",
-                    )
-                raise _Failure(
-                    TokenUnavailableError(
-                        "the authorization server refused the token request:"
-                        f" {code}",
-                        error=code,
-                        description=description,
-                    ),
-                    scope="token",
-                    seconds=interval,
-                    outcome="refused",
-                )
         if status in (429, 503):
             asked = _retry_after(retry_after)
             seconds = (
@@ -1505,8 +1484,60 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                 seconds=seconds,
                 outcome="throttled",
             )
+        if (
+            HTTPStatus.BAD_REQUEST <= status < HTTPStatus.INTERNAL_SERVER_ERROR
+            and status != HTTPStatus.REQUEST_TIMEOUT
+        ):
+            raise self._refusal(status, body)
         msg = f"the authorization server answered {status}"
         raise self._down_failure(msg)
+
+    def _refusal(self, status: int, body: bytes) -> _Failure:
+        """Return how a token request the server refused is remembered.
+
+        A refusal answers this request, so it is remembered for the token
+        asked for, whatever the status and whether or not it names a code.
+        `invalid_client` refuses the service itself and `unauthorized_client`
+        a grant it may not use, so those two reach further.
+        """
+        parsed = _json_object(body)
+        found = None if parsed is None else parsed.get("error")
+        code = (
+            found
+            if isinstance(found, str) and _ERROR_CODE.fullmatch(found)
+            else None
+        )
+        description = (
+            None
+            if code is None or parsed is None
+            else _description(parsed.get("error_description"))
+        )
+        interval = self._config.retry_interval
+        if code is not None and code in (
+            "invalid_client",
+            "unauthorized_client",
+        ):
+            return _Failure(
+                ClientRejectedError(
+                    self._rejected_message(code),
+                    error=code,
+                    description=description,
+                ),
+                scope="client" if code == "invalid_client" else "grant",
+                seconds=interval,
+                outcome="rejected",
+            )
+        return _Failure(
+            TokenUnavailableError(
+                "the authorization server refused the token request:"
+                f" {code or status}",
+                error=code,
+                description=description,
+            ),
+            scope="token",
+            seconds=interval,
+            outcome="refused",
+        )
 
     def _issued(self, body: bytes) -> tuple[AccessToken, float, float | None]:
         """Read the token a successful response carries.
@@ -2160,12 +2191,7 @@ class TokenExchange(_TokenPattern):
             scopes=scopes,
             cache_size=cache_size,
         )
-        if config.audience is not None or config.resource is not None:
-            msg = (
-                "the on-behalf-of grant names the API with scopes, and sends"
-                " no audience or resource"
-            )
-            raise SettingsValidationError(msg)
+        _check_on_behalf_of(config)
         instance = cls.__new__(cls)
         instance._setup(name, config, client, grant="on_behalf_of")  # noqa: SLF001
         return instance
@@ -2189,11 +2215,14 @@ class TokenExchange(_TokenPattern):
         """Build from a configuration that is already whole, reading no variable.
 
         Raises:
-            SettingsValidationError: If `grant` is not one this knows.
+            SettingsValidationError: If `grant` is not one this knows, or the
+                on-behalf-of grant is given an audience or a resource.
         """
         if grant not in ("token_exchange", "on_behalf_of"):
             msg = "grant must be 'token_exchange' or 'on_behalf_of'"
             raise SettingsValidationError(msg)
+        if grant == "on_behalf_of":
+            _check_on_behalf_of(config)
         instance = cls.__new__(cls)
         instance._setup(name, config, client, grant=grant)  # noqa: SLF001
         return instance
@@ -2302,6 +2331,20 @@ class TokenExchange(_TokenPattern):
         await client._drop(  # noqa: SLF001
             self._cache, self._key(client, verified), token.value
         )
+
+
+def _check_on_behalf_of(config: TokenExchangeConfig) -> None:
+    """Refuse an audience or a resource, which the on-behalf-of grant never sends.
+
+    Raises:
+        SettingsValidationError: If `config` names either.
+    """
+    if config.audience is not None or config.resource is not None:
+        msg = (
+            "the on-behalf-of grant names the API with scopes, and sends"
+            " no audience or resource"
+        )
+        raise SettingsValidationError(msg)
 
 
 def _verified(token: object) -> VerifiedToken:

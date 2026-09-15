@@ -1069,6 +1069,60 @@ class TestFailures:
         assert caught.value.error is None
         assert "\n" not in str(caught.value)
 
+    async def test_a_refusal_with_any_client_error_stays_with_its_token(
+        self, server: AuthServer
+    ) -> None:
+        """One caller denied with `403` never blocks another caller or the service."""
+        server.answers.append(error_response(403, error="access_denied"))
+
+        async with secret_client() as client:
+            exchange = TokenExchange(
+                "payments-api",
+                audience="payments-api",
+                client=client,
+                env_load=False,
+            )
+            with pytest.raises(TokenUnavailableError, match="access_denied"):
+                await exchange.token(caller("denied", FAR_FUTURE))
+            allowed = await exchange.token(caller("allowed", FAR_FUTURE))
+            own = await payments(client).token()
+
+        assert allowed.value == "token-1"
+        assert own.value == "token-2"
+        assert_fetches(server, 3)
+
+    async def test_request_timeout_is_remembered_for_the_whole_client(
+        self, server: AuthServer
+    ) -> None:
+        """A `408` says the server is slow, not that this request is wrong."""
+        server.answers.append(httpx.Response(408))
+
+        async with secret_client() as client:
+            with pytest.raises(TokenUnavailableError, match="408"):
+                await payments(client).token()
+            with pytest.raises(TokenUnavailableError):
+                await payments(client, audience="other-api").token()
+
+        assert_fetches(server, 1)
+
+    def test_on_behalf_of_from_config_refuses_a_resource(self) -> None:
+        """The declarative door refuses what `on_behalf_of` refuses."""
+        with pytest.raises(SettingsValidationError, match="scopes"):
+            TokenExchange.from_config(
+                "payments-api",
+                TokenExchangeConfig(resource="https://payments.internal"),
+                grant="on_behalf_of",
+            )
+
+    def test_token_exchange_from_config_keeps_a_resource(self) -> None:
+        """RFC 8693 sends a resource, so the declarative door accepts one."""
+        exchange = TokenExchange.from_config(
+            "payments-api",
+            TokenExchangeConfig(resource="https://payments.internal"),
+        )
+
+        assert exchange.config.resource == "https://payments.internal"
+
     async def test_a_failed_refresh_keeps_serving_the_cached_token(
         self, server: AuthServer, clock: Clock
     ) -> None:
@@ -1338,6 +1392,21 @@ class TestTokenExchange:
 
         assert token.expires_at == int(clock.wall) - 1
         assert_fetches(server, 2)
+
+    async def test_a_token_cut_short_by_the_caller_is_not_refreshed_ahead(
+        self, server: AuthServer, clock: Clock
+    ) -> None:
+        """A refresh could not outlive the caller's token, so none is started."""
+        async with secret_client() as client:
+            exchange = self.exchange(client)
+            subject = caller(expires_at=int(clock.wall) + 100)
+            await exchange.token(subject)
+            clock.advance(90)
+            again = await exchange.token(subject)
+            await settle()
+
+        assert again.value == "token-1"
+        assert_fetches(server, 1)
 
     async def test_caller_without_expiry_is_not_cached(
         self, server: AuthServer

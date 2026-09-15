@@ -237,9 +237,9 @@ instead of each waiting on a server that is down:
 
 | Failure | Remembered for | Applies to |
 | --- | --- | --- |
-| No answer, a timeout, or a `5xx` | `retry_interval` | every token of this client |
+| No answer, a timeout, a `408` or a `5xx` | `retry_interval` | every token of this client |
 | `429` or `503` with `Retry-After` | what the server asked, at most an hour | every token of this client |
-| A refusal for one token, such as `invalid_grant` | `retry_interval` | that token only |
+| Any other refusal, such as `invalid_grant` or a `403` | `retry_interval` | that token only |
 | `invalid_client`, the service itself refused | `retry_interval` | every token of this client |
 | `unauthorized_client`, a grant the service may not use | `retry_interval` | every token of that grant |
 
