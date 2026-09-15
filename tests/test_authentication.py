@@ -4526,3 +4526,45 @@ class TestResourceMetadataOnLitestar:
             for warning in caught
             if issubclass(warning.category, MiddlewarePlacementWarning)
         ]
+
+    def test_a_slashed_resource_is_routed_without_a_warning(self) -> None:
+        """Litestar routes the path without its slash, and so it is looked up."""
+        app = declared_on_litestar(resource="https://api.example.com/orders/")
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                document = client.get(f"{WELL_KNOWN}/")
+                client.get("/orders")
+
+        assert document.json()["resource"] == "https://api.example.com/orders/"
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
+    def test_a_path_routed_for_another_method_is_left_alone(self) -> None:
+        """Install does not clash with it, and the unreachable document warns."""
+
+        @post(WELL_KNOWN)
+        async def own() -> None: ...  # pragma: no cover
+
+        app = declared_on_litestar(own)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                client.get("/orders")
+
+        assert [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]

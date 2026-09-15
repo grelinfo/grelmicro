@@ -2108,7 +2108,7 @@ class _ResourceMetadata:
     """The protected resource metadata a service publishes, ready to serve."""
 
     route: str
-    """The path a router routes the document at, decoded."""
+    """The path a router routes the document at: decoded, with no trailing slash."""
     paths: frozenset[str]
     """Every route path the document is served at, however the router reads it."""
     pointer: bytes
@@ -2156,7 +2156,8 @@ def _resource_metadata(
 
     The URL a challenge points at keeps the resource's path as written. A
     request arrives with its path decoded, so the document is matched by
-    the decoded path, and a resource path holding `%20` is still found.
+    the decoded path, and a resource path holding `%20` is still found. A
+    router that drops a trailing slash routes it without one.
 
     Raises:
         TypeError: If no authorization server is named and the verifier
@@ -2178,6 +2179,7 @@ def _resource_metadata(
     parts = urlsplit(resource)
     path = _metadata_path(resource)
     served = unquote(path)
+    route = served.rstrip("/")
     query = f"?{parts.query}" if parts.query else ""
     document: dict[str, Any] = {
         "resource": resource,
@@ -2188,8 +2190,8 @@ def _resource_metadata(
     document["bearer_methods_supported"] = ["header"]
     url = f"{parts.scheme}://{parts.netloc}{path}{query}"
     return _ResourceMetadata(
-        route=served,
-        paths=frozenset({served, served.rstrip("/")}),
+        route=route,
+        paths=frozenset({served, route}),
         pointer=f'resource_metadata="{url}"'.encode("ascii"),
         body=json.dumps(document, separators=(",", ":")).encode(),
     )

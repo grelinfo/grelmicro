@@ -237,13 +237,22 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
 
 
 def _routes(app: Litestar, path: str) -> bool:
-    """Return whether Litestar's router answers `GET path` with a route."""
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
+    """Return whether Litestar's router routes `path`, for any method.
+
+    A path routed for another method is routed all the same: a second route
+    there would clash with the one the app declared.
+    """
+    from litestar.exceptions import (  # noqa: PLC0415
+        HTTPException,
+        NotFoundException,
+    )
 
     try:
         app.asgi_router.handle_routing(path=path, method="GET")
-    except HTTPException:
+    except NotFoundException:
         return False
+    except HTTPException:
+        return True
     return True
 
 
