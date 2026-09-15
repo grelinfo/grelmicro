@@ -299,7 +299,8 @@ to the current span when one is recording.
 - `otel.event.name` names the event. The
   [OpenTelemetry logging instrumentation](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/logging/logging.html)
   sends the record as a named event, tied to the request's span.
-- Refusals from one address are written once per minute. The next record
+- Each kind of refusal from one address is written once per minute, so a
+  request with no token never hides a forged one. The next record of that kind
   carries `grelmicro.security.suppressed`, the number held back. The counters
   stay exact.
 - A request refused while its address is banned is counted, not written. The
@@ -351,8 +352,13 @@ AuthenticatedRequests(verifier, enduser=True)
 | Metric | Type | Attributes |
 |---|---|---|
 | `grelmicro.authentication.attempts` | counter | `grelmicro.outcome` (`success` or `refused`), with `error.type` and `http.route` when refused |
+| `grelmicro.authorization.refusals` | counter | `error.type`, `http.route` |
 | `grelmicro.client_bans.started` | counter | `grelmicro.client_bans.name` |
 | `grelmicro.client_bans.active` | gauge | `grelmicro.client_bans.name` |
+
+A request is one attempt. A caller refused for a missing scope already
+authenticated, so it stays one `success` and counts on
+`grelmicro.authorization.refusals`.
 
 `grelmicro.client_bans.active` is read when metrics are collected, so a ban that
 runs out leaves it without a request to report it.

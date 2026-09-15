@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -26,12 +28,18 @@ from opentelemetry.trace import StatusCode
 from starlette.applications import Starlette
 from starlette.routing import Route
 
+from grelmicro import Grelmicro
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
     AuthenticatedRequestsMiddleware,
+    ErrorResponses,
 )
-from grelmicro.http._authentication import recorded, refusal_of
+from grelmicro.http._authentication import (
+    _PublicRoutes,
+    recorded,
+    refusal_of,
+)
 from grelmicro.metrics import _hub
 from grelmicro.metrics._component import Metrics
 from grelmicro.security import (
@@ -536,12 +544,29 @@ class TestRepeats:
         """An attacker with many addresses spends its own history."""
         repeats = _Repeats(60.0, 2)
 
-        assert repeats.admit("a") == 0
-        assert repeats.admit("b") == 0
-        assert repeats.admit("a") is None
-        assert repeats.admit("c") == 0
-        assert repeats.admit("a") is None
-        assert repeats.admit("b") == 0
+        assert repeats.admit("a", "signature") == 0
+        assert repeats.admit("b", "signature") == 0
+        assert repeats.admit("a", "signature") is None
+        assert repeats.admit("c", "signature") == 0
+        assert repeats.admit("a", "signature") is None
+        assert repeats.admit("b", "signature") == 0
+
+    def test_a_refusal_of_another_kind_is_never_held_back(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """A request with no token never hides a forged one from its address."""
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier())), client=CALLER
+        )
+
+        client.get("/whoami")
+        client.get("/whoami", headers=bearer(token(FORGER)))
+        client.get("/whoami")
+
+        assert [field(record, "error.type") for record in events] == [
+            "authentication-required",
+            "signature",
+        ]
 
 
 class TestBans:
@@ -683,6 +708,27 @@ class TestMetrics:
         text = repr(recorded_points)
         assert "user-1" not in text
         assert ADDRESS not in text
+
+    def test_a_missing_scope_counts_once_as_an_authorization_refusal(
+        self, metrics: InMemoryMetricReader
+    ) -> None:
+        """The request authenticated, so its attempt stays one success."""
+        client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
+
+        client.delete("/orders/7", headers=bearer(token()))
+
+        assert points(metrics, "grelmicro.authentication.attempts") == [
+            (1, {"grelmicro.outcome": "success"})
+        ]
+        assert points(metrics, "grelmicro.authorization.refusals") == [
+            (
+                1,
+                {
+                    "error.type": "insufficient-scope",
+                    "http.route": "/orders/{order_id}",
+                },
+            )
+        ]
 
     def test_active_bans_are_read_when_metrics_are_collected(
         self, metrics: InMemoryMetricReader
@@ -886,8 +932,211 @@ async def _served(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401,
     await send({"type": "http.response.body", "body": b""})
 
 
+class TestMutationGaps:
+    """Boundaries and branches mutation testing found no test for."""
+
+    @pytest.mark.usefixtures("metrics")
+    def test_a_gauge_registered_while_metrics_run_survives_the_next_component(
+        self,
+    ) -> None:
+        """A registration is kept for every component that activates later."""
+
+        def observe(options: Any) -> Iterator[Any]:  # noqa: ANN401, ARG001
+            from opentelemetry.metrics import Observation  # noqa: PLC0415
+
+            yield Observation(3)
+
+        _hub.observe_with("grelmicro.test.kept", observe, "1")
+        try:
+            reader = InMemoryMetricReader()
+            component = Metrics()
+            component._provider = MeterProvider(metric_readers=[reader])
+            component._entered = True
+            _hub.activate(component)
+            try:
+                assert points(reader, "grelmicro.test.kept") == [(3, {})]
+            finally:
+                _hub.deactivate(component)
+        finally:
+            _hub._observed.pop("grelmicro.test.kept")
+
+    def test_registering_beside_a_component_not_entered_creates_nothing(
+        self,
+    ) -> None:
+        """A component that never entered has no meter to create it on."""
+        component = Metrics()
+        _hub.activate(component)
+        try:
+            _hub.observe_with("grelmicro.test.idle", lambda _: iter(()), "1")
+        finally:
+            _hub.deactivate(component)
+            _hub._observed.pop("grelmicro.test.idle")
+
+    def test_failures_below_the_threshold_write_no_ban(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """Only a ban that starts is written."""
+        ClientBans(failures=3).record(ADDRESS, TokenRejectedReason.SIGNATURE)
+
+        assert events == []
+
+    def test_a_ban_ending_this_instant_starts_again(
+        self,
+        events: list[logging.LogRecord],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A ban is over at its end, so a failure then starts a new one."""
+        from grelmicro.security import bans as module  # noqa: PLC0415
+
+        clock = [1000.0]
+        monkeypatch.setattr(module, "monotonic", lambda: clock[0])
+        bans = ClientBans(failures=1, window=1.0, duration=5.0)
+
+        bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
+        clock[0] = 1005.0
+        assert bans.active() == 0
+        bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
+
+        assert len(events) == 2  # noqa: PLR2004
+
+    def test_the_ban_ends_in_the_future_in_utc(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """`until` is a UTC instant after the ban started."""
+        ClientBans(failures=1, duration=60.0).record(
+            ADDRESS, TokenRejectedReason.SIGNATURE
+        )
+
+        [ban] = events
+        until = datetime.fromisoformat(
+            field(ban, "grelmicro.client_bans.until")
+        )
+        assert until.tzinfo == UTC
+        assert until > datetime.now(UTC)
+
+    def test_a_value_at_the_limit_is_kept_whole(self) -> None:
+        """Only a value longer than the limit is cut."""
+        value = "x" * _events.VALUE_LIMIT
+
+        assert encoded(value) == value
+
+    @pytest.mark.parametrize(
+        "caller",
+        [
+            SimpleNamespace(subject="user-1"),
+            SimpleNamespace(is_authenticated=True, subject=42),
+            SimpleNamespace(is_authenticated=True, subject=""),
+        ],
+    )
+    def test_only_an_authenticated_string_subject_names_anyone(
+        self, caller: object
+    ) -> None:
+        """A caller not marked authenticated, or naming no string, is nobody."""
+        assert _events.subject_of(caller) is None
+
+    def test_each_address_is_held_back_on_its_own(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """One address repeating never silences another."""
+        app = app_with(AuthenticatedRequests(verifier()))
+        forged = bearer(token(FORGER))
+
+        TestClient(app, client=CALLER).get("/whoami", headers=forged)
+        TestClient(app, client=("203.0.113.8", 5000)).get(
+            "/whoami", headers=forged
+        )
+
+        assert [field(record, "client.address") for record in events] == [
+            ADDRESS,
+            "203.0.113.8",
+        ]
+
+    def test_a_scope_refusal_under_a_proxy_prefix_keeps_it(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """A route refusal names the route as the access record does."""
+        client = TestClient(
+            fastapi_app(AuthenticatedRequests(verifier())), root_path="/api"
+        )
+
+        client.delete("/api/orders/7", headers=bearer(token()))
+
+        [record] = events
+        assert field(record, "http.route") == "/api/orders/{order_id}"
+
+    def test_the_route_answering_the_method_is_named(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """Two routes fit the path, and the one serving the method is named."""
+        app = Starlette(
+            routes=[
+                Route("/items/{item_id}", whoami, methods=["GET"]),
+                Route("/items/special", whoami, methods=["POST"]),
+            ]
+        )
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+
+        TestClient(app).post("/items/special", headers=bearer(token(FORGER)))
+
+        [record] = events
+        assert field(record, "http.route") == "/items/special"
+
+    @pytest.mark.parametrize(
+        ("extra", "expected"),
+        [
+            ({"path": "/whoami"}, "/whoami"),
+            ({"path": "/whoami", "root_path": "/api"}, "/whoami"),
+            ({"path": "/api/whoami", "root_path": "/api"}, "/api/whoami"),
+            ({"path": "/api/nowhere", "root_path": "/api"}, None),
+        ],
+    )
+    def test_the_template_before_routing(
+        self, extra: dict[str, str], expected: str | None
+    ) -> None:
+        """A missing root path, a stripped prefix and no route at all."""
+        app = Starlette(routes=[Route("/whoami", whoami)])
+        public = _PublicRoutes()
+        public.read(app)
+
+        template = public.template(
+            {"type": "http", "method": "GET", "app": app, **extra}
+        )
+
+        assert template == expected
+
+    @pytest.mark.parametrize(
+        ("root_path", "expected"), [("", "/orders"), ("/api", "/api/orders")]
+    )
+    async def test_a_template_the_router_recorded_is_used_as_is(
+        self,
+        events: list[logging.LogRecord],
+        root_path: str,
+        expected: str,
+    ) -> None:
+        """A middleware behind a router reads what the router matched."""
+        middleware = AuthenticatedRequestsMiddleware(
+            _served, verifier=verifier()
+        )
+
+        await _call(
+            middleware,
+            bearer(token(FORGER)),
+            path=f"{root_path}/orders",
+            root_path=root_path,
+            path_template="/orders",
+        )
+
+        [record] = events
+        assert field(record, "http.route") == expected
+
+
 async def _call(
-    middleware: AuthenticatedRequestsMiddleware, headers: dict[str, str]
+    middleware: AuthenticatedRequestsMiddleware,
+    headers: dict[str, str],
+    **extra: Any,  # noqa: ANN401
 ) -> list[MutableMapping[str, Any]]:
     """Send one request through `middleware`, and return what it sent."""
     sent: list[MutableMapping[str, Any]] = []
@@ -908,6 +1157,7 @@ async def _call(
         ],
         "query_string": b"",
         "client": CALLER,
+        **extra,
     }
     await middleware(scope, receive, send)
     return sent

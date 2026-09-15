@@ -218,6 +218,7 @@ that carried an exception, and never carries it on a success.
 | Metric | Type | Attributes |
 |---|---|---|
 | `grelmicro.authentication.attempts` | counter | `grelmicro.outcome`, `error.type` and `http.route` when refused |
+| `grelmicro.authorization.refusals` | counter | `error.type`, `http.route` |
 | `grelmicro.client_bans.started` | counter | `grelmicro.client_bans.name` |
 | `grelmicro.client_bans.active` | gauge | `grelmicro.client_bans.name` |
 

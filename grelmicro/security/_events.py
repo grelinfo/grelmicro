@@ -56,7 +56,10 @@ BAN_STARTED: Final = "grelmicro.client_bans.started"
 """The event name of a ban starting, and the counter of bans started."""
 
 ATTEMPTS: Final = "grelmicro.authentication.attempts"
-"""Counter of requests authentication acted on, one point per request."""
+"""Counter of requests authentication verified or refused, one per request."""
+
+AUTHORIZATION_REFUSALS: Final = "grelmicro.authorization.refusals"
+"""Counter of authenticated callers refused for a missing scope."""
 
 BANS_ACTIVE: Final = "grelmicro.client_bans.active"
 """Gauge of the bans running, read when metrics are collected."""
@@ -68,7 +71,7 @@ ENDUSER: Final = "enduser.id"
 """The attribute naming the authenticated end user."""
 
 SUPPRESSED: Final = "grelmicro.security.suppressed"
-"""How many refusals from the same address were not written since the last."""
+"""How many refusals of one kind from one address were not written since the last."""
 
 SCOPE_KEY: Final = "grelmicro.security_events"
 """Where the middleware leaves its recorder for a refusal a route raises."""
@@ -80,10 +83,10 @@ CLIENT_BANNED: Final = "client-banned"
 """The refusal of a request from a banned address."""
 
 REPEAT_INTERVAL: Final = 60.0
-"""Seconds one address writes at most one refusal record in."""
+"""Seconds one address writes at most one record of each refusal in."""
 
 TRACKED_CLIENTS: Final = 10_000
-"""Addresses whose repeats are counted at once."""
+"""Address and refusal pairs whose repeats are counted at once."""
 
 VALUE_LIMIT: Final = 256
 """Characters kept of a value taken from the request."""
@@ -139,12 +142,14 @@ def subject_of(caller: object) -> str | None:
 
 
 class _Repeats:
-    """Counts the refusals from each address written since its last record.
+    """Counts the refusals of each kind from each address since its last record.
 
-    The first refusal from an address is written. The ones after it inside
-    `REPEAT_INTERVAL` are counted, and the next one written after the
-    interval carries the count. The table is bounded, and the address
-    recorded longest ago is dropped first.
+    The first refusal of a kind from an address is written. The same kind
+    from the same address inside `REPEAT_INTERVAL` is counted, and the next
+    one written after the interval carries the count. A refusal of another
+    kind has a count of its own, so a request with no token never holds back
+    a forged one. The table is bounded, and the pair recorded longest ago is
+    dropped first.
     """
 
     __slots__ = ("_clients", "_interval", "_limit", "_lock")
@@ -153,24 +158,27 @@ class _Repeats:
         """Start with no address."""
         self._interval = interval
         self._limit = limit
-        self._clients: OrderedDict[str, tuple[float, int]] = OrderedDict()
+        self._clients: OrderedDict[tuple[str, str], tuple[float, int]] = (
+            OrderedDict()
+        )
         self._lock = threading.Lock()
 
-    def admit(self, client: str) -> int | None:
+    def admit(self, client: str, refusal: str) -> int | None:
         """Return how many refusals were held back, or `None` to hold this one."""
+        key = (client, refusal)
         with self._lock:
             now = monotonic()
             clients = self._clients
-            seen = clients.get(client)
+            seen = clients.get(key)
             if seen is not None and now - seen[0] < self._interval:
-                clients[client] = (seen[0], seen[1] + 1)
-                clients.move_to_end(client)
+                clients[key] = (seen[0], seen[1] + 1)
+                clients.move_to_end(key)
                 return None
             if seen is None:
                 while len(clients) >= self._limit:
                     clients.popitem(last=False)
-            clients[client] = (now, 0)
-            clients.move_to_end(client)
+            clients[key] = (now, 0)
+            clients.move_to_end(key)
             return 0 if seen is None else seen[1]
 
 
@@ -204,17 +212,21 @@ class SecurityEvents:
         """Count a refusal, mark the span, and write the record.
 
         A request refused while its address is banned is counted and marked,
-        never written: the ban's own record already says so. A refusal from
-        an address already written inside the interval is counted into the
-        next record instead.
+        never written: the ban's own record already says so. A refusal of a
+        kind already written for the address inside the interval is counted
+        into the next record instead.
+
+        A missing scope counts on `AUTHORIZATION_REFUSALS`, because the
+        request already counted as one that authenticated.
         """
-        attributes: dict[str, Any] = {
-            "grelmicro.outcome": "refused",
-            "error.type": refusal,
-        }
+        attributes: dict[str, Any] = {"error.type": refusal}
         if template is not None:
             attributes["http.route"] = template
-        _emit.incr(ATTEMPTS, attributes, unit="{attempt}")
+        if status == 403:  # noqa: PLR2004
+            _emit.incr(AUTHORIZATION_REFUSALS, attributes, unit="{refusal}")
+        else:
+            attributes["grelmicro.outcome"] = "refused"
+            _emit.incr(ATTEMPTS, attributes, unit="{attempt}")
         _set_on_span(REFUSAL, refusal)
         named = subject if self._enduser else None
         if named is not None:
@@ -229,7 +241,7 @@ class SecurityEvents:
         if not logger.isEnabledFor(level):
             return
         client = client_address(scope)
-        suppressed = self._repeats.admit(client or "")
+        suppressed = self._repeats.admit(client or "", refusal)
         if suppressed is None:
             return
         self._write(
