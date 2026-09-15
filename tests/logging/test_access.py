@@ -272,6 +272,57 @@ async def test_an_unauthenticated_caller_is_never_asked_its_subject(
     assert "enduser.id" not in record.__dict__
 
 
+class Unreadable:
+    """An authenticated caller whose attributes fail when read."""
+
+    def __init__(self, failing: str) -> None:
+        """Fail when `failing` is read."""
+        self._failing = failing
+
+    @property
+    def is_authenticated(self) -> bool:
+        """Fail when asked to, the way a lazily loaded user might."""
+        if self._failing == "is_authenticated":
+            raise RuntimeError
+        return True
+
+    @property
+    def subject(self) -> str:
+        """Fail when asked to, the way a lazily loaded user might."""
+        if self._failing == "subject":
+            raise RuntimeError
+        return "user-1"
+
+
+@pytest.mark.parametrize("failing", ["is_authenticated", "subject"])
+async def test_a_caller_that_cannot_be_read_still_leaves_a_record(
+    capture: Callable[[], list[logging.LogRecord]],
+    failing: str,
+) -> None:
+    """A user object that raises is written as nobody, never as a lost record."""
+    app = calling_as(starlette_app(enduser=True), Unreadable(failing))
+    async with client_for(app) as client:
+        response = await client.get("/orders/7")
+
+    (record,) = capture()
+    assert response.status_code == HTTP_OK
+    assert record.__dict__["http.response.status_code"] == HTTP_OK
+    assert "enduser.id" not in record.__dict__
+
+
+async def test_a_caller_that_cannot_be_read_never_hides_a_handler_error(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """The handler's own exception is the one on the record."""
+    app = calling_as(starlette_app(enduser=True), Unreadable("subject"))
+    async with client_for(app) as client:
+        await client.get("/boom")
+
+    (record,) = capture()
+    assert record.__dict__["error.type"] == "ValueError"
+    assert "enduser.id" not in record.__dict__
+
+
 async def test_the_verified_caller_reaches_the_record(
     capture: Callable[[], list[logging.LogRecord]],
 ) -> None:

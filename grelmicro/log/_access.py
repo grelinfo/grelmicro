@@ -663,12 +663,17 @@ def _enduser_of(scope: Scope) -> str | None:
     """Return the subject of the authenticated caller, or `None` for none.
 
     A caller that is not authenticated names nobody, whatever it carries,
-    and a subject that is not a non-empty string is not written.
+    and a subject that is not a non-empty string is not written. A user
+    object whose attribute raises when read is written as nobody, so the
+    record is still written and a handler's own error still propagates.
     """
     caller = scope.get("user")
-    if getattr(caller, "is_authenticated", False) is not True:
+    try:
+        if getattr(caller, "is_authenticated", False) is not True:
+            return None
+        subject = getattr(caller, "subject", None)
+    except Exception:  # noqa: BLE001
         return None
-    subject = getattr(caller, "subject", None)
     return subject if isinstance(subject, str) and subject else None
 
 
