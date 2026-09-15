@@ -110,6 +110,9 @@ _REFUSALS = (
 )
 """What the middleware answers itself, rather than letting reach the app."""
 
+_ROUTE_CHALLENGES = (AuthenticationRequiredError, InsufficientScopeError)
+"""The bearer refusals a route raises itself, which may be rendered above us."""
+
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 """Set on the callable a route declares to be served without a credential."""
 
@@ -1503,7 +1506,7 @@ class AuthenticatedRequestsMiddleware:
             # runs itself outside this one keeps its caller.
             scope.setdefault("user", _ANONYMOUS)
             scope.setdefault("auth", _ANONYMOUS)
-            await self.app(scope, receive, send)
+            await self._forward(scope, receive, send)
             return
         try:
             caller = await self._authenticate(scope)
@@ -1512,7 +1515,26 @@ class AuthenticatedRequestsMiddleware:
             return
         scope["user"] = caller
         scope["auth"] = caller
-        await self.app(scope, receive, send)
+        await self._forward(scope, receive, send)
+
+    async def _forward(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Run the app, pointing a refusal it raises at the metadata.
+
+        A refusal a route raises is rendered wherever the framework catches
+        it, which on Litestar is above this middleware, out of reach of the
+        `send` it wraps. The refusal itself carries the URL there instead.
+        """
+        metadata = self._metadata
+        if metadata is None:
+            await self.app(scope, receive, send)
+            return
+        try:
+            await self.app(scope, receive, send)
+        except _ROUTE_CHALLENGES as error:
+            error.resource_metadata = metadata.url
+            raise
 
     def _serves_anonymously(self, scope: Scope) -> bool:
         """Return whether the request is served without verifying a credential.
@@ -2111,6 +2133,8 @@ class _ResourceMetadata:
     """The path a router routes the document at: decoded, with no trailing slash."""
     paths: frozenset[str]
     """Every route path the document is served at, however the router reads it."""
+    url: str
+    """The URL a bearer challenge points at."""
     pointer: bytes
     """The `resource_metadata` parameter a bearer challenge gets."""
     body: bytes
@@ -2192,6 +2216,7 @@ def _resource_metadata(
     return _ResourceMetadata(
         route=route,
         paths=frozenset({served, route}),
+        url=url,
         pointer=f'resource_metadata="{url}"'.encode("ascii"),
         body=json.dumps(document, separators=(",", ":")).encode(),
     )

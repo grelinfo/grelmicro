@@ -4568,3 +4568,31 @@ class TestResourceMetadataOnLitestar:
             for warning in caught
             if issubclass(warning.category, MiddlewarePlacementWarning)
         ]
+
+    def test_a_refusal_a_guard_raises_points_at_the_document(self) -> None:
+        """Rendered above the middleware, the challenge still names the metadata."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(issuing(), resource=RESOURCE))
+        ) as client:
+            refused = client.delete(
+                "/orders/7", headers=bearer(token(iss=ISSUER))
+            )
+
+        assert refused.status_code == HTTP_403_FORBIDDEN
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write", '
+            f'resource_metadata="{METADATA_URL}"'
+        )
+
+    def test_a_route_refusal_without_metadata_names_none(self) -> None:
+        """Nothing is added where no metadata is published."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(issuing()))
+        ) as client:
+            refused = client.delete(
+                "/orders/7", headers=bearer(token(iss=ISSUER))
+            )
+
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write"'
+        )

@@ -208,6 +208,14 @@ class AuthenticationRequiredError(GrelmicroError):
     needs when it declares any, as RFC 6750 asks.
     """
 
+    resource_metadata: str | None = None
+    """The URL of the protected resource metadata its challenge points at.
+
+    Set by `AuthenticatedRequestsMiddleware` on a refusal a route raised,
+    when the service publishes the metadata, so the challenge names it
+    wherever the refusal is rendered.
+    """
+
     def __init__(self, *, scopes: Sequence[str] = ()) -> None:
         """Initialize the error with the scopes the route requires."""
         self.scopes = _scope_tokens(scopes)
@@ -233,6 +241,14 @@ class InsufficientScopeError(GrelmicroError):
     Answers `403`, never `401`: the caller is known, and a fresh token with
     the same grants would get the same answer. The challenge names every
     scope required, so a client can ask its authorization server for them.
+    """
+
+    resource_metadata: str | None = None
+    """The URL of the protected resource metadata its challenge points at.
+
+    Set by `AuthenticatedRequestsMiddleware` on a refusal a route raised,
+    when the service publishes the metadata, so the challenge names it
+    wherever the refusal is rendered.
     """
 
     def __init__(self, *, scopes: Sequence[str]) -> None:
