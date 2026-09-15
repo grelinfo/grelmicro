@@ -1292,9 +1292,14 @@ class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
     @field_validator("resource")
     @classmethod
     def _check_resource(cls, value: str | None) -> str | None:
-        """Refuse a resource a client could not call or quote."""
-        if value is not None and not _is_url(value, query=True):
-            msg = "resource must be an https URL with no fragment"
+        """Refuse a resource a client could not call, quote or route to."""
+        if value is not None and (
+            not _is_url(value, query=True) or _holds_braces(value)
+        ):
+            msg = (
+                "resource must be an https URL with no fragment, and no brace "
+                "in its path, which a router reads as a path parameter"
+            )
             raise ValueError(msg)
         return value
 
@@ -2245,6 +2250,11 @@ def _is_url(value: str, *, query: bool) -> bool:
         and (query or "?" not in value)
         and _HEADER_SAFE.fullmatch(value) is not None
     )
+
+
+def _holds_braces(url: str) -> bool:
+    """Return whether a URL's path holds a brace, written as is or encoded."""
+    return not {"{", "}"}.isdisjoint(unquote(urlsplit(url).path))
 
 
 def _names(value: tuple[str, ...] | list[str], *, name: str) -> tuple[str, ...]:

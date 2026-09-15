@@ -4091,6 +4091,8 @@ class TestResourceMetadata:
             'https://api.example.com/"orders"',
             "https://[api.example.com/orders",
             "api.example.com/orders",
+            "https://api.example.com/{tenant}",
+            "https://api.example.com/%7Btenant%7D",
         ],
     )
     def test_a_resource_a_client_could_not_use_is_refused(

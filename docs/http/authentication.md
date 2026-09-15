@@ -128,7 +128,8 @@ WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write", resou
 ```
 
 - `resource` is the URL clients call the service at, as they see it behind any
-  proxy. It must be `https`, with no fragment. A client refuses a document whose
+  proxy. It must be `https`, with no fragment, and no brace in its path, which a
+  router reads as a path parameter. A client refuses a document whose
   `resource` differs from the URL it asked about, so nothing in it is read from
   the request.
 - The document is served at `/.well-known/oauth-protected-resource` followed by
