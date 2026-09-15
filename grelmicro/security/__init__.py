@@ -1,12 +1,17 @@
 """Security.
 
-Checks a service runs on an inbound request. grelmicro validates what
-arrives, it never issues credentials.
+Checks a service runs on an inbound request, and the tokens it sends on an
+outbound one. grelmicro validates what arrives and authenticates what it
+sends. It never issues credentials.
 
 `TrustedProxies` names your own proxies and `resolve_client_address`
 returns the address one of them vouched for, so a spoofed
 `X-Forwarded-For` never becomes a rate limiter key or an audit record.
 `ClientAddressMiddleware` resolves it once per request.
+
+`OAuthClient` registers the service with its authorization server, and
+`ClientCredentials` and `TokenExchange` get the tokens it calls other APIs
+with.
 
 Read more in the [Security](../security/index.md) docs.
 """
@@ -43,17 +48,34 @@ from grelmicro.security.jwt import (
     TokenVerifier,
     unverified_header,
 )
-from grelmicro.security.principal import Principal
+from grelmicro.security.oauth import (
+    AccessToken,
+    ClientAuth,
+    ClientCredentials,
+    ClientCredentialsConfig,
+    ClientRejectedError,
+    OAuthClient,
+    OAuthClientConfig,
+    TokenExchange,
+    TokenExchangeConfig,
+    TokenUnavailableError,
+)
+from grelmicro.security.principal import Principal, VerifiedToken
 
 __all__ = [
     "ABUSIVE_REASONS",
     "ALGORITHMS",
+    "AccessToken",
     "ClientAddress",
     "ClientAddressMiddleware",
     "ClientAddressReason",
+    "ClientAuth",
     "ClientBannedError",
     "ClientBans",
     "ClientBansConfig",
+    "ClientCredentials",
+    "ClientCredentialsConfig",
+    "ClientRejectedError",
     "DiscoveryConfig",
     "Fetcher",
     "JWKSConfig",
@@ -62,12 +84,18 @@ __all__ = [
     "JWTKeysConfig",
     "JWTPolicy",
     "JWTVerifier",
+    "OAuthClient",
+    "OAuthClientConfig",
     "Principal",
     "SigningKeysUnavailableError",
+    "TokenExchange",
+    "TokenExchangeConfig",
     "TokenRejectedError",
     "TokenRejectedReason",
+    "TokenUnavailableError",
     "TokenVerifier",
     "TrustedProxies",
+    "VerifiedToken",
     "fetch_with_httpx",
     "resolve_client_address",
     "unverified_header",

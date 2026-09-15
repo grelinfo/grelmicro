@@ -1,9 +1,10 @@
 # Security
 
-The `security` module holds the checks a service runs on an inbound request. grelmicro validates what arrives. It never issues credentials, runs a login flow, or stores users. That is your identity provider's job.
+The `security` module holds the checks a service runs on an inbound request, and the tokens it sends on an outbound one. grelmicro validates what arrives and authenticates what it sends. It never issues credentials, runs a login flow, or stores users. That is your identity provider's job.
 
 - **[JWT](jwt.md)** [Rust powered](../architecture/jwt.md){ .grel-tag .grel-tag--rust }: verify the bearer token a caller presents, against a key you configure or a JWKS endpoint whose keys rotate.
 - **[Client IP](clientip.md)**: resolve the real caller behind a reverse proxy, trusting only the `X-Forwarded-For` entries your own proxies appended.
+- **[Outbound Tokens](tokens.md)**: get a token to call another API, as your service or for the user you are serving, cached and refreshed before it expires.
 
 ## Quick start
 
@@ -42,6 +43,6 @@ client = resolve_client_address(request.scope, trusted)
 
 ## What lives here
 
-A microservice checks the request it was handed. It does not run the login. Everything in this module follows that line, which keeps the trust boundary in one place instead of spread across handlers.
+A microservice checks the request it was handed, and proves who it is when it calls another. It does not run the login. Everything in this module follows that line, which keeps the trust boundary in one place instead of spread across handlers.
 
 To authenticate every request with a verifier, register [`AuthenticatedRequests`](../http/authentication.md). Next is publishing protected resource metadata. See the [roadmap](../roadmap.md) for the direction.

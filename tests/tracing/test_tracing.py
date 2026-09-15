@@ -216,16 +216,30 @@ class TestInstrument:
             password: str,  # noqa: ARG001
             api_key: str,  # noqa: ARG001
             Authorization: str,  # noqa: ARG001, N803
+            client_assertion: str,  # noqa: ARG001
+            assertion: str,  # noqa: ARG001
+            subject_token: str,  # noqa: ARG001
         ) -> None:
             log_message(backend, "auth")
 
-        authenticate("USR-1", "hunter2", "ak-123", "Bearer xyz")
+        authenticate(
+            "USR-1",
+            "hunter2",
+            "ak-123",
+            "Bearer xyz",
+            "eyJ.a.b",
+            "eyJ.c.d",
+            "eyJ.e.f",
+        )
 
         log_record = parse_json_log(capsys.readouterr().out)
         assert log_record["user_id"] == "USR-1"
         assert "password" not in log_record
         assert "api_key" not in log_record
         assert "Authorization" not in log_record
+        assert "client_assertion" not in log_record
+        assert "assertion" not in log_record
+        assert "subject_token" not in log_record
 
 
 class TestSpan:

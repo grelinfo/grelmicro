@@ -10,7 +10,48 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-__all__ = ["Principal"]
+__all__ = ["Principal", "VerifiedToken"]
+
+
+class VerifiedToken:
+    """The bearer token a request presented, once it verified.
+
+    `AuthenticatedRequests` builds one for every request it authenticates,
+    and a handler reads it through `CurrentToken` to act for the caller, such
+    as exchanging it for a token issued to another API. It cannot be built
+    from a string, so a token that never verified cannot pass for one.
+
+    Its `repr` never shows the token.
+    """
+
+    __slots__ = ("expires_at", "value")
+
+    value: str
+    """The encoded token, exactly as the request presented it."""
+
+    expires_at: int | None
+    """When the token expires, in seconds since the epoch, or `None` when its
+    verifier does not say."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: ARG002
+        """Refuse construction: only a token that verified becomes one."""
+        msg = (
+            "VerifiedToken is built by AuthenticatedRequests for a token that"
+            " verified. Read it with CurrentToken, or current_token(request)."
+        )
+        raise TypeError(msg)
+
+    def __repr__(self) -> str:
+        """Return the class and the expiry, without the token."""
+        return f"VerifiedToken(expires_at={self.expires_at!r})"
+
+
+def _verified_token(value: str, expires_at: int | None) -> VerifiedToken:
+    """Return `value` as a `VerifiedToken`, for a token that verified."""
+    token = object.__new__(VerifiedToken)
+    token.value = value
+    token.expires_at = expires_at
+    return token
 
 
 class Principal(Protocol):

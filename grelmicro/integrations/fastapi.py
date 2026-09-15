@@ -62,6 +62,7 @@ from grelmicro.http import (
 )
 from grelmicro.http._authentication import (
     AUTHENTICATED_MARKER,
+    TOKEN_SCOPE_KEY,
     AuthenticatedRequestsMiddleware,
     declare_anonymous,
     document_operations,
@@ -96,7 +97,7 @@ from grelmicro.integrations.starlette import (
 )
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.security.jwt import JWTClaims
-from grelmicro.security.principal import Principal
+from grelmicro.security.principal import Principal, VerifiedToken
 
 if TYPE_CHECKING:
     import inspect
@@ -121,6 +122,7 @@ __all__ = [
     "ConditionalRequest",
     "ConditionalRequired",
     "CurrentPrincipal",
+    "CurrentToken",
     "HealthzResponse",
     "OptionalPrincipal",
     "RateLimited",
@@ -449,6 +451,28 @@ async def _optional_principal(connection: "_HTTPConnection") -> Any:  # noqa: AN
     return caller if getattr(caller, "is_authenticated", False) else None
 
 
+async def _current_token(
+    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+) -> Any:  # noqa: ANN401
+    """Return the bearer token the caller presented, once it verified.
+
+    Raises:
+        AuthenticationRequiredError: If the request carried no credential,
+            or its caller was authenticated by something other than
+            `AuthenticatedRequests`.
+        InsufficientScopeError: If the caller lacks a scope a `Security`
+            around it names.
+    """
+    await _authenticated(connection, security_scopes)
+    token = connection.scope.get(TOKEN_SCOPE_KEY)
+    if not isinstance(token, VerifiedToken):
+        raise recorded(
+            connection.scope,
+            AuthenticationRequiredError(scopes=tuple(security_scopes.scopes)),
+        )
+    return token
+
+
 async def _authenticated(
     connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
 ) -> Any:  # noqa: ANN401
@@ -469,6 +493,7 @@ async def _authenticated(
 setattr(_authenticated, AUTHENTICATED_MARKER, True)
 setattr(_current_principal, AUTHENTICATED_MARKER, True)
 setattr(_current_claims, AUTHENTICATED_MARKER, True)
+setattr(_current_token, AUTHENTICATED_MARKER, True)
 
 
 CurrentPrincipal = Annotated[
@@ -489,6 +514,29 @@ A request that reached the route without a credential is answered `401`.
 Read inside `Security(..., scopes=[...])`, it requires those scopes too,
 and a caller lacking one is answered `403`. It needs a registered
 `AuthenticatedRequests`, which verifies the token before the route runs.
+"""
+
+CurrentToken = Annotated[
+    VerifiedToken, _Depends(_current_token) if HAS_FASTAPI else None
+]
+"""The bearer token the caller presented, once `AuthenticatedRequests` verified it.
+
+```python
+from grelmicro.integrations.fastapi import CurrentToken
+
+
+@app.post("/orders")
+async def create_order(token: CurrentToken) -> dict[str, str]:
+    response = await payments.post(
+        "/charges", auth=payments_for_user.auth(token)
+    )
+    return response.json()
+```
+
+Read it to act for the caller, such as exchanging it with a `TokenExchange`.
+`token.value` is the token and `token.expires_at` when it expires, and its
+`repr` never shows the token. A request that reached the route without a
+credential is answered `401`, as `CurrentPrincipal` answers it.
 """
 
 Claims = Annotated[

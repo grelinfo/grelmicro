@@ -53,6 +53,7 @@ Starlette, FastAPI and Litestar look.
 | read the caller | `principal: CurrentPrincipal` | `request.user` | `request.user` |
 | the caller, if any | `principal: OptionalPrincipal` | `request.user` | `request.user` |
 | JWT claims, typed | `claims: Claims` | `request.user` | `request.user` |
+| the token that verified | `token: CurrentToken` | `current_token(request)` | `current_token(request)` |
 | require scopes | `dependencies=[Authenticated(scopes=[...])]` | `guards=[Authenticated(scopes=[...])]` | `@Authenticated(scopes=[...])` |
 | public route | `dependencies=[Anonymous()]` | `opt=Anonymous()` | `exclude=` |
 
@@ -64,6 +65,10 @@ public here too.
 `claims`, whatever proved who the caller is. Key a caller by `issuer` and
 `subject` together, because a subject is unique only within the issuer that
 assigned it.
+
+`CurrentToken` is the token itself, once it verified, for a handler that acts
+for the caller, such as one [exchanging it](../security/tokens.md#call-an-api-for-the-user)
+for a token issued to another API.
 
 `Authenticated(scopes=...)` requires every scope it names. A caller lacking one
 is answered `403`, never `401`. On Starlette it decorates a function, an

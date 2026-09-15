@@ -25,6 +25,9 @@ serde_json = "1"
 # a token is hashed with the accelerated implementation rather than through
 # Python, where the call overhead costs more than the hashing.
 aws-lc-rs = "1"
+# Already linked through jsonwebtoken. Reads the PEM a signing key arrives in,
+# so the key is handed to aws-lc-rs as DER and parsed once.
+pem = "3"
 
 # The Python side runs ruff with every rule on, ty and mypy. The Rust side
 # holds the same bar: pedantic and nursery clippy, documented items, and no

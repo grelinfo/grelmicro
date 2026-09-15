@@ -147,6 +147,7 @@ version = "0.1.2"
 dependencies = [
  "aws-lc-rs",
  "jsonwebtoken",
+ "pem",
  "pyo3",
  "serde_json",
 ]
