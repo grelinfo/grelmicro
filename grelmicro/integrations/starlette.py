@@ -21,8 +21,13 @@ from grelmicro.errors import (
     _scope_tokens,
 )
 from grelmicro.http import ErrorResponses, merge_headers
-from grelmicro.http._authentication import AUTHENTICATED_MARKER, recorded
+from grelmicro.http._authentication import (
+    AUTHENTICATED_MARKER,
+    TOKEN_SCOPE_KEY,
+    recorded,
+)
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
+from grelmicro.security.principal import VerifiedToken
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -35,7 +40,7 @@ if TYPE_CHECKING:
 
     from starlette.applications import Starlette
     from starlette.exceptions import HTTPException
-    from starlette.requests import Request
+    from starlette.requests import HTTPConnection, Request
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
@@ -48,6 +53,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Authenticated",
+    "current_token",
     "error_response",
     "install",
     "install_error_responses",
@@ -722,6 +728,43 @@ def Authenticated(  # noqa: N802
         return wrapper
 
     return decorate
+
+
+def current_token(
+    connection: Annotated[
+        "HTTPConnection",
+        Doc("The request or websocket the endpoint was handed."),
+    ],
+) -> VerifiedToken:
+    """Return the bearer token the request presented, once it verified.
+
+    ```python
+    from grelmicro.integrations.starlette import current_token
+
+
+    async def create_order(request: Request) -> JSONResponse:
+        token = current_token(request)
+        response = await payments.post(
+            "/charges", auth=payments_for_user.auth(token)
+        )
+        return JSONResponse(response.json())
+    ```
+
+    `AuthenticatedRequests` leaves it on every request it authenticates.
+    Read it to act for the caller, such as exchanging it with a
+    `TokenExchange`. Its `repr` never shows the token.
+
+    Read more in the [Authentication](../http/authentication.md) docs.
+
+    Raises:
+        AuthenticationRequiredError: If the request carried no token that
+            `AuthenticatedRequests` verified, such as one on an excluded
+            path.
+    """
+    token = connection.scope.get(TOKEN_SCOPE_KEY)
+    if not isinstance(token, VerifiedToken):
+        raise recorded(connection.scope, AuthenticationRequiredError())
+    return token
 
 
 def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:

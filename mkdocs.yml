@@ -109,6 +109,7 @@ nav:
         - security/index.md
         - security/clientip.md
         - security/jwt.md
+        - security/tokens.md
     - Logging:
         - logging/index.md
         - logging/integrations.md
@@ -161,6 +162,7 @@ nav:
     - architecture/reconfigure.md
     - architecture/http.md
     - architecture/jwt.md
+    - architecture/oauth.md
     - architecture/rust.md
     - architecture/imports.md
     - architecture/plugins.md

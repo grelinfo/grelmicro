@@ -63,6 +63,7 @@ from grelmicro.security.jwt import (
     TokenRejectedError,
     TokenRejectedReason,
 )
+from grelmicro.security.principal import _verified_token
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, MutableMapping
@@ -103,6 +104,9 @@ __all__ = [
 
 _BEARER = "bearer"
 """The scheme a bearer token travels under, lowercased for the comparison."""
+
+TOKEN_SCOPE_KEY: Final = "grelmicro.verified_token"  # noqa: S105
+"""Where the middleware leaves the bearer token it verified, as a `VerifiedToken`."""
 
 _POLICY_VIOLATION = 1008
 """Close code for a websocket refused on a server that cannot send a `401`."""
@@ -1704,11 +1708,12 @@ class AuthenticatedRequestsMiddleware:
             await self._forward(scope, receive, send)
             return
         try:
-            caller = await self._authenticate(scope)
+            caller, token = await self._authenticate(scope)
         except _REFUSALS as error:
             self._record(scope, error)
             await _refuse(scope, receive, send, error)
             return
+        verified = _verified_token(token, _expiry_of(caller))
         check = self._check
         if check is not None:
             try:
@@ -1720,6 +1725,7 @@ class AuthenticatedRequestsMiddleware:
         scope["user"] = caller
         scope["auth"] = caller
         scope[SCOPE_KEY] = self
+        scope[TOKEN_SCOPE_KEY] = verified
         self._events.authenticated(caller)
         await self._forward(scope, receive, send)
 
@@ -1792,15 +1798,15 @@ class AuthenticatedRequestsMiddleware:
             and public.matches(scope)
         )
 
-    async def _authenticate(self, scope: Scope) -> Principal:
-        """Return the verified caller, or raise what the caller is told."""
+    async def _authenticate(self, scope: Scope) -> tuple[Principal, str]:
+        """Return the verified caller and its token, or raise what the caller is told."""
         token = _bearer_token(scope)
         client = self._client_of(scope)
         bans = self._bans
         if client is not None and bans is not None and bans.banned(client):
             raise ClientBannedError(retry_after=bans.banned_for(client))
         try:
-            return await self._verified(token)
+            return await self._verified(token), token
         except TokenRejectedError as error:
             if client is not None and bans is not None:
                 bans.record(client, error.reason)
@@ -1851,6 +1857,18 @@ class AuthenticatedRequestsMiddleware:
         if self._bans is None:
             return None
         return bucket_of(scope, key=None, trusted=self._trusted).key
+
+
+def _expiry_of(caller: object) -> int | None:
+    """Return when the caller's token expires, when its verifier says.
+
+    Read off `expires_at` in seconds since the epoch, as `JWTClaims` carries
+    it. A caller without one, or with anything but whole seconds, has none.
+    """
+    expires_at = getattr(caller, "expires_at", None)
+    if isinstance(expires_at, int) and not isinstance(expires_at, bool):
+        return expires_at
+    return None
 
 
 def _narrower_than_everything(exclude: tuple[str, ...]) -> tuple[str, ...]:

@@ -69,9 +69,15 @@ already has.
 
 ## What is compiled today
 
-JWT verification, and nothing else. A signature check is about 12 microseconds,
-which is four hundred times the crossing, and the compiled core answers in
-11,600 ns where a pure-Python library takes 45,800.
+JWT verification, and the signature on a client assertion. A signature check is
+about 12 microseconds, which is four hundred times the crossing, and the
+compiled core answers in 11,600 ns where a pure-Python library takes 45,800.
+
+Signing is there for another reason than speed. A client signs one assertion
+per token fetch, minutes apart, so what an RS256 signature costs is noise next
+to the round trip. It lives in the core because the core already links AWS-LC,
+and signing in Python would put a second crypto library in the process. The
+[outbound tokens](oauth.md#where-signing-runs) notes have the measurements.
 
 Worth noting what that measurement did **not** buy. The biggest win in the JWT
 work was not Rust at all, it was not doing the work twice: a verified-token

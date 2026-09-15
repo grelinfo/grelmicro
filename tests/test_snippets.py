@@ -74,6 +74,15 @@ def _public_key_pem() -> str:
 
 _ENV["security/jwt.py"] = {"JWT_PUBLIC_KEY": _public_key_pem()}
 
+# The outbound token snippets read the client secret from the environment,
+# the way a deployment hands it over.
+_OAUTH_CLIENT_ENV = {
+    "GREL_ENV_LOAD": "1",
+    "GREL_OAUTHCLIENT_CLIENT_SECRET": "snippet-client-secret",
+}
+_ENV["security/tokens.py"] = _OAUTH_CLIENT_ENV
+_ENV["security/tokens_exchange.py"] = _OAUTH_CLIENT_ENV
+
 _ALL = sorted(
     p.relative_to(_SNIPPETS_DIR).as_posix() for p in _SNIPPETS_DIR.rglob("*.py")
 )

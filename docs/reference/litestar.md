@@ -13,3 +13,4 @@
         - error_response
         - Authenticated
         - Anonymous
+        - current_token

@@ -408,6 +408,9 @@
     "CurrentPrincipal": {
       "()": "(*args, **kwargs)"
     },
+    "CurrentToken": {
+      "()": "(*args, **kwargs)"
+    },
     "HealthzResponse": {
       "()": "(*, status, checks) -> None"
     },
@@ -463,6 +466,9 @@
     "Authenticated": {
       "()": "(*, scopes=()) -> 'Callable[[ASGIConnection, BaseRouteHandler], Awaitable[None]]'"
     },
+    "current_token": {
+      "()": "(connection) -> 'VerifiedToken'"
+    },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
@@ -482,6 +488,9 @@
   "grelmicro.integrations.starlette": {
     "Authenticated": {
       "()": "(*, scopes=()) -> 'Callable[[Callable[..., Any]], Callable[..., Any]]'"
+    },
+    "current_token": {
+      "()": "(connection) -> VerifiedToken"
     },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
@@ -938,6 +947,9 @@
   "grelmicro.security": {
     "ABUSIVE_REASONS": null,
     "ALGORITHMS": null,
+    "AccessToken": {
+      "()": "(value, token_type, expires_at, scopes=frozenset()) -> None"
+    },
     "ClientAddress": {
       "()": "(ip, port, reason, hops) -> None"
     },
@@ -946,6 +958,12 @@
     },
     "ClientAddressReason": {
       "()": "(*values)"
+    },
+    "ClientAuth": {
+      "()": "(*args, **kwargs) -> 'None'",
+      ".assertion_file": "(path=None) -> 'Self'",
+      ".private_key": "(key, *, algorithm, kid=None, certificate=None, audience='issuer') -> 'Self'",
+      ".secret": "(secret=None, *, method=None) -> 'Self'"
     },
     "ClientBannedError": {
       "()": "(*, retry_after=0.0) -> 'None'"
@@ -956,6 +974,16 @@
     },
     "ClientBansConfig": {
       "()": "(*, failures=10, window=60.0, duration=300.0, max_clients=10000) -> None"
+    },
+    "ClientCredentials": {
+      "()": "(name, *, audience=None, resource=None, scopes=None, client=None, env_load=None) -> 'None'",
+      ".from_config": "(name, config, *, client=None) -> 'Self'"
+    },
+    "ClientCredentialsConfig": {
+      "()": "(*, audience=None, resource=None, scopes=[]) -> None"
+    },
+    "ClientRejectedError": {
+      "()": "(message, *, error=None, description=None) -> 'None'"
     },
     "DiscoveryConfig": {
       "()": "(*, ttl=3600.0, retry_interval=60.0, timeout=5.0, max_bytes=1048576, max_keys=32, algorithm=None, audience, issuer=[], leeway=0, token_type=None, scope_claims=['scope', 'scp'], required=['exp'], cache_size=1024, cache_key='sha256', cache_ttl=300.0) -> None"
@@ -989,21 +1017,44 @@
       ".jwks": "(url=None, *, audience=UNSET, issuer=None, algorithm=None, ttl=None, retry_interval=None, timeout=None, max_bytes=None, max_keys=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, fetch=None, name='default', env_load=None) -> 'Self'",
       ".keys": "(*keys, audience=UNSET, issuer=None, leeway=None, token_type=None, scope_claims=None, required=None, cache_size=None, cache_key=None, cache_ttl=None, name='default', env_load=None) -> 'Self'"
     },
+    "OAuthClient": {
+      "()": "(*args, **kwargs) -> 'None'",
+      ".discover": "(issuer=None, *, client_auth, client_id=None, refresh_before=None, default_lifetime=None, timeout=None, retry_interval=None, name='default', env_load=None) -> 'Self'",
+      ".endpoint": "(token_endpoint=None, *, client_auth, client_id=None, issuer=None, refresh_before=None, default_lifetime=None, timeout=None, retry_interval=None, name='default', env_load=None) -> 'Self'",
+      ".from_config": "(config, *, client_auth, name='default') -> 'Self'"
+    },
+    "OAuthClientConfig": {
+      "()": "(*, client_id, issuer=None, token_endpoint=None, client_secret=None, assertion_file=None, refresh_before=60.0, default_lifetime=300.0, timeout=5.0, retry_interval=5.0, max_bytes=1048576) -> None"
+    },
     "Principal": {
       "()": "(*args, **kwargs)"
     },
     "SigningKeysUnavailableError": null,
+    "TokenExchange": {
+      "()": "(name, *, audience=None, resource=None, scopes=None, cache_size=None, client=None, env_load=None) -> 'None'",
+      ".from_config": "(name, config, *, grant='token_exchange', client=None) -> 'Self'",
+      ".on_behalf_of": "(name, *, scopes=None, cache_size=None, client=None, env_load=None) -> 'Self'"
+    },
+    "TokenExchangeConfig": {
+      "()": "(*, audience=None, resource=None, scopes=[], cache_size=1024) -> None"
+    },
     "TokenRejectedError": {
       "()": "(reason, *, subject=None) -> 'None'"
     },
     "TokenRejectedReason": {
       "()": "(*values)"
     },
+    "TokenUnavailableError": {
+      "()": "(message, *, error=None, description=None) -> 'None'"
+    },
     "TokenVerifier": {
       "()": "(*args, **kwargs)"
     },
     "TrustedProxies": {
       "()": "(networks, /, *, max_hops=None, max_entries=64, max_header_bytes=8192) -> 'None'"
+    },
+    "VerifiedToken": {
+      "()": "(*args, **kwargs) -> 'None'"
     },
     "fetch_with_httpx": {
       "()": "(url, *, timeout, max_bytes) -> 'bytes'"

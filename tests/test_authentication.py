@@ -104,6 +104,7 @@ from grelmicro.integrations.fastapi import (
     CachedResponse,
     Claims,
     CurrentPrincipal,
+    CurrentToken,
     OptionalPrincipal,
     document_authenticated_requests,
 )
@@ -111,8 +112,14 @@ from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
 from grelmicro.integrations.litestar import (
     Authenticated as LitestarAuthenticated,
 )
+from grelmicro.integrations.litestar import (
+    current_token as litestar_current_token,
+)
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
+)
+from grelmicro.integrations.starlette import (
+    current_token as starlette_current_token,
 )
 from grelmicro.resilience import DeadlineExceededError, RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
@@ -1739,6 +1746,174 @@ def fastapi_app(*uses: Any, declare: Any = None) -> FastAPI:  # noqa: ANN401, C9
     micro.install(app)
     app.state.micro = micro
     return app
+
+
+async def presented(request: Request) -> JSONResponse:
+    """Answer with the token the middleware verified for this request."""
+    verified = starlette_current_token(request)
+    return JSONResponse(
+        {
+            "value": verified.value,
+            "expires_at": verified.expires_at,
+            "repr": repr(verified),
+        }
+    )
+
+
+def presenting(*uses: Any) -> Starlette:  # noqa: ANN401
+    """Return an app whose routes answer with the token that verified."""
+    app = Starlette(
+        routes=[Route("/token", presented), Route("/livez", presented)]
+    )
+    Grelmicro(uses=[ErrorResponses(), *uses]).install(app)
+    return app
+
+
+class TestVerifiedToken:
+    """The bearer token a request presented, handed on once it verified."""
+
+    def test_starlette_reads_the_token_that_verified(self) -> None:
+        """The handler gets the token exactly as the request presented it."""
+        expires = int(time.time()) + HOUR
+        sent = token(exp=expires)
+        client = TestClient(presenting(AuthenticatedRequests(verifier())))
+
+        body = client.get("/token", headers=bearer(sent)).json()
+
+        assert body["value"] == sent
+        assert body["expires_at"] == expires
+
+    def test_its_repr_never_shows_the_token(self) -> None:
+        """A token logged by accident does not carry the credential."""
+        expires = int(time.time()) + HOUR
+        sent = token(exp=expires)
+        client = TestClient(presenting(AuthenticatedRequests(verifier())))
+
+        body = client.get("/token", headers=bearer(sent)).json()
+
+        assert body["repr"] == f"VerifiedToken(expires_at={expires})"
+        assert sent not in body["repr"]
+
+    def test_an_excluded_path_holds_no_token(self) -> None:
+        """A token sent to an excluded path is never read, so none is handed on."""
+        client = TestClient(
+            presenting(AuthenticatedRequests(verifier(), exclude=("/livez",)))
+        )
+
+        response = client.get("/livez", headers=bearer(token()))
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_caller_without_an_expiry_has_none(self) -> None:
+        """A verifier whose caller names no expiry hands on a token without one."""
+        client = TestClient(presenting(AuthenticatedRequests(Opaque())))
+
+        body = client.get("/token", headers=bearer("opaque")).json()
+
+        assert body["value"] == "opaque"
+        assert body["expires_at"] is None
+
+    def test_a_check_replacing_the_caller_keeps_the_verified_expiry(
+        self,
+    ) -> None:
+        """The expiry is the verified token's, whoever `check=` hands the app."""
+        expires = int(time.time()) + HOUR
+        sent = token(exp=expires)
+
+        def lookup(caller: Principal, scope: Any) -> User:  # noqa: ANN401, ARG001
+            return User(
+                subject=caller.subject,
+                issuer=None,
+                scopes=frozenset(),
+                claims={},
+                name="Ada",
+            )
+
+        client = TestClient(
+            presenting(AuthenticatedRequests(verifier(), check=lookup))
+        )
+
+        body = client.get("/token", headers=bearer(sent)).json()
+
+        assert body["value"] == sent
+        assert body["expires_at"] == expires
+
+    def test_fastapi_hands_the_route_the_token_that_verified(self) -> None:
+        """`CurrentToken` is the token, and a request with none is refused."""
+        app = FastAPI()
+
+        @app.get("/token")
+        async def read(verified: CurrentToken) -> dict[str, Any]:
+            return {"value": verified.value}
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+        sent = token()
+
+        assert client.get("/token", headers=bearer(sent)).json() == {
+            "value": sent
+        }
+        assert client.get("/token").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_fastapi_refuses_a_caller_no_token_proved(self) -> None:
+        """A caller another authentication named has no token to act with."""
+        app = FastAPI()
+
+        @app.get("/token")
+        async def read(verified: CurrentToken) -> dict[str, Any]:
+            return {"value": verified.value}  # pragma: no cover
+
+        app.add_middleware(AuthenticationMiddleware, backend=Outer())
+        Grelmicro(uses=[ErrorResponses()]).install(app)
+
+        response = TestClient(app).get("/token")
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_fastapi_refuses_it_on_an_anonymous_route(self) -> None:
+        """A public route serves requests with no token to hand on."""
+        app = FastAPI()
+
+        @app.get("/who", dependencies=[Anonymous()])
+        async def who(verified: CurrentToken) -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="GET /who declares Anonymous"):
+            TestUnreachable.install(app)
+
+    def test_fastapi_refuses_it_on_an_excluded_route(self) -> None:
+        """An excluded route never has a token read."""
+        app = FastAPI()
+
+        @app.get("/probe")
+        async def probe(verified: CurrentToken) -> None: ...  # pragma: no cover
+
+        with pytest.raises(TypeError, match="GET /probe is in exclude"):
+            TestUnreachable.install(app, exclude=("/probe",))
+
+    def test_litestar_reads_the_token_that_verified(self) -> None:
+        """`current_token` is the token, and a public handler without one is refused."""
+
+        @get("/token")
+        async def read(request: LitestarRequest) -> dict[str, str]:
+            return {"value": litestar_current_token(request).value}
+
+        @get("/public", opt=LitestarAnonymous())
+        async def public(request: LitestarRequest) -> dict[str, str]:
+            return {"value": litestar_current_token(request).value}
+
+        app = Litestar(route_handlers=[read, public])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        sent = token()
+        with LitestarTestClient(app) as client:
+            answered = client.get("/token", headers=bearer(sent))
+            refused = client.get("/public")
+
+        assert answered.json() == {"value": sent}
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
 
 
 class TestFastAPI:

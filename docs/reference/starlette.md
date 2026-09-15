@@ -16,6 +16,7 @@ calls `install` for you.
     options:
       members:
         - Authenticated
+        - current_token
         - install
         - install_error_responses
         - install_middleware

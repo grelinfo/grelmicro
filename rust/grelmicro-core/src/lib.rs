@@ -12,10 +12,19 @@
 //! checks and claim materialisation, all in one call across the boundary.
 //!
 //! Verification releases the GIL for the work that touches no Python object.
+//!
+//! Signing is here too, for the assertion a client authenticates with. It
+//! runs once per token fetch, so speed is not the reason: one crypto library
+//! in the process is. `Signer` signs bytes and nothing more. The header, the
+//! claims and the encoding stay in Python, which owns the rules they follow.
 
 use std::collections::{HashMap, HashSet};
 
 use aws_lc_rs::digest;
+use aws_lc_rs::rand::SystemRandom;
+use aws_lc_rs::signature::{
+    self, EcdsaKeyPair, EcdsaSigningAlgorithm, Ed25519KeyPair, RsaEncoding, RsaKeyPair,
+};
 use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{
@@ -645,15 +654,167 @@ fn unverified_header(py: Python<'_>, token: &str) -> PyResult<Py<PyAny>> {
     Ok(dict.unbind().into_any())
 }
 
+/// A private key parsed once, with the algorithm it signs under.
+enum SigningKey {
+    /// An RSA key and its padding, PKCS #1 v1.5 or PSS.
+    Rsa(RsaKeyPair, &'static dyn RsaEncoding),
+    /// An ECDSA key, signing in the fixed-width form a JWS carries.
+    Ecdsa(EcdsaKeyPair),
+    /// An Ed25519 key.
+    Ed25519(Ed25519KeyPair),
+}
+
+/// PEM label of a PKCS #8 key, for any algorithm.
+const PKCS8: &str = "PRIVATE KEY";
+
+/// PEM label of a key encrypted under a passphrase.
+const ENCRYPTED: &str = "ENCRYPTED PRIVATE KEY";
+
+/// Build the error for a key that cannot sign under `algorithm`.
+///
+/// The key is never part of the message: it is a credential and the message
+/// reaches logs.
+fn unusable(algorithm: &str, needs: &str) -> PyErr {
+    PyValueError::new_err(format!("{algorithm} needs {needs}"))
+}
+
+/// Parse an RSA key from PKCS #8 or PKCS #1, which `RSA PRIVATE KEY` labels.
+///
+/// Both constructors check the key's consistency and accept 2048 to 8192 bits,
+/// so a corrupt or short key fails here rather than at its first signature.
+fn rsa_key(
+    algorithm: &str,
+    label: &str,
+    der: &[u8],
+    encoding: &'static dyn RsaEncoding,
+) -> PyResult<SigningKey> {
+    let parsed = match label {
+        PKCS8 => RsaKeyPair::from_pkcs8(der),
+        "RSA PRIVATE KEY" => RsaKeyPair::from_der(der),
+        _ => return Err(unusable(algorithm, "an RSA private key")),
+    };
+    parsed
+        .map(|pair| SigningKey::Rsa(pair, encoding))
+        .map_err(|_| unusable(algorithm, "a valid RSA private key of 2048 to 8192 bits"))
+}
+
+/// Parse an ECDSA key from PKCS #8 or SEC 1, which `EC PRIVATE KEY` labels.
+///
+/// The curve is checked against the algorithm, so a P-384 key never signs
+/// under `ES256`.
+fn ecdsa_key(
+    algorithm: &str,
+    label: &str,
+    der: &[u8],
+    curve: &'static EcdsaSigningAlgorithm,
+) -> PyResult<SigningKey> {
+    let parsed = match label {
+        PKCS8 => EcdsaKeyPair::from_pkcs8(curve, der),
+        "EC PRIVATE KEY" => EcdsaKeyPair::from_private_key_der(curve, der),
+        _ => return Err(unusable(algorithm, "an EC private key")),
+    };
+    parsed
+        .map(SigningKey::Ecdsa)
+        .map_err(|_| unusable(algorithm, "a valid EC private key on its curve"))
+}
+
+/// Parse the PEM `material` into a key that signs under `algorithm`.
+fn signing_key(algorithm: &str, material: &[u8]) -> PyResult<SigningKey> {
+    let document = pem::parse(material)
+        .map_err(|_| PyValueError::new_err("the private key is not a PEM document"))?;
+    let label = document.tag();
+    if label == ENCRYPTED {
+        return Err(PyValueError::new_err(
+            "the private key is encrypted, decrypt it before passing it",
+        ));
+    }
+    let der = document.contents();
+    match algorithm {
+        "RS256" => rsa_key(algorithm, label, der, &signature::RSA_PKCS1_SHA256),
+        "RS384" => rsa_key(algorithm, label, der, &signature::RSA_PKCS1_SHA384),
+        "RS512" => rsa_key(algorithm, label, der, &signature::RSA_PKCS1_SHA512),
+        "PS256" => rsa_key(algorithm, label, der, &signature::RSA_PSS_SHA256),
+        "PS384" => rsa_key(algorithm, label, der, &signature::RSA_PSS_SHA384),
+        "PS512" => rsa_key(algorithm, label, der, &signature::RSA_PSS_SHA512),
+        "ES256" => ecdsa_key(
+            algorithm,
+            label,
+            der,
+            &signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+        ),
+        "ES384" => ecdsa_key(
+            algorithm,
+            label,
+            der,
+            &signature::ECDSA_P384_SHA384_FIXED_SIGNING,
+        ),
+        "EdDSA" if label == PKCS8 => Ed25519KeyPair::from_pkcs8(der)
+            .map(SigningKey::Ed25519)
+            .map_err(|_| unusable(algorithm, "a valid Ed25519 private key")),
+        "EdDSA" => Err(unusable(algorithm, "an Ed25519 private key in PKCS #8")),
+        other => Err(PyValueError::new_err(format!(
+            "unsupported signing algorithm: {other}"
+        ))),
+    }
+}
+
+/// Signs bytes with one private key, parsed and checked when it is built.
+#[pyclass(frozen, module = "grelmicro_core")]
+pub struct Signer {
+    key: SigningKey,
+    random: SystemRandom,
+}
+
+impl Signer {
+    /// Return the raw JWS signature of `data`.
+    fn signature(&self, data: &[u8]) -> Result<Vec<u8>, aws_lc_rs::error::Unspecified> {
+        match &self.key {
+            SigningKey::Rsa(pair, encoding) => {
+                let mut signed = vec![0; pair.public_modulus_len()];
+                pair.sign(*encoding, &self.random, data, &mut signed)?;
+                Ok(signed)
+            }
+            SigningKey::Ecdsa(pair) => Ok(pair.sign(&self.random, data)?.as_ref().to_vec()),
+            SigningKey::Ed25519(pair) => Ok(pair.sign(data).as_ref().to_vec()),
+        }
+    }
+}
+
+#[pymethods]
+impl Signer {
+    /// Build a signer from a PEM private key and the algorithm it signs under.
+    ///
+    /// RSA keys are read from PKCS #8 or PKCS #1, EC keys from PKCS #8 or
+    /// SEC 1, and Ed25519 keys from PKCS #8. An encrypted key is refused.
+    #[new]
+    fn new(algorithm: &str, key: &[u8]) -> PyResult<Self> {
+        Ok(Self {
+            key: signing_key(algorithm, key)?,
+            random: SystemRandom::new(),
+        })
+    }
+
+    /// Sign `data` and return the raw signature a JWS carries.
+    ///
+    /// An ECDSA signature is the fixed-width `r || s` form, not DER.
+    fn sign<'py>(&self, py: Python<'py>, data: &[u8]) -> PyResult<Bound<'py, PyBytes>> {
+        let signed = py
+            .detach(|| self.signature(data))
+            .map_err(|_| PyValueError::new_err("signing failed"))?;
+        Ok(PyBytes::new(py, &signed))
+    }
+}
+
 // Declared free-threading safe rather than left to the binding default. A
 // module that does not declare this makes CPython turn the GIL back on when
 // it is imported, which would silently cost every other extension in the
-// process its parallelism. Nothing here needs the GIL: `Verifier` is frozen,
-// holds only what construction put in it, and is never mutated afterwards,
-// which the `frozen` attribute makes the compiler enforce.
+// process its parallelism. Nothing here needs the GIL: `Verifier` and `Signer`
+// are frozen, hold only what construction put in them, and are never mutated
+// afterwards, which the `frozen` attribute makes the compiler enforce.
 #[pymodule(gil_used = false)]
 fn grelmicro_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<Verifier>()?;
+    module.add_class::<Signer>()?;
     module.add_function(wrap_pyfunction!(unverified_header, module)?)?;
     module.add_function(wrap_pyfunction!(sha256_digest, module)?)?;
     module.add(
