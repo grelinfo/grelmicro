@@ -2305,29 +2305,44 @@ async def _serve_metadata(
 
 
 def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:
-    """Warn when Litestar's router has no route at the metadata path.
+    """Warn when a `GET` for the metadata never reaches the middleware.
 
     A middleware Litestar runs behind its router sees a request only once a
-    route matched it, so without a route there, the document every challenge
-    points at is answered `404` before the middleware can serve it.
+    route matched it. Without a route at the metadata path, a `GET` for the
+    document every challenge points at is answered `404`. With a route there
+    for other methods only, it is answered `405`.
     """
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
+    from litestar.exceptions import (  # noqa: PLC0415
+        HTTPException,
+        NotFoundException,
+    )
 
     try:
         scope["litestar_app"].asgi_router.handle_routing(
             path=metadata.route, method="GET"
         )
-    except HTTPException:
-        warnings.warn(
-            f"AuthenticatedRequestsMiddleware runs behind Litestar's router, "
-            f"which has no route at {metadata.route}, so the protected "
-            f"resource metadata every challenge points at is answered 404. "
-            f"Register AuthenticatedRequests and call micro.install(app), "
-            f"which adds that route. [middleware-placement] "
-            f"https://grelmicro.grel.info/diagnostics/#middleware-placement",
-            MiddlewarePlacementWarning,
-            stacklevel=2,
+    except NotFoundException:
+        reason = (
+            f"has no route at {metadata.route}, so the protected resource "
+            f"metadata every challenge points at is answered 404. Register "
+            f"AuthenticatedRequests and call micro.install(app), which adds "
+            f"that route."
         )
+    except HTTPException:
+        reason = (
+            f"routes {metadata.route} only for other methods, so a GET for "
+            f"the protected resource metadata every challenge points at is "
+            f"refused. Remove that route, or let it answer GET."
+        )
+    else:
+        return
+    warnings.warn(
+        f"AuthenticatedRequestsMiddleware runs behind Litestar's router, "
+        f"which {reason} [middleware-placement] "
+        f"https://grelmicro.grel.info/diagnostics/#middleware-placement",
+        MiddlewarePlacementWarning,
+        stacklevel=2,
+    )
 
 
 def _pointing_at(send: Send, pointer: bytes) -> Send:

@@ -4571,7 +4571,7 @@ class TestResourceMetadataOnLitestar:
         ]
 
     def test_a_path_routed_for_another_method_is_left_alone(self) -> None:
-        """Install does not clash with it, and the unreachable document warns."""
+        """Install does not clash with it, and the refused `GET` is warned about."""
 
         @post(WELL_KNOWN)
         async def own() -> None: ...  # pragma: no cover
@@ -4586,11 +4586,15 @@ class TestResourceMetadataOnLitestar:
             with LitestarTestClient(app) as client:
                 client.get("/orders")
 
-        assert [
+        placement = [
             warning
             for warning in caught
             if issubclass(warning.category, MiddlewarePlacementWarning)
         ]
+        assert len(placement) == 1
+        assert f"routes {WELL_KNOWN} only for other methods" in str(
+            placement[0].message
+        )
 
     def test_a_refusal_a_guard_raises_points_at_the_document(self) -> None:
         """Rendered above the middleware, the challenge still names the metadata."""

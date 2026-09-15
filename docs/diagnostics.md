@@ -110,10 +110,11 @@ FastAPI and Starlette never raise this: `install` puts grelmicro's middleware
 behind everything the app added itself.
 
 On Litestar it is also raised when `AuthenticatedRequestsMiddleware` publishes
-protected resource metadata from behind the router, and the router has no route
-at the metadata path, so the document every challenge points at is answered
-`404`. Register `AuthenticatedRequests` and call `micro.install(app)`, which adds
-that route.
+protected resource metadata from behind the router, and a `GET` for the document
+every challenge points at never reaches it. With no route at the metadata path,
+register `AuthenticatedRequests` and call `micro.install(app)`, which adds that
+route. With a route of your own there for other methods only, remove it or let
+it answer `GET`.
 
 ### `provider-order`
 
