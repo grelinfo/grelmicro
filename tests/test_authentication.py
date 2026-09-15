@@ -4270,6 +4270,37 @@ class TestDocumentOperations:
 
         assert schema["paths"][WELL_KNOWN]["get"]["security"] == []
 
+    def test_paths_around_the_metadata_are_kept_and_annotated(self) -> None:
+        """A path after the metadata is still annotated, and none is dropped."""
+        schema = self.annotate(
+            {
+                "paths": {
+                    WELL_KNOWN: {"get": {"security": []}},
+                    "/orders": {"get": {}},
+                }
+            },
+            metadata_path=WELL_KNOWN,
+        )
+
+        assert schema["paths"]["/orders"]["get"]["security"] == [{SCHEME: []}]
+        assert schema["paths"][WELL_KNOWN]["get"]["security"] == []
+
+    def test_each_schema_gets_its_own_description_of_the_metadata(self) -> None:
+        """Changing one schema's description leaves the next one's alone."""
+        first = self.annotate({}, metadata_path=WELL_KNOWN)
+        first["paths"][WELL_KNOWN]["get"]["responses"]["200"]["description"] = (
+            "changed"
+        )
+
+        second = self.annotate({}, metadata_path=WELL_KNOWN)
+
+        assert (
+            second["paths"][WELL_KNOWN]["get"]["responses"]["200"][
+                "description"
+            ]
+            == "The protected resource metadata."
+        )
+
 
 class TestResourceMetadataEdges:
     """What a client meets fetching the document, however it gets there."""
