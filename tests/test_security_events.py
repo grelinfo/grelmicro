@@ -572,6 +572,25 @@ class TestRepeats:
             "signature",
         ]
 
+    def test_callers_without_an_address_share_one_count(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """Callers that cannot be told apart never flood the log."""
+        recorder = SecurityEvents(enduser=False)
+        scope = {"type": "http", "method": "GET", "headers": []}
+
+        for _ in range(3):
+            recorder.refused(
+                scope,
+                refusal="signature",
+                status=401,
+                template=None,
+                subject=None,
+            )
+
+        [record] = events
+        assert field(record, "client.address") is None
+
 
 class TestBans:
     """The record a ban writes, and the requests it refuses."""

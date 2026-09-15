@@ -302,7 +302,9 @@ to the current span when one is recording.
 - Each kind of refusal from one address is written once per minute, so a
   request with no token never hides a forged one. The next record of that kind
   carries `grelmicro.security.suppressed`, the number held back. The counters
-  stay exact.
+  stay exact. Callers that cannot be told apart, such as every caller behind a
+  proxy [`ClientAddressMiddleware`](../security/clientip.md) does not trust,
+  share one count, so a flood from behind it never floods the log.
 - A request refused while its address is banned is counted, not written. The
   ban writes one record when it starts.
 - No token, signature or signing secret reaches a record. A value read from
