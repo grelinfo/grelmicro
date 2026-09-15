@@ -248,6 +248,30 @@ async def test_only_an_authenticated_subject_is_written(
     assert "enduser.id" not in capture()[0].__dict__
 
 
+class Anonymous:
+    """A caller that is not authenticated, whose subject cannot be read."""
+
+    is_authenticated = False
+
+    @property
+    def subject(self) -> str:
+        """Fail, the way a lazily loaded user record might."""
+        raise RuntimeError
+
+
+async def test_an_unauthenticated_caller_is_never_asked_its_subject(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """Only an authenticated caller's subject is read, so this one writes."""
+    app = calling_as(starlette_app(enduser=True), Anonymous())
+    async with client_for(app) as client:
+        await client.get("/orders/7")
+
+    (record,) = capture()
+    assert record.__dict__["http.response.status_code"] == HTTP_OK
+    assert "enduser.id" not in record.__dict__
+
+
 async def test_the_verified_caller_reaches_the_record(
     capture: Callable[[], list[logging.LogRecord]],
 ) -> None:

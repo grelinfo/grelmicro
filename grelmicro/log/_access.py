@@ -666,14 +666,10 @@ def _enduser_of(scope: Scope) -> str | None:
     and a subject that is not a non-empty string is not written.
     """
     caller = scope.get("user")
+    if getattr(caller, "is_authenticated", False) is not True:
+        return None
     subject = getattr(caller, "subject", None)
-    if (
-        getattr(caller, "is_authenticated", False) is True
-        and isinstance(subject, str)
-        and subject
-    ):
-        return subject
-    return None
+    return subject if isinstance(subject, str) and subject else None
 
 
 def _client_address(scope: Scope) -> str | None:
