@@ -757,6 +757,55 @@ class TestMetrics:
         ]
         assert points(metrics, "grelmicro.authorization.refusals") == []
 
+    def test_tables_sharing_a_name_report_their_sum(
+        self, metrics: InMemoryMetricReader
+    ) -> None:
+        """Two apps with their own default table read as one total."""
+        first = ClientBans(failures=1, name="shared")
+        second = ClientBans(failures=1, name="shared")
+
+        first.record(ADDRESS, TokenRejectedReason.SIGNATURE)
+        second.record("203.0.113.8", TokenRejectedReason.SIGNATURE)
+
+        assert (2, {"grelmicro.client_bans.name": "shared"}) in points(
+            metrics, "grelmicro.client_bans.active"
+        )
+
+    def test_a_refusal_check_raises_names_the_verified_caller(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """The token verified before `check` refused, so its caller is named."""
+
+        def scoped(caller: Any, scope: Any) -> Any:  # noqa: ANN401, ARG001
+            raise InsufficientScopeError(scopes=["orders:write"])
+
+        client = TestClient(
+            app_with(
+                AuthenticatedRequests(verifier(), check=scoped, enduser=True)
+            )
+        )
+
+        client.get("/whoami", headers=bearer(token()))
+
+        [record] = events
+        assert field(record, "enduser.id") == "user-1"
+
+    def test_litestar_names_a_route_the_same_way_before_and_after_routing(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """Under a root path, a forged token and a missing scope agree."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier())), root_path="/api"
+        ) as client:
+            client.delete("/api/orders/7", headers=bearer(token(FORGER)))
+            client.delete("/api/orders/7", headers=bearer(token()))
+
+        forged, scoped = events
+        assert field(forged, "error.type") == "signature"
+        assert field(scoped, "error.type") == "insufficient-scope"
+        assert field(forged, "http.route") is not None
+        assert field(forged, "http.route") == field(scoped, "http.route")
+
     def test_active_bans_are_read_when_metrics_are_collected(
         self, metrics: InMemoryMetricReader
     ) -> None:

@@ -414,13 +414,18 @@ _TABLES: weakref.WeakSet[ClientBans] = weakref.WeakSet()
 
 
 def _observe_active(options: Any) -> Iterator[Any]:  # noqa: ANN401, ARG001
-    """Report the bans running in each table, when metrics are collected."""
+    """Report the bans running under each name, when metrics are collected.
+
+    Tables sharing a name report their sum, since a gauge keeps one value
+    per set of attributes.
+    """
     from opentelemetry.metrics import Observation  # noqa: PLC0415
 
+    running: dict[str, int] = {}
     for table in list(_TABLES):
-        yield Observation(
-            table.active(), {"grelmicro.client_bans.name": table.name}
-        )
+        running[table.name] = running.get(table.name, 0) + table.active()
+    for name, count in running.items():
+        yield Observation(count, {"grelmicro.client_bans.name": name})
 
 
 _hub.observe_with(BANS_ACTIVE, _observe_active, "{ban}")

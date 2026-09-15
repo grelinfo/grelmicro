@@ -162,11 +162,23 @@ def recorded[E: BaseException](scope: Scope, error: E) -> E:
             scope,
             refusal=found[0],
             status=found[1],
-            template=route_template(scope, scope.get("path", "")),
+            template=route_template(scope, _arrived_path(scope)),
             subject=subject_of(scope.get("user")),
             authenticated=True,
         )
     return error
+
+
+def _arrived_path(scope: Scope) -> str:
+    """Return the path the request arrived with, before a router rewrote it.
+
+    Litestar takes the root path off `path` as it routes, and `raw_path`
+    keeps it, so a route is named the way the access log names it.
+    """
+    raw = scope.get("raw_path")
+    if isinstance(raw, bytes):
+        return unquote(raw.decode("latin-1"))
+    return scope.get("path", "")
 
 
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
@@ -481,10 +493,12 @@ class _PublicRoutes:
         if routes is None or holds_control_character(path):
             return None
         root_path = scope.get("root_path", "")
-        if routes.router is not None:
-            return _litestar_template(routes.router, scope)
-        template = routes.template_of(
-            scope["type"], scope.get("method"), path, root_path
+        template = (
+            _litestar_template(routes.router, scope)
+            if routes.router is not None
+            else routes.template_of(
+                scope["type"], scope.get("method"), path, root_path
+            )
         )
         root = root_path.rstrip("/")
         if template is None or not root or not path.startswith(root):
@@ -1703,7 +1717,7 @@ class AuthenticatedRequestsMiddleware:
             try:
                 caller = await _checked(check, caller, scope)
             except Exception as error:  # noqa: BLE001 - rendered or re-raised
-                self._record(scope, error)
+                self._record(scope, error, caller=caller)
                 await _refuse(scope, receive, send, error)
                 return
         scope["user"] = caller
@@ -1712,16 +1726,23 @@ class AuthenticatedRequestsMiddleware:
         self._events.authenticated(caller)
         await self._forward(scope, receive, send)
 
-    def _record(self, scope: Scope, error: BaseException) -> None:
+    def _record(
+        self,
+        scope: Scope,
+        error: BaseException,
+        *,
+        caller: Principal | None = None,
+    ) -> None:
         """Record a refusal the middleware answers, when it is one.
 
         The route is read the way the router records it, and when the
-        router has not run yet, off the routes the app declares.
+        router has not run yet, off the routes the app declares. A refusal
+        `check` raised names the `caller` its token verified.
         """
         found = refusal_of(error)
         if found is None:
             return
-        template = route_template(scope, scope.get("path", ""))
+        template = route_template(scope, _arrived_path(scope))
         public = self._public
         if template is None and public is not None:
             template = public.template(scope)
@@ -1730,7 +1751,7 @@ class AuthenticatedRequestsMiddleware:
             refusal=found[0],
             status=found[1],
             template=template,
-            subject=getattr(error, "subject", None),
+            subject=getattr(error, "subject", None) or subject_of(caller),
         )
 
     async def _forward(
