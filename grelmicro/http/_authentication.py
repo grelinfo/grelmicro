@@ -110,8 +110,13 @@ _REFUSALS = (
 )
 """What the middleware answers itself, rather than letting reach the app."""
 
-_ROUTE_CHALLENGES = (AuthenticationRequiredError, InsufficientScopeError)
-"""The bearer refusals a route raises itself, which may be rendered above us."""
+_ROUTE_CHALLENGES = (
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    TokenRejectedError,
+)
+"""Every bearer refusal a route may raise, which may be rendered above us."""
 
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 """Set on the callable a route declares to be served without a credential."""

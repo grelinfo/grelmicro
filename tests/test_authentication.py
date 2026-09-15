@@ -79,7 +79,11 @@ from grelmicro._describe import _Endpoint, _reads_idempotent
 from grelmicro._paths import walk_routes
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.errors import MiddlewarePlacementWarning, SettingsValidationError
+from grelmicro.errors import (
+    AmbiguousCredentialsError,
+    MiddlewarePlacementWarning,
+    SettingsValidationError,
+)
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
@@ -4614,4 +4618,40 @@ class TestResourceMetadataOnLitestar:
 
         assert refused.headers["www-authenticate"] == (
             'Bearer error="insufficient_scope", scope="orders:write"'
+        )
+
+    @pytest.mark.parametrize(
+        ("refusal", "challenge"),
+        [
+            (
+                lambda: TokenRejectedError(TokenRejectedReason.SIGNATURE),
+                'Bearer error="invalid_token"',
+            ),
+            (AmbiguousCredentialsError, 'Bearer error="invalid_request"'),
+        ],
+    )
+    def test_every_refusal_a_handler_raises_points_at_the_document(
+        self,
+        refusal: Any,  # noqa: ANN401
+        challenge: str,
+    ) -> None:
+        """Whichever bearer refusal it is, rendered above the middleware."""
+
+        @get("/check", opt=LitestarAnonymous())
+        async def check() -> None:
+            raise refusal()
+
+        app = Litestar(route_handlers=[check], openapi_config=None)
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            refused = client.get("/check")
+
+        assert refused.headers["www-authenticate"] == (
+            f'{challenge}, resource_metadata="{METADATA_URL}"'
         )

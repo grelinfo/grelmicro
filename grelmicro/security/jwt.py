@@ -236,6 +236,14 @@ class TokenRejectedError(GrelmicroError, ValueError):
     a live credential and the message reaches logs and error responses.
     """
 
+    resource_metadata: str | None = None
+    """The URL of the protected resource metadata its challenge points at.
+
+    Set by `AuthenticatedRequestsMiddleware` on a refusal a route raised,
+    when the service publishes the metadata, so the challenge names it
+    wherever the refusal is rendered.
+    """
+
     def __init__(
         self,
         reason: Annotated[

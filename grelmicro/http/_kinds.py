@@ -352,13 +352,18 @@ def _from_token_rejected(exc: TokenRejectedError) -> Occurrence:
     return Occurrence(
         TOKEN_REJECTED,
         extensions={"reason": str(exc.reason)},
-        headers=_challenge(error="invalid_token"),
+        headers=_challenge(
+            error="invalid_token", metadata=exc.resource_metadata
+        ),
     )
 
 
-def _from_ambiguous_credentials(exc: AmbiguousCredentialsError) -> Occurrence:  # noqa: ARG001
+def _from_ambiguous_credentials(exc: AmbiguousCredentialsError) -> Occurrence:
     return Occurrence(
-        AMBIGUOUS_CREDENTIALS, headers=_challenge(error="invalid_request")
+        AMBIGUOUS_CREDENTIALS,
+        headers=_challenge(
+            error="invalid_request", metadata=exc.resource_metadata
+        ),
     )
 
 
