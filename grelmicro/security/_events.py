@@ -74,7 +74,7 @@ SUPPRESSED: Final = "grelmicro.security.suppressed"
 """How many refusals of one kind from one address were not written since the last."""
 
 SCOPE_KEY: Final = "grelmicro.security_events"
-"""Where the middleware leaves its recorder for a refusal a route raises."""
+"""Where the middleware leaves itself, to record a refusal a route raises."""
 
 AUTHENTICATION_REQUIRED: Final = "authentication-required"
 """The refusal of a request that carried no credential."""

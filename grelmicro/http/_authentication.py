@@ -155,16 +155,10 @@ def recorded[E: BaseException](scope: Scope, error: E) -> E:
     request, such as a missing scope. A request authentication left alone
     records nothing.
     """
-    events = scope.get(SCOPE_KEY)
-    found = refusal_of(error)
-    if isinstance(events, SecurityEvents) and found is not None:
-        events.refused(
-            scope,
-            refusal=found[0],
-            status=found[1],
-            template=route_template(scope, _arrived_path(scope)),
-            subject=subject_of(scope.get("user")),
-            authenticated=True,
+    middleware = scope.get(SCOPE_KEY)
+    if isinstance(middleware, AuthenticatedRequestsMiddleware):
+        middleware._record(  # noqa: SLF001
+            scope, error, caller=scope.get("user"), authenticated=True
         )
     return error
 
@@ -484,15 +478,18 @@ class _PublicRoutes:
     def template(self, scope: Scope) -> str | None:
         """Return the template of the route a request is served by, before routing.
 
-        For a refusal the middleware answers before the router runs, so the
+        For a refusal the middleware answers before the router runs, and one
+        a Starlette route raises, whose router records no template, so the
         record names the route rather than the path. A prefix a proxy
-        stripped stays off, as it does once the router has run.
+        stripped stays off, as it does once the router has run. Inside a
+        mount the root path the request arrived with is read, since the
+        mount has added its own prefix to `root_path`.
         """
         routes = self._apps.get(scope.get("app"))
         path = scope["path"]
         if routes is None or holds_control_character(path):
             return None
-        root_path = scope.get("root_path", "")
+        root_path = scope.get("app_root_path", scope.get("root_path", ""))
         template = (
             _litestar_template(routes.router, scope)
             if routes.router is not None
@@ -1722,7 +1719,7 @@ class AuthenticatedRequestsMiddleware:
                 return
         scope["user"] = caller
         scope["auth"] = caller
-        scope[SCOPE_KEY] = self._events
+        scope[SCOPE_KEY] = self
         self._events.authenticated(caller)
         await self._forward(scope, receive, send)
 
@@ -1731,13 +1728,16 @@ class AuthenticatedRequestsMiddleware:
         scope: Scope,
         error: BaseException,
         *,
-        caller: Principal | None = None,
+        caller: object = None,
+        authenticated: bool = False,
     ) -> None:
-        """Record a refusal the middleware answers, when it is one.
+        """Record a refusal, when it is one.
 
-        The route is read the way the router records it, and when the
-        router has not run yet, off the routes the app declares. A refusal
-        `check` raised names the `caller` its token verified.
+        The route is read the way the router records it, and otherwise off
+        the routes the app declares, which is how a Starlette route and a
+        refusal before routing are named. A refusal `check` or a route raised
+        names the `caller` its token verified. `authenticated` says the
+        request already counted as one that authenticated.
         """
         found = refusal_of(error)
         if found is None:
@@ -1752,6 +1752,7 @@ class AuthenticatedRequestsMiddleware:
             status=found[1],
             template=template,
             subject=getattr(error, "subject", None) or subject_of(caller),
+            authenticated=authenticated,
         )
 
     async def _forward(

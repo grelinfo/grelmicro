@@ -26,7 +26,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 from opentelemetry.trace import StatusCode
 from starlette.applications import Starlette
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 from grelmicro import Grelmicro
 from grelmicro.errors import InsufficientScopeError
@@ -40,6 +40,9 @@ from grelmicro.http._authentication import (
     _PublicRoutes,
     recorded,
     refusal_of,
+)
+from grelmicro.integrations.starlette import (
+    Authenticated as StarletteAuthenticated,
 )
 from grelmicro.metrics import _hub
 from grelmicro.metrics._component import Metrics
@@ -756,6 +759,40 @@ class TestMetrics:
             )
         ]
         assert points(metrics, "grelmicro.authorization.refusals") == []
+
+    @pytest.mark.parametrize(
+        ("prefix", "mounted"), [("", False), ("/v1", True)]
+    )
+    def test_starlette_names_a_route_the_same_way_before_and_after_routing(
+        self,
+        events: list[logging.LogRecord],
+        *,
+        prefix: str,
+        mounted: bool,
+    ) -> None:
+        """A forged token and a missing scope on one route agree, in a mount too."""
+
+        @StarletteAuthenticated(scopes=["orders:write"])
+        async def cancel(request: Any) -> Any:  # noqa: ANN401, ARG001
+            return None  # pragma: no cover
+
+        route = Route("/orders/{order_id}", cancel, methods=["DELETE"])
+        app = Starlette(
+            routes=[Mount(prefix, routes=[route])] if mounted else [route]
+        )
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+        client = TestClient(app)
+
+        client.delete(f"{prefix}/orders/7", headers=bearer(token(FORGER)))
+        client.delete(f"{prefix}/orders/7", headers=bearer(token()))
+
+        forged, scoped = events
+        assert field(scoped, "error.type") == "insufficient-scope"
+        assert field(forged, "http.route") == f"{prefix}/orders/{{order_id}}"
+        assert field(scoped, "http.route") == field(forged, "http.route")
 
     def test_tables_sharing_a_name_report_their_sum(
         self, metrics: InMemoryMetricReader
