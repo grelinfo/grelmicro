@@ -132,7 +132,9 @@ WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write", resou
   `resource` differs from the URL it asked about, so nothing in it is read from
   the request.
 - The document is served at `/.well-known/oauth-protected-resource` followed by
-  the path of `resource`. Route that path to the service.
+  the path of `resource`. Route that path to the service. The path is the
+  middleware's: it answers every request there, so `micro.install(app)` refuses
+  a route the app declares at it.
 - `authorization_servers` lists the verifier's issuers. A verifier that names
   none, such as one of your own, needs `authorization_servers=`.
 - `scopes=` lists the scopes a client may ask for. Left out, none are listed:

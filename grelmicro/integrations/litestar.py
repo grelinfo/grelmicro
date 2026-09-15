@@ -18,10 +18,12 @@ from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     AUTHENTICATED_MARKER,
+    METADATA_MARKER,
     _serve_metadata,
     document_operations,
     metadata_path_of,
     operation_authentication,
+    refuse_routes_at_metadata,
     resource_metadata_of,
     serves_anonymous_routes,
 )
@@ -214,8 +216,13 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
     A middleware passed to `Litestar(middleware=[...])` runs behind the
     router, which answers `404` to a path no route matches before that
     middleware sees it. The route serves the document itself, so it is
-    found however the middleware was placed. A path the app already routes
-    is left alone.
+    found however the middleware was placed. A route the app declares at
+    that path is refused, since it would never run. One reaching the path
+    through a parameter routes the request on to the middleware already,
+    so none is added then.
+
+    Raises:
+        TypeError: If the app declares a route at the metadata path.
     """
     from litestar import asgi  # noqa: PLC0415
 
@@ -227,7 +234,10 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
     ]
     for described in declared or [options]:
         metadata = resource_metadata_of(described)
-        if metadata is None or _routes(app, metadata.route):
+        if metadata is None:
+            continue
+        refuse_routes_at_metadata(app, metadata)
+        if _routes(app, metadata.route):
             continue
         app.register(
             asgi(metadata.route, opt=Anonymous(), copy_scope=False)(
@@ -237,22 +247,13 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
 
 
 def _routes(app: Litestar, path: str) -> bool:
-    """Return whether Litestar's router routes `path`, for any method.
-
-    A path routed for another method is routed all the same: a second route
-    there would clash with the one the app declared.
-    """
-    from litestar.exceptions import (  # noqa: PLC0415
-        HTTPException,
-        NotFoundException,
-    )
+    """Return whether Litestar's router answers `GET path` with a route."""
+    from litestar.exceptions import HTTPException  # noqa: PLC0415
 
     try:
         app.asgi_router.handle_routing(path=path, method="GET")
-    except NotFoundException:
-        return False
     except HTTPException:
-        return True
+        return False
     return True
 
 
@@ -266,6 +267,7 @@ def _metadata_document(metadata: Any) -> Any:  # noqa: ANN401
     ) -> None:
         await _serve_metadata(scope, send, metadata)
 
+    setattr(protected_resource_metadata, METADATA_MARKER, True)
     return protected_resource_metadata
 
 

@@ -113,8 +113,8 @@ On Litestar it is also raised when `AuthenticatedRequestsMiddleware` publishes
 protected resource metadata from behind the router, and a `GET` for the document
 every challenge points at never reaches it. With no route at the metadata path,
 register `AuthenticatedRequests` and call `micro.install(app)`, which adds that
-route. With a route of your own there for other methods only, remove it or let
-it answer `GET`.
+route. With a route of your own there for other methods only, remove it: the
+middleware answers every request at that path.
 
 ### `provider-order`
 

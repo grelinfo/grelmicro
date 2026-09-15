@@ -2020,9 +2020,12 @@ class AuthenticatedRequests:
 
         Raises:
             TypeError: If a route requiring a caller declares `Anonymous()`
-                or sits in `exclude`, where it could never get one.
+                or sits in `exclude`, where it could never get one, or a
+                route sits where `resource=` publishes the metadata, where
+                it would never run.
         """
         refuse_unreachable_routes(app, self._config.exclude)
+        refuse_routes_at_metadata(app, resource_metadata_of(self._options()))
         self._public.read(app)
 
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
@@ -2041,8 +2044,10 @@ class AuthenticatedRequests:
             TypeError: If a route added since install requires a caller where
                 it could never get one.
         """
+        metadata = resource_metadata_of(self._options())
         for app in self._public.apps:
             refuse_unreachable_routes(app, self._config.exclude)
+            refuse_routes_at_metadata(app, metadata)
         self._public.reread()
         stack = AsyncExitStack()
         enter = getattr(self._verifier, "__aenter__", None)
@@ -2332,7 +2337,8 @@ def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:
         reason = (
             f"routes {metadata.route} only for other methods, so a GET for "
             f"the protected resource metadata every challenge points at is "
-            f"refused. Remove that route, or let it answer GET."
+            f"refused. Remove that route: the middleware answers every "
+            f"request at that path."
         )
     else:
         return
@@ -2342,6 +2348,46 @@ def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:
         f"https://grelmicro.grel.info/diagnostics/#middleware-placement",
         MiddlewarePlacementWarning,
         stacklevel=2,
+    )
+
+
+METADATA_MARKER: Final = "__grelmicro_resource_metadata__"
+"""Set on the handler grelmicro registers to serve the metadata itself."""
+
+
+def refuse_routes_at_metadata(
+    app: Any,  # noqa: ANN401
+    metadata: _ResourceMetadata | None,
+) -> None:
+    """Refuse a route the app declares where the metadata is served.
+
+    The middleware answers every request at that path, whatever its method,
+    so a route declared there would never run. The handler grelmicro
+    registers there itself on Litestar is the one route allowed.
+
+    Raises:
+        TypeError: Naming the path of the first such route.
+    """
+    if metadata is None:
+        return
+    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
+        template = f"{prefix}{getattr(route, 'path_format', route.path)}"
+        if template not in metadata.paths or _serves_metadata(route):
+            continue
+        msg = (
+            f"{template} is where resource= publishes the protected resource "
+            f"metadata, and AuthenticatedRequests answers every request "
+            f"there, so the route declared at that path never runs. Remove "
+            f"the route, or leave resource= unset."
+        )
+        raise TypeError(msg)
+
+
+def _serves_metadata(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a route is the one grelmicro registers for the metadata."""
+    return any(
+        getattr(getattr(handler, "fn", None), METADATA_MARKER, False)
+        for handler in _litestar_handlers(route) or ()
     )
 
 

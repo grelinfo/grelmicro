@@ -4383,6 +4383,22 @@ class TestResourceMetadataEdges:
 
         assert response.json() == {"items": 3}
 
+    def test_a_route_the_app_declares_at_the_path_is_refused(self) -> None:
+        """The middleware answers every request there, so the route never runs."""
+        app = FastAPI()
+
+        @app.get(WELL_KNOWN)
+        async def own() -> dict[str, bool]:
+            return {"own": True}  # pragma: no cover
+
+        with pytest.raises(TypeError, match=f"{WELL_KNOWN} is where resource="):
+            Grelmicro(
+                uses=[
+                    ErrorResponses(),
+                    AuthenticatedRequests(issuing(), resource=RESOURCE),
+                ]
+            ).install(app)
+
 
 def declared_on_litestar(
     *handlers: Any,  # noqa: ANN401
@@ -4468,22 +4484,19 @@ class TestResourceMetadataOnLitestar:
             "https://login.example.com/t1"
         ]
 
-    def test_a_path_the_app_already_routes_is_left_alone(self) -> None:
-        """Install does not register a second route there."""
+    def test_a_route_the_app_declares_at_the_path_is_refused(self) -> None:
+        """The middleware answers every request there, so the route never runs."""
 
         @get(WELL_KNOWN)
         async def own() -> dict[str, bool]:
             return {"own": True}  # pragma: no cover
 
         app = declared_on_litestar(own)
-        Grelmicro(
-            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
-        ).install(app)
 
-        with LitestarTestClient(app) as client:
-            document = client.get(WELL_KNOWN)
-
-        assert document.json()["resource"] == RESOURCE
+        with pytest.raises(TypeError, match="where resource= publishes"):
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+            ).install(app)
 
     def test_a_middleware_built_by_hand_warns_once_without_the_route(
         self,
@@ -4570,16 +4583,28 @@ class TestResourceMetadataOnLitestar:
             if issubclass(warning.category, MiddlewarePlacementWarning)
         ]
 
-    def test_a_path_routed_for_another_method_is_left_alone(self) -> None:
-        """Install does not clash with it, and the refused `GET` is warned about."""
+    def test_a_route_for_another_method_at_the_path_is_refused(self) -> None:
+        """Install does not register a clashing route, and refuses the app's."""
 
         @post(WELL_KNOWN)
         async def own() -> None: ...  # pragma: no cover
 
         app = declared_on_litestar(own)
-        Grelmicro(
-            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
-        ).install(app)
+
+        with pytest.raises(TypeError, match="where resource= publishes"):
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+            ).install(app)
+
+    def test_a_hand_built_middleware_warns_of_a_route_for_another_method(
+        self,
+    ) -> None:
+        """Without install, the refused `GET` is warned about, and why."""
+
+        @post(WELL_KNOWN)
+        async def own() -> None: ...  # pragma: no cover
+
+        app = declared_on_litestar(own)
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -4659,3 +4684,30 @@ class TestResourceMetadataOnLitestar:
         assert refused.headers["www-authenticate"] == (
             f'{challenge}, resource_metadata="{METADATA_URL}"'
         )
+
+    def test_a_route_reaching_the_path_through_a_parameter_serves_it(
+        self,
+    ) -> None:
+        """The router already hands the request on to the middleware there."""
+
+        @get("/.well-known/{rest:path}")
+        async def known(rest: Annotated[str, Parameter()]) -> dict[str, str]:
+            return {"known": rest}  # pragma: no cover
+
+        app = declared_on_litestar(known)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                document = client.get(WELL_KNOWN)
+                client.get("/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
