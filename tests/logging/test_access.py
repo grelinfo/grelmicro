@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 import warnings
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import httpx
@@ -15,6 +16,7 @@ from litestar import Litestar, get
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
 from starlette.applications import Starlette
+from starlette.authentication import SimpleUser
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 from starlette.routing import Mount, Route
@@ -219,6 +221,8 @@ async def test_the_caller_is_on_the_record_when_asked(
         Caller(""),
         Caller(7),
         object(),
+        SimpleNamespace(subject="user-1"),
+        SimpleUser("alice"),
     ],
     ids=[
         "none",
@@ -228,6 +232,8 @@ async def test_the_caller_is_on_the_record_when_asked(
         "empty-subject",
         "subject-not-a-string",
         "no-attributes",
+        "subject-without-authentication",
+        "starlette-simple-user",
     ],
 )
 async def test_only_an_authenticated_subject_is_written(
