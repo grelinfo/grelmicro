@@ -148,8 +148,6 @@ _RETRY_AFTER_CEILING: Final = 3600.0
 _SAFE_METHODS: Final = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
 """Methods a request refused with `invalid_token` is sent again for."""
 
-_CLIENT_REFUSALS: Final = frozenset({"invalid_client", "unauthorized_client"})
-"""Error codes that refuse the client itself rather than one token."""
 
 _CLIENT_CREDENTIALS_CACHE: Final = 16
 """Clients one `ClientCredentials` holds a token for, one per client it used."""
@@ -656,14 +654,14 @@ class _Failure(Exception):  # noqa: N818
         self,
         error: TokenUnavailableError,
         *,
-        client_wide: bool,
+        scope: Literal["client", "grant", "token"],
         seconds: float,
         outcome: str,
     ) -> None:
-        """Hold the error and how it is remembered."""
+        """Hold the error, and whether the client, a grant or a token is refused."""
         super().__init__(str(error))
         self.error = error
-        self.client_wide = client_wide
+        self.scope = scope
         self.seconds = seconds
         self.outcome = outcome
 
@@ -713,7 +711,7 @@ class _TokenCache:
         """Drop the token for `key`, but only while it is still `value`."""
         entry = self._entries.get(key)
         if entry is not None and entry.token.value == value:
-            del self._entries[key]
+            self._entries.pop(key, None)
 
     def refused(
         self, key: Hashable, now: float
@@ -1074,6 +1072,9 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         self._inflight = {}
         self._down_until = 0.0
         self._down = None
+        self._refused_grants: dict[
+            str, tuple[float, TokenUnavailableError]
+        ] = {}
 
     _auth: ClientAuth
     _name: str
@@ -1216,11 +1217,11 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             if (
                 now >= entry.refresh_at
                 and flight not in self._inflight
-                and self._failure(cache, key, now) is None
+                and self._failure(cache, key, request.grant, now) is None
             ):
                 self._start(cache, key, request, not_after, background=True)
             return entry.token
-        failure = self._failure(cache, key, now)
+        failure = self._failure(cache, key, request.grant, now)
         if failure is not None:
             raise _again(failure)
         task = self._inflight.get(flight)
@@ -1229,12 +1230,34 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         return await asyncio.shield(task)
 
     def _failure(
-        self, cache: _TokenCache, key: Hashable, now: float
+        self, cache: _TokenCache, key: Hashable, grant: str, now: float
     ) -> TokenUnavailableError | None:
-        """Return the failure remembered for the client or for `key`."""
+        """Return the failure remembered for the client, the grant or `key`."""
         if self._down is not None and now < self._down_until:
             return self._down
+        refused = self._refused_grants.get(grant)
+        if refused is not None:
+            if now < refused[0]:
+                return refused[1]
+            del self._refused_grants[grant]
         return cache.refused(key, now)
+
+    async def _drop(
+        self, cache: _TokenCache, key: Hashable, value: str
+    ) -> None:
+        """Drop the token cached for `key`, on the loop the client was opened on.
+
+        Every change to a cache happens on that loop, so a refusal reported
+        from another loop never races a fetch storing a new token.
+        """
+        loop = self._loop
+        if loop is not None and asyncio.get_running_loop() is not loop:
+            future = asyncio.run_coroutine_threadsafe(
+                self._drop(cache, key, value), loop
+            )
+            await asyncio.wrap_future(future)
+            return
+        cache.drop(key, value)
 
     def _start(
         self,
@@ -1290,10 +1313,13 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                 token, lifetime, refresh_in = await self._issue(request)
         except _Failure as failure:
             error = failure.error
-            if failure.client_wide:
+            until = monotonic() + failure.seconds
+            if failure.scope == "client":
                 self._remember_down(failure)
+            elif failure.scope == "grant":
+                self._refused_grants[request.grant] = (until, error)
             else:
-                cache.refuse(key, monotonic() + failure.seconds, error)
+                cache.refuse(key, until, error)
             _record(attributes, failure.outcome, error.error, started)
             if isinstance(error, ClientRejectedError):
                 _client_rejected(self._name, error)
@@ -1440,14 +1466,16 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                 description = _description(
                     None if parsed is None else parsed.get("error_description")
                 )
-                if code in _CLIENT_REFUSALS:
+                if code in ("invalid_client", "unauthorized_client"):
+                    # `invalid_client` refuses the service, and
+                    # `unauthorized_client` one grant it may not use.
                     raise _Failure(
                         ClientRejectedError(
                             self._rejected_message(code),
                             error=code,
                             description=description,
                         ),
-                        client_wide=True,
+                        scope="client" if code == "invalid_client" else "grant",
                         seconds=interval,
                         outcome="rejected",
                     )
@@ -1458,7 +1486,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                         error=code,
                         description=description,
                     ),
-                    client_wide=False,
+                    scope="token",
                     seconds=interval,
                     outcome="refused",
                 )
@@ -1473,7 +1501,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                 TokenUnavailableError(
                     f"the authorization server answered {status}"
                 ),
-                client_wide=True,
+                scope="client",
                 seconds=seconds,
                 outcome="throttled",
             )
@@ -1518,13 +1546,18 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         """Return a failure that applies to every token of the client."""
         return _Failure(
             TokenUnavailableError(message),
-            client_wide=True,
+            scope="client",
             seconds=self._config.retry_interval,
             outcome="failure",
         )
 
     def _rejected_message(self, code: str) -> str:
         """Return the message of a refused client, with a hint where one helps."""
+        if code == "unauthorized_client":
+            return (
+                "the authorization server does not allow this client this"
+                f" grant: {code}"
+            )
         message = f"the authorization server refused this client: {code}"
         auth = self._auth
         if auth._kind == _PRIVATE_KEY and auth._audience == "issuer":  # noqa: SLF001
@@ -1990,14 +2023,18 @@ class ClientCredentials(_TokenPattern):
             not_after=None,
         )
 
-    def _invalidate(
+    async def _invalidate(
         self,
         subject: VerifiedToken | None,  # noqa: ARG002
         token: AccessToken,
     ) -> None:
         """Drop `token`, while it is still the one cached."""
         client = self._resolved()
-        self._cache.drop(client._identity, token.value)  # noqa: SLF001
+        await client._drop(  # noqa: SLF001
+            self._cache,
+            client._identity,  # noqa: SLF001
+            token.value,
+        )
 
 
 class TokenExchange(_TokenPattern):
@@ -2256,13 +2293,15 @@ class TokenExchange(_TokenPattern):
             not_after=verified.expires_at,
         )
 
-    def _invalidate(
+    async def _invalidate(
         self, subject: VerifiedToken | None, token: AccessToken
     ) -> None:
         """Drop `token`, while it is still the one cached for `subject`."""
         verified = _verified(subject)
         client = self._resolved()
-        self._cache.drop(self._key(client, verified), token.value)
+        await client._drop(  # noqa: SLF001
+            self._cache, self._key(client, verified), token.value
+        )
 
 
 def _verified(token: object) -> VerifiedToken:
@@ -2299,9 +2338,9 @@ class _Source:
         """Return the token to send."""
         return await self._pattern._obtain(self._subject)  # noqa: SLF001
 
-    def invalidate(self, token: AccessToken) -> None:
+    async def invalidate(self, token: AccessToken) -> None:
         """Drop `token`, which the API refused."""
-        self._pattern._invalidate(self._subject, token)  # noqa: SLF001
+        await self._pattern._invalidate(self._subject, token)  # noqa: SLF001
 
 
 def _authorization(token: AccessToken) -> str:
@@ -2319,7 +2358,7 @@ async def _async_auth_flow(self: Any, request: Any) -> AsyncGenerator[Any, Any]:
         response.headers.get_list("www-authenticate")
     ):
         return
-    source.invalidate(token)
+    await source.invalidate(token)
     if request.method not in _SAFE_METHODS or not _replayable(request):
         return
     token = await source.token()

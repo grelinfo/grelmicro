@@ -299,6 +299,11 @@ is not retried, because it already spent the wait.
 
 `invalid_client` and `unauthorized_client` are raised as `ClientRejectedError`.
 They are configuration errors, not outages, and retrying them never succeeds.
+They are not remembered for the same whole, though. `invalid_client` refuses the
+service itself, so it is remembered for the whole client. `unauthorized_client`
+refuses one grant the client may not use, so it is remembered for that grant,
+and a client allowed client credentials but not token exchange keeps getting its
+own tokens.
 
 ## Nothing is recorded per request
 

@@ -2106,12 +2106,58 @@ class TestEdges:
         async with secret_client() as client:
             pattern = payments(client)
             old = await pattern.token()
-            pattern._invalidate(None, old)
+            await pattern._invalidate(None, old)
             new = await pattern.token()
-            pattern._invalidate(None, old)
+            await pattern._invalidate(None, old)
             current = await pattern.token()
 
         assert current.value == new.value == "token-2"
+        assert_fetches(server, 2)
+
+    async def test_a_grant_the_client_may_not_use_blocks_only_that_grant(
+        self, server: AuthServer, clock: Clock
+    ) -> None:
+        """`unauthorized_client` on an exchange leaves client credentials working."""
+        server.answers.append(error_response(400, error="unauthorized_client"))
+
+        async with secret_client() as client:
+            exchange = TokenExchange(
+                "payments-api",
+                audience="payments-api",
+                client=client,
+                env_load=False,
+            )
+            with pytest.raises(
+                ClientRejectedError, match="unauthorized_client"
+            ):
+                await exchange.token(caller("alice", FAR_FUTURE))
+            with pytest.raises(ClientRejectedError):
+                await exchange.token(caller("bob", FAR_FUTURE))
+            own = await payments(client).token()
+            clock.advance(5)
+            exchanged = await exchange.token(caller("bob", FAR_FUTURE))
+
+        assert own.value == "token-1"
+        assert exchanged.value == "token-2"
+        assert_fetches(server, 3)
+
+    async def test_a_refusal_reported_from_another_loop_drops_the_token(
+        self, server: AuthServer
+    ) -> None:
+        """A drop from a worker thread's loop runs on the client's own loop."""
+        async with secret_client() as client:
+            pattern = payments(client)
+            old = await pattern.token()
+
+            def refuse() -> None:
+                asyncio.run(pattern._invalidate(None, old))
+
+            thread = threading.Thread(target=refuse)
+            thread.start()
+            await asyncio.to_thread(thread.join)
+            new = await pattern.token()
+
+        assert new.value == "token-2"
         assert_fetches(server, 2)
 
     def test_auth_class_needs_an_httpx_line(
