@@ -67,6 +67,7 @@ from grelmicro.http._authentication import (
     document_operations,
     metadata_path_of,
     operation_authentication,
+    recorded,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
@@ -455,9 +456,13 @@ async def _authenticated(
     required = tuple(security_scopes.scopes)
     caller = connection.scope.get("user")
     if caller is None or not getattr(caller, "is_authenticated", False):
-        raise AuthenticationRequiredError(scopes=required)
+        raise recorded(
+            connection.scope, AuthenticationRequiredError(scopes=required)
+        )
     if not set(required) <= set(getattr(caller, "scopes", ())):
-        raise InsufficientScopeError(scopes=required)
+        raise recorded(
+            connection.scope, InsufficientScopeError(scopes=required)
+        )
     return caller
 
 

@@ -23,7 +23,23 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-__all__ = ["GrelmicroMiddleware"]
+__all__ = ["GrelmicroMiddleware", "client_address"]
+
+
+def client_address(scope: Scope) -> str | None:
+    """Return the caller's address, resolved rather than assumed.
+
+    `ClientAddressMiddleware` resolves the caller behind a proxy and caches
+    it on the request, and that is the address a record is read for.
+    Without it the transport peer is all there is, which behind an ingress
+    is the ingress.
+    """
+    resolved = (scope.get("state") or {}).get("client_address")
+    address = getattr(resolved, "ip", None)
+    if address is not None:
+        return str(address)
+    client = scope.get("client")
+    return str(client[0]) if client else None
 
 
 class GrelmicroMiddleware:

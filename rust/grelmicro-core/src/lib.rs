@@ -16,8 +16,11 @@
 use std::collections::{HashMap, HashSet};
 
 use aws_lc_rs::digest;
+use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::jwk::Jwk;
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{
+    decode, decode_header, get_current_timestamp, Algorithm, DecodingKey, Validation,
+};
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
@@ -28,7 +31,7 @@ create_exception!(
     grelmicro_core,
     CoreVerificationError,
     PyException,
-    "Raised when a token fails verification, carrying (reason, detail)."
+    "Raised when a token fails verification, carrying (reason, detail, subject)."
 );
 
 /// One key as the Python layer hands it over: `(kid, algorithm, material, format)`.
@@ -39,7 +42,6 @@ type KeySpec = Vec<(Option<String>, String, Vec<u8>, String)>;
 
 /// Map a `jsonwebtoken` failure to the stable tag the Python layer branches on.
 fn reason_of(error: &jsonwebtoken::errors::Error) -> &'static str {
-    use jsonwebtoken::errors::ErrorKind;
     match error.kind() {
         ErrorKind::InvalidToken | ErrorKind::Base64(_) | ErrorKind::Json(_) => "malformed",
         ErrorKind::InvalidSignature => "signature",
@@ -58,7 +60,137 @@ fn reason_of(error: &jsonwebtoken::errors::Error) -> &'static str {
 /// The token itself is never part of the message: it is a live credential and
 /// the message reaches logs.
 fn rejected(reason: &str, detail: String) -> PyErr {
-    CoreVerificationError::new_err((reason.to_string(), detail))
+    CoreVerificationError::new_err((reason.to_string(), detail, None::<String>))
+}
+
+/// Build the exception for a token whose signature verified.
+///
+/// Carries the token's `sub`, which can be trusted once the signature checked
+/// out, so a refusal still names the caller it refused.
+fn refused(kind: ErrorKind, subject: Option<&str>) -> PyErr {
+    let error = jsonwebtoken::errors::Error::from(kind);
+    refused_with(reason_of(&error), &error.to_string(), subject)
+}
+
+/// Build the exception for a token whose signature verified, by reason.
+fn refused_with(reason: &str, detail: &str, subject: Option<&str>) -> PyErr {
+    CoreVerificationError::new_err((
+        reason.to_string(),
+        detail.to_string(),
+        subject.map(str::to_string),
+    ))
+}
+
+/// How a registered claim reads, in the three states `jsonwebtoken` tells apart.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Parsed<T> {
+    /// The claim holds a value of the expected shape.
+    Value(T),
+    /// The claim holds a value of another shape, `null` included where noted.
+    Failed,
+    /// The claim is absent.
+    Absent,
+}
+
+/// Read a `NumericDate` the way `jsonwebtoken` 11 reads `exp` and `nbf`.
+///
+/// A non-negative integer is taken as is, and a finite non-negative float
+/// below `u64::MAX` is rounded. Anything else, `null` included, fails.
+fn numeric(claim: Option<&Value>) -> Parsed<u64> {
+    let Some(value) = claim else {
+        return Parsed::Absent;
+    };
+    let Value::Number(number) = value else {
+        return Parsed::Failed;
+    };
+    if let Some(unsigned) = number.as_u64() {
+        return Parsed::Value(unsigned);
+    }
+    if number.is_i64() {
+        return Parsed::Failed;
+    }
+    match number.as_f64() {
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
+        Some(float) if float.is_finite() && float >= 0.0 && float < u64::MAX as f64 => {
+            Parsed::Value(float.round() as u64)
+        }
+        _ => Parsed::Failed,
+    }
+}
+
+/// Read `sub` the way `jsonwebtoken` 11 reads it, where `null` is absent.
+const fn text(claim: Option<&Value>) -> Parsed<&str> {
+    match claim {
+        None | Some(Value::Null) => Parsed::Absent,
+        Some(Value::String(value)) => Parsed::Value(value.as_str()),
+        Some(_) => Parsed::Failed,
+    }
+}
+
+/// Read `iss` or `aud` the way `jsonwebtoken` 11 reads them.
+///
+/// A string, or an array holding only strings, is a value. `null` is absent.
+fn names(claim: Option<&Value>) -> Parsed<&Value> {
+    match claim {
+        None | Some(Value::Null) => Parsed::Absent,
+        Some(value @ Value::String(_)) => Parsed::Value(value),
+        Some(value @ Value::Array(items)) if items.iter().all(Value::is_string) => {
+            Parsed::Value(value)
+        }
+        Some(_) => Parsed::Failed,
+    }
+}
+
+/// The registered claims a token carries, each looked up once.
+struct Registered<'a> {
+    exp: Option<&'a Value>,
+    nbf: Option<&'a Value>,
+    sub: Option<&'a Value>,
+    iss: Option<&'a Value>,
+    aud: Option<&'a Value>,
+}
+
+impl<'a> Registered<'a> {
+    /// Look up every registered claim `claims` carries.
+    fn of(claims: &'a Value) -> Self {
+        Self {
+            exp: claims.get("exp"),
+            nbf: claims.get("nbf"),
+            sub: claims.get("sub"),
+            iss: claims.get("iss"),
+            aud: claims.get("aud"),
+        }
+    }
+
+    /// Return the claim one of the names in `SPEC_CLAIMS` stands for.
+    fn named(&self, name: &str) -> Option<&'a Value> {
+        match name {
+            "exp" => self.exp,
+            "nbf" => self.nbf,
+            "sub" => self.sub,
+            "iss" => self.iss,
+            _ => self.aud,
+        }
+    }
+}
+
+/// Whether the names a claim carries meet the accepted set.
+///
+/// A string must be accepted. An array must share a member with the set, so
+/// an empty array never does.
+fn meets(found: &Value, accepted: &HashSet<String>) -> bool {
+    match found {
+        Value::String(name) => accepted.contains(name.as_str()),
+        Value::Array(items) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|name| accepted.contains(name)),
+        _ => false,
+    }
 }
 
 fn algorithm_of(name: &str) -> PyResult<Algorithm> {
@@ -146,10 +278,9 @@ fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
     })
 }
 
-/// Registered claims `jsonwebtoken` checks itself, given `required_spec_claims`.
+/// Registered claims `check_registered` reads with the crate's own rules.
 ///
-/// Every other required claim is checked here, because the crate skips the
-/// names it does not recognise rather than failing on them.
+/// Every other required claim only has to be present and not `null`.
 const SPEC_CLAIMS: [&str; 5] = ["aud", "exp", "iss", "nbf", "sub"];
 
 /// Media type prefix RFC 7515 lets a `typ` header leave out.
@@ -196,6 +327,8 @@ fn type_accepted(declared: Option<&str>, required: Option<&str>) -> bool {
 pub struct Verifier {
     keys: HashMap<String, (DecodingKey, Validation)>,
     fallback: Option<(DecodingKey, Validation)>,
+    spec_required: Vec<String>,
+    leeway: u64,
     extra_required: Vec<String>,
     audience: Option<HashSet<String>>,
     issuer: Option<HashSet<String>>,
@@ -286,13 +419,22 @@ impl Verifier {
         let claims = decode::<Value>(token, key, validation)
             .map(|data| data.claims)
             .map_err(|error| rejected(reason_of(&error), error.to_string()))?;
+        // The signature has verified, so from here a refusal carries the
+        // subject, and every check the crate was told to skip runs here, in
+        // the order and with the reading the crate gives it.
+        let registered = Registered::of(&claims);
+        let subject = registered
+            .sub
+            .and_then(Value::as_str)
+            .filter(|found| !found.is_empty());
+        self.check_registered(&registered, subject)?;
         // A token carrying `cnf` (RFC 7800) is bound to a key, and is only
         // good together with proof that the caller holds that key. Nothing
         // here checks such a proof, so accepting the token would drop the
         // binding its issuer asked for. Null counts as absent, as it does
         // for every required claim.
         if matches!(claims.get("cnf"), Some(value) if !value.is_null()) {
-            return Err(rejected("binding", "token is bound to a key".to_string()));
+            return Err(refused_with("binding", "token is bound to a key", subject));
         }
         for name in &self.extra_required {
             // A claim written as `null` is absent, not present with no
@@ -301,22 +443,90 @@ impl Verifier {
             // promise for the claims a caller adds than for the ones the
             // RFC names.
             if !matches!(claims.get(name), Some(value) if !value.is_null()) {
-                return Err(rejected(
+                return Err(refused_with(
                     "missing-claim",
-                    format!("missing required claim {name}"),
+                    &format!("missing required claim {name}"),
+                    subject,
                 ));
             }
         }
         // Run unconditionally. A token carrying a wrongly typed `aud` or
         // `iss` must be refused whether or not a policy names one, because
         // the crate reads such a claim as absent.
-        if !audience_matches(claims.get("aud"), self.audience.as_ref()) {
-            return Err(rejected("audience", "InvalidAudience".to_string()));
+        if !audience_matches(registered.aud, self.audience.as_ref()) {
+            return Err(refused_with("audience", "InvalidAudience", subject));
         }
-        if !issuer_matches(claims.get("iss"), self.issuer.as_ref()) {
-            return Err(rejected("issuer", "InvalidIssuer".to_string()));
+        if !issuer_matches(registered.iss, self.issuer.as_ref()) {
+            return Err(refused_with("issuer", "InvalidIssuer", subject));
         }
         Ok(claims)
+    }
+
+    /// Run the registered claim checks `jsonwebtoken` 11 runs, in its order.
+    ///
+    /// The crate is built to check the signature and the algorithm alone, so
+    /// each claim is read here the way the crate reads it: the required
+    /// registered claims, the shape of `exp` and `nbf`, then expiry, the start
+    /// of validity, the issuer and the audience. The leeway widens both time
+    /// checks, and `nbf` is always checked, which the crate leaves off by
+    /// default.
+    fn check_registered(
+        &self,
+        registered: &Registered<'_>,
+        subject: Option<&str>,
+    ) -> Result<(), PyErr> {
+        for name in &self.spec_required {
+            let found = registered.named(name);
+            let present = match name.as_str() {
+                "exp" | "nbf" => matches!(numeric(found), Parsed::Value(_)),
+                "sub" => matches!(text(found), Parsed::Value(_)),
+                _ => matches!(names(found), Parsed::Value(_)),
+            };
+            if !present {
+                return Err(refused(
+                    ErrorKind::MissingRequiredClaim(name.clone()),
+                    subject,
+                ));
+            }
+        }
+        let expires = numeric(registered.exp);
+        let starts = numeric(registered.nbf);
+        if expires == Parsed::Failed {
+            return Err(refused(
+                ErrorKind::InvalidClaimFormat("exp".to_string()),
+                subject,
+            ));
+        }
+        if starts == Parsed::Failed {
+            return Err(refused(
+                ErrorKind::InvalidClaimFormat("nbf".to_string()),
+                subject,
+            ));
+        }
+        // Wrapping, as the crate's own arithmetic does in a release build.
+        let now = get_current_timestamp();
+        if let Parsed::Value(exp) = expires {
+            if exp < now.wrapping_sub(self.leeway) {
+                return Err(refused(ErrorKind::ExpiredSignature, subject));
+            }
+        }
+        if let Parsed::Value(nbf) = starts {
+            if nbf > now.wrapping_add(self.leeway) {
+                return Err(refused(ErrorKind::ImmatureSignature, subject));
+            }
+        }
+        if let (Some(accepted), Parsed::Value(found)) = (&self.issuer, names(registered.iss)) {
+            if !meets(found, accepted) {
+                return Err(refused(ErrorKind::InvalidIssuer, subject));
+            }
+        }
+        match (&self.audience, names(registered.aud)) {
+            (None, Parsed::Value(_)) => Err(refused(ErrorKind::InvalidAudience, subject)),
+            (Some(accepted), Parsed::Value(found)) if !meets(found, accepted) => {
+                Err(refused(ErrorKind::InvalidAudience, subject))
+            }
+            _ => Ok(()),
+        }
     }
 }
 
@@ -358,6 +568,11 @@ impl Verifier {
             .filter(|name| !SPEC_CLAIMS.contains(&name.as_str()))
             .cloned()
             .collect();
+        let spec_required: Vec<String> = required
+            .iter()
+            .filter(|name| SPEC_CLAIMS.contains(&name.as_str()))
+            .cloned()
+            .collect();
 
         let audience = audience.unwrap_or_default();
         let issuer = issuer.unwrap_or_default();
@@ -372,17 +587,12 @@ impl Verifier {
             let algorithm = algorithm_of(&name)?;
             let key = decoding_key(algorithm, &material, &format)?;
             let mut validation = Validation::new(algorithm);
-            validation.leeway = leeway;
-            // The crate leaves `nbf` unchecked by default. A token that says
-            // it is not valid yet has to be refused.
-            validation.validate_nbf = true;
-            validation.required_spec_claims.clone_from(&required);
-            if !audience.is_empty() {
-                validation.set_audience(&audience);
-            }
-            if !issuer.is_empty() {
-                validation.set_issuer(&issuer);
-            }
+            // The crate checks the signature and the algorithm. Every claim
+            // is checked by `check_registered` once the signature verified.
+            validation.validate_exp = false;
+            validation.validate_nbf = false;
+            validation.validate_aud = false;
+            validation.required_spec_claims.clear();
             match kid {
                 Some(kid) => {
                     registered.insert(kid, (key, validation));
@@ -393,6 +603,8 @@ impl Verifier {
         Ok(Self {
             keys: registered,
             fallback,
+            spec_required,
+            leeway,
             extra_required,
             audience: accepted_audience,
             issuer: accepted_issuer,

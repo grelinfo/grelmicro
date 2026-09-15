@@ -37,6 +37,7 @@ __all__ = [
     "refuse_bare_name",
     "refuse_bare_string",
     "route_path",
+    "route_template",
     "selects",
     "starlette_route_path",
     "walk_routes",
@@ -1260,6 +1261,36 @@ def _watch_topology_node(  # noqa: PLR0911
             provider_is_authoritative=routed_authoritative,
             watch=watch,
         )
+
+
+def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
+    """Return the route template the request matched, when there is one.
+
+    Read after the router has run, because that is when it has written
+    what it matched into the scope. There is no standard key for it, so
+    each framework is read the way it records it: Litestar writes
+    `path_template`, and FastAPI a route carrying `path_format`. Starlette
+    records neither, so a plain Starlette app leaves it out rather than
+    guessing a template from the values that filled it.
+
+    A mount prefix goes back on, so the route reads as the path it
+    grouped, which is what `asked` carries. A proxy that strips its own
+    prefix leaves `root_path` set and the path without it, and there the
+    prefix stays off, for the same reason: the two describe one request
+    and have to agree.
+    """
+    template = scope.get("path_template")
+    if not isinstance(template, str):
+        route = scope.get("route")
+        template = getattr(route, "path_format", None) or getattr(
+            route, "path", None
+        )
+    if not isinstance(template, str):
+        return None
+    root = scope.get("root_path", "").rstrip("/")
+    if not root or not asked.startswith(root):
+        return template
+    return f"{root}{template}"
 
 
 def walk_routes(

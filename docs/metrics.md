@@ -213,6 +213,18 @@ that carried an exception, and never carries it on a success.
 | `grelmicro.outbox.dead_lettered` | counter | `grelmicro.outbox.topic` |
 | `grelmicro.outbox.handler_duration` | histogram | `grelmicro.outbox.topic` |
 
+### Security
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `grelmicro.authentication.attempts` | counter | `grelmicro.outcome`, `error.type` and `http.route` when refused |
+| `grelmicro.authorization.refusals` | counter | `error.type`, `http.route` |
+| `grelmicro.client_bans.started` | counter | `grelmicro.client_bans.name` |
+| `grelmicro.client_bans.active` | gauge | `grelmicro.client_bans.name` |
+
+Read [Security events](http/authentication.md#security-events) for what each
+refusal records.
+
 ### Health
 
 | Metric | Type | Attributes |
@@ -240,6 +252,7 @@ wherever it appears.
 | `unavailable` | locks, leader election | another worker holds it, which is not an error |
 | `lost` | lock renewals | the lease was gone before the work finished |
 | `skipped` / `missed` / `coordination_error` | tasks | see the fire table below |
+| `refused` | authentication | the request was refused, and `error.type` says why |
 
 Every admission primitive answers the same query, so the refusal rate of a
 rate limiter, a bulkhead and a circuit breaker are all read the same way:

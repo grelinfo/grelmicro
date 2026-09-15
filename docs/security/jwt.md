@@ -58,6 +58,12 @@ refuses a caller with.
 Neither the tag nor the message quotes the token. It is a live credential and
 the message reaches your logs.
 
+`error.subject` names who was refused, the token's `sub`, once its signature
+verified. A token that is expired, not yet valid, meant for another audience or
+issuer, missing a claim, or bound to a key carries it. A token refused at or
+before its signature, such as a forged one, carries `None`, because nothing
+vouches for what it claims.
+
 ## What gets checked
 
 Every verification checks the signature against the key the `kid` names, then
@@ -444,6 +450,11 @@ refused.
 
 Settings go in as keywords, `ClientBans(failures=10, window=60, duration=300)`,
 or whole, through `ClientBans.from_config(ClientBansConfig(...))`.
+
+A ban that starts writes one record on the `grelmicro.security.events` logger
+and counts `grelmicro.client_bans.started`. `grelmicro.client_bans.active`
+reports the bans running. Read
+[Security events](../http/authentication.md#security-events) for the fields.
 
 ### Why not rate limit instead
 
