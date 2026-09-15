@@ -4819,3 +4819,34 @@ class TestResourceMetadataOnLitestar:
 
         assert refused.value.code == WS_1008_POLICY_VIOLATION
         assert closed.value.code == WS_1000_NORMAL_CLOSURE
+
+    def test_a_route_added_after_the_metadata_route_is_checked_at_startup(
+        self,
+    ) -> None:
+        """The metadata route is passed over, not where the check stops."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        @get("/both", opt=LitestarAnonymous(), guards=[LitestarAuthenticated()])
+        async def both() -> None: ...  # pragma: no cover
+
+        app = Litestar(route_handlers=[orders], openapi_config=None)
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+        app.register(both)
+
+        with (
+            pytest.raises(BaseExceptionGroup) as refused,
+            LitestarTestClient(app),
+        ):
+            pass  # pragma: no cover
+
+        assert refused.group_contains(
+            TypeError, match="GET /both declares Anonymous"
+        )
