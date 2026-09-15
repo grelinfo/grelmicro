@@ -189,6 +189,9 @@ class TokenRejectedReason(StrEnum):
     NOT_YET_VALID = "not-yet-valid"
     """The token is before its `nbf`, or claims an `iat` still to come."""
 
+    REVOKED = "revoked"
+    """The token verified, and the service no longer accepts it."""
+
     SCHEME = "scheme"
     """The `Authorization` header carries no bearer token."""
 
@@ -216,6 +219,7 @@ _MESSAGES: Final[Mapping[TokenRejectedReason, str]] = {
     TokenRejectedReason.MALFORMED: "The token is not a well-formed JWS.",
     TokenRejectedReason.MISSING_CLAIM: "The token is missing a required claim.",
     TokenRejectedReason.NOT_YET_VALID: "The token is not valid yet.",
+    TokenRejectedReason.REVOKED: "The token is no longer accepted.",
     TokenRejectedReason.SCHEME: (
         "The Authorization header does not carry a bearer token."
     ),

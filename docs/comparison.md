@@ -176,7 +176,7 @@ Verify the bearer token a caller presents before any handler runs.
 | OpenAPI | per route | none | one requirement for the whole app, excluded handlers included | per operation with its scopes, public routes left open, on FastAPI and Litestar |
 | Where to get a token | none | none | none | `resource=` publishes RFC 9728 protected resource metadata and points every challenge at it |
 | Your user object | a dependency you write | returned by the backend you write | `retrieve_user_handler` | a `Principal` (`issuer`, `subject`, `scopes`, `claims`), loaded into your own model by you |
-| Revoked tokens | your code | your backend | `revoked_token_handler` | not yet |
+| Revoked tokens | your code | your backend | `revoked_token_handler` | `check=` refuses the caller or returns your user, on every request and websocket handshake |
 | Login and cookies | `OAuth2PasswordRequestForm` reads a login form, issuing the token is yours | none | `JWTCookieAuth`, `OAuth2PasswordBearerAuth` and a login helper that issues the token | out of scope: it verifies the tokens an identity provider issued |
 
 Pick Litestar's `JWTAuth` when the service holds its own signing key and maps each token to a user object with `retrieve_user_handler`. Pick grelmicro when tokens come from an identity provider that rotates its keys, or when you want the challenge, the scopes and the schema to follow each operation. On Litestar, `Anonymous()` is the same `exclude_from_auth` key, so handlers move between the two unchanged.

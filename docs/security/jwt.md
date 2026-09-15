@@ -50,8 +50,10 @@ except TokenRejectedError as error:
 Each reason also compares equal to the string it names, so
 `error.reason == "expired"` works too. The reasons are `algorithm`,
 `audience`, `binding`, `expired`, `invalid`, `issuer`, `malformed`,
-`missing-claim`, `not-yet-valid`, `scheme`, `signature`, `type` and
-`unknown-key`.
+`missing-claim`, `not-yet-valid`, `revoked`, `scheme`, `signature`, `type` and
+`unknown-key`. The verifier never answers `revoked` itself: it is the reason
+[`AuthenticatedRequests(check=...)`](../http/authentication.md#checking-the-caller-after-the-token-verifies)
+refuses a caller with.
 
 Neither the tag nor the message quotes the token. It is a live credential and
 the message reaches your logs.
@@ -360,7 +362,9 @@ a full verification.
 An entry expires at whichever comes first, the token's own `exp` or
 `cache_ttl`. The TTL is what bounds a long-lived token: without it a token with
 a 24 hour lifetime would keep being accepted from memory for 24 hours after it
-was withdrawn upstream.
+was withdrawn upstream. A token your service revokes itself is refused on the
+next request, cached or not, by
+[`check=`](../http/authentication.md#checking-the-caller-after-the-token-verifies).
 
 ```python
 JWTVerifier.keys(..., audience="my-api", cache_size=1024, cache_ttl=300)
