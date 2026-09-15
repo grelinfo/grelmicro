@@ -139,6 +139,10 @@ WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write", resou
   the document is public, and each challenge already names the scopes its route
   needs.
 - The document is never authenticated, and any origin can read it.
+- On Litestar, a middleware declared in `Litestar(middleware=[...])` runs behind
+  the router, so `micro.install(app)` adds a route at that path for it. Built by
+  hand without `install`, it warns with
+  [`middleware-placement`](../diagnostics.md#middleware-placement).
 
 ## Keys
 

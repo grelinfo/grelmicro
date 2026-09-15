@@ -6,6 +6,7 @@ import copy
 import inspect
 import json
 import re
+import warnings
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -43,6 +44,7 @@ from grelmicro.errors import (
     AmbiguousCredentialsError,
     AuthenticationRequiredError,
     InsufficientScopeError,
+    MiddlewarePlacementWarning,
     _scope_tokens,
 )
 from grelmicro.http._component import (
@@ -1460,6 +1462,7 @@ class AuthenticatedRequestsMiddleware:
         self._bans = bans
         self._trusted = trusted
         self._public = public
+        self._routing_checked = False
         described = build_config(
             AuthenticatedRequestsConfig,
             resource=resource,
@@ -1487,6 +1490,13 @@ class AuthenticatedRequestsMiddleware:
             if scope["type"] == "http" and route_path(scope) in metadata.paths:
                 await _serve_metadata(scope, send, metadata)
                 return
+            if (
+                not self._routing_checked
+                and "route_handler" in scope
+                and "litestar_app" in scope
+            ):
+                self._routing_checked = True
+                _warn_if_unrouted(scope, metadata)
             send = _pointing_at(send, metadata.pointer)
         if self._serves_anonymously(scope):
             # Set only when nothing else did, so an authentication the app
@@ -2097,6 +2107,8 @@ _METADATA_OPERATION: Final = {
 class _ResourceMetadata:
     """The protected resource metadata a service publishes, ready to serve."""
 
+    route: str
+    """The path a router routes the document at, decoded."""
     paths: frozenset[str]
     """Every route path the document is served at, however the router reads it."""
     pointer: bytes
@@ -2109,6 +2121,18 @@ def metadata_path_of(options: Mapping[str, Any]) -> str | None:
     """Return where a middleware built with `options` serves its metadata."""
     resource = options.get("resource")
     return None if resource is None else _metadata_path(resource)
+
+
+def resource_metadata_of(
+    options: Mapping[str, Any],
+) -> _ResourceMetadata | None:
+    """Return the metadata a middleware built with `options` publishes."""
+    return _resource_metadata(
+        options.get("resource"),
+        tuple(options.get("authorization_servers") or ()),
+        tuple(options.get("scopes") or ()),
+        options["verifier"],
+    )
 
 
 def _metadata_path(resource: str) -> str:
@@ -2164,6 +2188,7 @@ def _resource_metadata(
     document["bearer_methods_supported"] = ["header"]
     url = f"{parts.scheme}://{parts.netloc}{path}{query}"
     return _ResourceMetadata(
+        route=served,
         paths=frozenset({served, served.rstrip("/")}),
         pointer=f'resource_metadata="{url}"'.encode("ascii"),
         body=json.dumps(document, separators=(",", ":")).encode(),
@@ -2245,6 +2270,32 @@ async def _serve_metadata(
             "body": b"" if method == "HEAD" else body,
         }
     )
+
+
+def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:
+    """Warn when Litestar's router has no route at the metadata path.
+
+    A middleware Litestar runs behind its router sees a request only once a
+    route matched it, so without a route there, the document every challenge
+    points at is answered `404` before the middleware can serve it.
+    """
+    from litestar.exceptions import HTTPException  # noqa: PLC0415
+
+    try:
+        scope["litestar_app"].asgi_router.handle_routing(
+            path=metadata.route, method="GET"
+        )
+    except HTTPException:
+        warnings.warn(
+            f"AuthenticatedRequestsMiddleware runs behind Litestar's router, "
+            f"which has no route at {metadata.route}, so the protected "
+            f"resource metadata every challenge points at is answered 404. "
+            f"Register AuthenticatedRequests and call micro.install(app), "
+            f"which adds that route. [middleware-placement] "
+            f"https://grelmicro.grel.info/diagnostics/#middleware-placement",
+            MiddlewarePlacementWarning,
+            stacklevel=2,
+        )
 
 
 def _pointing_at(send: Send, pointer: bytes) -> Send:

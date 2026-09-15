@@ -9,8 +9,10 @@ sits among the others.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+import warnings
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any, Self
@@ -77,7 +79,7 @@ from grelmicro._describe import _Endpoint, _reads_idempotent
 from grelmicro._paths import walk_routes
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.errors import SettingsValidationError
+from grelmicro.errors import MiddlewarePlacementWarning, SettingsValidationError
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
@@ -4357,3 +4359,120 @@ class TestResourceMetadataEdges:
             "authorization, mcp-protocol-version"
         )
         assert "access-control-allow-headers" not in plain.headers
+
+
+def declared_on_litestar(
+    *handlers: Any,  # noqa: ANN401
+    **declared: Any,  # noqa: ANN401
+) -> Litestar:
+    """Return a Litestar app declaring the middleware, publishing metadata."""
+
+    @get("/orders")
+    async def orders() -> dict[str, bool]:
+        return {"orders": True}  # pragma: no cover
+
+    declared.setdefault("resource", RESOURCE)
+    return Litestar(
+        route_handlers=[orders, *handlers],
+        middleware=[
+            DefineMiddleware(
+                AuthenticatedRequestsMiddleware,  # ty: ignore[invalid-argument-type]
+                verifier=issuing(),
+                **declared,
+            )
+        ],
+        openapi_config=None,
+    )
+
+
+class TestResourceMetadataOnLitestar:
+    """A middleware Litestar runs behind its router still serves the document."""
+
+    def test_install_adds_the_route_a_declared_middleware_needs(self) -> None:
+        """The document is found, and nothing warns."""
+        app = declared_on_litestar()
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                document = client.get(WELL_KNOWN)
+                refused = client.get("/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert refused.headers["www-authenticate"] == (
+            f'Bearer resource_metadata="{METADATA_URL}"'
+        )
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
+    def test_the_route_serves_the_document_itself(self) -> None:
+        """Whatever reaches the route gets the declared middleware's document."""
+        app = declared_on_litestar(scopes=("orders:read",))
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+        _, handler, *_ = app.asgi_router.handle_routing(
+            path=WELL_KNOWN, method="GET"
+        )
+        sent: list[dict[str, Any]] = []
+
+        async def receive() -> dict[str, Any]:
+            return {"type": "http.request"}  # pragma: no cover
+
+        async def send(message: dict[str, Any]) -> None:
+            sent.append(message)
+
+        async def serve() -> None:
+            await handler.fn(
+                {"type": "http", "method": "GET", "headers": []}, receive, send
+            )
+
+        asyncio.run(serve())
+
+        assert sent[0]["status"] == HTTP_200_OK
+        assert json.loads(sent[1]["body"])["scopes_supported"] == [
+            "orders:read"
+        ]
+
+    def test_a_path_the_app_already_routes_is_left_alone(self) -> None:
+        """Install does not register a second route there."""
+
+        @get(WELL_KNOWN)
+        async def own() -> dict[str, bool]:
+            return {"own": True}  # pragma: no cover
+
+        app = declared_on_litestar(own)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            document = client.get(WELL_KNOWN)
+
+        assert document.json()["resource"] == RESOURCE
+
+    def test_a_middleware_built_by_hand_warns_once_without_the_route(
+        self,
+    ) -> None:
+        """Nothing added the route, so the document would be answered `404`."""
+        app = declared_on_litestar()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                client.get("/orders")
+                client.get("/orders")
+
+        placement = [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+        assert len(placement) == 1
+        assert f"no route at {WELL_KNOWN}" in str(placement[0].message)

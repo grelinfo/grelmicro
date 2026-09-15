@@ -61,7 +61,7 @@ configuration it names. Each entry below says which.
 | `unknown-environment` | `UnknownEnvironmentWarning` | none | `GREL_ENVIRONMENT` names no known tier, so the backend check runs as if undeclared. |
 | `backend-scope` | `BackendScopeWarning` | `BackendScopeError` | A bound backend reaches less far than its component requires. |
 | `ambient-binding` | `AmbientBindingWarning` | `AmbientBindingError` | Ambient components are registered but the binding middleware is missing. |
-| `middleware-placement` | `MiddlewarePlacementWarning` | none | A grelmicro middleware wraps middleware the app declared itself, so it would answer before them. |
+| `middleware-placement` | `MiddlewarePlacementWarning` | none | A grelmicro middleware wraps middleware the app declared itself, so it would answer before them, or cannot see a path it serves. |
 | `provider-order` | none | `LifecycleOrderError` | A Provider is listed after the Component that borrows it. |
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
 
@@ -108,6 +108,12 @@ micro.install(app)  # finds it already wired, and leaves it alone
 
 FastAPI and Starlette never raise this: `install` puts grelmicro's middleware
 behind everything the app added itself.
+
+On Litestar it is also raised when `AuthenticatedRequestsMiddleware` publishes
+protected resource metadata from behind the router, and the router has no route
+at the metadata path, so the document every challenge points at is answered
+`404`. Register `AuthenticatedRequests` and call `micro.install(app)`, which adds
+that route.
 
 ### `provider-order`
 

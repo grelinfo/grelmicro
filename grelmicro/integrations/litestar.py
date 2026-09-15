@@ -18,9 +18,11 @@ from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     AUTHENTICATED_MARKER,
+    _serve_metadata,
     document_operations,
     metadata_path_of,
     operation_authentication,
+    resource_metadata_of,
     serves_anonymous_routes,
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
@@ -201,8 +203,61 @@ def install_middleware(
         if _authenticates(component):
             # The public routes it serves without a credential. The rest of
             # ours name their paths in `include=` on Litestar.
+            _route_resource_metadata(app, component)
             component.read_routes(app)
             component.document_openapi(app)
+
+
+def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: ANN401
+    """Add a route at the path the protected resource metadata is served at.
+
+    A middleware passed to `Litestar(middleware=[...])` runs behind the
+    router, which answers `404` to a path no route matches before that
+    middleware sees it. The route serves the document itself, so it is
+    found however the middleware was placed. A path the app already routes
+    is left alone.
+    """
+    from litestar import asgi  # noqa: PLC0415
+
+    middleware, options = component.asgi_middleware()
+    declared = [
+        entry.kwargs
+        for entry in getattr(app, "middleware", ())
+        if getattr(entry, "middleware", None) is middleware
+    ]
+    for described in declared or [options]:
+        metadata = resource_metadata_of(described)
+        if metadata is None or _routes(app, metadata.route):
+            continue
+        app.register(
+            asgi(metadata.route, opt=Anonymous(), copy_scope=False)(
+                _metadata_document(metadata)
+            )
+        )
+
+
+def _routes(app: Litestar, path: str) -> bool:
+    """Return whether Litestar's router answers `GET path` with a route."""
+    from litestar.exceptions import HTTPException  # noqa: PLC0415
+
+    try:
+        app.asgi_router.handle_routing(path=path, method="GET")
+    except HTTPException:
+        return False
+    return True
+
+
+def _metadata_document(metadata: Any) -> Any:  # noqa: ANN401
+    """Return the ASGI handler that serves the protected resource metadata."""
+
+    async def protected_resource_metadata(
+        scope: Any,  # noqa: ANN401
+        receive: Any,  # noqa: ANN401, ARG001
+        send: Any,  # noqa: ANN401
+    ) -> None:
+        await _serve_metadata(scope, send, metadata)
+
+    return protected_resource_metadata
 
 
 def Anonymous() -> dict[str, Any]:  # noqa: N802
