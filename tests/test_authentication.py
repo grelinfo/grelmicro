@@ -4399,6 +4399,53 @@ class TestResourceMetadataEdges:
                 ]
             ).install(app)
 
+    def test_a_route_behind_a_mounted_middleware_at_the_path_is_refused(
+        self,
+    ) -> None:
+        """A mounted app's own middleware does not hide its route from the check."""
+
+        async def own(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({"own": True})  # pragma: no cover
+
+        app = FastAPI()
+        app.mount(
+            "/.well-known",
+            Starlette(
+                routes=[Route("/oauth-protected-resource/orders", own)],
+                middleware=[Middleware(GZipMiddleware)],
+            ),
+        )
+
+        with pytest.raises(TypeError, match=f"{WELL_KNOWN} is where resource="):
+            Grelmicro(
+                uses=[
+                    ErrorResponses(),
+                    AuthenticatedRequests(issuing(), resource=RESOURCE),
+                ]
+            ).install(app)
+
+    def test_a_route_declared_after_install_at_the_path_is_refused_at_startup(
+        self,
+    ) -> None:
+        """The app is read again when it starts, and checked again."""
+        app = FastAPI()
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        @app.get(WELL_KNOWN)
+        async def late() -> dict[str, bool]:
+            return {"late": True}  # pragma: no cover
+
+        with (
+            pytest.raises(TypeError, match=f"{WELL_KNOWN} is where resource="),
+            TestClient(app),
+        ):
+            pass  # pragma: no cover
+
 
 def declared_on_litestar(
     *handlers: Any,  # noqa: ANN401

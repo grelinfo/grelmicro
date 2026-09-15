@@ -2371,7 +2371,7 @@ def refuse_routes_at_metadata(
     if metadata is None:
         return
     for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
-        template = f"{prefix}{getattr(route, 'path_format', route.path)}"
+        template = f"{prefix}{route.path}"
         if template not in metadata.paths or _serves_metadata(route):
             continue
         msg = (
