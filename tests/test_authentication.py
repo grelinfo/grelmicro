@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 import warnings
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
@@ -114,7 +114,7 @@ from grelmicro.integrations.litestar import (
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
 )
-from grelmicro.resilience import RateLimiter
+from grelmicro.resilience import DeadlineExceededError, RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.security import (
     ClientBans,
@@ -150,6 +150,7 @@ HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_401_UNAUTHORIZED = 401
 HTTP_429_TOO_MANY_REQUESTS = 429
 HTTP_503_SERVICE_UNAVAILABLE = 503
+HTTP_504_GATEWAY_TIMEOUT = 504
 POLICY_VIOLATION = 1008
 CALLER = ("203.0.113.7", 5000)
 PROXIES = ["10.0.0.0/8"]
@@ -631,6 +632,320 @@ class TestBans:
         """A ban counted against a spoofable address refuses the wrong one."""
         with pytest.raises(TypeError, match="trusted="):
             AuthenticatedRequests(verifier(), bans=ClientBans())
+
+
+class Revocations:
+    """A check refusing the token ids the test revoked, recording each call."""
+
+    def __init__(self) -> None:
+        """Revoke nothing yet."""
+        self.revoked: set[str] = set()
+        self.seen: list[tuple[str | None, str]] = []
+
+    async def __call__(
+        self, caller: Principal, scope: MutableMapping[str, Any]
+    ) -> Principal | None:
+        """Refuse a revoked `jti`, and accept every other caller."""
+        self.seen.append((caller.subject, scope["type"]))
+        if caller.claims.get("jti") in self.revoked:
+            return None
+        return caller
+
+
+@dataclass(frozen=True)
+class User:
+    """The service's own record of a caller, standing in for it."""
+
+    subject: str | None
+    issuer: str | None
+    scopes: frozenset[str]
+    claims: Any
+    name: str
+    is_authenticated: bool = True
+
+
+async def named(request: Request) -> JSONResponse:
+    """Answer with the name the check looked up."""
+    return JSONResponse({"name": request.user.name})
+
+
+class TestCheck:
+    """A caller the service no longer accepts, refused after verification."""
+
+    def test_a_revoked_token_is_refused(self) -> None:
+        """`None` from the check answers `401` with `revoked`."""
+        check = Revocations()
+        check.revoked.add("t-1")
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=check))
+        )
+
+        response = client.get("/whoami", headers=bearer(token(jti="t-1")))
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.json()["reason"] == "revoked"
+        assert response.headers["www-authenticate"] == (
+            'Bearer error="invalid_token"'
+        )
+
+    def test_an_accepted_caller_reaches_the_handler(self) -> None:
+        """The check sees the caller and the scope, and the handler is served."""
+        check = Revocations()
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=check))
+        )
+
+        response = client.get("/whoami", headers=bearer(token(jti="t-2")))
+
+        assert response.status_code == HTTP_200_OK
+        assert response.json()["subject"] == "user-1"
+        assert check.seen == [("user-1", "http")]
+
+    def test_a_token_revoked_while_cached_is_refused_next_request(self) -> None:
+        """The verifier's cache never answers for the check."""
+        check = Revocations()
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=check))
+        )
+        sent = bearer(token(jti="t-3"))
+
+        served = client.get("/whoami", headers=sent)
+        check.revoked.add("t-3")
+        refused = client.get("/whoami", headers=sent)
+
+        assert served.status_code == HTTP_200_OK
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_plain_function_checks_without_an_await(self) -> None:
+        """A check answering at once is used as it answers."""
+
+        def refuse(caller: Principal, scope: Any) -> None:  # noqa: ANN401, ARG001
+            return None
+
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=refuse))
+        )
+
+        response = client.get("/whoami", headers=bearer(token()))
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.json()["reason"] == "revoked"
+
+    def test_the_returned_object_is_the_caller_routes_read(self) -> None:
+        """A looked-up user is what `request.user` holds."""
+
+        async def load(caller: Principal, scope: Any) -> User:  # noqa: ANN401, ARG001
+            return User(
+                caller.subject,
+                caller.issuer,
+                caller.scopes,
+                caller.claims,
+                "Ada",
+            )
+
+        app = Starlette(routes=[Route("/named", named)])
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(verifier(), check=load),
+            ]
+        ).install(app)
+
+        response = TestClient(app).get("/named", headers=bearer(token()))
+
+        assert response.json() == {"name": "Ada"}
+
+    def test_an_unauthenticated_answer_is_never_served(self) -> None:
+        """Anything but an authenticated caller or `None` fails the request."""
+
+        async def confused(caller: Principal, scope: Any) -> bool:  # noqa: ANN401, ARG001
+            return True
+
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=confused))  # ty: ignore[invalid-argument-type]
+        )
+
+        with pytest.raises(
+            TypeError, match="a bool, which is not an authenticated caller"
+        ):
+            client.get("/whoami", headers=bearer(token()))
+
+    def test_a_failing_check_is_never_served(self) -> None:
+        """An error with no kind of its own is a `500`, not the caller."""
+
+        async def broken(caller: Principal, scope: Any) -> Principal:  # noqa: ANN401, ARG001
+            raise ConnectionError
+
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=broken)),
+            raise_server_exceptions=False,
+        )
+
+        response = client.get("/whoami", headers=bearer(token()))
+
+        assert response.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+
+    def test_an_error_with_a_kind_is_rendered(self) -> None:
+        """A deadline the check exceeded is answered as the deadline it is."""
+
+        async def slow(caller: Principal, scope: Any) -> Principal:  # noqa: ANN401, ARG001
+            raise DeadlineExceededError(name="revocations", timeout=0.1)
+
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=slow))
+        )
+
+        response = client.get("/whoami", headers=bearer(token()))
+
+        assert response.status_code == HTTP_504_GATEWAY_TIMEOUT
+
+    def test_a_refusal_is_never_counted_as_forging(self) -> None:
+        """A revoked token is the service's decision, not an attack."""
+        check = Revocations()
+        check.revoked.add("t-4")
+        bans = ClientBans(failures=1, duration=60.0)
+        client = TestClient(
+            app_with(
+                AuthenticatedRequests(
+                    verifier(),
+                    bans=bans,
+                    trusted=TrustedProxies(PROXIES),
+                    check=check,
+                )
+            ),
+            client=CALLER,
+        )
+
+        first = client.get("/whoami", headers=bearer(token(jti="t-4")))
+        second = client.get("/whoami", headers=bearer(token(jti="t-4")))
+        other = client.get("/whoami", headers=bearer(token(jti="t-5")))
+
+        assert first.status_code == HTTP_401_UNAUTHORIZED
+        assert second.status_code == HTTP_401_UNAUTHORIZED
+        assert other.status_code == HTTP_200_OK
+
+    def test_a_request_without_a_token_is_never_checked(self) -> None:
+        """No token and an excluded path both skip the check."""
+        check = Revocations()
+        client = TestClient(
+            app_with(
+                AuthenticatedRequests(
+                    verifier(), exclude=("/livez",), check=check
+                )
+            )
+        )
+
+        client.get("/whoami")
+        client.get("/livez", headers=bearer(token()))
+
+        assert check.seen == []
+
+    def test_a_token_sent_to_a_public_route_is_checked(self) -> None:
+        """`Anonymous()` makes a token optional, not unchecked."""
+        check = Revocations()
+        check.revoked.add("t-6")
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier(), check=check))
+        ) as client:
+            anonymous = client.get("/status")
+            refused = client.get("/status", headers=bearer(token(jti="t-6")))
+
+        assert anonymous.status_code == HTTP_200_OK
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert check.seen == [("user-1", "http")]
+
+    def test_a_websocket_handshake_is_checked(self) -> None:
+        """A revoked token never opens a websocket."""
+        check = Revocations()
+        check.revoked.add("t-7")
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=check))
+        )
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as caught,
+            client.websocket_connect("/ws", headers=bearer(token(jti="t-7"))),
+        ):
+            pass  # pragma: no cover
+
+        assert caught.value.status_code == HTTP_401_UNAUTHORIZED
+        assert check.seen == [("user-1", "websocket")]
+
+    def test_current_principal_reads_the_returned_object(self) -> None:
+        """On FastAPI, `CurrentPrincipal` is the user the check returned."""
+
+        async def load(caller: Principal, scope: Any) -> User:  # noqa: ANN401, ARG001
+            return User(
+                caller.subject,
+                caller.issuer,
+                caller.scopes,
+                caller.claims,
+                "Ada",
+            )
+
+        app = FastAPI()
+
+        @app.get("/me")
+        async def me(principal: CurrentPrincipal) -> dict[str, str]:
+            return {"name": cast("User", principal).name}
+
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(verifier(), check=load),
+            ]
+        ).install(app)
+
+        response = TestClient(app).get("/me", headers=bearer(token()))
+
+        assert response.json() == {"name": "Ada"}
+
+    def test_a_check_that_cannot_be_called_is_refused_where_written(
+        self,
+    ) -> None:
+        """A mistyped `check=` fails at startup, not on the first request."""
+        with pytest.raises(TypeError, match=r"check=.*was given a str"):
+            AuthenticatedRequests(verifier(), check="revoked")  # ty: ignore[invalid-argument-type]
+
+    def test_from_config_checks_the_caller_too(self) -> None:
+        """The declarative door keeps the check beside the config."""
+        check = Revocations()
+        check.revoked.add("t-8")
+        component = AuthenticatedRequests.from_config(
+            AuthenticatedRequestsConfig(), verifier(), check=check
+        )
+        client = TestClient(app_with(component))
+
+        response = client.get("/whoami", headers=bearer(token(jti="t-8")))
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.json()["reason"] == "revoked"
+
+    @pytest.mark.parametrize(
+        ("error", "status"),
+        [
+            (ConnectionError(), HTTP_500_INTERNAL_SERVER_ERROR),
+            (
+                DeadlineExceededError(name="revocations", timeout=0.1),
+                HTTP_504_GATEWAY_TIMEOUT,
+            ),
+        ],
+    )
+    def test_a_failing_check_on_litestar_is_never_served(
+        self, error: Exception, status: int
+    ) -> None:
+        """Litestar answers a failing check as Starlette does."""
+
+        async def failing(caller: Principal, scope: Any) -> Principal:  # noqa: ANN401, ARG001
+            raise error
+
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier(), check=failing)),
+            raise_server_exceptions=False,
+        ) as client:
+            response = client.post("/catalog/7", headers=bearer(token()))
+
+        assert response.status_code == status
 
 
 class TestPlacement:

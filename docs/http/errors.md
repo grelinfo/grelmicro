@@ -354,7 +354,9 @@ in `Authorization: Bearer`. A service publishing
 `401`. The bearer token did not verify. `reason` says why, as one of the
 `TokenRejectedReason` values such as `expired` or `audience`, and never quotes
 the token. `WWW-Authenticate` carries `error="invalid_token"`. Get a new token
-before retrying.
+before retrying. `revoked` means the token verified and the service no longer
+accepts it, through
+[`check=`](authentication.md#checking-the-caller-after-the-token-verifies).
 
 ### Ambiguous credentials { #ambiguous-credentials }
 

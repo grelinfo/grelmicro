@@ -89,6 +89,10 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
+    _Check = Callable[
+        [Principal, Scope], Principal | Awaitable[Principal | None] | None
+    ]
+
 __all__ = [
     "AuthenticatedRequests",
     "AuthenticatedRequestsConfig",
@@ -1372,6 +1376,7 @@ class AuthenticatedRequestsMiddleware:
 
     - No credential, or one in another scheme such as `Basic`: `401`.
     - A token that does not verify: `401`, with the reason.
+    - A caller `check` refuses: `401`, with the reason `revoked`.
     - More than one credential: `400`.
     - A caller `bans` refuses: `429`, with `Retry-After`.
     - Keys that have not loaded: `503`.
@@ -1433,6 +1438,16 @@ class AuthenticatedRequestsMiddleware:
                 "with `bans`."
             ),
         ] = None,
+        check: Annotated[
+            _Check | None,
+            Doc(
+                "Checks each verified caller before the app sees it, such as "
+                "against the tokens the service revoked. Called with the "
+                "caller and the request's ASGI scope, it returns the caller "
+                "the app receives, or `None` to refuse it. It may answer at "
+                "once or with an awaitable."
+            ),
+        ] = None,
         resource: Annotated[
             str | None,
             Doc(
@@ -1461,8 +1476,9 @@ class AuthenticatedRequestsMiddleware:
 
         Raises:
             TypeError: If `exclude`, `authorization_servers` or `scopes` is
-                a single string, `bans` is given without `trusted`, or
-                `resource` is given and no authorization server is known.
+                a single string, `bans` is given without `trusted`, `check`
+                cannot be called, or `resource` is given and no
+                authorization server is known.
             ValueError: If a pattern in `exclude` matches every path.
             SettingsValidationError: If `resource`, an authorization server
                 or a scope is not one a client could use.
@@ -1475,8 +1491,15 @@ class AuthenticatedRequestsMiddleware:
                 "is the ingress, and one forged token would ban everyone."
             )
             raise TypeError(msg)
+        if check is not None and not callable(check):
+            msg = (
+                f"check= takes a function of the caller and the scope, and "
+                f"was given a {type(check).__name__}."
+            )
+            raise TypeError(msg)
         self.app = app
         self._verifier = verifier
+        self._check = check
         self._exclude = _narrower_than_everything(
             as_patterns(exclude, name="exclude")
         )
@@ -1534,6 +1557,13 @@ class AuthenticatedRequestsMiddleware:
         except _REFUSALS as error:
             await _refuse(scope, receive, send, error)
             return
+        check = self._check
+        if check is not None:
+            try:
+                caller = await _checked(check, caller, scope)
+            except Exception as error:  # noqa: BLE001 - rendered or re-raised
+                await _refuse(scope, receive, send, error)
+                return
         scope["user"] = caller
         scope["auth"] = caller
         await self._forward(scope, receive, send)
@@ -1704,17 +1734,44 @@ def _bearer_of(credential: bytes) -> str:
     return token if scheme.lower() == _BEARER else ""
 
 
+async def _checked(check: _Check, caller: Principal, scope: Scope) -> Principal:
+    """Return the caller `check` accepts, awaiting it when it answers later.
+
+    Raises:
+        TokenRejectedError: With `revoked`, if `check` refuses the caller.
+        TypeError: If `check` answers with something that is not an
+            authenticated caller, which would otherwise reach the app as one.
+    """
+    checked: Any = check(caller, scope)
+    if inspect.isawaitable(checked):
+        checked = await checked
+    if checked is None:
+        raise TokenRejectedError(TokenRejectedReason.REVOKED)
+    if getattr(checked, "is_authenticated", False) is not True:
+        msg = (
+            f"check= answered with a {type(checked).__name__}, which is not "
+            f"an authenticated caller. Return the caller, or None to refuse "
+            f"it."
+        )
+        raise TypeError(msg)
+    return checked
+
+
 async def _refuse(
     scope: Scope, receive: Receive, send: Send, error: Exception
 ) -> None:
-    """Answer a refusal in the format the app answers every refusal with."""
+    """Answer a refusal in the format the app answers every refusal with.
+
+    An error with no kind of its own, such as one a `check` raised, is
+    raised again, for the server to answer as any other failure.
+    """
     app = scope.get("app")
     registered = getattr(
         getattr(app, "state", None), "grelmicro_error_responses", None
     )
     errors = registered if registered is not None else ErrorResponses()
     rendered = errors.render(error, instance=scope.get("path"))
-    if rendered is None:  # pragma: no cover - every refusal has a kind
+    if rendered is None:
         raise error
     if scope["type"] == "http":
         await send_error(send, rendered)
@@ -1830,6 +1887,17 @@ class AuthenticatedRequests:
                 "resolving the caller a ban is counted against."
             ),
         ] = None,
+        check: Annotated[
+            _Check | None,
+            Doc(
+                "Checks every verified caller before the app sees it, such as "
+                "against the tokens the service revoked. Called with the "
+                "caller and the request's ASGI scope, it returns the caller "
+                "routes receive, or `None` to refuse it `401` with the reason "
+                "`revoked`. It runs for a cached token and a websocket "
+                "handshake too, and its answer is never cached."
+            ),
+        ] = None,
         resource: Annotated[
             str | None,
             Doc(
@@ -1870,8 +1938,9 @@ class AuthenticatedRequests:
 
         Raises:
             TypeError: If `exclude`, `authorization_servers` or `scopes` is
-                a single string, `bans` is given without `trusted`, or
-                `resource` is given and no authorization server is known.
+                a single string, `bans` is given without `trusted`, `check`
+                cannot be called, or `resource` is given and no
+                authorization server is known.
             SettingsValidationError: If `resource`, an authorization server
                 or a scope is not one a client could use.
         """
@@ -1889,6 +1958,7 @@ class AuthenticatedRequests:
             verifier=verifier,
             bans=bans,
             trusted=trusted,
+            check=check,
             name=name,
             openapi=openapi,
         )
@@ -1916,6 +1986,13 @@ class AuthenticatedRequests:
             TrustedProxies | None,
             Doc("The proxies whose forwarded entries may be believed."),
         ] = None,
+        check: Annotated[
+            _Check | None,
+            Doc(
+                "Checks every verified caller before the app sees it. It "
+                "returns the caller routes receive, or `None` to refuse it."
+            ),
+        ] = None,
         name: Annotated[
             str,
             Doc("Registration name. Only one may be registered."),
@@ -1931,8 +2008,8 @@ class AuthenticatedRequests:
     ) -> Self:
         """Build the component from a configuration that is already whole.
 
-        The one declarative door. The verifier stays beside the config,
-        because it is an object holding keys rather than a setting.
+        The one declarative door. The verifier and the check stay beside
+        the config, because they are objects rather than settings.
         """
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001
@@ -1940,6 +2017,7 @@ class AuthenticatedRequests:
             verifier=verifier,
             bans=bans,
             trusted=trusted,
+            check=check,
             name=name,
             openapi=openapi,
         )
@@ -1952,6 +2030,7 @@ class AuthenticatedRequests:
         verifier: _Verifier,
         bans: ClientBans | None,
         trusted: TrustedProxies | None,
+        check: _Check | None,
         name: str,
         openapi: bool,
     ) -> None:
@@ -1960,6 +2039,7 @@ class AuthenticatedRequests:
         self._verifier = verifier
         self._bans = bans
         self._trusted = trusted
+        self._check = check
         self._name = name
         self._openapi = openapi
         self._stack: AsyncExitStack | None = None
@@ -1975,6 +2055,7 @@ class AuthenticatedRequests:
             "exclude": self._config.exclude,
             "bans": self._bans,
             "trusted": self._trusted,
+            "check": self._check,
             "public": self._public,
             "resource": self._config.resource,
             "authorization_servers": self._config.authorization_servers,

@@ -224,6 +224,7 @@ class TestWhatIsNotAbuse:
             "audience",
             "issuer",
             "malformed",
+            "revoked",
         ],
     )
     def test_an_ordinary_rejection_never_bans(self, reason: str) -> None:

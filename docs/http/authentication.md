@@ -94,6 +94,71 @@ A refused websocket gets the same `401` and challenge on a server that supports
 the denial response extension. On one that does not, the handshake is closed
 before it completes, which the server answers `403` with no headers.
 
+## Checking the caller after the token verifies
+
+A token stays valid until its `exp`, even after the user signs out or an
+administrator revokes it. `check=` runs after the token verifies and before the
+app sees the request:
+
+```python
+--8<-- "http/authentication_check.py"
+```
+
+This refuses a token whose `jti` was revoked, and every token issued before the
+user signed out everywhere. Store the sign-out time in whole seconds, such as
+`int(time.time())`, and compare whole seconds of `iat` too, which may carry a
+fraction. A token issued in the sign-out's second is refused as well, since
+nothing tells it apart from one issued just before: the client gets a `401` and
+fetches a new token.
+
+- Return the caller to serve the request, or `None` to refuse it. A refused
+  caller is answered `401` [`token-rejected`](errors.md#token-rejected) with
+  reason `revoked`, and `bans` never counts it.
+- It runs on every request carrying a verified token: one the verifier answered
+  from its cache, one sent to an `Anonymous()` route, and a websocket handshake.
+  A request without a token, or on an excluded path, never reaches it.
+- Its answer is never cached, so a revocation is refused on the very next
+  request. A check that keeps a cache of its own never keeps an entry past the
+  token's `exp`.
+- It receives the request's ASGI scope, to read a header or the address
+  [`ClientAddressMiddleware`](../security/clientip.md) resolved.
+- An error it raises never serves the request. One `ErrorResponses` knows is
+  rendered, such as the `DeadlineExceededError` of a
+  [`Timeout`](../resilience/timeout.md) around the store. Anything else is a
+  `500`, including your framework's `HTTPException`, which is only answered
+  inside a route. Refuse with `None`.
+- It may be a plain function too, for a check that needs no I/O.
+
+Return your own object to hand every route the user behind the token:
+
+```python
+@dataclass(frozen=True)
+class User:
+    subject: str | None
+    issuer: str | None
+    scopes: frozenset[str]
+    claims: Mapping[str, Any]
+    name: str
+    is_authenticated: bool = True
+
+
+async def load_user(caller: Principal, scope: Scope) -> User | None:
+    record = await users.find(caller.issuer, caller.subject)
+    if record is None or not record.active:
+        return None
+    return User(caller.subject, caller.issuer, caller.scopes, caller.claims, record.name)
+```
+
+- `request.user`, `request.auth` and `CurrentPrincipal` are the object you
+  return. It must be an authenticated `Principal`, or the request is a `500`.
+- `Authenticated(scopes=...)` reads its `scopes`, so carry over the ones the
+  token grants.
+- `Claims` reads only a `JWTClaims`. Read `CurrentPrincipal` once `check`
+  returns your own object.
+
+A decision that depends on the route, such as whether the caller owns the
+order, stays in the route and answers `403`.
+
 ## Telling a client where to get a token
 
 ```python
