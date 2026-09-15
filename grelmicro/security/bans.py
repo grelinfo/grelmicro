@@ -33,16 +33,22 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import weakref
 from collections import OrderedDict
 from time import monotonic
-from typing import Annotated, Any, Final, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Self
 
 from pydantic import BaseModel, field_validator
 from typing_extensions import Doc
 
 from grelmicro._config import Reconfigurable, env_prefixes, resolve_config
 from grelmicro.errors import AdmissionError
+from grelmicro.metrics import _hub
+from grelmicro.security._events import BANS_ACTIVE, ban_started
 from grelmicro.security.jwt import TokenRejectedReason
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 __all__ = [
     "ABUSIVE_REASONS",
@@ -228,7 +234,7 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
-        self._setup(config, reasons=reasons)
+        self._setup(config, reasons=reasons, name=name)
         self._track_reconfigure(env_prefix)
 
     @classmethod
@@ -242,6 +248,10 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             frozenset[str] | None,
             Doc("Rejection reasons that count. Defaults to `ABUSIVE_REASONS`."),
         ] = None,
+        name: Annotated[
+            str,
+            Doc("Instance name, carried by the ban records and metrics."),
+        ] = "default",
     ) -> Self:
         """Build the table from a configuration that is already whole.
 
@@ -249,13 +259,18 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         variable is read, and the table is not registered for live reload.
         """
         instance = cls.__new__(cls)
-        instance._setup(config, reasons=reasons)  # noqa: SLF001
+        instance._setup(config, reasons=reasons, name=name)  # noqa: SLF001
         return instance
 
     def _setup(
-        self, config: ClientBansConfig, *, reasons: frozenset[str] | None
+        self,
+        config: ClientBansConfig,
+        *,
+        reasons: frozenset[str] | None,
+        name: str,
     ) -> None:
         """Hold the settings, and start an empty table."""
+        self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         self._take(config)
@@ -269,6 +284,18 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             OrderedDict()
         )
         self._lock = threading.Lock()
+        _TABLES.add(self)
+
+    @property
+    def name(self) -> str:
+        """Return the instance name."""
+        return self._name
+
+    def active(self) -> int:
+        """Return how many clients are banned right now."""
+        with self._lock:
+            now = monotonic()
+            return sum(1 for seen in self._clients.values() if seen[2] > now)
 
     def _take(self, config: ClientBansConfig) -> None:
         """Read the thresholds a request is judged against."""
@@ -327,6 +354,10 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         shorter than a ban, so a client that keeps failing rolls its window
         over while still banned, and taking the new count at face value would
         let it clear its own ban by carrying on. `forget` is what lifts a ban.
+
+        A ban that starts writes one record on `grelmicro.security.events`
+        and counts `grelmicro.client_bans.started`. A ban extended while it
+        runs writes nothing.
         """
         if reason not in self._reasons:
             return False
@@ -341,8 +372,12 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             banned_until = (
                 now + self._duration if count >= self._failures else 0.0
             )
-            if seen is not None and seen[2] > now:
-                banned_until = max(banned_until, seen[2])
+            running_until = 0.0 if seen is None else seen[2]
+            running = running_until > now
+            if running:
+                banned_until = max(banned_until, running_until)
+            starts = banned_until > 0.0 and not running
+            duration = self._duration
             if seen is None:
                 # Only an address not yet tracked makes room. Making it for
                 # one already tracked would let a client failing from a single
@@ -352,6 +387,8 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
             # The client just recorded goes last, so the one evicted to make
             # room is always the one that failed longest ago.
             clients.move_to_end(client)
+        if starts:
+            ban_started(self._name, client, count, duration)
         return banned_until > 0.0
 
     def forget(
@@ -370,3 +407,20 @@ class ClientBans(Reconfigurable[ClientBansConfig]):
         clients = self._clients
         while len(clients) >= self._max_clients:
             clients.popitem(last=False)
+
+
+_TABLES: weakref.WeakSet[ClientBans] = weakref.WeakSet()
+"""Every ban table alive, read by the active bans gauge."""
+
+
+def _observe_active(options: Any) -> Iterator[Any]:  # noqa: ANN401, ARG001
+    """Report the bans running in each table, when metrics are collected."""
+    from opentelemetry.metrics import Observation  # noqa: PLC0415
+
+    for table in list(_TABLES):
+        yield Observation(
+            table.active(), {"grelmicro.client_bans.name": table.name}
+        )
+
+
+_hub.observe_with(BANS_ACTIVE, _observe_active, "{ban}")

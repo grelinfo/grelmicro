@@ -251,6 +251,120 @@ can choose would refuse somebody else. Read
 [Shedding a caller that keeps forging](../security/jwt.md#shedding-a-caller-that-keeps-forging)
 for the thresholds.
 
+## Security events
+
+Every refusal is written as a security event, so an operator sees a burst of
+forged tokens and can tell an attack from a key rotation. There is nothing to
+register. The records go to the `grelmicro.security.events` logger, the
+counters to [`Metrics`](../metrics.md) when it is registered, and the refusal
+to the current span when one is recording.
+
+```json
+{
+  "level": "WARNING",
+  "logger": "grelmicro.security.events",
+  "msg": "GET /orders/{order_id} 401 signature",
+  "otel.event.name": "grelmicro.authentication.refused",
+  "event.kind": "event",
+  "event.category": ["authentication"],
+  "event.type": ["start"],
+  "event.outcome": "failure",
+  "event.action": "grelmicro.authentication.refused",
+  "error.type": "signature",
+  "http.request.method": "GET",
+  "http.route": "/orders/{order_id}",
+  "http.response.status_code": 401,
+  "client.address": "203.0.113.9",
+  "user_agent.original": "curl/8.4",
+  "trace_id": "e3c64457486c59d0ba764839dc404da5",
+  "span_id": "92495292bd9b0710",
+  "grelmicro.security.suppressed": 12
+}
+```
+
+- One record per refusal, at `WARNING`. A request that sent no credential is
+  written at `INFO`, because a browser without a token is ordinary.
+- `error.type` is one word from a fixed set: `authentication-required`,
+  `ambiguous-credentials`, `insufficient-scope`, `client-banned`,
+  `signing-keys-unavailable`, or the reason of a rejected token, such as
+  `expired` or `signature`. It is the word the refusal's body carries.
+- `http.route` is the route template, never the path. A route the app declares
+  is named even when the middleware refused the request before routing.
+- The categorization follows the
+  [Elastic Common Schema](https://www.elastic.co/docs/reference/ecs/ecs-category-field-values-reference).
+  A SIEM rule matching `event.category: authentication` and
+  `event.outcome: failure` finds every refused credential. A missing scope is
+  `event.category: web`, and its `event.action` is
+  `grelmicro.authorization.refused`.
+- `otel.event.name` names the event. The
+  [OpenTelemetry logging instrumentation](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/logging/logging.html)
+  sends the record as a named event, tied to the request's span.
+- Refusals from one address are written once per minute. The next record
+  carries `grelmicro.security.suppressed`, the number held back. The counters
+  stay exact.
+- A request refused while its address is banned is counted, not written. The
+  ban writes one record when it starts.
+- No token, signature or signing secret reaches a record. A value read from
+  the request is cut to 256 characters, with control characters escaped, so it
+  can never forge a line of its own.
+- HTTP requests and websocket handshakes are recorded the same way. A path in
+  `exclude`, and an `Anonymous()` route sent no token, record nothing.
+
+A ban that starts writes one record:
+
+```json
+{
+  "level": "WARNING",
+  "logger": "grelmicro.security.events",
+  "msg": "client 203.0.113.9 banned for 300.0s after 10 failures",
+  "otel.event.name": "grelmicro.client_bans.started",
+  "event.category": ["intrusion_detection"],
+  "event.type": ["denied"],
+  "event.outcome": "success",
+  "client.address": "203.0.113.9",
+  "grelmicro.client_bans.name": "default",
+  "grelmicro.client_bans.failures": 10,
+  "grelmicro.client_bans.duration": 300.0,
+  "grelmicro.client_bans.until": "2026-09-15T10:05:00+00:00"
+}
+```
+
+### Naming the caller
+
+```python
+AuthenticatedRequests(verifier, enduser=True)
+```
+
+- The server span of every authenticated request carries `enduser.id`, the
+  subject of the caller.
+- A refusal carries `enduser.id` when the token's signature verified: an
+  expired token, one issued for another audience, a missing scope, or a caller
+  `check` refused. A forged token names nobody, whatever it claims.
+- It is off by default. A subject can be personal data, such as an email
+  address some providers use as `sub`, so writing it is a decision you make.
+  [`AccessLog(enduser=True)`](../logging/access.md#who-called) writes it on the
+  access record.
+- No subject and no address ever becomes a metric attribute.
+
+### Metrics
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `grelmicro.authentication.attempts` | counter | `grelmicro.outcome` (`success` or `refused`), with `error.type` and `http.route` when refused |
+| `grelmicro.client_bans.started` | counter | `grelmicro.client_bans.name` |
+| `grelmicro.client_bans.active` | gauge | `grelmicro.client_bans.name` |
+
+`grelmicro.client_bans.active` is read when metrics are collected, so a ban that
+runs out leaves it without a request to report it.
+
+### On the span
+
+A refusal sets `grelmicro.authentication.refusal` on the current span. The span's
+status and its `error.type` are left alone. The HTTP conventions leave a server
+span's status unset for a `4xx`, so a refused token never reads as a server
+error. The record above is the event, and carries the span's `trace_id` and
+`span_id`.
+
 ## Where it sits
 
 `micro.install(app)` places it ahead of every other middleware of ours that can

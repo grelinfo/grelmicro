@@ -36,6 +36,7 @@ from grelmicro._paths import (
     compile_route,
     holds_control_character,
     route_path,
+    route_template,
     selects,
     starlette_route_path,
     walk_routes,
@@ -54,6 +55,7 @@ from grelmicro.http._component import (
 )
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
+from grelmicro.security._events import SCOPE_KEY, SecurityEvents, subject_of
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
 from grelmicro.security.jwt import (
@@ -121,6 +123,50 @@ _ROUTE_CHALLENGES = (
     TokenRejectedError,
 )
 """Every bearer refusal a route may raise, which may be rendered above us."""
+
+_REFUSAL_KINDS: Final = (
+    (AuthenticationRequiredError, "authentication-required", 401),
+    (AmbiguousCredentialsError, "ambiguous-credentials", 400),
+    (InsufficientScopeError, "insufficient-scope", 403),
+    (ClientBannedError, "client-banned", 429),
+    (SigningKeysUnavailableError, "signing-keys-unavailable", 503),
+)
+"""The refusal each kind of error is recorded as, and the status it answers."""
+
+
+def refusal_of(error: BaseException) -> tuple[str, int] | None:
+    """Return the refusal `error` is recorded as and its status, or `None`.
+
+    A rejected token is recorded by its reason, the word its `401` body
+    carries. Every other refusal by the anchor of its error type.
+    """
+    if isinstance(error, TokenRejectedError):
+        return error.reason.value, 401
+    for kind, refusal, status in _REFUSAL_KINDS:
+        if isinstance(error, kind):
+            return refusal, status
+    return None
+
+
+def recorded[E: BaseException](scope: Scope, error: E) -> E:
+    """Return `error`, recorded as a refusal when authentication handled the request.
+
+    For a refusal a route raises after the middleware authenticated the
+    request, such as a missing scope. A request authentication left alone
+    records nothing.
+    """
+    events = scope.get(SCOPE_KEY)
+    found = refusal_of(error)
+    if isinstance(events, SecurityEvents) and found is not None:
+        events.refused(
+            scope,
+            refusal=found[0],
+            status=found[1],
+            template=route_template(scope, scope.get("path", "")),
+            subject=subject_of(scope.get("user")),
+        )
+    return error
+
 
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 """Set on the callable a route declares to be served without a credential."""
@@ -249,6 +295,35 @@ class _Routes:
     )
     nodes: tuple[tuple[int, _Reach], ...] = ()
     redirects: bool = False
+    templates: tuple[tuple[str, _Reach], ...] = ()
+    """Every route with its template, in the order the router tries them."""
+    router: Any = None
+    """A Litestar app, whose own router names the template a request routes to."""
+
+    def template_of(
+        self,
+        kind: str,
+        method: str | None,
+        path: str,
+        root_path: str = "",
+    ) -> str | None:
+        """Return the template of the route the router serves the URL with.
+
+        The first route answering the URL and its method, as the router
+        picks it. Without one, the first route answering the URL whatever
+        its method, which is the route a `405` is about.
+        """
+        fallback = None
+        for template, reach in self.templates:
+            if reach.answers(kind, method, path, root_path):
+                return template
+            if (
+                fallback is None
+                and kind in reach.kinds
+                and reach.reaches(path, root_path)
+            ):
+                fallback = template
+        return fallback
 
     def serves(
         self,
@@ -393,6 +468,28 @@ class _PublicRoutes:
             kind, scope["method"], toggled, root_path
         ) and not routes.routed(path, root_path)
 
+    def template(self, scope: Scope) -> str | None:
+        """Return the template of the route a request is served by, before routing.
+
+        For a refusal the middleware answers before the router runs, so the
+        record names the route rather than the path. A prefix a proxy
+        stripped stays off, as it does once the router has run.
+        """
+        routes = self._apps.get(scope.get("app"))
+        path = scope["path"]
+        if routes is None or holds_control_character(path):
+            return None
+        root_path = scope.get("root_path", "")
+        if routes.router is not None:
+            return _litestar_template(routes.router, scope)
+        template = routes.template_of(
+            scope["type"], scope.get("method"), path, root_path
+        )
+        root = root_path.rstrip("/")
+        if template is None or not root or not path.startswith(root):
+            return template
+        return f"{root}{template}"
+
 
 def routes_of(app: Any) -> _Routes:  # noqa: ANN401
     """Read an app's routes, the way its framework declares them."""
@@ -436,6 +533,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     public: list[_Reach] = []
     declared: dict[tuple[int, str], tuple[_Reach, str]] = {}
     rivals: list[tuple[str, _Reach]] = []
+    ordered: list[tuple[str, _Reach]] = []
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{route.path}"
         if isinstance(route, WebSocketRoute):
@@ -458,6 +556,9 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
                 within=tree.within[key],
                 mounts=tuple(compile_mount(mount) for mount in mounts),
             )
+        ordered.append(
+            (f"{prefix}{getattr(route, 'path_format', route.path)}", reach)
+        )
         if (
             chain is not None
             and _declares_anonymous(route, contexts)
@@ -468,7 +569,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         else:
             rivals.append((template, reach))
     if not public:
-        return _Routes()
+        return _Routes(templates=tuple(ordered))
     by_depth: dict[int, list[_Reach]] = {}
     anywhere: list[_Reach] = []
     for template, reach in rivals:
@@ -486,6 +587,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         anywhere=tuple(anywhere),
         declared=MappingProxyType(declared),
         redirects=_redirects_slashes(app),
+        templates=tuple(ordered),
         nodes=tuple(
             (
                 node,
@@ -632,7 +734,7 @@ def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401
         for _, route, _ in walk_routes(app)
         for handler in _litestar_handlers(route) or ()
     )
-    return _Routes(litestar=app) if declared else _Routes()
+    return _Routes(litestar=app if declared else None, router=app)
 
 
 def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
@@ -663,6 +765,24 @@ def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
         # else reaches the route grelmicro added for it is not public.
         return False
     return bool(handler.opt.get(ANONYMOUS_OPT))
+
+
+def _litestar_template(app: Any, scope: Scope) -> str | None:  # noqa: ANN401
+    """Return the template Litestar's router routes the request to, or `None`.
+
+    `None` for a request its router refuses, such as one no handler
+    answers or one asking a method its route does not serve.
+    """
+    from litestar.exceptions import HTTPException  # noqa: PLC0415
+    from litestar.utils import normalize_path  # noqa: PLC0415
+
+    try:
+        routed = app.asgi_router.handle_routing(
+            path=normalize_path(route_path(scope)), method=scope.get("method")
+        )
+    except (HTTPException, KeyError):
+        return None
+    return routed[4]
 
 
 _LITESTAR_OPTIONS: Final = (
@@ -1300,6 +1420,14 @@ class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
             "empty, none are listed."
         ),
     ] = ()
+    enduser: Annotated[
+        bool,
+        Doc(
+            "Whether the server span and the security events name the "
+            "caller as `enduser.id`, the subject of a token whose signature "
+            "verified."
+        ),
+    ] = False
 
     @field_validator("resource")
     @classmethod
@@ -1382,7 +1510,8 @@ class AuthenticatedRequestsMiddleware:
     - Keys that have not loaded: `503`.
 
     Each is rendered by the app's `ErrorResponses`, with the
-    `WWW-Authenticate` challenge RFC 6750 gives it.
+    `WWW-Authenticate` challenge RFC 6750 gives it, and written as a
+    security event on `grelmicro.security.events`.
 
     With `resource=`, it serves the service's protected resource metadata,
     RFC 9728, at `/.well-known/oauth-protected-resource` followed by the
@@ -1401,7 +1530,7 @@ class AuthenticatedRequestsMiddleware:
     that does not.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         app: Annotated[
             ASGIApp,
@@ -1463,6 +1592,14 @@ class AuthenticatedRequestsMiddleware:
             tuple[str, ...] | list[str],
             Doc("Scopes listed in the metadata. Left empty, none are."),
         ] = (),
+        enduser: Annotated[
+            bool,
+            Doc(
+                "Name the caller as `enduser.id` on the server span and on "
+                "the security events. Off by default, because a subject can "
+                "be personal data."
+            ),
+        ] = False,
         public: Annotated[
             _PublicRoutes | None,
             Doc(
@@ -1514,7 +1651,9 @@ class AuthenticatedRequestsMiddleware:
                 authorization_servers, name="authorization_servers"
             ),
             scopes=_names(scopes, name="scopes"),
+            enduser=enduser,
         )
+        self._events = SecurityEvents(enduser=described.enduser)
         self._metadata = _resource_metadata(
             described.resource,
             described.authorization_servers,
@@ -1555,6 +1694,7 @@ class AuthenticatedRequestsMiddleware:
         try:
             caller = await self._authenticate(scope)
         except _REFUSALS as error:
+            self._record(scope, error)
             await _refuse(scope, receive, send, error)
             return
         check = self._check
@@ -1562,11 +1702,35 @@ class AuthenticatedRequestsMiddleware:
             try:
                 caller = await _checked(check, caller, scope)
             except Exception as error:  # noqa: BLE001 - rendered or re-raised
+                self._record(scope, error)
                 await _refuse(scope, receive, send, error)
                 return
         scope["user"] = caller
         scope["auth"] = caller
+        scope[SCOPE_KEY] = self._events
+        self._events.authenticated(caller)
         await self._forward(scope, receive, send)
+
+    def _record(self, scope: Scope, error: BaseException) -> None:
+        """Record a refusal the middleware answers, when it is one.
+
+        The route is read the way the router records it, and when the
+        router has not run yet, off the routes the app declares.
+        """
+        found = refusal_of(error)
+        if found is None:
+            return
+        template = route_template(scope, scope.get("path", ""))
+        public = self._public
+        if template is None and public is not None:
+            template = public.template(scope)
+        self._events.refused(
+            scope,
+            refusal=found[0],
+            status=found[1],
+            template=template,
+            subject=getattr(error, "subject", None),
+        )
 
     async def _forward(
         self, scope: Scope, receive: Receive, send: Send
@@ -1746,7 +1910,9 @@ async def _checked(check: _Check, caller: Principal, scope: Scope) -> Principal:
     if inspect.isawaitable(checked):
         checked = await checked
     if checked is None:
-        raise TokenRejectedError(TokenRejectedReason.REVOKED)
+        raise TokenRejectedError(
+            TokenRejectedReason.REVOKED, subject=subject_of(caller)
+        )
     if getattr(checked, "is_authenticated", False) is not True:
         msg = (
             f"check= answered with a {type(checked).__name__}, which is not "
@@ -1859,7 +2025,7 @@ class AuthenticatedRequests:
     asgi_authenticates: ClassVar[bool] = True
     """Placed ahead of every other answering middleware of ours at install."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         verifier: Annotated[
             _Verifier,
@@ -1921,6 +2087,15 @@ class AuthenticatedRequests:
                 "empty, none are listed, because the document is public."
             ),
         ] = (),
+        enduser: Annotated[
+            bool,
+            Doc(
+                "Name the caller as `enduser.id` on the server span and on "
+                "the security events: the subject of a token whose signature "
+                "verified. Off by default, because a subject can be personal "
+                "data."
+            ),
+        ] = False,
         name: Annotated[
             str,
             Doc("Registration name. Only one may be registered."),
@@ -1952,6 +2127,7 @@ class AuthenticatedRequests:
                 authorization_servers, name="authorization_servers"
             ),
             scopes=_names(scopes, name="scopes"),
+            enduser=enduser,
         )
         self._setup(
             config,
@@ -2060,6 +2236,7 @@ class AuthenticatedRequests:
             "resource": self._config.resource,
             "authorization_servers": self._config.authorization_servers,
             "scopes": self._config.scopes,
+            "enduser": self._config.enduser,
         }
 
     @property

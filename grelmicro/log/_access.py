@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self
 from pydantic import BaseModel
 from typing_extensions import Doc
 
+from grelmicro._asgi import client_address
 from grelmicro._config import (
     Live,
     Reconfigurable,
@@ -31,6 +32,7 @@ from grelmicro._paths import (
     as_patterns,
     matches,
     route_path,
+    route_template,
     selects,
 )
 from grelmicro._redact import _redact_query_values
@@ -360,10 +362,10 @@ class AccessLogMiddleware:
         }
         if status is not None:
             fields["http.response.status_code"] = status
-        template = _route_template(scope, asked)
+        template = route_template(scope, asked)
         if template is not None:
             fields["http.route"] = template
-        client = _client_address(scope)
+        client = client_address(scope)
         if client is not None:
             fields["client.address"] = client
         version = scope.get("http_version")
@@ -629,36 +631,6 @@ def _level_of(
     return logging.DEBUG if quiet else logging.INFO
 
 
-def _route_template(scope: Scope, asked: str) -> str | None:
-    """Return the route template the request matched, when there is one.
-
-    Read after the app has answered, because that is when the router has
-    written what it matched into the scope. There is no standard key for
-    it, so each framework is read the way it records it: Litestar writes
-    `path_template`, and FastAPI a route carrying `path_format`. Starlette
-    records neither, so a plain Starlette app leaves the field out rather
-    than guessing a template from the values that filled it.
-
-    A mount prefix goes back on, so the route reads as the path it
-    grouped, which is what `url.path` on the same record carries. A proxy
-    that strips its own prefix leaves `root_path` set and the path without
-    it, and there the prefix stays off, for the same reason: the two
-    fields describe one request and have to agree.
-    """
-    template = scope.get("path_template")
-    if not isinstance(template, str):
-        route = scope.get("route")
-        template = getattr(route, "path_format", None) or getattr(
-            route, "path", None
-        )
-    if not isinstance(template, str):
-        return None
-    root = scope.get("root_path", "").rstrip("/")
-    if not root or not asked.startswith(root):
-        return template
-    return f"{root}{template}"
-
-
 def _enduser_of(scope: Scope) -> str | None:
     """Return the subject of the authenticated caller, or `None` for none.
 
@@ -675,22 +647,6 @@ def _enduser_of(scope: Scope) -> str | None:
     except Exception:  # noqa: BLE001
         return None
     return subject if isinstance(subject, str) and subject else None
-
-
-def _client_address(scope: Scope) -> str | None:
-    """Return the caller's address, resolved rather than assumed.
-
-    `ClientAddressMiddleware` resolves the caller behind a proxy and caches
-    it on the request, and that is the address an access log is read for.
-    Without it the transport peer is all there is, which behind an ingress
-    is the ingress.
-    """
-    resolved = (scope.get("state") or {}).get("client_address")
-    address = getattr(resolved, "ip", None)
-    if address is not None:
-        return str(address)
-    client = scope.get("client")
-    return str(client[0]) if client else None
 
 
 def _query(scope: Scope) -> str | None:

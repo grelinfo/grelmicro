@@ -249,6 +249,15 @@ class TokenRejectedError(GrelmicroError, ValueError):
     wherever the refusal is rendered.
     """
 
+    subject: str | None = None
+    """The `sub` of a token whose signature verified before a claim failed.
+
+    Set for a token that is expired, not yet valid, issued by or for someone
+    else, missing a claim, or bound to a key. `None` when the token failed
+    before or at its signature, or carries no non-empty string `sub`, so a
+    claim from a token nobody vouched for never reaches it.
+    """
+
     def __init__(
         self,
         reason: Annotated[
@@ -257,6 +266,11 @@ class TokenRejectedError(GrelmicroError, ValueError):
                 "What failed. A tag this module does not know reads as invalid."
             ),
         ],
+        *,
+        subject: Annotated[
+            str | None,
+            Doc("The `sub` of the token, only once its signature verified."),
+        ] = None,
     ) -> None:
         """Initialize the error."""
         try:
@@ -264,6 +278,7 @@ class TokenRejectedError(GrelmicroError, ValueError):
         except ValueError:
             known = TokenRejectedReason.INVALID
         self.reason: TokenRejectedReason = known
+        self.subject = subject
         super().__init__(_MESSAGES[known])
 
 
@@ -887,14 +902,26 @@ def _check_registered(raw: dict[str, Any], leeway: int) -> None:
     for name in _STRING_CLAIMS:
         value = raw.get(name)
         if value is not None and not isinstance(value, str):
-            raise TokenRejectedError(TokenRejectedReason.MALFORMED)
+            raise TokenRejectedError(
+                TokenRejectedReason.MALFORMED, subject=_subject_of(raw)
+            )
     issued = raw.get("iat")
     if issued is None:
         return
     if isinstance(issued, bool) or not isinstance(issued, int | float):
-        raise TokenRejectedError(TokenRejectedReason.INVALID)
+        raise TokenRejectedError(
+            TokenRejectedReason.INVALID, subject=_subject_of(raw)
+        )
     if issued > time() + leeway:
-        raise TokenRejectedError(TokenRejectedReason.NOT_YET_VALID)
+        raise TokenRejectedError(
+            TokenRejectedReason.NOT_YET_VALID, subject=_subject_of(raw)
+        )
+
+
+def _subject_of(raw: Mapping[str, Any]) -> str | None:
+    """Return the `sub` of a verified claim set, or `None` for no usable one."""
+    subject = raw.get("sub")
+    return subject if isinstance(subject, str) and subject else None
 
 
 def _frozen(value: Any) -> Any:  # noqa: ANN401
@@ -1989,7 +2016,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 # next refresh fetches, rather than fetching here, which would
                 # put the provider on the request path.
                 self._wants_keys = True
-            raise TokenRejectedError(reason) from None
+            raise TokenRejectedError(reason, subject=error.args[2]) from None
         _check_registered(raw, self._leeway)
         claims = _claims_of(raw, self._scope_claims)
         self._store(keys, key, claims)

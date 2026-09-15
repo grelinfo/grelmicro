@@ -23,6 +23,7 @@ from grelmicro.http._authentication import (
     document_operations,
     metadata_path_of,
     operation_authentication,
+    recorded,
     refuse_routes_at_metadata,
     resource_metadata_of,
     serves_anonymous_routes,
@@ -351,11 +352,12 @@ def Authenticated(  # noqa: N802
         handler: BaseRouteHandler,  # noqa: ARG001
     ) -> None:
         """Refuse a caller that is not authenticated or lacks a scope."""
-        caller = connection.scope.get("user")
+        scope = cast("Scope", connection.scope)
+        caller = scope.get("user")
         if caller is None or not getattr(caller, "is_authenticated", False):
-            raise AuthenticationRequiredError(scopes=required)
+            raise recorded(scope, AuthenticationRequiredError(scopes=required))
         if not set(required) <= set(getattr(caller, "scopes", ())):
-            raise InsufficientScopeError(scopes=required)
+            raise recorded(scope, InsufficientScopeError(scopes=required))
 
     setattr(authenticated, AUTHENTICATED_MARKER, required)
     return authenticated

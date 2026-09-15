@@ -21,7 +21,7 @@ from grelmicro.errors import (
     _scope_tokens,
 )
 from grelmicro.http import ErrorResponses, merge_headers
-from grelmicro.http._authentication import AUTHENTICATED_MARKER
+from grelmicro.http._authentication import AUTHENTICATED_MARKER, recorded
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 
 if TYPE_CHECKING:
@@ -693,9 +693,14 @@ def Authenticated(  # noqa: N802
             connection = kwargs[name] if name in kwargs else args[position]
             caller = connection.scope.get("user")
             if caller is None or not getattr(caller, "is_authenticated", False):
-                raise AuthenticationRequiredError(scopes=required)
+                raise recorded(
+                    connection.scope,
+                    AuthenticationRequiredError(scopes=required),
+                )
             if not set(required) <= set(getattr(caller, "scopes", ())):
-                raise InsufficientScopeError(scopes=required)
+                raise recorded(
+                    connection.scope, InsufficientScopeError(scopes=required)
+                )
 
         if _is_async(endpoint):
 
