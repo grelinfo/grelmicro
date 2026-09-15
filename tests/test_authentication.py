@@ -4360,6 +4360,25 @@ class TestResourceMetadataEdges:
         )
         assert "access-control-allow-headers" not in plain.headers
 
+    def test_a_request_body_reaches_the_route(self) -> None:
+        """Publishing the metadata leaves what the route reads untouched."""
+        app = FastAPI()
+
+        @app.post("/echo", dependencies=[Anonymous()])
+        async def echo(payload: dict[str, int]) -> dict[str, int]:
+            return payload
+
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        response = TestClient(app).post("/echo", json={"items": 3})
+
+        assert response.json() == {"items": 3}
+
 
 def declared_on_litestar(
     *handlers: Any,  # noqa: ANN401
