@@ -105,7 +105,10 @@ app sees the request:
 ```
 
 This refuses a token whose `jti` was revoked, and every token issued before the
-user signed out everywhere.
+user signed out everywhere. Store the sign-out time in whole seconds, such as
+`int(time.time())`, because `iat` counts whole seconds. A token issued in that
+same second is refused too, since nothing tells it apart from one issued just
+before: the client gets a `401` and fetches a new token.
 
 - Return the caller to serve the request, or `None` to refuse it. A refused
   caller is answered `401` [`token-rejected`](errors.md#token-rejected) with
