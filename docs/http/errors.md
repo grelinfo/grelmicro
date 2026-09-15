@@ -345,7 +345,9 @@ sending another request.
 such as `Basic`. `WWW-Authenticate` says `Bearer`, and names the scopes the
 route needs when it declares any, as
 [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) asks. Send a token
-in `Authorization: Bearer`.
+in `Authorization: Bearer`. A service publishing
+[where to get one](authentication.md#telling-a-client-where-to-get-a-token) adds
+`resource_metadata` to this challenge and to every other one below.
 
 ### Token rejected { #token-rejected }
 

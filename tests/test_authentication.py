@@ -55,6 +55,7 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.responses import Response as StarletteResponse
 from starlette.routing import (
     BaseRoute,
     Host,
@@ -76,6 +77,7 @@ from grelmicro._describe import _Endpoint, _reads_idempotent
 from grelmicro._paths import walk_routes
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.errors import SettingsValidationError
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
@@ -132,6 +134,7 @@ HTTP_204_NO_CONTENT = 204
 HTTP_400_BAD_REQUEST = 400
 HTTP_403_FORBIDDEN = 403
 HTTP_404_NOT_FOUND = 404
+HTTP_405_METHOD_NOT_ALLOWED = 405
 HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_401_UNAUTHORIZED = 401
 HTTP_429_TOO_MANY_REQUESTS = 429
@@ -3772,4 +3775,359 @@ class TestBoundaries:
                     AuthenticatedRequests(verifier()),
                     AuthenticatedRequests(verifier(), name="partner"),
                 ]
+            )
+
+
+RESOURCE = "https://api.example.com/orders"
+WELL_KNOWN = "/.well-known/oauth-protected-resource/orders"
+METADATA_URL = f"https://api.example.com{WELL_KNOWN}"
+ISSUER = "https://auth.grel.info/"
+
+
+def issuing(issuer: str = ISSUER) -> JWTVerifier:
+    """Return a verifier checking `issuer`, and so naming it."""
+    return JWTVerifier.keys(
+        JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256", kid="k1"),
+        audience=AUDIENCE,
+        issuer=issuer,
+    )
+
+
+def published(**options: Any) -> FastAPI:  # noqa: ANN401
+    """Return a FastAPI app publishing its protected resource metadata."""
+    app = FastAPI()
+
+    @app.get("/orders")
+    async def orders() -> dict[str, bool]:
+        return {"orders": True}  # pragma: no cover
+
+    @app.delete(
+        "/orders/{order_id}",
+        dependencies=[Authenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: int) -> dict[str, int]:
+        return {"cancelled": order_id}  # pragma: no cover
+
+    @app.websocket("/follow")
+    async def follow(websocket: FastAPIWebSocket) -> None:
+        await websocket.accept()  # pragma: no cover
+
+    options.setdefault("resource", RESOURCE)
+    Grelmicro(
+        uses=[ErrorResponses(), AuthenticatedRequests(issuing(), **options)]
+    ).install(app)
+    return app
+
+
+class TestResourceMetadata:
+    """Telling a client where to get a token, as RFC 9728 describes."""
+
+    def test_the_document_names_the_resource_and_its_issuer(self) -> None:
+        """Public, cacheable, and readable from a browser on any origin."""
+        response = TestClient(published()).get(WELL_KNOWN)
+
+        assert response.json() == {
+            "resource": RESOURCE,
+            "authorization_servers": [ISSUER],
+            "bearer_methods_supported": ["header"],
+        }
+        assert response.headers["content-type"] == "application/json"
+        assert response.headers["access-control-allow-origin"] == "*"
+        assert response.headers["cache-control"] == "public, max-age=3600"
+
+    def test_scopes_are_listed_only_when_passed(self) -> None:
+        """The document is public, so no scope name is published unasked."""
+        listed = TestClient(
+            published(scopes=["orders:read", "orders:write"])
+        ).get(WELL_KNOWN)
+        unlisted = TestClient(published()).get(WELL_KNOWN)
+
+        assert listed.json()["scopes_supported"] == [
+            "orders:read",
+            "orders:write",
+        ]
+        assert "scopes_supported" not in unlisted.json()
+
+    def test_authorization_servers_given_replace_the_issuers(self) -> None:
+        """A verifier of your own names none, so they can be given."""
+        response = TestClient(
+            published(authorization_servers=["https://login.example.com/t1"])
+        ).get(WELL_KNOWN)
+
+        assert response.json()["authorization_servers"] == [
+            "https://login.example.com/t1"
+        ]
+
+    def test_a_resource_at_the_host_is_published_at_the_root(self) -> None:
+        """The slash after the host is dropped, and `resource` kept as given."""
+        response = TestClient(
+            published(resource="https://api.example.com/")
+        ).get("/.well-known/oauth-protected-resource")
+
+        assert response.json()["resource"] == "https://api.example.com/"
+
+    def test_a_query_in_the_resource_stays_in_the_metadata_url(self) -> None:
+        """The suffix goes between the host and the path, the query after."""
+        client = TestClient(
+            published(resource="https://api.example.com/orders?tenant=a")
+        )
+
+        document = client.get(WELL_KNOWN)
+        refused = client.get("/orders")
+
+        assert document.json()["resource"] == (
+            "https://api.example.com/orders?tenant=a"
+        )
+        assert refused.headers["www-authenticate"] == (
+            f'Bearer resource_metadata="{METADATA_URL}?tenant=a"'
+        )
+
+    def test_every_bearer_challenge_points_at_the_document(self) -> None:
+        """The middleware's refusals and a route's alike."""
+        client = TestClient(published())
+        pointer = f'resource_metadata="{METADATA_URL}"'
+
+        missing = client.get("/orders")
+        forged = client.get(
+            "/orders", headers=bearer(token(FORGER, iss=ISSUER))
+        )
+        doubled = client.get(
+            "/orders",
+            headers=[
+                ("authorization", "Bearer a"),
+                ("authorization", "Bearer b"),
+            ],
+        )
+        scoped = client.delete("/orders/7", headers=bearer(token(iss=ISSUER)))
+
+        assert missing.headers["www-authenticate"] == f"Bearer {pointer}"
+        assert forged.headers["www-authenticate"] == (
+            f'Bearer error="invalid_token", {pointer}'
+        )
+        assert doubled.status_code == HTTP_400_BAD_REQUEST
+        assert doubled.headers["www-authenticate"] == (
+            f'Bearer error="invalid_request", {pointer}'
+        )
+        assert scoped.status_code == HTTP_403_FORBIDDEN
+        assert scoped.headers["www-authenticate"] == (
+            f'Bearer error="insufficient_scope", scope="orders:write", {pointer}'
+        )
+
+    def test_a_websocket_denial_points_at_the_document(self) -> None:
+        """The denial response carries the same challenge."""
+        client = TestClient(published())
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as caught,
+            client.websocket_connect("/follow"),
+        ):
+            pass  # pragma: no cover
+
+        assert caught.value.headers["www-authenticate"] == (
+            f'Bearer resource_metadata="{METADATA_URL}"'
+        )
+
+    def test_a_challenge_in_another_form_is_left_alone(self) -> None:
+        """Another scheme, or one naming its own metadata, is not added to."""
+
+        async def basic(request: Request) -> StarletteResponse:  # noqa: ARG001
+            return StarletteResponse(
+                status_code=HTTP_401_UNAUTHORIZED,
+                headers={"www-authenticate": 'Basic realm="files"'},
+            )
+
+        async def pointed(request: Request) -> StarletteResponse:  # noqa: ARG001
+            return StarletteResponse(
+                status_code=HTTP_401_UNAUTHORIZED,
+                headers={
+                    "www-authenticate": (
+                        'Bearer resource_metadata="https://elsewhere.example.com/"'
+                    )
+                },
+            )
+
+        app = Starlette(
+            routes=[Route("/basic", basic), Route("/pointed", pointed)]
+        )
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(
+                    issuing(), resource=RESOURCE, exclude=("/basic", "/pointed")
+                ),
+            ]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/basic").headers["www-authenticate"] == (
+            'Basic realm="files"'
+        )
+        assert client.get("/pointed").headers["www-authenticate"] == (
+            'Bearer resource_metadata="https://elsewhere.example.com/"'
+        )
+
+    def test_without_a_resource_nothing_is_published(self) -> None:
+        """The path is authenticated like any other, and challenges unchanged."""
+        app = FastAPI()
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        response = TestClient(app).get(WELL_KNOWN)
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.headers["www-authenticate"] == "Bearer"
+
+    def test_the_document_is_served_whatever_credential_is_sent(self) -> None:
+        """No token is read there, so a forged one is neither refused nor counted."""
+        response = TestClient(published()).get(
+            WELL_KNOWN, headers=bearer(token(FORGER, iss=ISSUER))
+        )
+
+        assert response.status_code == HTTP_200_OK
+
+    def test_head_options_and_other_methods(self) -> None:
+        """`HEAD` has no body, `OPTIONS` names the methods, the rest are refused."""
+        client = TestClient(published())
+
+        document = client.get(WELL_KNOWN)
+        head = client.head(WELL_KNOWN)
+        options = client.options(WELL_KNOWN)
+        post = client.post(WELL_KNOWN)
+
+        assert head.status_code == HTTP_200_OK
+        assert head.content == b""
+        assert int(head.headers["content-length"]) == len(document.content)
+        assert options.status_code == HTTP_204_NO_CONTENT
+        assert options.headers["access-control-allow-methods"] == (
+            "GET, HEAD, OPTIONS"
+        )
+        assert post.status_code == HTTP_405_METHOD_NOT_ALLOWED
+        assert post.headers["allow"] == "GET, HEAD, OPTIONS"
+
+    def test_starlette_and_litestar_publish_it_too(self) -> None:
+        """Litestar's router drops a trailing slash, and the document is still found."""
+
+        async def home(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({})  # pragma: no cover
+
+        starlette = Starlette(routes=[Route("/", home)])
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(starlette)
+
+        @get("/")
+        async def index() -> dict[str, bool]:
+            return {}  # pragma: no cover
+
+        litestar = Litestar(route_handlers=[index])
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(
+                    issuing(), resource="https://api.example.com/orders/"
+                ),
+            ]
+        ).install(litestar)
+
+        with LitestarTestClient(litestar) as client:
+            served = client.get(f"{WELL_KNOWN}/")
+
+        assert TestClient(starlette).get(WELL_KNOWN).json()["resource"] == (
+            RESOURCE
+        )
+        assert served.json()["resource"] == "https://api.example.com/orders/"
+
+    def test_the_middleware_added_by_hand_takes_the_same_options(self) -> None:
+        """A hand-built stack publishes it the same way."""
+        app = Starlette()
+        app.add_middleware(
+            AuthenticatedRequestsMiddleware,
+            verifier=issuing(),
+            resource=RESOURCE,
+            scopes=("orders:read",),
+        )
+
+        response = TestClient(app).get(WELL_KNOWN)
+
+        assert response.json()["scopes_supported"] == ["orders:read"]
+
+    def test_the_schema_describes_the_document(self) -> None:
+        """An operation needing nothing, answering the metadata."""
+        operation = published().openapi()["paths"][WELL_KNOWN]["get"]
+
+        assert operation["security"] == []
+        assert "application/json" in operation["responses"]["200"]["content"]
+
+    @pytest.mark.parametrize(
+        "resource",
+        [
+            "http://api.example.com/orders",
+            "https://api.example.com/orders#top",
+            "https:///orders",
+            'https://api.example.com/"orders"',
+            "https://[api.example.com/orders",
+            "api.example.com/orders",
+        ],
+    )
+    def test_a_resource_a_client_could_not_use_is_refused(
+        self, resource: str
+    ) -> None:
+        """Not https, a fragment, no host, or a character a header cannot quote."""
+        with pytest.raises(SettingsValidationError):
+            AuthenticatedRequests(issuing(), resource=resource)
+
+    @pytest.mark.parametrize(
+        "server",
+        [
+            "http://login.example.com/",
+            "https://login.example.com/?tenant=a",
+            "https://login.example.com/#top",
+        ],
+    )
+    def test_an_authorization_server_that_is_not_an_issuer_is_refused(
+        self, server: str
+    ) -> None:
+        """An issuer identifier is https, with no query and no fragment."""
+        with pytest.raises(SettingsValidationError):
+            AuthenticatedRequests(
+                issuing(), resource=RESOURCE, authorization_servers=[server]
+            )
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"scopes": ["orders:read"]},
+            {"authorization_servers": ["https://login.example.com/"]},
+            {"resource": RESOURCE, "scopes": ["réad"]},
+        ],
+    )
+    def test_what_describes_the_document_is_checked(
+        self, options: dict[str, Any]
+    ) -> None:
+        """Nothing describes a document no resource publishes, and scopes are tokens."""
+        with pytest.raises(SettingsValidationError):
+            AuthenticatedRequests(issuing(), **options)
+
+    @pytest.mark.parametrize(
+        "named", [verifier, lambda: issuing("orders-auth")]
+    )
+    def test_a_verifier_without_an_issuer_url_needs_authorization_servers(
+        self,
+        named: Any,  # noqa: ANN401
+    ) -> None:
+        """Without one, the document could not say where to get a token."""
+        with pytest.raises(TypeError, match="authorization_servers="):
+            AuthenticatedRequests(named(), resource=RESOURCE)
+
+    def test_names_written_as_one_string_are_refused(self) -> None:
+        """One string would otherwise read as one name per character."""
+        with pytest.raises(TypeError, match="not a single string"):
+            AuthenticatedRequests(
+                issuing(),
+                resource=RESOURCE,
+                scopes="orders:read",  # ty: ignore[invalid-argument-type]
             )

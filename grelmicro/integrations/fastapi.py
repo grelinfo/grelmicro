@@ -66,6 +66,7 @@ from grelmicro.http._authentication import (
     declare_anonymous,
     document_operations,
     operation_authentication,
+    resource_metadata_of,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
@@ -1078,6 +1079,7 @@ def _annotate_authenticated(
         scopes=scopes,
         media_type=media_type,
         model=model,
+        metadata=resource_metadata_of(options),
     )
 
 

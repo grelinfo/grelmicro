@@ -94,6 +94,52 @@ A refused websocket gets the same `401` and challenge on a server that supports
 the denial response extension. On one that does not, the handshake is closed
 before it completes, which the server answers `403` with no headers.
 
+## Telling a client where to get a token
+
+```python
+AuthenticatedRequests(
+    JWTVerifier.discover("https://auth.example.com/", audience="orders-api"),
+    resource="https://api.example.com/orders",
+)
+```
+
+A refused client learns that it needs a bearer token, but not where to get one.
+With `resource=`, the service publishes its
+[protected resource metadata](https://www.rfc-editor.org/rfc/rfc9728) and every
+challenge points at it. A client that discovers authorization at runtime, such
+as an [MCP](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
+client, then needs nothing but the service's URL.
+
+`GET /.well-known/oauth-protected-resource/orders` answers:
+
+```json
+{
+  "resource": "https://api.example.com/orders",
+  "authorization_servers": ["https://auth.example.com/"],
+  "bearer_methods_supported": ["header"]
+}
+```
+
+Every `Bearer` challenge carries `resource_metadata`, whichever refusal it is,
+and whether the middleware or a route raised it:
+
+```
+WWW-Authenticate: Bearer error="insufficient_scope", scope="orders:write", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/orders"
+```
+
+- `resource` is the URL clients call the service at, as they see it behind any
+  proxy. It must be `https`, with no fragment. A client refuses a document whose
+  `resource` differs from the URL it asked about, so nothing in it is read from
+  the request.
+- The document is served at `/.well-known/oauth-protected-resource` followed by
+  the path of `resource`. Route that path to the service.
+- `authorization_servers` lists the verifier's issuers. A verifier that names
+  none, such as one of your own, needs `authorization_servers=`.
+- `scopes=` lists the scopes a client may ask for. Left out, none are listed:
+  the document is public, and each challenge already names the scopes its route
+  needs.
+- The document is never authenticated, and any origin can read it.
+
 ## Keys
 
 The verifier is opened with the app, so its keys load before the first request
