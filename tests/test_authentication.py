@@ -4850,3 +4850,34 @@ class TestResourceMetadataOnLitestar:
         assert refused.group_contains(
             TypeError, match="GET /both declares Anonymous"
         )
+
+    def test_an_app_mounted_under_litestar_does_not_warn(self) -> None:
+        """The router a mounted app runs behind is its own, not Litestar's."""
+
+        async def secret(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({"secret": True})  # pragma: no cover
+
+        inner = Starlette(routes=[Route("/x", secret)])
+        inner.add_middleware(
+            AuthenticatedRequestsMiddleware,
+            verifier=issuing(),
+            resource="https://api.example.com/sub",
+        )
+
+        @asgi("/sub", is_mount=True, copy_scope=False)
+        async def sub(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await inner(scope, receive, send)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(
+                Litestar(route_handlers=[sub], openapi_config=None)
+            ) as client:
+                refused = client.get("/sub/x")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]

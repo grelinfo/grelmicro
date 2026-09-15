@@ -1515,6 +1515,9 @@ class AuthenticatedRequestsMiddleware:
                 not self._routing_checked
                 and "route_handler" in scope
                 and "litestar_app" in scope
+                # An app mounted under Litestar keeps both keys, and is not
+                # the one Litestar's router serves.
+                and scope["litestar_app"] is scope.get("app")
             ):
                 self._routing_checked = True
                 _warn_if_unrouted(scope, metadata)
