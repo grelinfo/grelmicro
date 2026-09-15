@@ -22,7 +22,6 @@ import math
 import random
 import re
 import secrets
-import ssl
 import string
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -452,22 +451,41 @@ class ClientAuth:
         return "ClientAuth.assertion_file()"
 
 
+_CERTIFICATE_BEGIN: Final = "-----BEGIN CERTIFICATE-----"
+"""The line a PEM certificate starts with."""
+
+_CERTIFICATE_END: Final = "-----END CERTIFICATE-----"
+"""The line a PEM certificate ends with."""
+
+
 def _thumbprint(certificate: bytes | str) -> str:
     """Return the `x5t#S256` thumbprint of a PEM certificate.
 
+    A file holding a chain, a leaf followed by its intermediates, is read for
+    its first certificate, the one the key belongs to. The certificate is
+    decoded strictly, so anything but base64 between its lines is refused
+    rather than read as part of it.
+
     Raises:
-        SettingsValidationError: If `certificate` is not a PEM certificate.
+        SettingsValidationError: If `certificate` holds no PEM certificate.
     """
     text = (
         certificate.decode("ascii", "replace")
         if isinstance(certificate, bytes)
         else certificate
     )
+    msg = "certificate holds no PEM certificate"
+    begin = text.find(_CERTIFICATE_BEGIN)
+    end = -1 if begin < 0 else text.find(_CERTIFICATE_END, begin)
+    if end < 0:
+        raise SettingsValidationError(msg)
+    body = "".join(text[begin + len(_CERTIFICATE_BEGIN) : end].split())
     try:
-        der = ssl.PEM_cert_to_DER_cert(text.strip())
+        der = base64.b64decode(body, validate=True)
     except ValueError:
-        msg = "certificate is not a PEM certificate"
         raise SettingsValidationError(msg) from None
+    if not der:
+        raise SettingsValidationError(msg)
     return _b64u(hashlib.sha256(der).digest())
 
 

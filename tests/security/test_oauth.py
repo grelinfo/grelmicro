@@ -331,6 +331,42 @@ class TestClientAuth:
                 P256_PEM, algorithm="ES256", certificate=b"not a certificate"
             )
 
+    def test_a_certificate_chain_is_read_for_its_first_certificate(
+        self,
+    ) -> None:
+        """A leaf followed by an intermediate gives the leaf's thumbprint, never garbage."""
+        for _ in range(20):
+            leaf = certificate_pem(P256_KEY)
+            intermediate = certificate_pem(
+                ec.generate_private_key(ec.SECP256R1())
+            )
+            der = x509.load_pem_x509_certificate(leaf).public_bytes(
+                serialization.Encoding.DER
+            )
+            expected = (
+                base64.urlsafe_b64encode(hashlib.sha256(der).digest())
+                .rstrip(b"=")
+                .decode()
+            )
+
+            assert oauth._thumbprint(leaf + intermediate) == expected
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            "-----BEGIN CERTIFICATE-----\nnot base64!\n-----END CERTIFICATE-----",
+            "-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJAK",
+            "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----",
+        ],
+        ids=["not-base64", "no-end", "empty"],
+    )
+    def test_a_broken_certificate_block_is_refused(self, document: str) -> None:
+        """A block that does not decode to a certificate is refused at startup."""
+        with pytest.raises(SettingsValidationError, match="certificate"):
+            ClientAuth.private_key(
+                P256_PEM, algorithm="ES256", certificate=document
+            )
+
     def test_unknown_audience_is_refused(self) -> None:
         """An assertion names the issuer or the token endpoint, nothing else."""
         with pytest.raises(SettingsValidationError, match="audience"):
