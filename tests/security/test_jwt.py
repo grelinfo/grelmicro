@@ -1209,6 +1209,19 @@ class TestClaims:
             build(leeway=2 * HOUR).verify(issue(iat=issued)).issued_at == issued
         )
 
+    def test_a_fractional_time_reads_as_whole_seconds(self) -> None:
+        """`expires_at` and `issued_at` round a fraction down, `claims` keeps it."""
+        now = int(time.time())
+
+        result = build().verify(issue(iat=now - 0.5, exp=now + HOUR + 0.5))
+
+        assert result.issued_at == now - 1
+        assert type(result.issued_at) is int
+        assert result.expires_at == now + HOUR
+        assert type(result.expires_at) is int
+        assert result.claims["iat"] == now - 0.5
+        assert result.claims["exp"] == now + HOUR + 0.5
+
 
 class TestEnvironment:
     """Settings a deployment supplies, and the ones only code may choose."""
