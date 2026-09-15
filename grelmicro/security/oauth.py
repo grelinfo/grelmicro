@@ -164,9 +164,16 @@ _DESCRIPTION_LIMIT: Final = 256
 """Characters kept of an `error_description`."""
 
 _INVALID_TOKEN: Final = re.compile(
-    r'(?i)^\s*bearer\b.*\berror\s*=\s*"?invalid_token\b'
+    r"(?i)(?:^|,)\s*bearer\s+"
+    r'(?:[\w.~+/-]+\s*=\s*(?:"(?:[^"\\]|\\.)*"|[^,\s"]*)\s*,\s*)*'
+    r'error\s*=\s*"?invalid_token"?\s*(?:,|$)'
 )
-"""A `WWW-Authenticate` challenge refusing the bearer token that was sent."""
+"""A `WWW-Authenticate` value holding a Bearer challenge that refuses the token.
+
+The challenge is matched where one starts, at the start of the value or after
+a comma, and only its own parameters are read up to `error`. A challenge of
+another scheme after it, such as `DPoP error="invalid_token"`, never counts.
+"""
 
 _SECRET: Final = "secret"  # noqa: S105
 _PRIVATE_KEY: Final = "private_key"
@@ -993,7 +1000,11 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             SettingsValidationError: If `config` holds what `client_auth`
                 does not use, lacks what it needs, or holds a secret or path
                 `client_auth` carries too.
+            TypeError: If `client_auth` is not a `ClientAuth`.
         """
+        if not isinstance(client_auth, ClientAuth):
+            msg = "client_auth= takes a ClientAuth, such as ClientAuth.secret()"
+            raise TypeError(msg)
         config = _with_client_auth(config, client_auth)
         _check_auth(config, client_auth, prefix="")
         instance = cls.__new__(cls)

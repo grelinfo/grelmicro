@@ -2273,3 +2273,52 @@ class TestUnreadableNumbers:
                 TokenUnavailableError, match="not a JSON object"
             ):
                 await payments(client).token()
+
+
+class TestChallenges:
+    """Which `WWW-Authenticate` values refuse the bearer token that was sent."""
+
+    @pytest.mark.parametrize(
+        "challenge",
+        [
+            'Bearer error="invalid_token"',
+            "Bearer error=invalid_token",
+            'bearer realm="api", error="invalid_token"',
+            'Bearer realm="a, b", error="invalid_token"',
+            'Bearer realm="a\\"b", error="invalid_token"',
+            'Bearer error="invalid_token", error_description="expired"',
+            'Basic realm="api", Bearer error="invalid_token"',
+        ],
+    )
+    def test_a_bearer_invalid_token_challenge_refuses(
+        self, challenge: str
+    ) -> None:
+        """The Bearer challenge is found wherever it starts, however it is spelled."""
+        assert oauth._refuses_token([challenge])
+
+    @pytest.mark.parametrize(
+        "challenge",
+        [
+            'Bearer realm="api"',
+            'Bearer error="insufficient_scope"',
+            'Bearer error="invalid_token_type"',
+            'DPoP error="invalid_token"',
+            'Bearer realm="api", DPoP error="invalid_token"',
+            'XBearer error="invalid_token"',
+        ],
+    )
+    def test_any_other_challenge_does_not_refuse(self, challenge: str) -> None:
+        """Another error, another scheme, or a scheme that only ends in bearer."""
+        assert not oauth._refuses_token([challenge])
+
+    def test_from_config_refuses_anything_but_a_client_auth(self) -> None:
+        """A string is not a way to authenticate, on the declarative door too."""
+        config = OAuthClientConfig(
+            token_endpoint=TOKEN_ENDPOINT, client_id="orders-api"
+        )
+
+        with pytest.raises(TypeError, match="ClientAuth"):
+            OAuthClient.from_config(
+                config,
+                client_auth="secret",  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            )
