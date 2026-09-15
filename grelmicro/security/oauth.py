@@ -23,6 +23,7 @@ import random
 import re
 import secrets
 import ssl
+import string
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from email.utils import parsedate_to_datetime
@@ -162,16 +163,12 @@ _ERROR_CODE: Final = re.compile(r"[\x20\x21\x23-\x5b\x5d-\x7e]+")
 _DESCRIPTION_LIMIT: Final = 256
 """Characters kept of an `error_description`."""
 
-_INVALID_TOKEN: Final = re.compile(
-    r"(?i)(?:^|,)\s*bearer\s+"
-    r'(?:[\w.~+/-]+\s*=\s*(?:"(?:[^"\\]|\\.)*"|[^,\s"]*)\s*,\s*)*'
-    r'error\s*=\s*"?invalid_token"?\s*(?:,|$)'
+_TOKEN_CHARACTERS: Final = frozenset(
+    "!#$%&'*+-.^_`|~/" + string.ascii_letters + string.digits
 )
-"""A `WWW-Authenticate` value holding a Bearer challenge that refuses the token.
+"""The characters of a scheme, a parameter name or a bare value in a challenge.
 
-The challenge is matched where one starts, at the start of the value or after
-a comma, and only its own parameters are read up to `error`. A challenge of
-another scheme after it, such as `DPoP error="invalid_token"`, never counts.
+RFC 9110 `tchar`, with the `/` a token68 value may also carry.
 """
 
 _SECRET: Final = "secret"  # noqa: S105
@@ -2459,8 +2456,68 @@ def _auth_class() -> type:
 
 
 def _refuses_token(challenges: Iterable[str]) -> bool:
-    """Return whether a `WWW-Authenticate` challenge refuses the bearer token."""
-    return any(_INVALID_TOKEN.search(challenge) for challenge in challenges)
+    """Return whether a `WWW-Authenticate` value refuses the bearer token."""
+    return any(_refuses(challenge) for challenge in challenges)
+
+
+def _refuses(value: str) -> bool:
+    """Return whether `value` holds a Bearer challenge with `error="invalid_token"`.
+
+    Read in one pass, as RFC 9110 lays challenges out: a name followed by `=`
+    is a parameter of the challenge being read, and any other name starts the
+    next challenge. So a challenge of another scheme after the Bearer one,
+    such as `DPoP error="invalid_token"`, never counts. Each character is read
+    once, so a header built to be slow costs no more than its length.
+    """
+    scheme = ""
+    position = 0
+    length = len(value)
+    while position < length:
+        if value[position] not in _TOKEN_CHARACTERS:
+            position += 1
+            continue
+        start = position
+        while position < length and value[position] in _TOKEN_CHARACTERS:
+            position += 1
+        name = value[start:position]
+        after = position
+        while after < length and value[after] in " \t":
+            after += 1
+        if after < length and value[after] == "=":
+            parameter, position = _parameter_value(value, after + 1)
+            if (
+                scheme == "bearer"
+                and name.lower() == "error"
+                and parameter == "invalid_token"
+            ):
+                return True
+        else:
+            scheme = name.lower()
+    return False
+
+
+def _parameter_value(value: str, position: int) -> tuple[str, int]:
+    """Return the parameter value starting at `position`, and where it ends.
+
+    A quoted value is read with its backslash escapes, up to its closing quote
+    or the end of `value`. Any other value is read as a bare token.
+    """
+    length = len(value)
+    while position < length and value[position] in " \t":
+        position += 1
+    if position < length and value[position] == '"':
+        position += 1
+        characters: list[str] = []
+        while position < length and value[position] != '"':
+            if value[position] == "\\" and position + 1 < length:
+                position += 1
+            characters.append(value[position])
+            position += 1
+        return "".join(characters), position + 1
+    start = position
+    while position < length and value[position] in _TOKEN_CHARACTERS:
+        position += 1
+    return value[start:position], position
 
 
 def _replayable(request: Any) -> bool:  # noqa: ANN401

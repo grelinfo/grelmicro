@@ -2437,3 +2437,34 @@ class TestChallenges:
                 config,
                 client_auth="secret",  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             )
+
+    def test_a_challenge_built_to_backtrack_is_read_in_one_pass(self) -> None:
+        """A hostile API cannot stall the event loop with a crafted challenge."""
+        challenge = ",bearer +=" + " ,+=" * 50_000
+
+        assert not oauth._refuses_token([challenge])
+
+    @pytest.mark.parametrize(
+        "challenge",
+        [
+            'Bearer error="invalid_token',
+            "Bearer abc123==",
+            'Bearer realm="x\\',
+            "=====",
+            '"""',
+            "",
+        ],
+    )
+    def test_a_malformed_challenge_is_read_without_error(
+        self, challenge: str
+    ) -> None:
+        """An unterminated quote, a token68 value or stray signs are no refusal."""
+        assert isinstance(oauth._refuses_token([challenge]), bool)
+
+    @settings(max_examples=500, suppress_health_check=[HealthCheck.too_slow])
+    @given(challenge=st.text(max_size=200))
+    def test_any_challenge_text_is_read_without_error(
+        self, challenge: str
+    ) -> None:
+        """Whatever an API sends in `WWW-Authenticate`, reading it never raises."""
+        assert isinstance(oauth._refuses_token([challenge]), bool)
