@@ -106,6 +106,13 @@ class AccessLogConfig(BaseModel, frozen=True, extra="forbid"):
         bool,
         Doc("Whether the record carries `user_agent.original`."),
     ] = True
+    enduser: Annotated[
+        bool,
+        Doc(
+            "Whether the record carries `enduser.id`, the subject of an "
+            "authenticated caller."
+        ),
+    ] = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +199,13 @@ class AccessLogMiddleware:
             bool,
             Doc("Whether the record carries `user_agent.original`."),
         ] = True,
+        enduser: Annotated[
+            bool,
+            Doc(
+                "Whether the record carries `enduser.id`, the subject of an "
+                "authenticated caller."
+            ),
+        ] = False,
         live: Annotated[
             Live[_State] | None,
             Doc(
@@ -218,6 +232,7 @@ class AccessLogMiddleware:
                         quiet=as_patterns(quiet, name="quiet"),
                         query=query,
                         user_agent=user_agent,
+                        enduser=enduser,
                     )
                 )
             )
@@ -321,7 +336,7 @@ class AccessLogMiddleware:
             extra=fields,
         )
 
-    def _fields(
+    def _fields(  # noqa: C901
         self,
         scope: Scope,
         *,
@@ -362,6 +377,10 @@ class AccessLogMiddleware:
             agent = _header(scope, b"user-agent")
             if agent is not None:
                 fields["user_agent.original"] = agent
+        if state.config.enduser:
+            subject = _enduser_of(scope)
+            if subject is not None:
+                fields["enduser.id"] = subject
         if error is not None:
             fields["error.type"] = type(error).__qualname__
         return fields
@@ -452,6 +471,14 @@ class AccessLog(Reconfigurable[AccessLogConfig]):
             bool | None,
             Doc("Whether the record carries `user_agent.original`."),
         ] = None,
+        enduser: Annotated[
+            bool | None,
+            Doc(
+                "Whether the record carries `enduser.id`, the subject of an "
+                "authenticated caller. Off by default, because a subject can "
+                "be personal data. Reads `GREL_ACCESS_LOG_ENDUSER` when unset."
+            ),
+        ] = None,
         name: Annotated[
             str,
             Doc("Registration name. Only one may be registered."),
@@ -484,6 +511,7 @@ class AccessLog(Reconfigurable[AccessLogConfig]):
                 "quiet": quiet,
                 "query": query,
                 "user_agent": user_agent,
+                "enduser": enduser,
             },
             env_prefix=resolved_env_prefix,
             kind_env_prefix=kind_prefix,
@@ -629,6 +657,24 @@ def _route_template(scope: Scope, asked: str) -> str | None:
     if not root or not asked.startswith(root):
         return template
     return f"{root}{template}"
+
+
+def _enduser_of(scope: Scope) -> str | None:
+    """Return the subject of the authenticated caller, or `None` for none.
+
+    A caller that is not authenticated names nobody, whatever it carries,
+    and a subject that is not a non-empty string is not written. A user
+    object whose attribute raises when read is written as nobody, so the
+    record is still written and a handler's own error still propagates.
+    """
+    caller = scope.get("user")
+    try:
+        if getattr(caller, "is_authenticated", False) is not True:
+            return None
+        subject = getattr(caller, "subject", None)
+    except Exception:  # noqa: BLE001
+        return None
+    return subject if isinstance(subject, str) and subject else None
 
 
 def _client_address(scope: Scope) -> str | None:
