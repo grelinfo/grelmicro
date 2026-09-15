@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import warnings
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
@@ -23,8 +24,10 @@ from grelmicro.errors import (
     MiddlewarePlacementWarning,
     SettingsValidationError,
 )
-from grelmicro.http import ConditionalRequests
+from grelmicro.http import AuthenticatedRequests, ConditionalRequests
 from grelmicro.log import AccessLog, AccessLogMiddleware
+from grelmicro.security import JWTKey, JWTVerifier
+from tests.security.jwt_signing import Signer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -160,6 +163,116 @@ async def test_the_user_agent_can_be_left_out(
         await client.get("/orders/7", headers={"user-agent": "curl/8.4"})
 
     assert "user_agent.original" not in capture()[0].__dict__
+
+
+class Caller:
+    """A caller an authentication layer put in the scope."""
+
+    def __init__(
+        self, subject: object, *, is_authenticated: object = True
+    ) -> None:
+        """Stand for `subject`, authenticated or not."""
+        self.subject = subject
+        self.is_authenticated = is_authenticated
+
+
+def calling_as(app: Any, caller: object) -> Callable[..., Awaitable[None]]:  # noqa: ANN401
+    """Return `app` with `caller` in every request's scope."""
+
+    async def asgi(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        if scope["type"] == "http":
+            scope["user"] = caller
+        await app(scope, receive, send)
+
+    return asgi
+
+
+async def test_the_caller_is_left_out_by_default(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """A subject can be personal data, so it is written only when asked."""
+    app = calling_as(starlette_app(), Caller("user-1"))
+    async with client_for(app) as client:
+        await client.get("/orders/7")
+
+    assert "enduser.id" not in capture()[0].__dict__
+
+
+async def test_the_caller_is_on_the_record_when_asked(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """`enduser=True` writes the subject of the authenticated caller."""
+    app = calling_as(starlette_app(enduser=True), Caller("user-1"))
+    async with client_for(app) as client:
+        await client.get("/orders/7")
+
+    assert capture()[0].__dict__["enduser.id"] == "user-1"
+
+
+@pytest.mark.parametrize(
+    "caller",
+    [
+        None,
+        Caller("user-1", is_authenticated=False),
+        Caller("user-1", is_authenticated="yes"),
+        Caller(None),
+        Caller(""),
+        Caller(7),
+        object(),
+    ],
+    ids=[
+        "none",
+        "unauthenticated",
+        "truthy-not-true",
+        "no-subject",
+        "empty-subject",
+        "subject-not-a-string",
+        "no-attributes",
+    ],
+)
+async def test_only_an_authenticated_subject_is_written(
+    capture: Callable[[], list[logging.LogRecord]],
+    caller: object,
+) -> None:
+    """Anything but an authenticated caller naming a subject writes nothing."""
+    app = calling_as(starlette_app(enduser=True), caller)
+    async with client_for(app) as client:
+        await client.get("/orders/7")
+
+    assert "enduser.id" not in capture()[0].__dict__
+
+
+async def test_the_verified_caller_reaches_the_record(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """With `AuthenticatedRequests`, the record names the token's subject."""
+    signer = Signer()
+    verifier = JWTVerifier.keys(
+        JWTKey.pem(signer.public_pem("RS256"), algorithm="RS256", kid="k1"),
+        audience="orders-api",
+    )
+    now = int(time.time())
+    issued = signer.token(
+        {"sub": "user-1", "aud": "orders-api", "exp": now + 3600, "iat": now},
+        algorithm="RS256",
+        header={"kid": "k1"},
+    )
+    app = Starlette(routes=[Route("/orders/{order_id}", ok)])
+    Grelmicro(
+        uses=[AccessLog(enduser=True), AuthenticatedRequests(verifier)]
+    ).install(app)
+
+    async with client_for(app) as client:
+        await client.get(
+            "/orders/7", headers={"authorization": f"Bearer {issued}"}
+        )
+        await client.get(
+            "/orders/7", headers={"authorization": "Bearer forged"}
+        )
+
+    served, refused = capture()
+    assert served.__dict__["enduser.id"] == "user-1"
+    assert "enduser.id" not in refused.__dict__
 
 
 async def test_a_handler_that_raises_is_on_the_record(

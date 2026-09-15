@@ -53,6 +53,7 @@ the log and the trace instead of a mapping between two, and `trace_id` and
 | `http.response.status_code` | The status the caller got. |
 | `client.address` | The caller, resolved. |
 | `user_agent.original` | The `User-Agent` header. Turn it off with `user_agent=False`. |
+| `enduser.id` | Who called: the subject of an authenticated caller. Turn it on with `enduser=True`. |
 | `network.protocol.version` | `1.1`, `2`, and so on. |
 | `http.server.request.duration` | Seconds, the unit the matching metric uses. |
 | `error.type` | The exception a handler raised, when one did. |
@@ -72,6 +73,24 @@ the example registers it. Without it there is nothing to resolve from and the
 record falls back to the transport peer, which behind an ingress is the
 ingress. Which forwarded headers are believed is a trust decision, so it stays
 where that decision is made.
+
+## Who called
+
+```python
+AccessLog(enduser=True)
+```
+
+The record then carries `enduser.id`, the subject of the caller
+[`AuthenticatedRequests`](../http/authentication.md) verified, or the one your
+own authentication put in `request.user`. One line says who asked for what,
+from where, and what they got.
+
+- It is off by default. A subject can be personal data, such as an email
+  address some providers use as `sub`, so writing it is a decision you make.
+- Only an authenticated caller naming a subject is written. A refused request
+  carries none: a token that did not verify names nobody, whatever it claims.
+- A subject is unique within the issuer that assigned it, and a service trusts
+  one issuer unless its verifier accepts several.
 
 ## The level follows the answer
 

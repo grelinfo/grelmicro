@@ -501,14 +501,14 @@
   },
   "grelmicro.log": {
     "AccessLog": {
-      "()": "(*, include=None, exclude=None, quiet=None, query=None, user_agent=None, name='default', env_prefix=None, env_load=None) -> 'None'",
+      "()": "(*, include=None, exclude=None, quiet=None, query=None, user_agent=None, enduser=None, name='default', env_prefix=None, env_load=None) -> 'None'",
       ".from_config": "(config, *, name='default') -> 'AccessLog'"
     },
     "AccessLogConfig": {
-      "()": "(*, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True) -> None"
+      "()": "(*, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True, enduser=False) -> None"
     },
     "AccessLogMiddleware": {
-      "()": "(app, *, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True, live=None) -> 'None'"
+      "()": "(app, *, include=(), exclude=(), quiet=('/livez', '/readyz', '/healthz', '/metrics'), query=True, user_agent=True, enduser=False, live=None) -> 'None'"
     },
     "DuplicateFilter": {
       "()": "(*, allowed_repetitions=None, cache_size=None, key_mode=None, ttl=None, key=None, env_name='default', env_prefix=None, env_load=None) -> None",
