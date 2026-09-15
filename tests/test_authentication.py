@@ -765,7 +765,9 @@ class TestCheck:
             app_with(AuthenticatedRequests(verifier(), check=confused))  # ty: ignore[invalid-argument-type]
         )
 
-        with pytest.raises(TypeError, match="not an authenticated caller"):
+        with pytest.raises(
+            TypeError, match="a bool, which is not an authenticated caller"
+        ):
             client.get("/whoami", headers=bearer(token()))
 
     def test_a_failing_check_is_never_served(self) -> None:
@@ -902,8 +904,48 @@ class TestCheck:
         self,
     ) -> None:
         """A mistyped `check=` fails at startup, not on the first request."""
-        with pytest.raises(TypeError, match="check="):
+        with pytest.raises(TypeError, match=r"check=.*was given a str"):
             AuthenticatedRequests(verifier(), check="revoked")  # ty: ignore[invalid-argument-type]
+
+    def test_from_config_checks_the_caller_too(self) -> None:
+        """The declarative door keeps the check beside the config."""
+        check = Revocations()
+        check.revoked.add("t-8")
+        component = AuthenticatedRequests.from_config(
+            AuthenticatedRequestsConfig(), verifier(), check=check
+        )
+        client = TestClient(app_with(component))
+
+        response = client.get("/whoami", headers=bearer(token(jti="t-8")))
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.json()["reason"] == "revoked"
+
+    @pytest.mark.parametrize(
+        ("error", "status"),
+        [
+            (ConnectionError(), HTTP_500_INTERNAL_SERVER_ERROR),
+            (
+                DeadlineExceededError(name="revocations", timeout=0.1),
+                HTTP_504_GATEWAY_TIMEOUT,
+            ),
+        ],
+    )
+    def test_a_failing_check_on_litestar_is_never_served(
+        self, error: Exception, status: int
+    ) -> None:
+        """Litestar answers a failing check as Starlette does."""
+
+        async def failing(caller: Principal, scope: Any) -> Principal:  # noqa: ANN401, ARG001
+            raise error
+
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(verifier(), check=failing)),
+            raise_server_exceptions=False,
+        ) as client:
+            response = client.post("/catalog/7", headers=bearer(token()))
+
+        assert response.status_code == status
 
 
 class TestPlacement:

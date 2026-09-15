@@ -121,7 +121,8 @@ user signed out everywhere.
 - An error it raises never serves the request. One `ErrorResponses` knows is
   rendered, such as the `DeadlineExceededError` of a
   [`Timeout`](../resilience/timeout.md) around the store. Anything else is a
-  `500`, as in a route.
+  `500`, including your framework's `HTTPException`, which is only answered
+  inside a route. Refuse with `None`.
 - It may be a plain function too, for a check that needs no I/O.
 
 Return your own object to hand every route the user behind the token:
