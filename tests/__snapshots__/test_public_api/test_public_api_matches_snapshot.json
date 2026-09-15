@@ -258,14 +258,14 @@
   },
   "grelmicro.http": {
     "AuthenticatedRequests": {
-      "()": "(verifier, *, exclude=(), bans=None, trusted=None, name='default', openapi=True) -> 'None'",
+      "()": "(verifier, *, exclude=(), bans=None, trusted=None, resource=None, authorization_servers=(), scopes=(), name='default', openapi=True) -> 'None'",
       ".from_config": "(config, verifier, *, bans=None, trusted=None, name='default', openapi=True) -> 'Self'"
     },
     "AuthenticatedRequestsConfig": {
-      "()": "(*, exclude=()) -> None"
+      "()": "(*, exclude=(), resource=None, authorization_servers=(), scopes=()) -> None"
     },
     "AuthenticatedRequestsMiddleware": {
-      "()": "(app, *, verifier, exclude=(), bans=None, trusted=None, public=None) -> 'None'"
+      "()": "(app, *, verifier, exclude=(), bans=None, trusted=None, resource=None, authorization_servers=(), scopes=(), public=None) -> 'None'"
     },
     "CachedResponses": {
       "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', name='default', env_prefix=None, env_load=None) -> 'None'",

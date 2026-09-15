@@ -9,11 +9,13 @@ sits among the others.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+import warnings
 from dataclasses import replace
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Security
@@ -55,6 +57,7 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.responses import Response as StarletteResponse
 from starlette.routing import (
     BaseRoute,
     Host,
@@ -66,6 +69,7 @@ from starlette.routing import (
 )
 from starlette.status import (
     HTTP_307_TEMPORARY_REDIRECT,
+    WS_1000_NORMAL_CLOSURE,
     WS_1008_POLICY_VIOLATION,
 )
 from starlette.testclient import WebSocketDenialResponse
@@ -76,6 +80,11 @@ from grelmicro._describe import _Endpoint, _reads_idempotent
 from grelmicro._paths import walk_routes
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.errors import (
+    AmbiguousCredentialsError,
+    MiddlewarePlacementWarning,
+    SettingsValidationError,
+)
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
@@ -83,6 +92,10 @@ from grelmicro.http import (
     CachedResponses,
     ErrorResponses,
     RateLimitedRequests,
+)
+from grelmicro.http._authentication import (
+    _litestar_declares_public,
+    document_operations,
 )
 from grelmicro.http._idempotency import _has_dependencies
 from grelmicro.integrations.fastapi import (
@@ -132,6 +145,7 @@ HTTP_204_NO_CONTENT = 204
 HTTP_400_BAD_REQUEST = 400
 HTTP_403_FORBIDDEN = 403
 HTTP_404_NOT_FOUND = 404
+HTTP_405_METHOD_NOT_ALLOWED = 405
 HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_401_UNAUTHORIZED = 401
 HTTP_429_TOO_MANY_REQUESTS = 429
@@ -3773,3 +3787,1097 @@ class TestBoundaries:
                     AuthenticatedRequests(verifier(), name="partner"),
                 ]
             )
+
+
+RESOURCE = "https://api.example.com/orders"
+WELL_KNOWN = "/.well-known/oauth-protected-resource/orders"
+METADATA_URL = f"https://api.example.com{WELL_KNOWN}"
+ISSUER = "https://auth.grel.info/"
+
+
+def issuing(issuer: str = ISSUER) -> JWTVerifier:
+    """Return a verifier checking `issuer`, and so naming it."""
+    return JWTVerifier.keys(
+        JWTKey.pem(SIGNER.public_pem("RS256"), algorithm="RS256", kid="k1"),
+        audience=AUDIENCE,
+        issuer=issuer,
+    )
+
+
+def published(**options: Any) -> FastAPI:  # noqa: ANN401
+    """Return a FastAPI app publishing its protected resource metadata."""
+    app = FastAPI()
+
+    @app.get("/orders")
+    async def orders() -> dict[str, bool]:
+        return {"orders": True}  # pragma: no cover
+
+    @app.delete(
+        "/orders/{order_id}",
+        dependencies=[Authenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: int) -> dict[str, int]:
+        return {"cancelled": order_id}  # pragma: no cover
+
+    @app.websocket("/follow")
+    async def follow(websocket: FastAPIWebSocket) -> None:
+        await websocket.accept()  # pragma: no cover
+
+    options.setdefault("resource", RESOURCE)
+    Grelmicro(
+        uses=[ErrorResponses(), AuthenticatedRequests(issuing(), **options)]
+    ).install(app)
+    return app
+
+
+class Keyless:
+    """A verifier of your own, which names no issuer."""
+
+    def verify(self, token: str) -> Any:  # noqa: ANN401, ARG002
+        """Never called: the component is refused before it serves."""
+        raise AssertionError  # pragma: no cover
+
+
+class TestResourceMetadata:
+    """Telling a client where to get a token, as RFC 9728 describes."""
+
+    def test_the_document_names_the_resource_and_its_issuer(self) -> None:
+        """Public, cacheable, and readable from a browser on any origin."""
+        response = TestClient(published()).get(WELL_KNOWN)
+
+        assert response.content == (
+            b'{"resource":"https://api.example.com/orders",'
+            b'"authorization_servers":["https://auth.grel.info/"],'
+            b'"bearer_methods_supported":["header"]}'
+        )
+        assert response.headers["content-type"] == "application/json"
+        assert response.headers["access-control-allow-origin"] == "*"
+        assert response.headers["cache-control"] == "public, max-age=3600"
+
+    def test_scopes_are_listed_only_when_passed(self) -> None:
+        """The document is public, so no scope name is published unasked."""
+        listed = TestClient(
+            published(scopes=["orders:read", "orders:write"])
+        ).get(WELL_KNOWN)
+        unlisted = TestClient(published()).get(WELL_KNOWN)
+
+        assert listed.json()["scopes_supported"] == [
+            "orders:read",
+            "orders:write",
+        ]
+        assert "scopes_supported" not in unlisted.json()
+
+    def test_authorization_servers_given_replace_the_issuers(self) -> None:
+        """A verifier of your own names none, so they can be given."""
+        response = TestClient(
+            published(authorization_servers=["https://login.example.com/t1"])
+        ).get(WELL_KNOWN)
+
+        assert response.json()["authorization_servers"] == [
+            "https://login.example.com/t1"
+        ]
+
+    def test_a_resource_at_the_host_is_published_at_the_root(self) -> None:
+        """The slash after the host is dropped, and `resource` kept as given."""
+        response = TestClient(
+            published(resource="https://api.example.com/")
+        ).get("/.well-known/oauth-protected-resource")
+
+        assert response.json()["resource"] == "https://api.example.com/"
+
+    def test_a_query_in_the_resource_stays_in_the_metadata_url(self) -> None:
+        """The suffix goes between the host and the path, the query after."""
+        client = TestClient(
+            published(resource="https://api.example.com/orders?tenant=a")
+        )
+
+        document = client.get(WELL_KNOWN)
+        refused = client.get("/orders")
+
+        assert document.json()["resource"] == (
+            "https://api.example.com/orders?tenant=a"
+        )
+        assert refused.headers["www-authenticate"] == (
+            f'Bearer resource_metadata="{METADATA_URL}?tenant=a"'
+        )
+
+    def test_every_bearer_challenge_points_at_the_document(self) -> None:
+        """The middleware's refusals and a route's alike."""
+        client = TestClient(published())
+        pointer = f'resource_metadata="{METADATA_URL}"'
+
+        missing = client.get("/orders")
+        forged = client.get(
+            "/orders", headers=bearer(token(FORGER, iss=ISSUER))
+        )
+        doubled = client.get(
+            "/orders",
+            headers=[
+                ("authorization", "Bearer a"),
+                ("authorization", "Bearer b"),
+            ],
+        )
+        scoped = client.delete("/orders/7", headers=bearer(token(iss=ISSUER)))
+
+        assert missing.headers["www-authenticate"] == f"Bearer {pointer}"
+        assert forged.headers["www-authenticate"] == (
+            f'Bearer error="invalid_token", {pointer}'
+        )
+        assert doubled.status_code == HTTP_400_BAD_REQUEST
+        assert doubled.headers["www-authenticate"] == (
+            f'Bearer error="invalid_request", {pointer}'
+        )
+        assert scoped.status_code == HTTP_403_FORBIDDEN
+        assert scoped.headers["www-authenticate"] == (
+            f'Bearer error="insufficient_scope", scope="orders:write", {pointer}'
+        )
+
+    def test_a_websocket_denial_points_at_the_document(self) -> None:
+        """The denial response carries the same challenge."""
+        client = TestClient(published())
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as caught,
+            client.websocket_connect("/follow"),
+        ):
+            pass  # pragma: no cover
+
+        assert caught.value.headers["www-authenticate"] == (
+            f'Bearer resource_metadata="{METADATA_URL}"'
+        )
+
+    def test_a_challenge_in_another_form_is_left_alone(self) -> None:
+        """Another scheme, or one naming its own metadata, is not added to."""
+
+        async def basic(request: Request) -> StarletteResponse:  # noqa: ARG001
+            return StarletteResponse(
+                status_code=HTTP_401_UNAUTHORIZED,
+                headers={"www-authenticate": 'Basic realm="files"'},
+            )
+
+        async def pointed(request: Request) -> StarletteResponse:  # noqa: ARG001
+            return StarletteResponse(
+                status_code=HTTP_401_UNAUTHORIZED,
+                headers={
+                    "www-authenticate": (
+                        'Bearer resource_metadata="https://elsewhere.example.com/"'
+                    )
+                },
+            )
+
+        app = Starlette(
+            routes=[Route("/basic", basic), Route("/pointed", pointed)]
+        )
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(
+                    issuing(), resource=RESOURCE, exclude=("/basic", "/pointed")
+                ),
+            ]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/basic").headers["www-authenticate"] == (
+            'Basic realm="files"'
+        )
+        assert client.get("/pointed").headers["www-authenticate"] == (
+            'Bearer resource_metadata="https://elsewhere.example.com/"'
+        )
+
+    def test_without_a_resource_nothing_is_published(self) -> None:
+        """The path is authenticated like any other, and challenges unchanged."""
+        app = FastAPI()
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        response = TestClient(app).get(WELL_KNOWN)
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+        assert response.headers["www-authenticate"] == "Bearer"
+
+    def test_the_document_is_served_whatever_credential_is_sent(self) -> None:
+        """No token is read there, so a forged one is neither refused nor counted."""
+        response = TestClient(published()).get(
+            WELL_KNOWN, headers=bearer(token(FORGER, iss=ISSUER))
+        )
+
+        assert response.status_code == HTTP_200_OK
+
+    def test_head_options_and_other_methods(self) -> None:
+        """`HEAD` has no body, `OPTIONS` names the methods, the rest are refused."""
+        client = TestClient(published())
+
+        document = client.get(WELL_KNOWN)
+        head = client.head(WELL_KNOWN)
+        options = client.options(WELL_KNOWN)
+        post = client.post(WELL_KNOWN)
+
+        assert head.status_code == HTTP_200_OK
+        assert head.content == b""
+        assert int(head.headers["content-length"]) == len(document.content)
+        assert options.status_code == HTTP_204_NO_CONTENT
+        assert options.headers["access-control-allow-methods"] == (
+            "GET, HEAD, OPTIONS"
+        )
+        assert options.headers["access-control-allow-origin"] == "*"
+        assert post.status_code == HTTP_405_METHOD_NOT_ALLOWED
+        assert post.headers["allow"] == "GET, HEAD, OPTIONS"
+        assert post.headers["access-control-allow-origin"] == "*"
+
+    def test_starlette_and_litestar_publish_it_too(self) -> None:
+        """Litestar's router drops a trailing slash, and the document is still found."""
+
+        async def home(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({})  # pragma: no cover
+
+        starlette = Starlette(routes=[Route("/", home)])
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(starlette)
+
+        @get("/")
+        async def index() -> dict[str, bool]:
+            return {}  # pragma: no cover
+
+        litestar = Litestar(route_handlers=[index])
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(
+                    issuing(), resource="https://api.example.com/orders/"
+                ),
+            ]
+        ).install(litestar)
+
+        with LitestarTestClient(litestar) as client:
+            served = client.get(f"{WELL_KNOWN}/")
+
+        assert TestClient(starlette).get(WELL_KNOWN).json()["resource"] == (
+            RESOURCE
+        )
+        assert served.json()["resource"] == "https://api.example.com/orders/"
+
+    def test_the_middleware_added_by_hand_takes_the_same_options(self) -> None:
+        """A hand-built stack publishes it the same way."""
+        app = Starlette()
+        app.add_middleware(
+            AuthenticatedRequestsMiddleware,
+            verifier=issuing(),
+            resource=RESOURCE,
+            scopes=("orders:read",),
+        )
+
+        response = TestClient(app).get(WELL_KNOWN)
+
+        assert response.json()["scopes_supported"] == ["orders:read"]
+
+    def test_the_schema_describes_the_document(self) -> None:
+        """An operation needing nothing, answering the metadata."""
+        operation = published().openapi()["paths"][WELL_KNOWN]["get"]
+
+        assert operation["security"] == []
+        assert "application/json" in operation["responses"]["200"]["content"]
+
+    @pytest.mark.parametrize(
+        "resource",
+        [
+            "http://api.example.com/orders",
+            "https://api.example.com/orders#top",
+            "https:///orders",
+            'https://api.example.com/"orders"',
+            "https://[api.example.com/orders",
+            "api.example.com/orders",
+            "https://api.example.com/{tenant}",
+            "https://api.example.com/%7Btenant%7D",
+        ],
+    )
+    def test_a_resource_a_client_could_not_use_is_refused(
+        self, resource: str
+    ) -> None:
+        """Not https, a fragment, no host, or a character a header cannot quote."""
+        with pytest.raises(SettingsValidationError):
+            AuthenticatedRequests(issuing(), resource=resource)
+
+    @pytest.mark.parametrize(
+        "server",
+        [
+            "http://login.example.com/",
+            "https://login.example.com/?tenant=a",
+            "https://login.example.com/#top",
+        ],
+    )
+    def test_an_authorization_server_that_is_not_an_issuer_is_refused(
+        self, server: str
+    ) -> None:
+        """An issuer identifier is https, with no query and no fragment."""
+        with pytest.raises(SettingsValidationError):
+            AuthenticatedRequests(
+                issuing(), resource=RESOURCE, authorization_servers=[server]
+            )
+
+    @pytest.mark.parametrize(
+        "options",
+        [
+            {"scopes": ["orders:read"]},
+            {"authorization_servers": ["https://login.example.com/"]},
+            {"resource": RESOURCE, "scopes": ["réad"]},
+        ],
+    )
+    def test_what_describes_the_document_is_checked(
+        self, options: dict[str, Any]
+    ) -> None:
+        """Nothing describes a document no resource publishes, and scopes are tokens."""
+        with pytest.raises(SettingsValidationError):
+            AuthenticatedRequests(issuing(), **options)
+
+    @pytest.mark.parametrize(
+        "named",
+        [
+            verifier,
+            lambda: issuing("orders-auth"),
+            lambda: issuing("https://auth.grel.info/?tenant=a"),
+            Keyless,
+        ],
+    )
+    def test_a_verifier_without_an_issuer_url_needs_authorization_servers(
+        self,
+        named: Any,  # noqa: ANN401
+    ) -> None:
+        """Without one, the document could not say where to get a token."""
+        with pytest.raises(TypeError, match="authorization_servers="):
+            AuthenticatedRequests(named(), resource=RESOURCE)
+
+    def test_a_verifier_of_your_own_publishes_the_servers_given(self) -> None:
+        """A verifier naming no issuer is fine once the servers are given."""
+        component = AuthenticatedRequests(
+            Keyless(), resource=RESOURCE, authorization_servers=[ISSUER]
+        )
+
+        assert component.config.authorization_servers == (ISSUER,)
+
+    @pytest.mark.parametrize("parameter", ["authorization_servers", "scopes"])
+    def test_names_written_as_one_string_are_refused(
+        self, parameter: str
+    ) -> None:
+        """One string would otherwise read as one name per character."""
+        options: dict[str, Any] = {parameter: "orders:read"}
+
+        async def app(scope: Any, receive: Any, send: Any) -> None: ...  # noqa: ANN401  # pragma: no cover
+
+        with pytest.raises(TypeError, match=f"^{parameter}= takes"):
+            AuthenticatedRequests(issuing(), resource=RESOURCE, **options)
+        with pytest.raises(TypeError, match=f"^{parameter}= takes"):
+            AuthenticatedRequestsMiddleware(
+                app, verifier=issuing(), resource=RESOURCE, **options
+            )
+
+
+class TestRootPathRedirects:
+    """A trailing slash redirect is predicted under a root path, as Starlette makes it."""
+
+    @staticmethod
+    def app() -> FastAPI:
+        """Return an app served under `/api`, with public reads."""
+        app = FastAPI(root_path="/api")
+
+        @app.get("/items", dependencies=[Anonymous()])
+        async def items() -> list[str]:
+            return []  # pragma: no cover
+
+        @app.get("/orders", dependencies=[Anonymous()])
+        async def orders() -> list[str]:
+            return []  # pragma: no cover
+
+        @app.post("/orders/")
+        async def create() -> None: ...  # pragma: no cover
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        return app
+
+    def test_a_public_route_missed_by_its_slash_is_redirected(self) -> None:
+        """The redirect to the public route is sent without a credential."""
+        response = TestClient(self.app()).get(
+            "/api/items/", follow_redirects=False
+        )
+
+        assert response.status_code == HTTP_307_TEMPORARY_REDIRECT
+
+    def test_a_route_answering_the_slashed_path_keeps_it_authenticated(
+        self,
+    ) -> None:
+        """Starlette answers the route there, so no redirect is predicted."""
+        response = TestClient(self.app()).get(
+            "/api/orders/", follow_redirects=False
+        )
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+
+class TestLitestarDeclarations:
+    """What a Litestar route declares public, for a report or a schema."""
+
+    def test_the_options_litestar_adds_is_public_beside_a_public_handler(
+        self,
+    ) -> None:
+        """Only where a handler of the route is public."""
+
+        @get("/catalog", opt=LitestarAnonymous())
+        async def catalog() -> list[str]:
+            return []  # pragma: no cover
+
+        @get("/orders")
+        async def orders() -> list[str]:
+            return []  # pragma: no cover
+
+        app = Litestar(route_handlers=[catalog, orders], openapi_config=None)
+        declared = {
+            route.path: _litestar_declares_public(route, "OPTIONS")
+            for _, route, _ in walk_routes(app)
+        }
+
+        assert declared == {"/catalog": True, "/orders": False}
+
+
+class TestDocumentOperations:
+    """The shared schema annotation, on schemas no framework built."""
+
+    @staticmethod
+    def annotate(schema: dict[str, Any], **options: Any) -> dict[str, Any]:  # noqa: ANN401
+        """Annotate `schema` for a bearer token, with no route public."""
+        errors = ErrorResponses()
+        document_operations(
+            schema,
+            verifier=verifier(),
+            bans=False,
+            exclude=(),
+            public=set(),
+            scopes={},
+            media_type=errors.media_type,
+            model=errors.model,
+            **options,
+        )
+        return schema
+
+    def test_an_operation_after_a_path_level_field_is_annotated(self) -> None:
+        """A path item may list shared fields before its operations."""
+        schema = self.annotate(
+            {"paths": {"/orders": {"parameters": [], "get": {}}}}
+        )
+
+        assert schema["paths"]["/orders"]["get"]["security"] == [{SCHEME: []}]
+
+    def test_the_metadata_is_described_on_a_schema_without_paths(self) -> None:
+        """The document is described even when nothing else is."""
+        schema = self.annotate({}, metadata_path=WELL_KNOWN)
+
+        assert schema["paths"][WELL_KNOWN]["get"]["security"] == []
+
+    def test_paths_around_the_metadata_are_kept_and_annotated(self) -> None:
+        """A path after the metadata is still annotated, and none is dropped."""
+        schema = self.annotate(
+            {
+                "paths": {
+                    WELL_KNOWN: {"get": {"security": []}},
+                    "/orders": {"get": {}},
+                }
+            },
+            metadata_path=WELL_KNOWN,
+        )
+
+        assert schema["paths"]["/orders"]["get"]["security"] == [{SCHEME: []}]
+        assert schema["paths"][WELL_KNOWN]["get"]["security"] == []
+
+    def test_each_schema_gets_its_own_description_of_the_metadata(self) -> None:
+        """Changing one schema's description leaves the next one's alone."""
+        first = self.annotate({}, metadata_path=WELL_KNOWN)
+        first["paths"][WELL_KNOWN]["get"]["responses"]["200"]["description"] = (
+            "changed"
+        )
+
+        second = self.annotate({}, metadata_path=WELL_KNOWN)
+
+        assert (
+            second["paths"][WELL_KNOWN]["get"]["responses"]["200"][
+                "description"
+            ]
+            == "The protected resource metadata."
+        )
+
+
+class TestResourceMetadataEdges:
+    """What a client meets fetching the document, however it gets there."""
+
+    def test_the_schema_keeps_the_document_public_on_every_build(self) -> None:
+        """A cached schema annotated again, and another app, stay unchanged."""
+        app = published()
+
+        app.openapi()
+        rebuilt = app.openapi()["paths"][WELL_KNOWN]["get"]
+        other = published().openapi()["paths"][WELL_KNOWN]["get"]
+
+        assert rebuilt["security"] == []
+        assert "401" not in rebuilt["responses"]
+        assert other["security"] == []
+        assert "401" not in other["responses"]
+
+    @pytest.mark.parametrize("segment", ["men%C3%BC", "order%20book"])
+    def test_a_percent_encoded_resource_path_is_found(
+        self, segment: str
+    ) -> None:
+        """The request arrives decoded, and the pointer keeps the URL as written."""
+        client = TestClient(
+            published(resource=f"https://api.example.com/{segment}")
+        )
+
+        document = client.get(
+            f"/.well-known/oauth-protected-resource/{segment}"
+        )
+        refused = client.get("/orders")
+
+        assert document.status_code == HTTP_200_OK
+        assert refused.headers["www-authenticate"] == (
+            "Bearer resource_metadata="
+            f'"https://api.example.com/.well-known/oauth-protected-resource/{segment}"'
+        )
+
+    def test_a_preflight_is_allowed_the_headers_it_asks_for(self) -> None:
+        """A browser client sending its own headers can still read the document."""
+        client = TestClient(published())
+
+        asking = client.options(
+            WELL_KNOWN,
+            headers={
+                "origin": "https://app.example.com",
+                "access-control-request-method": "GET",
+                "access-control-request-headers": "authorization, mcp-protocol-version",
+            },
+        )
+        plain = client.options(WELL_KNOWN)
+
+        assert asking.status_code == HTTP_204_NO_CONTENT
+        assert asking.headers["access-control-allow-headers"] == (
+            "authorization, mcp-protocol-version"
+        )
+        assert "access-control-allow-headers" not in plain.headers
+
+    def test_a_request_body_reaches_the_route(self) -> None:
+        """Publishing the metadata leaves what the route reads untouched."""
+        app = FastAPI()
+
+        @app.post("/echo", dependencies=[Anonymous()])
+        async def echo(payload: dict[str, int]) -> dict[str, int]:
+            return payload
+
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        response = TestClient(app).post("/echo", json={"items": 3})
+
+        assert response.json() == {"items": 3}
+
+    def test_a_route_the_app_declares_at_the_path_is_refused(self) -> None:
+        """The middleware answers every request there, so the route never runs."""
+        app = FastAPI()
+
+        @app.get(WELL_KNOWN)
+        async def own() -> dict[str, bool]:
+            return {"own": True}  # pragma: no cover
+
+        with pytest.raises(TypeError, match=f"{WELL_KNOWN} is where resource="):
+            Grelmicro(
+                uses=[
+                    ErrorResponses(),
+                    AuthenticatedRequests(issuing(), resource=RESOURCE),
+                ]
+            ).install(app)
+
+    def test_a_route_behind_a_mounted_middleware_at_the_path_is_refused(
+        self,
+    ) -> None:
+        """A mounted app's own middleware does not hide its route from the check."""
+
+        async def own(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({"own": True})  # pragma: no cover
+
+        app = FastAPI()
+        app.mount(
+            "/.well-known",
+            Starlette(
+                routes=[Route("/oauth-protected-resource/orders", own)],
+                middleware=[Middleware(GZipMiddleware)],
+            ),
+        )
+
+        with pytest.raises(TypeError, match=f"{WELL_KNOWN} is where resource="):
+            Grelmicro(
+                uses=[
+                    ErrorResponses(),
+                    AuthenticatedRequests(issuing(), resource=RESOURCE),
+                ]
+            ).install(app)
+
+    def test_a_route_declared_after_install_at_the_path_is_refused_at_startup(
+        self,
+    ) -> None:
+        """The app is read again when it starts, and checked again."""
+        app = FastAPI()
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        @app.get(WELL_KNOWN)
+        async def late() -> dict[str, bool]:
+            return {"late": True}  # pragma: no cover
+
+        with (
+            pytest.raises(TypeError, match=f"{WELL_KNOWN} is where resource="),
+            TestClient(app),
+        ):
+            pass  # pragma: no cover
+
+
+def declared_on_litestar(
+    *handlers: Any,  # noqa: ANN401
+    **declared: Any,  # noqa: ANN401
+) -> Litestar:
+    """Return a Litestar app declaring the middleware, publishing metadata."""
+
+    @get("/orders")
+    async def orders() -> dict[str, bool]:
+        return {"orders": True}  # pragma: no cover
+
+    declared.setdefault("resource", RESOURCE)
+    return Litestar(
+        route_handlers=[orders, *handlers],
+        middleware=[
+            DefineMiddleware(
+                AuthenticatedRequestsMiddleware,  # ty: ignore[invalid-argument-type]
+                verifier=issuing(),
+                **declared,
+            )
+        ],
+        openapi_config=None,
+    )
+
+
+class TestResourceMetadataOnLitestar:
+    """A middleware Litestar runs behind its router still serves the document."""
+
+    def test_install_adds_the_route_a_declared_middleware_needs(self) -> None:
+        """The document is found, and nothing warns."""
+        app = declared_on_litestar()
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                document = client.get(WELL_KNOWN)
+                refused = client.get("/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert refused.headers["www-authenticate"] == (
+            f'Bearer resource_metadata="{METADATA_URL}"'
+        )
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
+    def test_the_route_serves_the_document_itself(self) -> None:
+        """Whatever reaches the route gets the declared middleware's document."""
+        app = declared_on_litestar(
+            scopes=("orders:read",),
+            authorization_servers=("https://login.example.com/t1",),
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+        _, handler, *_ = app.asgi_router.handle_routing(
+            path=WELL_KNOWN, method="GET"
+        )
+        sent: list[dict[str, Any]] = []
+
+        async def receive() -> dict[str, Any]:
+            return {"type": "http.request"}  # pragma: no cover
+
+        async def send(message: dict[str, Any]) -> None:
+            sent.append(message)
+
+        async def serve() -> None:
+            await handler.fn(
+                {"type": "http", "method": "GET", "headers": []}, receive, send
+            )
+
+        asyncio.run(serve())
+        document = json.loads(sent[1]["body"])
+
+        assert sent[0]["status"] == HTTP_200_OK
+        assert document["scopes_supported"] == ["orders:read"]
+        assert document["authorization_servers"] == [
+            "https://login.example.com/t1"
+        ]
+
+    def test_a_route_the_app_declares_at_the_path_is_refused(self) -> None:
+        """The middleware answers every request there, so the route never runs."""
+
+        @get(WELL_KNOWN)
+        async def own() -> dict[str, bool]:
+            return {"own": True}  # pragma: no cover
+
+        app = declared_on_litestar(own)
+
+        with pytest.raises(TypeError, match="where resource= publishes"):
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+            ).install(app)
+
+    def test_a_middleware_built_by_hand_warns_once_without_the_route(
+        self,
+    ) -> None:
+        """Nothing added the route, so the document would be answered `404`."""
+        app = declared_on_litestar()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                client.get("/orders")
+                client.get("/orders")
+
+        placement = [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+        assert len(placement) == 1
+        assert f"no route at {WELL_KNOWN}" in str(placement[0].message)
+
+    def test_a_middleware_wrapping_litestar_by_hand_finds_a_slashed_resource(
+        self,
+    ) -> None:
+        """Litestar's router drops the slash, and the document is still served."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        app = Litestar(route_handlers=[orders], openapi_config=None)
+        app.asgi_handler = cast(
+            "Any",
+            AuthenticatedRequestsMiddleware(
+                cast("Any", app.asgi_handler),
+                verifier=issuing(),
+                resource="https://api.example.com/orders/",
+            ),
+        )
+
+        with LitestarTestClient(app) as client:
+            response = client.get(f"{WELL_KNOWN}/")
+
+        assert response.json()["resource"] == "https://api.example.com/orders/"
+
+    def test_a_route_of_the_app_at_the_path_needs_no_warning(self) -> None:
+        """A hand-built middleware behind a router routing the path stays quiet."""
+
+        @get(WELL_KNOWN)
+        async def own() -> dict[str, bool]:
+            return {"own": True}  # pragma: no cover
+
+        app = declared_on_litestar(own)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                refused = client.get("/orders")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
+    def test_a_slashed_resource_is_routed_without_a_warning(self) -> None:
+        """Litestar routes the path without its slash, and so it is looked up."""
+        app = declared_on_litestar(resource="https://api.example.com/orders/")
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                document = client.get(f"{WELL_KNOWN}/")
+                client.get("/orders")
+
+        assert document.json()["resource"] == "https://api.example.com/orders/"
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
+    def test_a_route_for_another_method_at_the_path_is_refused(self) -> None:
+        """Install does not register a clashing route, and refuses the app's."""
+
+        @post(WELL_KNOWN)
+        async def own() -> None: ...  # pragma: no cover
+
+        app = declared_on_litestar(own)
+
+        with pytest.raises(TypeError, match="where resource= publishes"):
+            Grelmicro(
+                uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+            ).install(app)
+
+    def test_a_hand_built_middleware_warns_of_a_route_for_another_method(
+        self,
+    ) -> None:
+        """Without install, the refused `GET` is warned about, and why."""
+
+        @post(WELL_KNOWN)
+        async def own() -> None: ...  # pragma: no cover
+
+        app = declared_on_litestar(own)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                client.get("/orders")
+
+        placement = [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+        assert len(placement) == 1
+        assert f"routes {WELL_KNOWN} only for other methods" in str(
+            placement[0].message
+        )
+
+    def test_a_refusal_a_guard_raises_points_at_the_document(self) -> None:
+        """Rendered above the middleware, the challenge still names the metadata."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(issuing(), resource=RESOURCE))
+        ) as client:
+            refused = client.delete(
+                "/orders/7", headers=bearer(token(iss=ISSUER))
+            )
+
+        assert refused.status_code == HTTP_403_FORBIDDEN
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write", '
+            f'resource_metadata="{METADATA_URL}"'
+        )
+
+    def test_a_route_refusal_without_metadata_names_none(self) -> None:
+        """Nothing is added where no metadata is published."""
+        with LitestarTestClient(
+            litestar_app(AuthenticatedRequests(issuing()))
+        ) as client:
+            refused = client.delete(
+                "/orders/7", headers=bearer(token(iss=ISSUER))
+            )
+
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write"'
+        )
+
+    @pytest.mark.parametrize(
+        ("refusal", "challenge"),
+        [
+            (
+                lambda: TokenRejectedError(TokenRejectedReason.SIGNATURE),
+                'Bearer error="invalid_token"',
+            ),
+            (AmbiguousCredentialsError, 'Bearer error="invalid_request"'),
+        ],
+    )
+    def test_every_refusal_a_handler_raises_points_at_the_document(
+        self,
+        refusal: Any,  # noqa: ANN401
+        challenge: str,
+    ) -> None:
+        """Whichever bearer refusal it is, rendered above the middleware."""
+
+        @get("/check", opt=LitestarAnonymous())
+        async def check() -> None:
+            raise refusal()
+
+        app = Litestar(route_handlers=[check], openapi_config=None)
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            refused = client.get("/check")
+
+        assert refused.headers["www-authenticate"] == (
+            f'{challenge}, resource_metadata="{METADATA_URL}"'
+        )
+
+    def test_a_route_reaching_the_path_through_a_parameter_serves_it(
+        self,
+    ) -> None:
+        """The router already hands the request on to the middleware there."""
+
+        @get("/.well-known/{rest:path}")
+        async def known(rest: Annotated[str, Parameter()]) -> dict[str, str]:
+            return {"known": rest}  # pragma: no cover
+
+        app = declared_on_litestar(known)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
+        ).install(app)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                document = client.get(WELL_KNOWN)
+                client.get("/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
+    def test_an_app_wide_guard_does_not_refuse_the_metadata_route(self) -> None:
+        """The route grelmicro adds inherits the guard, and is not refused for it."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        app = Litestar(
+            route_handlers=[orders],
+            guards=[LitestarAuthenticated()],
+            openapi_config=None,
+        )
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            document = client.get(WELL_KNOWN)
+            refused = client.get("/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_websocket_to_the_metadata_path_is_not_served(self) -> None:
+        """Without a token it is refused, and with one it is closed."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        app = Litestar(route_handlers=[orders], openapi_config=None)
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            with (
+                pytest.raises(LitestarWebSocketDisconnect) as refused,
+                client.websocket_connect(WELL_KNOWN),
+            ):
+                pass  # pragma: no cover
+            with (
+                pytest.raises(LitestarWebSocketDisconnect) as closed,
+                client.websocket_connect(
+                    WELL_KNOWN, headers=bearer(token(iss=ISSUER))
+                ),
+            ):
+                pass  # pragma: no cover
+
+        assert refused.value.code == WS_1008_POLICY_VIOLATION
+        assert closed.value.code == WS_1000_NORMAL_CLOSURE
+
+    def test_a_route_added_after_the_metadata_route_is_checked_at_startup(
+        self,
+    ) -> None:
+        """The metadata route is passed over, not where the check stops."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        @get("/both", opt=LitestarAnonymous(), guards=[LitestarAuthenticated()])
+        async def both() -> None: ...  # pragma: no cover
+
+        app = Litestar(route_handlers=[orders], openapi_config=None)
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+        app.register(both)
+
+        with (
+            pytest.raises(BaseExceptionGroup) as refused,
+            LitestarTestClient(app),
+        ):
+            pass  # pragma: no cover
+
+        assert refused.group_contains(
+            TypeError, match="GET /both declares Anonymous"
+        )
+
+    def test_an_app_mounted_under_litestar_does_not_warn(self) -> None:
+        """The router a mounted app runs behind is its own, not Litestar's."""
+
+        async def secret(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({"secret": True})  # pragma: no cover
+
+        inner = Starlette(routes=[Route("/x", secret)])
+        inner.add_middleware(
+            AuthenticatedRequestsMiddleware,
+            verifier=issuing(),
+            resource="https://api.example.com/sub",
+        )
+
+        @asgi("/sub", is_mount=True, copy_scope=False)
+        async def sub(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await inner(scope, receive, send)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(
+                Litestar(route_handlers=[sub], openapi_config=None)
+            ) as client:
+                refused = client.get("/sub/x")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]

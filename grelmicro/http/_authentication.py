@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
+import json
 import re
+import warnings
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -17,8 +20,9 @@ from typing import (
     Self,
     cast,
 )
+from urllib.parse import unquote, urlsplit
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Doc
 
 from grelmicro._config import build_config
@@ -40,6 +44,7 @@ from grelmicro.errors import (
     AmbiguousCredentialsError,
     AuthenticationRequiredError,
     InsufficientScopeError,
+    MiddlewarePlacementWarning,
     _scope_tokens,
 )
 from grelmicro.http._component import (
@@ -104,6 +109,14 @@ _REFUSALS = (
     TokenRejectedError,
 )
 """What the middleware answers itself, rather than letting reach the app."""
+
+_ROUTE_CHALLENGES = (
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+    TokenRejectedError,
+)
+"""Every bearer refusal a route may raise, which may be rendered above us."""
 
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 """Set on the callable a route declares to be served without a credential."""
@@ -641,6 +654,10 @@ def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
             sibling.opt.get(ANONYMOUS_OPT)
             for sibling in getattr(route, "route_handlers", ())
         )
+    if getattr(handler.fn, METADATA_MARKER, False):
+        # The metadata is served before any credential is read, so whatever
+        # else reaches the route grelmicro added for it is not public.
+        return False
     return bool(handler.opt.get(ANONYMOUS_OPT))
 
 
@@ -922,6 +939,10 @@ def refuse_unreachable_routes(
             route requiring a scope that is not an OAuth scope token.
     """
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
+        if _serves_metadata(route):
+            # The route grelmicro added for the metadata inherits the app's
+            # guards, and never runs them: the document is served first.
+            continue
         template = f"{prefix}{getattr(route, 'path_format', route.path)}"
         excluded = not selects(template, include=(), exclude=exclude)
         # Sorted, so the method a refusal names is the same on every run.
@@ -1067,11 +1088,14 @@ def document_operations(
     scopes: dict[tuple[str, str], list[str]],
     media_type: str,
     model: type[BaseModel],
+    metadata_path: str | None = None,
 ) -> None:
     """Require the scheme on every covered operation, with its refusals.
 
     Shared by every framework that builds a schema, so the same app is
-    described the same way whichever one serves it.
+    described the same way whichever one serves it. The protected resource
+    metadata, when published, is described as an operation needing nothing,
+    and stays so however many times a cached schema is annotated again.
     """
     ref = add_error_schema(schema, model)
     content = {media_type: {"schema": {"$ref": ref}}} if ref else {}
@@ -1080,6 +1104,8 @@ def document_operations(
     ).setdefault(SECURITY_SCHEME, security_scheme(verifier))
     inherited = schema.get("security")
     for path, item in (schema.get("paths") or {}).items():
+        if path == metadata_path:
+            continue
         for method, operation in item.items():
             if method not in _OPERATION_METHODS or not selects(
                 path, include=(), exclude=exclude
@@ -1097,6 +1123,11 @@ def document_operations(
                 bans=bans,
                 inherited=inherited,
             )
+    if metadata_path is not None:
+        paths = schema["paths"] = schema.get("paths") or {}
+        paths.setdefault(
+            metadata_path, {"get": copy.deepcopy(_METADATA_OPERATION)}
+        )
 
 
 def _require_scheme(
@@ -1242,6 +1273,76 @@ class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
             "a prefix."
         ),
     ] = ()
+    resource: Annotated[
+        str | None,
+        Doc(
+            "The URL clients call the service at, as they see it behind any "
+            "proxy. Publishes the service's protected resource metadata and "
+            "adds `resource_metadata` to every bearer challenge. An `https` "
+            "URL with no fragment."
+        ),
+    ] = None
+    authorization_servers: Annotated[
+        tuple[str, ...],
+        Doc(
+            "Issuers a client gets a token from, listed in the metadata. "
+            "Left empty, the verifier's issuers are listed."
+        ),
+    ] = ()
+    scopes: Annotated[
+        tuple[str, ...],
+        Doc(
+            "Scopes a client may ask for, listed in the metadata. Left "
+            "empty, none are listed."
+        ),
+    ] = ()
+
+    @field_validator("resource")
+    @classmethod
+    def _check_resource(cls, value: str | None) -> str | None:
+        """Refuse a resource a client could not call, quote or route to."""
+        if value is not None and (
+            not _is_url(value, query=True) or _holds_braces(value)
+        ):
+            msg = (
+                "resource must be an https URL with no fragment, and no brace "
+                "in its path, which a router reads as a path parameter"
+            )
+            raise ValueError(msg)
+        return value
+
+    @field_validator("authorization_servers")
+    @classmethod
+    def _check_authorization_servers(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Refuse an authorization server that is not an issuer URL."""
+        if not all(_is_url(server, query=False) for server in value):
+            msg = (
+                "authorization_servers must be https URLs with no query or "
+                "fragment"
+            )
+            raise ValueError(msg)
+        return value
+
+    @field_validator("scopes")
+    @classmethod
+    def _check_scopes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Refuse a scope that is not an OAuth scope token."""
+        return _scope_tokens(value)
+
+    @model_validator(mode="after")
+    def _check_described_resource(self) -> Self:
+        """Refuse what describes the metadata when nothing publishes it."""
+        if self.resource is None and (
+            self.authorization_servers or self.scopes
+        ):
+            msg = (
+                "authorization_servers and scopes describe the metadata "
+                "resource publishes, so they need resource"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class AuthenticatedRequestsMiddleware:
@@ -1277,6 +1378,11 @@ class AuthenticatedRequestsMiddleware:
 
     Each is rendered by the app's `ErrorResponses`, with the
     `WWW-Authenticate` challenge RFC 6750 gives it.
+
+    With `resource=`, it serves the service's protected resource metadata,
+    RFC 9728, at `/.well-known/oauth-protected-resource` followed by the
+    path of `resource`, to any caller. Every bearer challenge the app
+    answers with then carries `resource_metadata`, pointing at it.
 
     A token naming a key the verifier does not hold waits for one refresh
     and is verified again, so the first request after a rotation is served.
@@ -1327,6 +1433,21 @@ class AuthenticatedRequestsMiddleware:
                 "with `bans`."
             ),
         ] = None,
+        resource: Annotated[
+            str | None,
+            Doc(
+                "The URL clients call the service at, as they see it behind "
+                "any proxy. Publishes its protected resource metadata."
+            ),
+        ] = None,
+        authorization_servers: Annotated[
+            tuple[str, ...] | list[str],
+            Doc("Issuers listed in the metadata. Left empty, the verifier's."),
+        ] = (),
+        scopes: Annotated[
+            tuple[str, ...] | list[str],
+            Doc("Scopes listed in the metadata. Left empty, none are."),
+        ] = (),
         public: Annotated[
             _PublicRoutes | None,
             Doc(
@@ -1339,9 +1460,12 @@ class AuthenticatedRequestsMiddleware:
         """Initialize the middleware with the verifier it trusts.
 
         Raises:
-            TypeError: If `exclude` is a single string, or `bans` is given
-                without `trusted`.
+            TypeError: If `exclude`, `authorization_servers` or `scopes` is
+                a single string, `bans` is given without `trusted`, or
+                `resource` is given and no authorization server is known.
             ValueError: If a pattern in `exclude` matches every path.
+            SettingsValidationError: If `resource`, an authorization server
+                or a scope is not one a client could use.
         """
         if bans is not None and trusted is None:
             msg = (
@@ -1359,6 +1483,21 @@ class AuthenticatedRequestsMiddleware:
         self._bans = bans
         self._trusted = trusted
         self._public = public
+        self._routing_checked = False
+        described = build_config(
+            AuthenticatedRequestsConfig,
+            resource=resource,
+            authorization_servers=_names(
+                authorization_servers, name="authorization_servers"
+            ),
+            scopes=_names(scopes, name="scopes"),
+        )
+        self._metadata = _resource_metadata(
+            described.resource,
+            described.authorization_servers,
+            described.scopes,
+            verifier,
+        )
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -1367,12 +1506,28 @@ class AuthenticatedRequestsMiddleware:
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
+        metadata = self._metadata
+        if metadata is not None:
+            if scope["type"] == "http" and route_path(scope) in metadata.paths:
+                await _serve_metadata(scope, send, metadata)
+                return
+            if (
+                not self._routing_checked
+                and "route_handler" in scope
+                and "litestar_app" in scope
+                # An app mounted under Litestar keeps both keys, and is not
+                # the one Litestar's router serves.
+                and scope["litestar_app"] is scope.get("app")
+            ):
+                self._routing_checked = True
+                _warn_if_unrouted(scope, metadata)
+            send = _pointing_at(send, metadata.pointer)
         if self._serves_anonymously(scope):
             # Set only when nothing else did, so an authentication the app
             # runs itself outside this one keeps its caller.
             scope.setdefault("user", _ANONYMOUS)
             scope.setdefault("auth", _ANONYMOUS)
-            await self.app(scope, receive, send)
+            await self._forward(scope, receive, send)
             return
         try:
             caller = await self._authenticate(scope)
@@ -1381,7 +1536,26 @@ class AuthenticatedRequestsMiddleware:
             return
         scope["user"] = caller
         scope["auth"] = caller
-        await self.app(scope, receive, send)
+        await self._forward(scope, receive, send)
+
+    async def _forward(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Run the app, pointing a refusal it raises at the metadata.
+
+        A refusal a route raises is rendered wherever the framework catches
+        it, which on Litestar is above this middleware, out of reach of the
+        `send` it wraps. The refusal itself carries the URL there instead.
+        """
+        metadata = self._metadata
+        if metadata is None:
+            await self.app(scope, receive, send)
+            return
+        try:
+            await self.app(scope, receive, send)
+        except _ROUTE_CHALLENGES as error:
+            error.resource_metadata = metadata.url
+            raise
 
     def _serves_anonymously(self, scope: Scope) -> bool:
         """Return whether the request is served without verifying a credential.
@@ -1656,6 +1830,29 @@ class AuthenticatedRequests:
                 "resolving the caller a ban is counted against."
             ),
         ] = None,
+        resource: Annotated[
+            str | None,
+            Doc(
+                "The URL clients call the service at, as they see it behind "
+                "any proxy, such as `https://api.example.com/orders`. "
+                "Publishes the service's protected resource metadata, so a "
+                "client learns where to get a token from the URL alone."
+            ),
+        ] = None,
+        authorization_servers: Annotated[
+            tuple[str, ...] | list[str],
+            Doc(
+                "Issuers a client gets a token from, listed in the metadata. "
+                "Left empty, the verifier's issuers are listed."
+            ),
+        ] = (),
+        scopes: Annotated[
+            tuple[str, ...] | list[str],
+            Doc(
+                "Scopes a client may ask for, listed in the metadata. Left "
+                "empty, none are listed, because the document is public."
+            ),
+        ] = (),
         name: Annotated[
             str,
             Doc("Registration name. Only one may be registered."),
@@ -1672,12 +1869,20 @@ class AuthenticatedRequests:
         """Authenticate every request through the registered middleware.
 
         Raises:
-            TypeError: If `exclude` is a single string, or `bans` is given
-                without `trusted`.
+            TypeError: If `exclude`, `authorization_servers` or `scopes` is
+                a single string, `bans` is given without `trusted`, or
+                `resource` is given and no authorization server is known.
+            SettingsValidationError: If `resource`, an authorization server
+                or a scope is not one a client could use.
         """
         config = build_config(
             AuthenticatedRequestsConfig,
             exclude=as_patterns(exclude, name="exclude"),
+            resource=resource,
+            authorization_servers=_names(
+                authorization_servers, name="authorization_servers"
+            ),
+            scopes=_names(scopes, name="scopes"),
         )
         self._setup(
             config,
@@ -1771,6 +1976,9 @@ class AuthenticatedRequests:
             "bans": self._bans,
             "trusted": self._trusted,
             "public": self._public,
+            "resource": self._config.resource,
+            "authorization_servers": self._config.authorization_servers,
+            "scopes": self._config.scopes,
         }
 
     @property
@@ -1828,9 +2036,12 @@ class AuthenticatedRequests:
 
         Raises:
             TypeError: If a route requiring a caller declares `Anonymous()`
-                or sits in `exclude`, where it could never get one.
+                or sits in `exclude`, where it could never get one, or a
+                route sits where `resource=` publishes the metadata, where
+                it would never run.
         """
         refuse_unreachable_routes(app, self._config.exclude)
+        refuse_routes_at_metadata(app, resource_metadata_of(self._options()))
         self._public.read(app)
 
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
@@ -1849,8 +2060,10 @@ class AuthenticatedRequests:
             TypeError: If a route added since install requires a caller where
                 it could never get one.
         """
+        metadata = resource_metadata_of(self._options())
         for app in self._public.apps:
             refuse_unreachable_routes(app, self._config.exclude)
+            refuse_routes_at_metadata(app, metadata)
         self._public.reread()
         stack = AsyncExitStack()
         enter = getattr(self._verifier, "__aenter__", None)
@@ -1872,6 +2085,368 @@ class AuthenticatedRequests:
         if stack is not None:
             await stack.aclose()
         return None
+
+
+_WELL_KNOWN: Final = "/.well-known/oauth-protected-resource"
+"""Where protected resource metadata is served, ahead of the resource's path."""
+
+_METADATA_MAX_AGE: Final = 3600
+"""Seconds a client may keep the metadata document."""
+
+_METADATA_METHODS: Final = b"GET, HEAD, OPTIONS"
+"""The methods the metadata document answers."""
+
+_HEADER_SAFE: Final = re.compile(r"[\x21\x23-\x5b\x5d-\x7e]+")
+"""Printable ASCII with no space, no double quote and no backslash.
+
+What lets a URL sit inside a quoted `WWW-Authenticate` parameter.
+"""
+
+_SINGLE_BEARER: Final = re.compile(
+    rb'(?i:bearer)(?: [\w.~+-]+="[^"\\]*"(?:, ?[\w.~+-]+="[^"\\]*")*)?'
+)
+"""One bearer challenge whose parameters are all quoted, as every one of ours is."""
+
+_RESPONSE_STARTS: Final = frozenset(
+    {"http.response.start", "websocket.http.response.start"}
+)
+"""The messages that carry a response's headers."""
+
+_METADATA_OPERATION: Final = {
+    "summary": "Protected resource metadata",
+    "description": (
+        "Where to get a token for this service, and the scopes it offers."
+    ),
+    "operationId": "protected_resource_metadata",
+    "security": [],
+    "responses": {
+        "200": {
+            "description": "The protected resource metadata.",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["resource"],
+                        "properties": {
+                            "resource": {"type": "string", "format": "uri"},
+                            "authorization_servers": {
+                                "type": "array",
+                                "items": {"type": "string", "format": "uri"},
+                            },
+                            "scopes_supported": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "bearer_methods_supported": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                        },
+                    }
+                }
+            },
+        }
+    },
+}
+"""How the metadata document is described in an OpenAPI schema."""
+
+
+@dataclass(frozen=True, slots=True)
+class _ResourceMetadata:
+    """The protected resource metadata a service publishes, ready to serve."""
+
+    route: str
+    """The path a router routes the document at: decoded, with no trailing slash."""
+    paths: frozenset[str]
+    """Every route path the document is served at, however the router reads it."""
+    url: str
+    """The URL a bearer challenge points at."""
+    pointer: bytes
+    """The `resource_metadata` parameter a bearer challenge gets."""
+    body: bytes
+    """The document itself."""
+
+
+def metadata_path_of(options: Mapping[str, Any]) -> str | None:
+    """Return where a middleware built with `options` serves its metadata."""
+    resource = options.get("resource")
+    return None if resource is None else _metadata_path(resource)
+
+
+def resource_metadata_of(
+    options: Mapping[str, Any],
+) -> _ResourceMetadata | None:
+    """Return the metadata a middleware built with `options` publishes."""
+    return _resource_metadata(
+        options.get("resource"),
+        tuple(options.get("authorization_servers") or ()),
+        tuple(options.get("scopes") or ()),
+        options["verifier"],
+    )
+
+
+def _metadata_path(resource: str) -> str:
+    """Return the path the protected resource metadata of `resource` is served at.
+
+    The well-known suffix goes between the host and the path, and a path
+    that is only `/` is dropped first, so a client finds the document from
+    the URL it calls.
+    """
+    path = urlsplit(resource).path
+    return f"{_WELL_KNOWN}{'' if path == '/' else path}"
+
+
+def _resource_metadata(
+    resource: str | None,
+    authorization_servers: tuple[str, ...],
+    scopes: tuple[str, ...],
+    verifier: object,
+) -> _ResourceMetadata | None:
+    """Build the document `resource` publishes, and where it is served.
+
+    The URL a challenge points at keeps the resource's path as written. A
+    request arrives with its path decoded, so the document is matched by
+    the decoded path, and a resource path holding `%20` is still found. A
+    router that drops a trailing slash routes it without one.
+
+    Raises:
+        TypeError: If no authorization server is named and the verifier
+            names no issuer a client could use.
+    """
+    if resource is None:
+        return None
+    issuers = getattr(getattr(verifier, "config", None), "issuer", None) or ()
+    servers = authorization_servers or tuple(issuers)
+    if not servers or not all(
+        _is_url(server, query=False) for server in servers
+    ):
+        msg = (
+            "resource= publishes where a client gets a token, and the verifier "
+            "names no issuer that is an https URL. Pass "
+            "authorization_servers= with the issuers your tokens come from."
+        )
+        raise TypeError(msg)
+    parts = urlsplit(resource)
+    path = _metadata_path(resource)
+    served = unquote(path)
+    route = served.rstrip("/")
+    query = f"?{parts.query}" if parts.query else ""
+    document: dict[str, Any] = {
+        "resource": resource,
+        "authorization_servers": list(servers),
+    }
+    if scopes:
+        document["scopes_supported"] = list(scopes)
+    document["bearer_methods_supported"] = ["header"]
+    url = f"{parts.scheme}://{parts.netloc}{path}{query}"
+    return _ResourceMetadata(
+        route=route,
+        paths=frozenset({served, route}),
+        url=url,
+        pointer=f'resource_metadata="{url}"'.encode("ascii"),
+        body=json.dumps(document, separators=(",", ":")).encode(),
+    )
+
+
+def _is_url(value: str, *, query: bool) -> bool:
+    """Return whether `value` is an `https` URL a client could use and quote."""
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and bool(parts.netloc)
+        and "#" not in value
+        and (query or "?" not in value)
+        and _HEADER_SAFE.fullmatch(value) is not None
+    )
+
+
+def _holds_braces(url: str) -> bool:
+    """Return whether a URL's path holds a brace, written as is or encoded."""
+    return not {"{", "}"}.isdisjoint(unquote(urlsplit(url).path))
+
+
+def _names(value: tuple[str, ...] | list[str], *, name: str) -> tuple[str, ...]:
+    """Return `value` as a tuple, refusing a bare string.
+
+    Raises:
+        TypeError: If `value` is a string, which would read as one name per
+            character.
+    """
+    if isinstance(value, str):
+        msg = (
+            f"{name}= takes a sequence of names, not a single string. Write "
+            f"it as a tuple."
+        )
+        raise TypeError(msg)
+    return tuple(value)
+
+
+async def _serve_metadata(
+    scope: Scope, send: Send, metadata: _ResourceMetadata
+) -> None:
+    """Answer a request for the metadata document, whoever asks.
+
+    It is public by definition, so no credential is read, and a browser
+    client on any origin may read it, with whatever headers its preflight
+    asks to send.
+    """
+    method = scope.get("method")
+    headers = [(b"access-control-allow-origin", b"*")]
+    if method in ("GET", "HEAD"):
+        status, body = 200, metadata.body
+        headers += [
+            (b"content-type", b"application/json"),
+            (
+                b"cache-control",
+                f"public, max-age={_METADATA_MAX_AGE}".encode(),
+            ),
+            (b"content-length", str(len(body)).encode()),
+        ]
+    elif method == "OPTIONS":
+        status, body = 204, b""
+        headers += [
+            (b"access-control-allow-methods", _METADATA_METHODS),
+            (b"allow", _METADATA_METHODS),
+            *(
+                (b"access-control-allow-headers", value)
+                for name, value in scope["headers"]
+                if name == b"access-control-request-headers"
+            ),
+        ]
+    else:
+        status, body = 405, b""
+        headers += [(b"allow", _METADATA_METHODS), (b"content-length", b"0")]
+    await send(
+        {"type": "http.response.start", "status": status, "headers": headers}
+    )
+    await send(
+        {
+            "type": "http.response.body",
+            "body": b"" if method == "HEAD" else body,
+        }
+    )
+
+
+def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:
+    """Warn when a `GET` for the metadata never reaches the middleware.
+
+    A middleware Litestar runs behind its router sees a request only once a
+    route matched it. Without a route at the metadata path, a `GET` for the
+    document every challenge points at is answered `404`. With a route there
+    for other methods only, it is answered `405`.
+    """
+    from litestar.exceptions import (  # noqa: PLC0415
+        HTTPException,
+        NotFoundException,
+    )
+
+    try:
+        scope["litestar_app"].asgi_router.handle_routing(
+            path=metadata.route, method="GET"
+        )
+    except NotFoundException:
+        reason = (
+            f"has no route at {metadata.route}, so the protected resource "
+            f"metadata every challenge points at is answered 404. Register "
+            f"AuthenticatedRequests and call micro.install(app), which adds "
+            f"that route."
+        )
+    except HTTPException:
+        reason = (
+            f"routes {metadata.route} only for other methods, so a GET for "
+            f"the protected resource metadata every challenge points at is "
+            f"refused. Remove that route: the middleware answers every "
+            f"request at that path."
+        )
+    else:
+        return
+    warnings.warn(
+        f"AuthenticatedRequestsMiddleware runs behind Litestar's router, "
+        f"which {reason} [middleware-placement] "
+        f"https://grelmicro.grel.info/diagnostics/#middleware-placement",
+        MiddlewarePlacementWarning,
+        stacklevel=2,
+    )
+
+
+METADATA_MARKER: Final = "__grelmicro_resource_metadata__"
+"""Set on the handler grelmicro registers to serve the metadata itself."""
+
+
+def refuse_routes_at_metadata(
+    app: Any,  # noqa: ANN401
+    metadata: _ResourceMetadata | None,
+) -> None:
+    """Refuse a route the app declares where the metadata is served.
+
+    The middleware answers every request at that path, whatever its method,
+    so a route declared there would never run. The handler grelmicro
+    registers there itself on Litestar is the one route allowed.
+
+    Raises:
+        TypeError: Naming the path of the first such route.
+    """
+    if metadata is None:
+        return
+    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
+        template = f"{prefix}{route.path}"
+        if template not in metadata.paths or _serves_metadata(route):
+            continue
+        msg = (
+            f"{template} is where resource= publishes the protected resource "
+            f"metadata, and AuthenticatedRequests answers every request "
+            f"there, so the route declared at that path never runs. Remove "
+            f"the route, or leave resource= unset."
+        )
+        raise TypeError(msg)
+
+
+def _serves_metadata(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a route is the one grelmicro registers for the metadata."""
+    return any(
+        getattr(getattr(handler, "fn", None), METADATA_MARKER, False)
+        for handler in _litestar_handlers(route) or ()
+    )
+
+
+def _pointing_at(send: Send, pointer: bytes) -> Send:
+    """Return `send`, adding `pointer` to every bearer challenge it sends."""
+
+    async def sending(message: Message) -> None:
+        if message["type"] in _RESPONSE_STARTS:
+            message = {
+                **message,
+                "headers": [
+                    (
+                        name,
+                        _pointed(value, pointer)
+                        if name.lower() == b"www-authenticate"
+                        else value,
+                    )
+                    for name, value in message.get("headers") or ()
+                ],
+            }
+        await send(message)
+
+    return sending
+
+
+def _pointed(challenge: bytes, pointer: bytes) -> bytes:
+    """Return a bearer challenge carrying `pointer`, or any other one unchanged.
+
+    Only a lone bearer challenge whose parameters are all quoted is added
+    to, so a challenge in another scheme, or one naming its own metadata,
+    reaches the client as the app wrote it.
+    """
+    if (
+        b"resource_metadata=" in challenge.lower()
+        or _SINGLE_BEARER.fullmatch(challenge) is None
+    ):
+        return challenge
+    return challenge + (b", " if b"=" in challenge else b" ") + pointer
 
 
 async def _nothing(scope: Scope, receive: Receive, send: Send) -> None:

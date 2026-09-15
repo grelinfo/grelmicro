@@ -316,19 +316,25 @@ def _from_client_banned(exc: ClientBannedError) -> Occurrence:
 
 
 def _challenge(
-    *, error: str | None = None, scopes: tuple[str, ...] = ()
+    *,
+    error: str | None = None,
+    scopes: tuple[str, ...] = (),
+    metadata: str | None = None,
 ) -> dict[str, str]:
     """Return the `WWW-Authenticate` header of a bearer refusal.
 
     RFC 6750 section 3. `error_description` is never sent, so no claim value
     can reach the header. The scopes are the route's, checked as scope
-    tokens when the error was raised.
+    tokens when the error was raised. `metadata` is the URL of the protected
+    resource metadata, RFC 9728, when the service publishes one.
     """
     parameters = []
     if error is not None:
         parameters.append(f'error="{error}"')
     if scopes:
         parameters.append(f'scope="{" ".join(scopes)}"')
+    if metadata is not None:
+        parameters.append(f'resource_metadata="{metadata}"')
     value = f"Bearer {', '.join(parameters)}" if parameters else "Bearer"
     return {"www-authenticate": value}
 
@@ -337,7 +343,8 @@ def _from_authentication_required(
     exc: AuthenticationRequiredError,
 ) -> Occurrence:
     return Occurrence(
-        AUTHENTICATION_REQUIRED, headers=_challenge(scopes=exc.scopes)
+        AUTHENTICATION_REQUIRED,
+        headers=_challenge(scopes=exc.scopes, metadata=exc.resource_metadata),
     )
 
 
@@ -345,20 +352,29 @@ def _from_token_rejected(exc: TokenRejectedError) -> Occurrence:
     return Occurrence(
         TOKEN_REJECTED,
         extensions={"reason": str(exc.reason)},
-        headers=_challenge(error="invalid_token"),
+        headers=_challenge(
+            error="invalid_token", metadata=exc.resource_metadata
+        ),
     )
 
 
-def _from_ambiguous_credentials(exc: AmbiguousCredentialsError) -> Occurrence:  # noqa: ARG001
+def _from_ambiguous_credentials(exc: AmbiguousCredentialsError) -> Occurrence:
     return Occurrence(
-        AMBIGUOUS_CREDENTIALS, headers=_challenge(error="invalid_request")
+        AMBIGUOUS_CREDENTIALS,
+        headers=_challenge(
+            error="invalid_request", metadata=exc.resource_metadata
+        ),
     )
 
 
 def _from_insufficient_scope(exc: InsufficientScopeError) -> Occurrence:
     return Occurrence(
         INSUFFICIENT_SCOPE,
-        headers=_challenge(error="insufficient_scope", scopes=exc.scopes),
+        headers=_challenge(
+            error="insufficient_scope",
+            scopes=exc.scopes,
+            metadata=exc.resource_metadata,
+        ),
     )
 
 
