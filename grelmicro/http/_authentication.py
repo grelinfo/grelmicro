@@ -19,7 +19,7 @@ from typing import (
     Self,
     cast,
 )
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Doc
@@ -1076,7 +1076,8 @@ def document_operations(
 
     Shared by every framework that builds a schema, so the same app is
     described the same way whichever one serves it. The protected resource
-    metadata, when published, is described as an operation needing nothing.
+    metadata, when published, is described as an operation needing nothing,
+    and stays so however many times a cached schema is annotated again.
     """
     ref = add_error_schema(schema, model)
     content = {media_type: {"schema": {"$ref": ref}}} if ref else {}
@@ -1085,6 +1086,8 @@ def document_operations(
     ).setdefault(SECURITY_SCHEME, security_scheme(verifier))
     inherited = schema.get("security")
     for path, item in (schema.get("paths") or {}).items():
+        if path == metadata_path:
+            continue
         for method, operation in item.items():
             if method not in _OPERATION_METHODS or not selects(
                 path, include=(), exclude=exclude
@@ -2127,6 +2130,10 @@ def _resource_metadata(
 ) -> _ResourceMetadata | None:
     """Build the document `resource` publishes, and where it is served.
 
+    The URL a challenge points at keeps the resource's path as written. A
+    request arrives with its path decoded, so the document is matched by
+    the decoded path, and a resource path holding `%20` is still found.
+
     Raises:
         TypeError: If no authorization server is named and the verifier
             names no issuer a client could use.
@@ -2146,6 +2153,7 @@ def _resource_metadata(
         raise TypeError(msg)
     parts = urlsplit(resource)
     path = _metadata_path(resource)
+    served = unquote(path)
     query = f"?{parts.query}" if parts.query else ""
     document: dict[str, Any] = {
         "resource": resource,
@@ -2156,7 +2164,7 @@ def _resource_metadata(
     document["bearer_methods_supported"] = ["header"]
     url = f"{parts.scheme}://{parts.netloc}{path}{query}"
     return _ResourceMetadata(
-        paths=frozenset({path, path.rstrip("/")}),
+        paths=frozenset({served, served.rstrip("/")}),
         pointer=f'resource_metadata="{url}"'.encode("ascii"),
         body=json.dumps(document, separators=(",", ":")).encode(),
     )
@@ -2198,8 +2206,9 @@ async def _serve_metadata(
 ) -> None:
     """Answer a request for the metadata document, whoever asks.
 
-    It is public by definition, so no credential is read and a browser
-    client on any origin may read it.
+    It is public by definition, so no credential is read, and a browser
+    client on any origin may read it, with whatever headers its preflight
+    asks to send.
     """
     method = scope.get("method")
     headers = [(b"access-control-allow-origin", b"*")]
@@ -2207,7 +2216,10 @@ async def _serve_metadata(
         status, body = 200, metadata.body
         headers += [
             (b"content-type", b"application/json"),
-            (b"cache-control", f"public, max-age={_METADATA_MAX_AGE}".encode()),
+            (
+                b"cache-control",
+                f"public, max-age={_METADATA_MAX_AGE}".encode(),
+            ),
             (b"content-length", str(len(body)).encode()),
         ]
     elif method == "OPTIONS":
@@ -2215,6 +2227,11 @@ async def _serve_metadata(
         headers += [
             (b"access-control-allow-methods", _METADATA_METHODS),
             (b"allow", _METADATA_METHODS),
+            *(
+                (b"access-control-allow-headers", value)
+                for name, value in scope["headers"]
+                if name == b"access-control-request-headers"
+            ),
         ]
     else:
         status, body = 405, b""

@@ -4269,3 +4269,60 @@ class TestDocumentOperations:
         schema = self.annotate({}, metadata_path=WELL_KNOWN)
 
         assert schema["paths"][WELL_KNOWN]["get"]["security"] == []
+
+
+class TestResourceMetadataEdges:
+    """What a client meets fetching the document, however it gets there."""
+
+    def test_the_schema_keeps_the_document_public_on_every_build(self) -> None:
+        """A cached schema annotated again, and another app, stay unchanged."""
+        app = published()
+
+        app.openapi()
+        rebuilt = app.openapi()["paths"][WELL_KNOWN]["get"]
+        other = published().openapi()["paths"][WELL_KNOWN]["get"]
+
+        assert rebuilt["security"] == []
+        assert "401" not in rebuilt["responses"]
+        assert other["security"] == []
+        assert "401" not in other["responses"]
+
+    @pytest.mark.parametrize("segment", ["men%C3%BC", "order%20book"])
+    def test_a_percent_encoded_resource_path_is_found(
+        self, segment: str
+    ) -> None:
+        """The request arrives decoded, and the pointer keeps the URL as written."""
+        client = TestClient(
+            published(resource=f"https://api.example.com/{segment}")
+        )
+
+        document = client.get(
+            f"/.well-known/oauth-protected-resource/{segment}"
+        )
+        refused = client.get("/orders")
+
+        assert document.status_code == HTTP_200_OK
+        assert refused.headers["www-authenticate"] == (
+            "Bearer resource_metadata="
+            f'"https://api.example.com/.well-known/oauth-protected-resource/{segment}"'
+        )
+
+    def test_a_preflight_is_allowed_the_headers_it_asks_for(self) -> None:
+        """A browser client sending its own headers can still read the document."""
+        client = TestClient(published())
+
+        asking = client.options(
+            WELL_KNOWN,
+            headers={
+                "origin": "https://app.example.com",
+                "access-control-request-method": "GET",
+                "access-control-request-headers": "authorization, mcp-protocol-version",
+            },
+        )
+        plain = client.options(WELL_KNOWN)
+
+        assert asking.status_code == HTTP_204_NO_CONTENT
+        assert asking.headers["access-control-allow-headers"] == (
+            "authorization, mcp-protocol-version"
+        )
+        assert "access-control-allow-headers" not in plain.headers
