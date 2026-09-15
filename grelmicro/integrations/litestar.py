@@ -265,6 +265,11 @@ def _metadata_document(metadata: Any) -> Any:  # noqa: ANN401
         receive: Any,  # noqa: ANN401, ARG001
         send: Any,  # noqa: ANN401
     ) -> None:
+        if scope["type"] != "http":
+            # Only a websocket whose caller was authenticated gets here, and
+            # the document is not served over one.
+            await send({"type": "websocket.close"})
+            return
         await _serve_metadata(scope, send, metadata)
 
     setattr(protected_resource_metadata, METADATA_MARKER, True)

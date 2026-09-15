@@ -69,6 +69,7 @@ from starlette.routing import (
 )
 from starlette.status import (
     HTTP_307_TEMPORARY_REDIRECT,
+    WS_1000_NORMAL_CLOSURE,
     WS_1008_POLICY_VIOLATION,
 )
 from starlette.testclient import WebSocketDenialResponse
@@ -4760,3 +4761,61 @@ class TestResourceMetadataOnLitestar:
             for warning in caught
             if issubclass(warning.category, MiddlewarePlacementWarning)
         ]
+
+    def test_an_app_wide_guard_does_not_refuse_the_metadata_route(self) -> None:
+        """The route grelmicro adds inherits the guard, and is not refused for it."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        app = Litestar(
+            route_handlers=[orders],
+            guards=[LitestarAuthenticated()],
+            openapi_config=None,
+        )
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            document = client.get(WELL_KNOWN)
+            refused = client.get("/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_websocket_to_the_metadata_path_is_not_served(self) -> None:
+        """Without a token it is refused, and with one it is closed."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        app = Litestar(route_handlers=[orders], openapi_config=None)
+        Grelmicro(
+            uses=[
+                ErrorResponses(),
+                AuthenticatedRequests(issuing(), resource=RESOURCE),
+            ]
+        ).install(app)
+
+        with LitestarTestClient(app) as client:
+            with (
+                pytest.raises(LitestarWebSocketDisconnect) as refused,
+                client.websocket_connect(WELL_KNOWN),
+            ):
+                pass  # pragma: no cover
+            with (
+                pytest.raises(LitestarWebSocketDisconnect) as closed,
+                client.websocket_connect(
+                    WELL_KNOWN, headers=bearer(token(iss=ISSUER))
+                ),
+            ):
+                pass  # pragma: no cover
+
+        assert refused.value.code == WS_1008_POLICY_VIOLATION
+        assert closed.value.code == WS_1000_NORMAL_CLOSURE

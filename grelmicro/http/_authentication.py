@@ -654,6 +654,10 @@ def _litestar_serves_publicly(app: Any, scope: Scope) -> bool:  # noqa: ANN401
             sibling.opt.get(ANONYMOUS_OPT)
             for sibling in getattr(route, "route_handlers", ())
         )
+    if getattr(handler.fn, METADATA_MARKER, False):
+        # The metadata is served before any credential is read, so whatever
+        # else reaches the route grelmicro added for it is not public.
+        return False
     return bool(handler.opt.get(ANONYMOUS_OPT))
 
 
@@ -935,6 +939,10 @@ def refuse_unreachable_routes(
             route requiring a scope that is not an OAuth scope token.
     """
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
+        if _serves_metadata(route):
+            # The route grelmicro added for the metadata inherits the app's
+            # guards, and never runs them: the document is served first.
+            continue
         template = f"{prefix}{getattr(route, 'path_format', route.path)}"
         excluded = not selects(template, include=(), exclude=exclude)
         # Sorted, so the method a refusal names is the same on every run.
