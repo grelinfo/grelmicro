@@ -19,8 +19,8 @@ from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     AUTHENTICATED_MARKER,
     document_operations,
+    metadata_path_of,
     operation_authentication,
-    resource_metadata_of,
     serves_anonymous_routes,
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
@@ -653,7 +653,7 @@ def _document_authentication(app: Litestar, options: dict[str, Any]) -> None:
             scopes=scopes,
             media_type=errors.media_type,
             model=errors.model,
-            metadata=resource_metadata_of(options),
+            metadata_path=metadata_path_of(options),
         )
 
     app.on_startup.append(document)

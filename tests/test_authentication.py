@@ -86,6 +86,10 @@ from grelmicro.http import (
     ErrorResponses,
     RateLimitedRequests,
 )
+from grelmicro.http._authentication import (
+    _litestar_declares_public,
+    document_operations,
+)
 from grelmicro.http._idempotency import _has_dependencies
 from grelmicro.integrations.fastapi import (
     Anonymous,
@@ -3819,6 +3823,14 @@ def published(**options: Any) -> FastAPI:  # noqa: ANN401
     return app
 
 
+class Keyless:
+    """A verifier of your own, which names no issuer."""
+
+    def verify(self, token: str) -> Any:  # noqa: ANN401, ARG002
+        """Never called: the component is refused before it serves."""
+        raise AssertionError  # pragma: no cover
+
+
 class TestResourceMetadata:
     """Telling a client where to get a token, as RFC 9728 describes."""
 
@@ -3826,11 +3838,11 @@ class TestResourceMetadata:
         """Public, cacheable, and readable from a browser on any origin."""
         response = TestClient(published()).get(WELL_KNOWN)
 
-        assert response.json() == {
-            "resource": RESOURCE,
-            "authorization_servers": [ISSUER],
-            "bearer_methods_supported": ["header"],
-        }
+        assert response.content == (
+            b'{"resource":"https://api.example.com/orders",'
+            b'"authorization_servers":["https://auth.grel.info/"],'
+            b'"bearer_methods_supported":["header"]}'
+        )
         assert response.headers["content-type"] == "application/json"
         assert response.headers["access-control-allow-origin"] == "*"
         assert response.headers["cache-control"] == "public, max-age=3600"
@@ -4002,8 +4014,10 @@ class TestResourceMetadata:
         assert options.headers["access-control-allow-methods"] == (
             "GET, HEAD, OPTIONS"
         )
+        assert options.headers["access-control-allow-origin"] == "*"
         assert post.status_code == HTTP_405_METHOD_NOT_ALLOWED
         assert post.headers["allow"] == "GET, HEAD, OPTIONS"
+        assert post.headers["access-control-allow-origin"] == "*"
 
     def test_starlette_and_litestar_publish_it_too(self) -> None:
         """Litestar's router drops a trailing slash, and the document is still found."""
@@ -4113,7 +4127,13 @@ class TestResourceMetadata:
             AuthenticatedRequests(issuing(), **options)
 
     @pytest.mark.parametrize(
-        "named", [verifier, lambda: issuing("orders-auth")]
+        "named",
+        [
+            verifier,
+            lambda: issuing("orders-auth"),
+            lambda: issuing("https://auth.grel.info/?tenant=a"),
+            Keyless,
+        ],
     )
     def test_a_verifier_without_an_issuer_url_needs_authorization_servers(
         self,
@@ -4123,11 +4143,129 @@ class TestResourceMetadata:
         with pytest.raises(TypeError, match="authorization_servers="):
             AuthenticatedRequests(named(), resource=RESOURCE)
 
-    def test_names_written_as_one_string_are_refused(self) -> None:
+    def test_a_verifier_of_your_own_publishes_the_servers_given(self) -> None:
+        """A verifier naming no issuer is fine once the servers are given."""
+        component = AuthenticatedRequests(
+            Keyless(), resource=RESOURCE, authorization_servers=[ISSUER]
+        )
+
+        assert component.config.authorization_servers == (ISSUER,)
+
+    @pytest.mark.parametrize("parameter", ["authorization_servers", "scopes"])
+    def test_names_written_as_one_string_are_refused(
+        self, parameter: str
+    ) -> None:
         """One string would otherwise read as one name per character."""
-        with pytest.raises(TypeError, match="not a single string"):
-            AuthenticatedRequests(
-                issuing(),
-                resource=RESOURCE,
-                scopes="orders:read",  # ty: ignore[invalid-argument-type]
+        options: dict[str, Any] = {parameter: "orders:read"}
+
+        async def app(scope: Any, receive: Any, send: Any) -> None: ...  # noqa: ANN401  # pragma: no cover
+
+        with pytest.raises(TypeError, match=f"^{parameter}= takes"):
+            AuthenticatedRequests(issuing(), resource=RESOURCE, **options)
+        with pytest.raises(TypeError, match=f"^{parameter}= takes"):
+            AuthenticatedRequestsMiddleware(
+                app, verifier=issuing(), resource=RESOURCE, **options
             )
+
+
+class TestRootPathRedirects:
+    """A trailing slash redirect is predicted under a root path, as Starlette makes it."""
+
+    @staticmethod
+    def app() -> FastAPI:
+        """Return an app served under `/api`, with public reads."""
+        app = FastAPI(root_path="/api")
+
+        @app.get("/items", dependencies=[Anonymous()])
+        async def items() -> list[str]:
+            return []  # pragma: no cover
+
+        @app.get("/orders", dependencies=[Anonymous()])
+        async def orders() -> list[str]:
+            return []  # pragma: no cover
+
+        @app.post("/orders/")
+        async def create() -> None: ...  # pragma: no cover
+
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        return app
+
+    def test_a_public_route_missed_by_its_slash_is_redirected(self) -> None:
+        """The redirect to the public route is sent without a credential."""
+        response = TestClient(self.app()).get(
+            "/api/items/", follow_redirects=False
+        )
+
+        assert response.status_code == HTTP_307_TEMPORARY_REDIRECT
+
+    def test_a_route_answering_the_slashed_path_keeps_it_authenticated(
+        self,
+    ) -> None:
+        """Starlette answers the route there, so no redirect is predicted."""
+        response = TestClient(self.app()).get(
+            "/api/orders/", follow_redirects=False
+        )
+
+        assert response.status_code == HTTP_401_UNAUTHORIZED
+
+
+class TestLitestarDeclarations:
+    """What a Litestar route declares public, for a report or a schema."""
+
+    def test_the_options_litestar_adds_is_public_beside_a_public_handler(
+        self,
+    ) -> None:
+        """Only where a handler of the route is public."""
+
+        @get("/catalog", opt=LitestarAnonymous())
+        async def catalog() -> list[str]:
+            return []  # pragma: no cover
+
+        @get("/orders")
+        async def orders() -> list[str]:
+            return []  # pragma: no cover
+
+        app = Litestar(route_handlers=[catalog, orders], openapi_config=None)
+        declared = {
+            route.path: _litestar_declares_public(route, "OPTIONS")
+            for _, route, _ in walk_routes(app)
+        }
+
+        assert declared == {"/catalog": True, "/orders": False}
+
+
+class TestDocumentOperations:
+    """The shared schema annotation, on schemas no framework built."""
+
+    @staticmethod
+    def annotate(schema: dict[str, Any], **options: Any) -> dict[str, Any]:  # noqa: ANN401
+        """Annotate `schema` for a bearer token, with no route public."""
+        errors = ErrorResponses()
+        document_operations(
+            schema,
+            verifier=verifier(),
+            bans=False,
+            exclude=(),
+            public=set(),
+            scopes={},
+            media_type=errors.media_type,
+            model=errors.model,
+            **options,
+        )
+        return schema
+
+    def test_an_operation_after_a_path_level_field_is_annotated(self) -> None:
+        """A path item may list shared fields before its operations."""
+        schema = self.annotate(
+            {"paths": {"/orders": {"parameters": [], "get": {}}}}
+        )
+
+        assert schema["paths"]["/orders"]["get"]["security"] == [{SCHEME: []}]
+
+    def test_the_metadata_is_described_on_a_schema_without_paths(self) -> None:
+        """The document is described even when nothing else is."""
+        schema = self.annotate({}, metadata_path=WELL_KNOWN)
+
+        assert schema["paths"][WELL_KNOWN]["get"]["security"] == []

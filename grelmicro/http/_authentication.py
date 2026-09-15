@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import re
@@ -1069,7 +1070,7 @@ def document_operations(
     scopes: dict[tuple[str, str], list[str]],
     media_type: str,
     model: type[BaseModel],
-    metadata: _ResourceMetadata | None = None,
+    metadata_path: str | None = None,
 ) -> None:
     """Require the scheme on every covered operation, with its refusals.
 
@@ -1101,9 +1102,10 @@ def document_operations(
                 bans=bans,
                 inherited=inherited,
             )
-    if metadata is not None:
-        schema.setdefault("paths", {}).setdefault(
-            metadata.path, {"get": _METADATA_OPERATION}
+    if metadata_path is not None:
+        paths = schema["paths"] = schema.get("paths") or {}
+        paths.setdefault(
+            metadata_path, {"get": copy.deepcopy(_METADATA_OPERATION)}
         )
 
 
@@ -2092,26 +2094,29 @@ _METADATA_OPERATION: Final = {
 class _ResourceMetadata:
     """The protected resource metadata a service publishes, ready to serve."""
 
-    path: str
-    """The path the document is served at."""
     paths: frozenset[str]
-    """Every route path that reads as `path`, however the router reads it."""
+    """Every route path the document is served at, however the router reads it."""
     pointer: bytes
     """The `resource_metadata` parameter a bearer challenge gets."""
     body: bytes
     """The document itself."""
 
 
-def resource_metadata_of(
-    options: Mapping[str, Any],
-) -> _ResourceMetadata | None:
-    """Return the metadata a middleware built with `options` publishes."""
-    return _resource_metadata(
-        options.get("resource"),
-        tuple(options.get("authorization_servers") or ()),
-        tuple(options.get("scopes") or ()),
-        options["verifier"],
-    )
+def metadata_path_of(options: Mapping[str, Any]) -> str | None:
+    """Return where a middleware built with `options` serves its metadata."""
+    resource = options.get("resource")
+    return None if resource is None else _metadata_path(resource)
+
+
+def _metadata_path(resource: str) -> str:
+    """Return the path the protected resource metadata of `resource` is served at.
+
+    The well-known suffix goes between the host and the path, and a path
+    that is only `/` is dropped first, so a client finds the document from
+    the URL it calls.
+    """
+    path = urlsplit(resource).path
+    return f"{_WELL_KNOWN}{'' if path == '/' else path}"
 
 
 def _resource_metadata(
@@ -2121,10 +2126,6 @@ def _resource_metadata(
     verifier: object,
 ) -> _ResourceMetadata | None:
     """Build the document `resource` publishes, and where it is served.
-
-    The well-known suffix goes between the host and the path, and a path
-    that is only `/` is dropped first, so a client finds the document from
-    the URL it calls.
 
     Raises:
         TypeError: If no authorization server is named and the verifier
@@ -2144,7 +2145,7 @@ def _resource_metadata(
         )
         raise TypeError(msg)
     parts = urlsplit(resource)
-    path = f"{_WELL_KNOWN}{'' if parts.path == '/' else parts.path}"
+    path = _metadata_path(resource)
     query = f"?{parts.query}" if parts.query else ""
     document: dict[str, Any] = {
         "resource": resource,
@@ -2155,7 +2156,6 @@ def _resource_metadata(
     document["bearer_methods_supported"] = ["header"]
     url = f"{parts.scheme}://{parts.netloc}{path}{query}"
     return _ResourceMetadata(
-        path=path,
         paths=frozenset({path, path.rstrip("/")}),
         pointer=f'resource_metadata="{url}"'.encode("ascii"),
         body=json.dumps(document, separators=(",", ":")).encode(),
