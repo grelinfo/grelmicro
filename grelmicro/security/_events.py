@@ -208,6 +208,7 @@ class SecurityEvents:
         status: int,
         template: str | None,
         subject: str | None,
+        authenticated: bool = False,
     ) -> None:
         """Count a refusal, mark the span, and write the record.
 
@@ -216,13 +217,14 @@ class SecurityEvents:
         kind already written for the address inside the interval is counted
         into the next record instead.
 
-        A missing scope counts on `AUTHORIZATION_REFUSALS`, because the
-        request already counted as one that authenticated.
+        A refusal of a request `authenticated` already counted, such as a
+        missing scope a route raises, counts on `AUTHORIZATION_REFUSALS`
+        instead, so every request is one attempt.
         """
         attributes: dict[str, Any] = {"error.type": refusal}
         if template is not None:
             attributes["http.route"] = template
-        if status == 403:  # noqa: PLR2004
+        if authenticated:
             _emit.incr(AUTHORIZATION_REFUSALS, attributes, unit="{refusal}")
         else:
             attributes["grelmicro.outcome"] = "refused"

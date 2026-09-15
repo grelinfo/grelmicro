@@ -164,6 +164,7 @@ def recorded[E: BaseException](scope: Scope, error: E) -> E:
             status=found[1],
             template=route_template(scope, scope.get("path", "")),
             subject=subject_of(scope.get("user")),
+            authenticated=True,
         )
     return error
 

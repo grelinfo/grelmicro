@@ -29,6 +29,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route
 
 from grelmicro import Grelmicro
+from grelmicro.errors import InsufficientScopeError
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
@@ -729,6 +730,32 @@ class TestMetrics:
                 },
             )
         ]
+
+    def test_a_missing_scope_check_raises_counts_as_a_refused_attempt(
+        self, metrics: InMemoryMetricReader
+    ) -> None:
+        """A request `check` refuses never authenticated, so it is one attempt."""
+
+        def scoped(caller: Any, scope: Any) -> Any:  # noqa: ANN401, ARG001
+            raise InsufficientScopeError(scopes=["orders:write"])
+
+        client = TestClient(
+            app_with(AuthenticatedRequests(verifier(), check=scoped))
+        )
+
+        client.get("/whoami", headers=bearer(token()))
+
+        assert points(metrics, "grelmicro.authentication.attempts") == [
+            (
+                1,
+                {
+                    "error.type": "insufficient-scope",
+                    "http.route": "/whoami",
+                    "grelmicro.outcome": "refused",
+                },
+            )
+        ]
+        assert points(metrics, "grelmicro.authorization.refusals") == []
 
     def test_active_bans_are_read_when_metrics_are_collected(
         self, metrics: InMemoryMetricReader
