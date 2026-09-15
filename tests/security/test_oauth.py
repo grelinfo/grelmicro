@@ -477,6 +477,66 @@ class TestConfiguration:
         with pytest.raises(SettingsValidationError, match="client_secret"):
             OAuthClient.from_config(config, client_auth=signing)
 
+    def test_from_config_uses_the_secret_client_auth_carries(self) -> None:
+        """A secret passed to `ClientAuth.secret` is the one sent."""
+        config = OAuthClientConfig(
+            token_endpoint=TOKEN_ENDPOINT, client_id="orders-api"
+        )
+
+        client = OAuthClient.from_config(
+            config, client_auth=ClientAuth.secret(SECRET)
+        )
+
+        secret = client.config.client_secret
+        assert secret is not None
+        assert secret.get_secret_value() == SECRET
+
+    def test_from_config_refuses_a_secret_set_twice(self) -> None:
+        """A secret in both places is refused, never one silently winning."""
+        config = OAuthClientConfig(
+            token_endpoint=TOKEN_ENDPOINT,
+            client_id="orders-api",
+            client_secret=SecretStr("config-secret"),
+        )
+
+        with pytest.raises(
+            SettingsValidationError, match="one place"
+        ) as caught:
+            OAuthClient.from_config(
+                config, client_auth=ClientAuth.secret(SECRET)
+            )
+
+        assert SECRET not in str(caught.value)
+        assert "config-secret" not in str(caught.value)
+
+    def test_from_config_uses_the_path_client_auth_carries(
+        self, tmp_path: Path
+    ) -> None:
+        """A path passed to `ClientAuth.assertion_file` is the one read."""
+        config = OAuthClientConfig(
+            token_endpoint=TOKEN_ENDPOINT, client_id="orders-api"
+        )
+
+        client = OAuthClient.from_config(
+            config, client_auth=ClientAuth.assertion_file(tmp_path / "token")
+        )
+
+        assert client.config.assertion_file == str(tmp_path / "token")
+
+    def test_from_config_refuses_a_path_set_twice(self, tmp_path: Path) -> None:
+        """A path in both places is refused."""
+        config = OAuthClientConfig(
+            token_endpoint=TOKEN_ENDPOINT,
+            client_id="orders-api",
+            assertion_file=str(tmp_path / "config"),
+        )
+
+        with pytest.raises(SettingsValidationError, match="one place"):
+            OAuthClient.from_config(
+                config,
+                client_auth=ClientAuth.assertion_file(tmp_path / "token"),
+            )
+
 
 class TestDiscovery:
     """Finding the token endpoint in the issuer's metadata."""
@@ -1781,7 +1841,7 @@ class TestEdges:
         [
             (True, DEFAULT_LIFETIME),
             ("120", 120),
-            (-5, DEFAULT_LIFETIME),
+            (-5, 0),
             ("soon", DEFAULT_LIFETIME),
         ],
     )
@@ -1792,7 +1852,7 @@ class TestEdges:
         expires_in: object,
         lifetime: int,
     ) -> None:
-        """A boolean, a negative or a word is not a lifetime, digits are."""
+        """A boolean or a word is no lifetime, digits are, a negative is expired."""
         server.answers.append(token_response("token", expires_in=expires_in))
 
         async with secret_client() as client:
@@ -2112,7 +2172,7 @@ class TestUnreadableNumbers:
     def test_any_lifetime_a_server_sends_is_read_or_ignored(
         self, expires_in: object, refresh_in: object
     ) -> None:
-        """A lifetime is always finite and positive, and a hint is one or absent."""
+        """A lifetime is always finite and never negative, and a hint is positive or absent."""
         client = OAuthClient.endpoint(
             TOKEN_ENDPOINT,
             client_id="orders-api",
@@ -2131,8 +2191,24 @@ class TestUnreadableNumbers:
         _, lifetime, hint = client._issued(body)
 
         assert math.isfinite(lifetime)
-        assert lifetime > 0
+        assert lifetime >= 0
         assert hint is None or (math.isfinite(hint) and hint > 0)
+
+    async def test_a_token_expired_on_arrival_is_used_once_and_not_cached(
+        self, server: AuthServer, clock: Clock
+    ) -> None:
+        """`expires_in: 0` says the token is already expired, so it is not kept."""
+        server.answers.append(token_response("expired", expires_in=0))
+
+        async with secret_client() as client:
+            pattern = payments(client)
+            first = await pattern.token()
+            second = await pattern.token()
+
+        assert first.value == "expired"
+        assert first.expires_at == int(clock.wall)
+        assert second.value == "token-1"
+        assert_fetches(server, 2)
 
     @settings(max_examples=500, suppress_health_check=[HealthCheck.too_slow])
     @given(header=st.text())

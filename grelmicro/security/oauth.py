@@ -986,10 +986,15 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         What you pass is what runs: no environment variable is read, and the
         client is not registered for live reload.
 
+        A secret or a path `client_auth` carries is used, and one set both
+        there and in `config` is refused rather than one silently winning.
+
         Raises:
             SettingsValidationError: If `config` holds what `client_auth`
-                does not use, or lacks what it needs.
+                does not use, lacks what it needs, or holds a secret or path
+                `client_auth` carries too.
         """
+        config = _with_client_auth(config, client_auth)
         _check_auth(config, client_auth, prefix="")
         instance = cls.__new__(cls)
         instance._setup(config, client_auth, name)  # noqa: SLF001
@@ -1482,7 +1487,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         if not isinstance(token_type, str) or token_type.lower() != "bearer":
             msg = "the token response carries a token type other than Bearer"
             raise self._down_failure(msg)
-        lifetime = _seconds(parsed.get("expires_in"))
+        lifetime = _lifetime(parsed.get("expires_in"))
         scope = parsed.get("scope")
         token = AccessToken(
             value=value,
@@ -1662,6 +1667,38 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             msg = "the assertion file is empty"
             raise self._down_failure(msg)
         return assertion
+
+
+def _with_client_auth(
+    config: OAuthClientConfig, auth: ClientAuth
+) -> OAuthClientConfig:
+    """Return `config` holding the secret or the path `auth` carries.
+
+    Raises:
+        SettingsValidationError: If `config` already holds the one `auth`
+            carries.
+    """
+    update: dict[str, object] = {}
+    secret = auth._secret  # noqa: SLF001
+    if secret is not None:
+        if config.client_secret is not None:
+            msg = (
+                "the client secret is set on both ClientAuth.secret() and the"
+                " config. Set it in one place."
+            )
+            raise SettingsValidationError(msg)
+        update["client_secret"] = secret
+    path = auth._path  # noqa: SLF001
+    if path is not None:
+        if config.assertion_file is not None:
+            msg = (
+                "the assertion file is set on both"
+                " ClientAuth.assertion_file() and the config. Set it in one"
+                " place."
+            )
+            raise SettingsValidationError(msg)
+        update["assertion_file"] = path
+    return config.model_copy(update=update) if update else config
 
 
 def _check_auth(
@@ -2404,8 +2441,8 @@ def _json_object(body: bytes) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _seconds(value: object) -> float | None:
-    """Return a positive, finite number of seconds a response states, or `None`.
+def _number(value: object) -> float | None:
+    """Return the finite number a response states, or `None`.
 
     A number written as a string counts when it is plain ASCII digits. One
     too large to read, or to hold as a float, does not.
@@ -2422,10 +2459,26 @@ def _seconds(value: object) -> float | None:
     if not isinstance(value, (int, float)):
         return None
     try:
-        seconds = float(value)
+        number = float(value)
     except OverflowError:
         return None
-    return seconds if math.isfinite(seconds) and seconds > 0 else None
+    return number if math.isfinite(number) else None
+
+
+def _seconds(value: object) -> float | None:
+    """Return a positive number of seconds a response states, or `None`."""
+    seconds = _number(value)
+    return seconds if seconds is not None and seconds > 0 else None
+
+
+def _lifetime(value: object) -> float | None:
+    """Return how long a token lives, or `None` when the response does not say.
+
+    Zero or less means the token is already expired, so it is used once and
+    never cached.
+    """
+    seconds = _number(value)
+    return None if seconds is None else max(seconds, 0.0)
 
 
 def _retry_after(value: str | None) -> float | None:

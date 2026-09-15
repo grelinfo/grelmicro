@@ -188,7 +188,7 @@ instrumentation = [
 # one through pydantic-core, so this adds no platform that was not already
 # required, and a single implementation keeps one behaviour to verify.
 jwt = [
-    "grelmicro-core>=0.1.3",
+    "grelmicro-core>=0.1.2",
 ]
 structlog = [
     "structlog>=24.1.0",
