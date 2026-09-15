@@ -2468,3 +2468,66 @@ class TestChallenges:
     ) -> None:
         """Whatever an API sends in `WWW-Authenticate`, reading it never raises."""
         assert isinstance(oauth._refuses_token([challenge]), bool)
+
+
+def dripping(request: httpx.Request) -> httpx.Response:  # noqa: ARG001
+    """Answer with a body that sends one byte every 50 ms, and never ends."""
+
+    async def body() -> AsyncIterator[bytes]:
+        while True:
+            yield b" "
+            await asyncio.sleep(0.05)
+
+    return httpx.Response(200, content=body())
+
+
+class TestDeadline:
+    """A request to the authorization server is bounded as a whole, not per read."""
+
+    async def test_a_token_response_that_drips_is_cut_off(
+        self, server: AuthServer
+    ) -> None:
+        """A body sent slowly enough to pass every read timeout still ends."""
+        server.answers.append(dripping)
+        config = OAuthClientConfig(
+            token_endpoint=TOKEN_ENDPOINT,
+            client_id="orders-api",
+            client_secret=SecretStr(SECRET),
+            timeout=0.3,
+        )
+
+        async with OAuthClient.from_config(
+            config, client_auth=ClientAuth.secret()
+        ) as client:
+            with pytest.raises(
+                TokenUnavailableError, match="did not answer within"
+            ):
+                await asyncio.wait_for(payments(client).token(), timeout=5)
+            with pytest.raises(TokenUnavailableError):
+                await payments(client, audience="other-api").token()
+
+        assert_fetches(server, 1)
+
+    async def test_metadata_that_drips_does_not_hold_up_opening(
+        self, server: AuthServer
+    ) -> None:
+        """A slow metadata document is passed over, and the client still opens."""
+        server.metadata_answers.extend([dripping, dripping])
+        config = OAuthClientConfig(
+            issuer=ISSUER,
+            client_id="orders-api",
+            client_secret=SecretStr(SECRET),
+            timeout=0.3,
+        )
+        client = OAuthClient.from_config(
+            config, client_auth=ClientAuth.secret()
+        )
+
+        await asyncio.wait_for(client.__aenter__(), timeout=5)
+        try:
+            with pytest.raises(TokenUnavailableError, match="no answer within"):
+                await payments(client).token()
+        finally:
+            await client.__aexit__(None, None, None)
+
+        assert server.token_requests == []

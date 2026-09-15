@@ -1415,6 +1415,12 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                     f" {self._config.max_bytes} bytes"
                 )
                 raise self._down_failure(msg) from None
+            except TimeoutError:
+                msg = (
+                    "the token endpoint did not answer within"
+                    f" {self._config.timeout} seconds"
+                )
+                raise self._down_failure(msg) from None
             return self._read(status, body, retry_after)
         msg = "unreachable"  # pragma: no cover
         raise AssertionError(msg)  # pragma: no cover
@@ -1424,13 +1430,20 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
     ) -> tuple[int, bytes, str | None]:
         """Post `form` and return the status, the body and `Retry-After`.
 
+        `timeout` bounds the whole request, body included, not each read, so
+        a server sending its answer one byte at a time still runs out of time.
+
         Raises:
             _Oversized: If the body passes `max_bytes`.
+            TimeoutError: If the answer is not complete within `timeout`.
         """
         config = self._config
-        async with self._client.stream(
-            "POST", url, data=form, headers=headers, timeout=config.timeout
-        ) as response:
+        async with (
+            asyncio.timeout(config.timeout),
+            self._client.stream(
+                "POST", url, data=form, headers=headers, timeout=config.timeout
+            ) as response,
+        ):
             body = await _read_capped(response, config.max_bytes)
             return (
                 response.status_code,
@@ -1441,16 +1454,22 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
     async def _get(self, url: str) -> tuple[int, bytes]:
         """Get `url` and return the status and the body.
 
+        `timeout` bounds the whole request, body included, not each read.
+
         Raises:
             _Oversized: If the body passes `max_bytes`.
+            TimeoutError: If the answer is not complete within `timeout`.
         """
         config = self._config
-        async with self._client.stream(
-            "GET",
-            url,
-            headers={"Accept": "application/json"},
-            timeout=config.timeout,
-        ) as response:
+        async with (
+            asyncio.timeout(config.timeout),
+            self._client.stream(
+                "GET",
+                url,
+                headers={"Accept": "application/json"},
+                timeout=config.timeout,
+            ) as response,
+        ):
             body = await _read_capped(response, config.max_bytes)
             return response.status_code, body
 
@@ -1636,6 +1655,11 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             except _Oversized:
                 failures.append(
                     f"{url}: larger than {self._config.max_bytes} bytes"
+                )
+                continue
+            except TimeoutError:
+                failures.append(
+                    f"{url}: no answer within {self._config.timeout} seconds"
                 )
                 continue
             if status != 200:  # noqa: PLR2004
