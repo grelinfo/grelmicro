@@ -85,9 +85,9 @@ The record then carries `enduser.id`, the `subject` of the caller
 asked for what, from where, and what they got.
 
 The caller is read from `request.user`, so your own authentication is logged
-too when its user has a string `subject`, as every `Principal` does. A user
-without one, such as Starlette's `SimpleUser`, is not written: a display name
-is not an identifier.
+too when its user has `is_authenticated` set to `True` and a non-empty string
+`subject`. A user missing either is not written. Starlette's `SimpleUser` has
+no `subject`, and a display name is not an identifier.
 
 - It is off by default. A subject can be personal data, such as an email
   address some providers use as `sub`, so writing it is a decision you make.
