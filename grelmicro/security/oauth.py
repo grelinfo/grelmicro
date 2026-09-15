@@ -675,13 +675,14 @@ class _TokenCache:
     expired, so a cache of rotating tokens keeps the ones still in use.
     """
 
-    __slots__ = ("_entries", "_refused", "_size")
+    __slots__ = ("_dropped", "_entries", "_refused", "_size")
 
     def __init__(self, size: int) -> None:
         """Start empty, holding at most `size` tokens."""
         self._size = size
         self._entries: dict[Hashable, _Entry] = {}
         self._refused: dict[Hashable, tuple[float, TokenUnavailableError]] = {}
+        self._dropped: dict[Hashable, float] = {}
 
     def get(self, key: Hashable, now: float) -> _Entry | None:
         """Return the token for `key` while it has not expired."""
@@ -705,11 +706,28 @@ class _TokenCache:
         entries[key] = entry
         self._refused.pop(key, None)
 
-    def drop(self, key: Hashable, value: str) -> None:
-        """Drop the token for `key`, but only while it is still `value`."""
+    def drop(
+        self, key: Hashable, value: str, now: float, interval: float
+    ) -> bool:
+        """Drop the token for `key` while it is still `value`, and say whether to fetch.
+
+        A token is dropped at most once per `interval` for a key. One refused
+        again within it is kept and `False` returned, so an API that refuses
+        every token costs one fetch per interval rather than one per request.
+        A token already replaced, or never cached, needs no drop.
+        """
         entry = self._entries.get(key)
-        if entry is not None and entry.token.value == value:
-            self._entries.pop(key, None)
+        if entry is None or entry.token.value != value:
+            return True
+        dropped = self._dropped.get(key)
+        if dropped is not None and now - dropped < interval:
+            return False
+        self._entries.pop(key, None)
+        self._dropped.pop(key, None)
+        while len(self._dropped) >= _REMEMBERED_REFUSALS:
+            self._dropped.pop(next(iter(self._dropped)))
+        self._dropped[key] = now
+        return True
 
     def refused(
         self, key: Hashable, now: float
@@ -1242,20 +1260,21 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
 
     async def _drop(
         self, cache: _TokenCache, key: Hashable, value: str
-    ) -> None:
+    ) -> bool:
         """Drop the token cached for `key`, on the loop the client was opened on.
 
         Every change to a cache happens on that loop, so a refusal reported
-        from another loop never races a fetch storing a new token.
+        from another loop never races a fetch storing a new token. Returns
+        whether a newer token may be fetched, which it may not for a token
+        refused again within `retry_interval` of the last drop.
         """
         loop = self._loop
         if loop is not None and asyncio.get_running_loop() is not loop:
             future = asyncio.run_coroutine_threadsafe(
                 self._drop(cache, key, value), loop
             )
-            await asyncio.wrap_future(future)
-            return
-        cache.drop(key, value)
+            return await asyncio.wrap_future(future)
+        return cache.drop(key, value, monotonic(), self._config.retry_interval)
 
     def _start(
         self,
@@ -2079,10 +2098,10 @@ class ClientCredentials(_TokenPattern):
         self,
         subject: VerifiedToken | None,  # noqa: ARG002
         token: AccessToken,
-    ) -> None:
-        """Drop `token`, while it is still the one cached."""
+    ) -> bool:
+        """Drop `token` while it is still cached, and say whether to fetch again."""
         client = self._resolved()
-        await client._drop(  # noqa: SLF001
+        return await client._drop(  # noqa: SLF001
             self._cache,
             client._identity,  # noqa: SLF001
             token.value,
@@ -2345,11 +2364,11 @@ class TokenExchange(_TokenPattern):
 
     async def _invalidate(
         self, subject: VerifiedToken | None, token: AccessToken
-    ) -> None:
-        """Drop `token`, while it is still the one cached for `subject`."""
+    ) -> bool:
+        """Drop `token` while it is cached for `subject`, and say whether to fetch."""
         verified = _verified(subject)
         client = self._resolved()
-        await client._drop(  # noqa: SLF001
+        return await client._drop(  # noqa: SLF001
             self._cache, self._key(client, verified), token.value
         )
 
@@ -2402,9 +2421,9 @@ class _Source:
         """Return the token to send."""
         return await self._pattern._obtain(self._subject)  # noqa: SLF001
 
-    async def invalidate(self, token: AccessToken) -> None:
-        """Drop `token`, which the API refused."""
-        await self._pattern._invalidate(self._subject, token)  # noqa: SLF001
+    async def invalidate(self, token: AccessToken) -> bool:
+        """Drop `token`, which the API refused, and say whether to fetch again."""
+        return await self._pattern._invalidate(self._subject, token)  # noqa: SLF001
 
 
 def _authorization(token: AccessToken) -> str:
@@ -2422,8 +2441,12 @@ async def _async_auth_flow(self: Any, request: Any) -> AsyncGenerator[Any, Any]:
         response.headers.get_list("www-authenticate")
     ):
         return
-    await source.invalidate(token)
-    if request.method not in _SAFE_METHODS or not _replayable(request):
+    renewable = await source.invalidate(token)
+    if (
+        not renewable
+        or request.method not in _SAFE_METHODS
+        or not _replayable(request)
+    ):
         return
     token = await source.token()
     request.headers["Authorization"] = _authorization(token)

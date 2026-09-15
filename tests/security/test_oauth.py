@@ -1567,6 +1567,35 @@ class TestAuth:
         assert response.status_code == httpx.codes.UNAUTHORIZED
         assert api.tokens == ["Bearer token-1", "Bearer token-2"]
 
+    async def test_an_api_refusing_every_token_costs_one_fetch_per_interval(
+        self, server: AuthServer, clock: Clock
+    ) -> None:
+        """A token refused again right after a refresh is kept, and the 401 returned."""
+        api = FakeAPI(*[httpx.codes.UNAUTHORIZED] * 8)
+
+        async with (
+            secret_client() as client,
+            api_client(payments(client).auth(), api) as http,
+        ):
+            first = await http.get(API)
+            second = await http.get(API)
+            third = await http.get(API)
+            assert_fetches(server, 2)
+            clock.advance(5)
+            fourth = await http.get(API)
+
+        refused = {first, second, third, fourth}
+        assert {r.status_code for r in refused} == {httpx.codes.UNAUTHORIZED}
+        assert api.tokens == [
+            "Bearer token-1",
+            "Bearer token-2",
+            "Bearer token-2",
+            "Bearer token-2",
+            "Bearer token-2",
+            "Bearer token-3",
+        ]
+        assert_fetches(server, 3)
+
     async def test_httpx2_client_accepts_it(self) -> None:
         """One auth object works on both httpx lines."""
         seen: list[str] = []
@@ -2143,6 +2172,35 @@ class TestEdges:
             token = await exchange.token(first)
 
         assert token.value == "token-1"
+
+    async def test_remembered_drops_are_bounded(
+        self, server: AuthServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The oldest dropped token is forgotten first once the table is full."""
+        monkeypatch.setattr(oauth, "_REMEMBERED_REFUSALS", 1)
+        alice = caller("alice", FAR_FUTURE)
+        bob = caller("bob", FAR_FUTURE)
+
+        async with secret_client() as client:
+            exchange = TokenExchange(
+                "payments-api",
+                audience="payments-api",
+                client=client,
+                env_load=False,
+            )
+            first_for_alice = await exchange.token(alice)
+            dropped_alice = await exchange._invalidate(alice, first_for_alice)
+            second_for_alice = await exchange.token(alice)
+            first_for_bob = await exchange.token(bob)
+            dropped_bob = await exchange._invalidate(bob, first_for_bob)
+            dropped_alice_again = await exchange._invalidate(
+                alice, second_for_alice
+            )
+
+        assert dropped_alice
+        assert dropped_bob
+        assert dropped_alice_again
+        assert_fetches(server, 3)
 
     async def test_refused_exchanged_token_is_dropped_for_its_caller(
         self, server: AuthServer

@@ -210,6 +210,13 @@ request again only for `GET`, `HEAD`, `OPTIONS`, `PUT` and `DELETE`, once, and
 only when the body can be sent twice. A `POST /charges` is never sent twice.
 Refusals arriving together share one fetch.
 
+A token is dropped for a refusal at most once per `retry_interval`. An API that
+refuses every token, because the audience is wrong or the client is not allowed,
+would otherwise turn each outbound call into a token request, and soon into a
+`429` from the authorization server that stops every other token the client
+asks for. Past the first refusal in an interval, the token is kept and the
+`401` is the caller's to handle.
+
 Some clients resend any method after a `401`. An opt-in for that was weighed and
 not added. Nothing in a request says it is safe to repeat: the `Idempotency-Key`
 header draft expired without becoming a standard. A caller who knows a `POST`

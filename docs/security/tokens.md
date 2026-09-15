@@ -265,7 +265,10 @@ request was not processed, since a gateway can authenticate after acting, so a
 a streamed upload, is not retried either. To retry a `POST` you know is safe,
 catch the `401` and send it again yourself.
 
-Many requests refused at once cost one fetch, not one each.
+Many requests refused at once cost one fetch, not one each. A token refused
+again within `retry_interval` of the last refused one is kept, and the `401`
+reaches your code, so an API that refuses every token, such as one expecting
+another audience, costs one fetch per interval rather than one per request.
 
 ## Proxies and certificates
 
