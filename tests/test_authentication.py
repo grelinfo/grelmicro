@@ -15,7 +15,7 @@ import time
 import warnings
 from dataclasses import replace
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Annotated, Any, Self
+from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Security
@@ -4413,7 +4413,10 @@ class TestResourceMetadataOnLitestar:
 
     def test_the_route_serves_the_document_itself(self) -> None:
         """Whatever reaches the route gets the declared middleware's document."""
-        app = declared_on_litestar(scopes=("orders:read",))
+        app = declared_on_litestar(
+            scopes=("orders:read",),
+            authorization_servers=("https://login.example.com/t1",),
+        )
         Grelmicro(
             uses=[ErrorResponses(), AuthenticatedRequests(issuing())]
         ).install(app)
@@ -4434,10 +4437,12 @@ class TestResourceMetadataOnLitestar:
             )
 
         asyncio.run(serve())
+        document = json.loads(sent[1]["body"])
 
         assert sent[0]["status"] == HTTP_200_OK
-        assert json.loads(sent[1]["body"])["scopes_supported"] == [
-            "orders:read"
+        assert document["scopes_supported"] == ["orders:read"]
+        assert document["authorization_servers"] == [
+            "https://login.example.com/t1"
         ]
 
     def test_a_path_the_app_already_routes_is_left_alone(self) -> None:
@@ -4476,3 +4481,48 @@ class TestResourceMetadataOnLitestar:
         ]
         assert len(placement) == 1
         assert f"no route at {WELL_KNOWN}" in str(placement[0].message)
+
+    def test_a_middleware_wrapping_litestar_by_hand_finds_a_slashed_resource(
+        self,
+    ) -> None:
+        """Litestar's router drops the slash, and the document is still served."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        app = Litestar(route_handlers=[orders], openapi_config=None)
+        app.asgi_handler = cast(
+            "Any",
+            AuthenticatedRequestsMiddleware(
+                cast("Any", app.asgi_handler),
+                verifier=issuing(),
+                resource="https://api.example.com/orders/",
+            ),
+        )
+
+        with LitestarTestClient(app) as client:
+            response = client.get(f"{WELL_KNOWN}/")
+
+        assert response.json()["resource"] == "https://api.example.com/orders/"
+
+    def test_a_route_of_the_app_at_the_path_needs_no_warning(self) -> None:
+        """A hand-built middleware behind a router routing the path stays quiet."""
+
+        @get(WELL_KNOWN)
+        async def own() -> dict[str, bool]:
+            return {"own": True}  # pragma: no cover
+
+        app = declared_on_litestar(own)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(app) as client:
+                refused = client.get("/orders")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
