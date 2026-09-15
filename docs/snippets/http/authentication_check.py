@@ -16,7 +16,7 @@ async def still_valid(caller: Principal, scope: Scope) -> Principal | None:
         f"signed-out:{caller.issuer}:{caller.subject}"
     )
     issued_at = caller.claims.get("iat")
-    if signed_out and (issued_at is None or issued_at <= int(signed_out)):
+    if signed_out and (issued_at is None or int(issued_at) <= int(signed_out)):
         return None
     return caller
 
