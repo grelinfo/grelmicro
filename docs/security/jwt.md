@@ -131,7 +131,10 @@ a token with no `exp`.
 
 `verify` returns a `JWTClaims`. The registered claims are fields, `subject`,
 `issuer`, `audience`, `expires_at`, `issued_at` and `token_id`, and `claims`
-holds every claim as it arrived, read-only.
+holds every claim as it arrived, read-only. `expires_at` and `issued_at` are
+whole seconds: a token whose `exp` or `iat` carries a fraction, which
+[RFC 7519](https://www.rfc-editor.org/rfc/rfc7519#section-2) allows, reads with
+the fraction rounded down.
 
 `scopes` is what the token grants. It is read from `scope`, then `scp`, as a
 space-separated string or an array of strings, so Microsoft Entra ID's `scp`

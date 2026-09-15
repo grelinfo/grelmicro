@@ -44,6 +44,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 `JWTClaims.expires_at` and `issued_at` are whole seconds for a token whose `exp` or `iat` carries a fraction, rounded down, instead of a `float` their `int` type never announced. `claims` keeps the value as it arrived. ([#871](https://github.com/grelinfo/grelmicro/pull/871))
 * 🐛 On Litestar, an `include` or `exclude` pattern matches the path its router serves, with a trailing slash or a doubled slash dropped, whether or not the app has a root path. `exclude=("/livez",)` covers `/livez/` too. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 On Litestar, middleware added with `Litestar(middleware=[...])` matches `include` and `exclude` against the path the request was routed to. The root path is taken off once, and a mount is matched by its own path, so `exclude` can no longer match a path inside a mount. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 A request's route path is read exactly as the framework's router reads it, a `root_path` ending in a slash or equal to the path included, so authentication, the response cache, idempotency and the other components never check a route other than the one that answers. ([#839](https://github.com/grelinfo/grelmicro/issues/839))

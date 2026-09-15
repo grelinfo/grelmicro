@@ -16,6 +16,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import StrEnum
 from logging import getLogger
+from math import floor
 from time import monotonic, time
 from types import MappingProxyType
 from typing import (
@@ -776,8 +777,14 @@ class JWTClaims:
     subject: Annotated[str | None, Doc("The `sub` claim.")]
     issuer: Annotated[str | None, Doc("The `iss` claim.")]
     audience: Annotated[str | tuple[str, ...] | None, Doc("The `aud` claim.")]
-    expires_at: Annotated[int | None, Doc("The `exp` claim, in seconds.")]
-    issued_at: Annotated[int | None, Doc("The `iat` claim, in seconds.")]
+    expires_at: Annotated[
+        int | None,
+        Doc("The `exp` claim, in whole seconds, a fraction rounded down."),
+    ]
+    issued_at: Annotated[
+        int | None,
+        Doc("The `iat` claim, in whole seconds, a fraction rounded down."),
+    ]
     token_id: Annotated[str | None, Doc("The `jti` claim.")]
     scopes: Annotated[
         frozenset[str],
@@ -840,11 +847,20 @@ def _claims_of(raw: dict[str, Any], scope_claims: tuple[str, ...]) -> JWTClaims:
         subject=get("sub"),
         issuer=get("iss"),
         audience=_frozen(get("aud")),
-        expires_at=get("exp"),
-        issued_at=get("iat"),
+        expires_at=_whole_seconds(get("exp")),
+        issued_at=_whole_seconds(get("iat")),
         token_id=get("jti"),
         scopes=_scopes_of(raw, scope_claims),
     )
+
+
+def _whole_seconds(value: float | None) -> int | None:
+    """Return a verified NumericDate in whole seconds, a fraction rounded down.
+
+    RFC 7519 lets a NumericDate carry a fraction, so a token may say
+    `"exp": 1726400000.5`, which reads as `1726400000`.
+    """
+    return floor(value) if isinstance(value, float) else value
 
 
 _STRING_CLAIMS: Final = ("jti",)
