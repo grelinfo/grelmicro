@@ -62,6 +62,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro.errors import (
+    _AMBIENT_SCOPE_NOTE,
     DependencyNotFoundError,
     GrelmicroError,
     OutOfContextError,
@@ -1932,9 +1933,9 @@ class _TokenPattern:
         except LookupError:
             msg = (
                 f"{type(self).__name__}({self._name!r}) found no OAuthClient."
-                " Register one in Grelmicro(uses=[...]) and run inside"
-                " `async with micro:` or after `micro.install(app)`, or pass"
-                " client=."
+                f" {_AMBIENT_SCOPE_NOTE} Register one in"
+                " Grelmicro(uses=[...]) and run inside `async with micro:`,"
+                " or pass client=."
             )
             raise OutOfContextError(msg) from None
 

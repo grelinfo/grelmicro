@@ -46,12 +46,19 @@ class TimezoneError(TaskError, ValueError):
 
 
 class TaskAddOperationError(TaskError, RuntimeError):
-    """Task Add Operation Error."""
+    """Raised when the task set is changed after the tasks have started.
 
-    def __init__(self) -> None:
+    The default message covers adding a task or including a router. A
+    caller that changes something else on a running task passes its own
+    message, so the fix named is the one that applies.
+    """
+
+    def __init__(self, message: str | None = None) -> None:
         """Initialize the error."""
         super().__init__(
-            "Could not add the task, try calling 'add_task' and 'include_router' before starting"
+            message
+            or "Could not add the task after the tasks started. Call "
+            "'add_task' and 'include_router' before starting."
         )
 
 

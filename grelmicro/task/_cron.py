@@ -457,7 +457,12 @@ class CronTask(Task):
             TimezoneError: If no timezone of that name can be loaded.
         """
         if self._running:
-            raise TaskAddOperationError
+            msg = (
+                "Could not set the default timezone on a running task. Pass "
+                "timezone= to the cron task, or set it on Tasks before it "
+                "starts."
+            )
+            raise TaskAddOperationError(msg)
         if self._declared_timezone is not None:
             return
         self._tz = resolve_timezone(timezone)
@@ -487,7 +492,8 @@ class CronTask(Task):
             OutOfContextError: An app is running but no `Coordination`
                 component is registered. Pass `backend=`, register a
                 `Coordination` Component, or run the call inside
-                `async with micro:` or after `micro.install(app)`.
+                `async with micro:`. `micro.install(app)` covers requests
+                and websockets, and not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
@@ -496,7 +502,10 @@ class CronTask(Task):
             Grelmicro,
             NoActiveAppError,
         )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+        from grelmicro.errors import (  # noqa: PLC0415
+            _AMBIENT_SCOPE_NOTE,
+            OutOfContextError,
+        )
 
         try:
             app = Grelmicro.current()
@@ -507,9 +516,9 @@ class CronTask(Task):
         except ComponentNotRegisteredError:
             msg = (
                 f"Cron task {self.name!r} resolved no schedule backend. "
-                f"Pass backend=, register a Coordination component, or run "
-                f"the call inside `async with micro:` or after "
-                f"`micro.install(app)`."
+                f"{_AMBIENT_SCOPE_NOTE} Pass backend=, register a "
+                f"Coordination component, or run the call inside "
+                f"`async with micro:`."
             )
             raise OutOfContextError(msg) from None
         return coordination.schedule_backend

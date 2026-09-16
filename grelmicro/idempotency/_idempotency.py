@@ -19,7 +19,7 @@ from grelmicro.cache._stampede import (
 )
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination.lock import Lock
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import _AMBIENT_SCOPE_NOTE, OutOfContextError
 from grelmicro.idempotency.config import IdempotencyConfig
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -132,8 +132,9 @@ class _Block(Generic[T]):
         Raises:
             OutOfContextError: No cache backend resolved in this scope.
                 Pass `cache=`, register a `Cache` Component, or run the
-                call inside `async with micro:` or after
-                `micro.install(app)`.
+                call inside `async with micro:`. `micro.install(app)`
+                covers requests and websockets, and not a lifespan of
+                your own.
             IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
                 execution already in flight held the single-flight lock.
         """
@@ -147,9 +148,9 @@ class _Block(Generic[T]):
         except OutOfContextError:
             msg = (
                 f"Idempotency({self._idempotency.name!r}) resolved no "
-                f"cache backend. Pass cache=, register a Cache "
-                f"component, or run the call inside `async with micro:` or "
-                f"after `micro.install(app)`."
+                f"cache backend. {_AMBIENT_SCOPE_NOTE} Pass cache=, "
+                f"register a Cache component, or run the call inside "
+                f"`async with micro:`."
             )
             raise OutOfContextError(msg) from None
         if replay is not _SENTINEL:

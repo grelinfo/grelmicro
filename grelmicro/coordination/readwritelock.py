@@ -50,6 +50,7 @@ from grelmicro.coordination.errors import (
 )
 from grelmicro.coordination.lock import LockConfig, validate_lock_name
 from grelmicro.errors import (
+    _AMBIENT_SCOPE_NOTE,
     LockTimeoutError,
     OutOfContextError,
     WouldBlockError,
@@ -292,7 +293,8 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryReadWriteLockAdapter()` for a per-process
                 lock), register a `Coordination` Component, or run the call
-                inside `async with micro:` or after `micro.install(app)`.
+                inside `async with micro:`. `micro.install(app)` covers
+                requests and websockets, and not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
@@ -302,10 +304,11 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
             )
         except LookupError:
             msg = (
-                f"ReadWriteLock({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryReadWriteLockAdapter() for a per-process "
-                f"lock), register a Coordination component, or run the call "
-                f"inside `async with micro:` or after `micro.install(app)`."
+                f"ReadWriteLock({self._name!r}) resolved no backend. "
+                f"{_AMBIENT_SCOPE_NOTE} Pass backend= "
+                f"(MemoryReadWriteLockAdapter() for a per-process lock), "
+                f"register a Coordination component, or run the call inside "
+                f"`async with micro:`."
             )
             raise OutOfContextError(msg) from None
         return coordination.rwlock_backend

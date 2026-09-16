@@ -232,8 +232,13 @@ async def test_resolution_refuses_to_move_a_running_task() -> None:
         await tasks.start()
 
         # Assert
-        with pytest.raises(Exception, match="start"):
+        with pytest.raises(Exception, match="start") as exc:
             tasks._resolve_timezones("America/Chicago")
+
+        # The refusal is about the timezone, not about adding a task.
+        msg = str(exc.value)
+        assert "Pass timezone= to the cron task" in msg
+        assert "'add_task'" not in msg
 
 
 def test_from_config_bypasses_the_environment() -> None:

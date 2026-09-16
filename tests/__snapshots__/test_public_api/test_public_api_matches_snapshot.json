@@ -37,7 +37,9 @@
     "MultipleActiveAppsError": {
       "()": "() -> None"
     },
-    "NoActiveAppError": null,
+    "NoActiveAppError": {
+      "()": "(message=None) -> 'None'"
+    },
     "OutOfContextError": {
       "()": "(cls, method_name=None) -> None"
     },
@@ -1083,7 +1085,7 @@
       "()": "(*args, **kwargs)"
     },
     "TaskAddOperationError": {
-      "()": "() -> None"
+      "()": "(message=None) -> None"
     },
     "TaskError": null,
     "TaskRouter": {

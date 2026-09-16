@@ -438,6 +438,18 @@ def test_get_missing_component_error_lists_registered_keys() -> None:
     assert "('oth', 'b')" in msg
 
 
+def test_get_missing_component_error_names_the_fix() -> None:
+    """The miss names registering the component, not just what is missing."""
+    # Arrange
+    micro = Grelmicro(uses=[_RecordingComponent(name="a")])
+
+    # Act / Assert
+    with pytest.raises(ComponentNotRegisteredError) as exc:
+        micro.get("rec", "missing")
+
+    assert "Register one in Grelmicro(uses=[...])" in str(exc.value)
+
+
 # --- Lifespan: enter, LIFO teardown ---
 
 
@@ -499,6 +511,26 @@ async def test_current_micro_raises_outside_block() -> None:
         Grelmicro.current()
 
 
+async def test_current_micro_error_names_the_fix() -> None:
+    """The miss names both ways to bind an app, not just the class."""
+    # Act / Assert
+    with pytest.raises(NoActiveAppError) as exc:
+        Grelmicro.current()
+
+    msg = str(exc.value)
+    assert "micro.install(app)" in msg
+    assert "async with micro:" in msg
+
+
+async def test_current_micro_error_names_the_request_scope() -> None:
+    """A handler reaching the miss is told a request runs in its own task."""
+    # Act / Assert
+    with pytest.raises(NoActiveAppError) as exc:
+        Grelmicro.current()
+
+    assert "request runs in its own task" in str(exc.value)
+
+
 async def test_current_micro_is_per_task() -> None:
     """Two concurrent tasks each see their own Grelmicro."""
     # Neither app configures process-global state, so they overlap freely.
@@ -542,11 +574,55 @@ async def test_double_aenter_raises() -> None:
             await micro.__aenter__()
 
 
+async def test_double_aenter_error_says_the_app_is_already_open() -> None:
+    """The message reports the state reached, not the opposite one."""
+    # Arrange
+    micro = Grelmicro()
+
+    # Act / Assert
+    async with micro:
+        with pytest.raises(OutOfContextError) as exc:
+            await micro.__aenter__()
+
+    msg = str(exc.value)
+    assert "already open" in msg
+    assert "outside of the context manager" not in msg
+
+
+async def test_double_aenter_error_names_the_fix() -> None:
+    """The message names the shapes that reach it and what to change."""
+    # Arrange
+    micro = Grelmicro()
+
+    # Act / Assert
+    async with micro:
+        with pytest.raises(OutOfContextError) as exc:
+            await micro.__aenter__()
+
+    msg = str(exc.value)
+    assert "TestClients" in msg
+    assert "Install it on one app only" in msg
+
+
 async def test_aexit_without_aenter_raises() -> None:
     """Calling `__aexit__` on a never-entered `Grelmicro` raises `OutOfContextError`."""
     micro = Grelmicro()
     with pytest.raises(OutOfContextError):
         await micro.__aexit__(None, None, None)
+
+
+async def test_aexit_without_aenter_error_names_the_fix() -> None:
+    """Closing an app that was never opened names how to open it."""
+    # Arrange
+    micro = Grelmicro()
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        await micro.__aexit__(None, None, None)
+
+    msg = str(exc.value)
+    assert "is not open" in msg
+    assert "async with micro:" in msg
 
 
 class _RecordingContext:
@@ -737,6 +813,22 @@ async def test_override_outside_active_context_raises() -> None:
     with pytest.raises(OutOfContextError):
         async with micro.override(mock):
             pass
+
+
+async def test_override_outside_active_context_error_names_the_fix() -> None:
+    """The message names the block `override` scopes to."""
+    # Arrange
+    micro = Grelmicro()
+    mock = _RecordingComponent(name="default")
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        async with micro.override(mock):
+            pass  # pragma: no cover
+
+    msg = str(exc.value)
+    assert "micro.override()" in msg
+    assert "async with micro:" in msg
 
 
 async def test_unknown_kind_attribute_raises_attribute_error() -> None:
@@ -1266,6 +1358,21 @@ async def test_fake_outside_context_raises() -> None:
     with pytest.raises(OutOfContextError):
         async with micro.fake():
             pass  # pragma: no cover
+
+
+async def test_fake_outside_context_error_names_the_fix() -> None:
+    """The message names the block `fake` scopes to."""
+    # Arrange
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        async with micro.fake():
+            pass  # pragma: no cover
+
+    msg = str(exc.value)
+    assert "micro.fake()" in msg
+    assert "async with micro:" in msg
 
 
 async def test_typed_properties_resolve_every_first_party_kind() -> None:

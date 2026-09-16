@@ -36,7 +36,11 @@ from grelmicro.coordination._protocol import (
     Seconds,
 )
 from grelmicro.coordination._tokens import resolve_worker
-from grelmicro.errors import OutOfContextError, WouldBlockError
+from grelmicro.errors import (
+    _AMBIENT_SCOPE_NOTE,
+    OutOfContextError,
+    WouldBlockError,
+)
 from grelmicro.metrics import _emit
 from grelmicro.task._protocol import Task
 
@@ -459,8 +463,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryLeaderElectionAdapter()` for a
                 per-process election), register a `Coordination`
-                Component, or run the call inside `async with micro:` or
-                after `micro.install(app)`.
+                Component, or run the call inside `async with micro:`.
+                `micro.install(app)` covers requests and websockets, and
+                not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
@@ -470,10 +475,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             )
         except LookupError:
             msg = (
-                f"LeaderElection({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryLeaderElectionAdapter() for a per-process "
+                f"LeaderElection({self._name!r}) resolved no backend. "
+                f"{_AMBIENT_SCOPE_NOTE} Pass backend= "
+                f"(MemoryLeaderElectionAdapter() for a per-process "
                 f"election), register a Coordination component, or run the "
-                f"call inside `async with micro:` or after `micro.install(app)`."
+                f"call inside `async with micro:`."
             )
             raise OutOfContextError(msg) from None
         return coordination.election_backend

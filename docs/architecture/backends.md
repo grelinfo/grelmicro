@@ -224,4 +224,6 @@ A Provider is shared by identity: every Component that uses the same Provider at
 
 ## Error handling
 
-Accessing a Component that has not been registered raises `ComponentNotRegisteredError` with a descriptive message. Resolving a Pattern outside any `async with micro:` block raises `NoActiveAppError`.
+Accessing a Component that has not been registered raises `ComponentNotRegisteredError`. The message lists every registered `(kind, name)` pair and names registering the missing one.
+
+Resolving a Pattern with no app bound in the current scope raises `NoActiveAppError`, or `OutOfContextError` when the Pattern can name its own wiring. Both messages say that `micro.install(app)` covers requests and websockets, and not a lifespan you wrote yourself. A call made at startup needs the `async with micro:` block, even in an app that calls `install`.

@@ -26,7 +26,7 @@ from grelmicro._guards import is_instance
 from grelmicro._wrapping import named, refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import _AMBIENT_SCOPE_NOTE, OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -215,8 +215,9 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryRateLimiterAdapter()` for a
                 per-process limiter), register a `RateLimiterComponent`
-                Component, or run the call inside `async with micro:` or
-                after `micro.install(app)`.
+                Component, or run the call inside `async with micro:`.
+                `micro.install(app)` covers requests and websockets, and
+                not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
@@ -226,10 +227,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             )
         except LookupError:
             msg = (
-                f"RateLimiter({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryRateLimiterAdapter() for a per-process "
-                f"limiter), register a RateLimiterComponent component, or run the "
-                f"call inside `async with micro:` or after `micro.install(app)`."
+                f"RateLimiter({self._name!r}) resolved no backend. "
+                f"{_AMBIENT_SCOPE_NOTE} Pass backend= "
+                f"(MemoryRateLimiterAdapter() for a per-process limiter), "
+                f"register a RateLimiterComponent component, or run the "
+                f"call inside `async with micro:`."
             )
             raise OutOfContextError(msg) from None
         return component.backend

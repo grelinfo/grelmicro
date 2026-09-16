@@ -219,7 +219,10 @@ class AuthenticationRequiredError(GrelmicroError):
     def __init__(self, *, scopes: Sequence[str] = ()) -> None:
         """Initialize the error with the scopes the route requires."""
         self.scopes = _scope_tokens(scopes)
-        super().__init__("No credential was presented where one is required.")
+        super().__init__(
+            "No credential was presented where one is required. Send a "
+            "bearer token in the Authorization header."
+        )
 
 
 class AmbiguousCredentialsError(GrelmicroError):
@@ -240,7 +243,10 @@ class AmbiguousCredentialsError(GrelmicroError):
 
     def __init__(self) -> None:
         """Initialize the error."""
-        super().__init__("More than one credential was presented.")
+        super().__init__(
+            "More than one credential was presented. Send one Authorization "
+            "header."
+        )
 
 
 class InsufficientScopeError(GrelmicroError):
@@ -262,13 +268,19 @@ class InsufficientScopeError(GrelmicroError):
     def __init__(self, *, scopes: Sequence[str]) -> None:
         """Initialize the error with the scopes the request requires."""
         self.scopes = _scope_tokens(scopes)
-        super().__init__("The caller lacks a scope this request needs.")
+        super().__init__(
+            "The caller lacks a scope this request needs. Ask your "
+            "authorization server for a token carrying every scope the "
+            "challenge names."
+        )
 
 
 class OutOfContextError(GrelmicroError, RuntimeError):
-    """Outside Context Error.
+    """Raised when something is used before it was opened.
 
-    Raised when a method is called outside of the context manager.
+    The message names the object and the call that reached it, then the
+    change that opens it: registering it on the app, or entering it with
+    `async with`.
     """
 
     def __init__(self, cls: object, method_name: str | None = None) -> None:
@@ -280,10 +292,27 @@ class OutOfContextError(GrelmicroError, RuntimeError):
         if method_name is None:
             super().__init__(str(cls))
         else:
+            name = cls.__class__.__name__
             super().__init__(
-                f"Could not call {cls.__class__.__name__}.{method_name} "
-                "outside of the context manager"
+                f"Could not call {name}.{method_name} before the {name} was "
+                f"opened. Register it in Grelmicro(uses=[...]), or open it "
+                f"with `async with`."
             )
+
+
+_AMBIENT_SCOPE_NOTE = (
+    "A lifespan of your own runs outside the app scope, and "
+    "micro.install(app) covers requests and websockets only."
+)
+"""Context line shared by every ambient-miss message.
+
+A pattern that resolves through the active app is reached from two places
+that look the same and are not. `micro.install(app)` binds the app scope
+around each request and websocket, so a handler resolves. It does not reach
+a lifespan the caller wrote, so a call made at startup resolves nothing even
+though `install` was called. Every ambient miss says so before naming the
+fix.
+"""
 
 
 class DependencyNotFoundError(GrelmicroError, ImportError):

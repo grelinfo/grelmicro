@@ -106,7 +106,7 @@ async def test_owned_provider_is_opened_and_closed(
         )
         assert await strategy.try_acquire() is True
 
-    with pytest.raises(Exception, match="outside of the context manager"):
+    with pytest.raises(Exception, match="before the SQLiteProvider was opened"):
         _ = backend.provider.client
 
 

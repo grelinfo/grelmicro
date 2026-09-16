@@ -45,7 +45,8 @@ class PreconditionFailedError(PreconditionError):
         """Initialize the error."""
         super().__init__(
             "The precondition of this request does not match the current "
-            "state of the resource."
+            "state of the resource. Fetch the resource again and retry with "
+            "the entity tag it carries now."
         )
 
 

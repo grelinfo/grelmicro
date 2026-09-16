@@ -11,7 +11,7 @@ from grelmicro._app import resolve_ambient
 from grelmicro._component import instantiate_if_class
 from grelmicro._config import env_prefixes, resolve_config
 from grelmicro._markers import Registered, mark_registered
-from grelmicro.errors import OutOfContextError
+from grelmicro.errors import _AMBIENT_SCOPE_NOTE, OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
 from grelmicro.outbox._config import OutboxConfig
@@ -277,17 +277,18 @@ class Outbox:
 
         Raises:
             OutOfContextError: No active app, or no `Outbox` registered under
-                `name`. Run inside `async with micro:` or after
-                `micro.install(app)`, with an `Outbox` in `uses=[...]`.
+                `name`. Run inside `async with micro:`, with an `Outbox` in
+                `uses=[...]`. `micro.install(app)` covers requests and
+                websockets, and not a lifespan of your own.
         """
         try:
             return resolve_ambient((cls.kind, name))
         except LookupError:
             msg = (
                 f"Outbox({name!r}) is not available: no active app, or no "
-                f"Outbox registered under {name!r}. Run inside "
-                f"`async with micro:` or after `micro.install(app)`, with an "
-                f"Outbox registered in uses=[...]."
+                f"Outbox registered under {name!r}. {_AMBIENT_SCOPE_NOTE} "
+                f"Run inside `async with micro:`, with an Outbox registered "
+                f"in uses=[...]."
             )
             raise OutOfContextError(msg) from None
 

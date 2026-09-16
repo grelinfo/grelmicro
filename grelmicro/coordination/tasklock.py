@@ -51,7 +51,11 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.errors import OutOfContextError, WouldBlockError
+from grelmicro.errors import (
+    _AMBIENT_SCOPE_NOTE,
+    OutOfContextError,
+    WouldBlockError,
+)
 
 logger = getLogger("grelmicro.coordination")
 
@@ -326,8 +330,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryLockAdapter()` for a per-process
                 lock), register a `Coordination` Component, or run the
-                call inside `async with micro:` or after
-                `micro.install(app)`.
+                call inside `async with micro:`. `micro.install(app)`
+                covers requests and websockets, and not a lifespan of
+                your own.
         """
         if self._backend is not None:
             return self._backend
@@ -337,10 +342,10 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             )
         except LookupError:
             msg = (
-                f"TaskLock({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryLockAdapter() for a per-process lock), "
-                f"register a Coordination component, or run the call inside "
-                f"`async with micro:` or after `micro.install(app)`."
+                f"TaskLock({self._name!r}) resolved no backend. "
+                f"{_AMBIENT_SCOPE_NOTE} Pass backend= (MemoryLockAdapter() "
+                f"for a per-process lock), register a Coordination "
+                f"component, or run the call inside `async with micro:`."
             )
             raise OutOfContextError(msg) from None
         return coordination.lock_backend

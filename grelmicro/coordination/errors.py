@@ -75,6 +75,24 @@ class LockBackendError(CoordinationError):
     """Lock Backend Error."""
 
 
+_BACKEND_HINT = "Check the backend is reachable and retry."
+"""Fix named by a lock error the backend itself raised.
+
+The backend's own error is chained to it, so the cause is one frame away.
+Nothing about the lock call can be changed to avoid it, which leaves
+reaching the backend as the thing to fix.
+"""
+
+_NOT_OWNED = "lock not owned"
+"""Release reason set when the lease expired or another holder took it."""
+
+_NOT_OWNED_HINT = (
+    "The lease expired or another holder took it. Raise duration= above how "
+    "long the body runs."
+)
+"""Fix named by a release that found the lock was no longer ours."""
+
+
 class LockLockedCheckError(LockBackendError):
     """Lock Locked Check Error.
 
@@ -83,7 +101,9 @@ class LockLockedCheckError(LockBackendError):
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(f"Failed to check if lock is acquired: name={name}")
+        super().__init__(
+            f"Failed to check if lock is acquired: name={name}. {_BACKEND_HINT}"
+        )
 
 
 class LockOwnedCheckError(LockBackendError):
@@ -94,7 +114,9 @@ class LockOwnedCheckError(LockBackendError):
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(f"Failed to check if lock is owned: name={name}")
+        super().__init__(
+            f"Failed to check if lock is owned: name={name}. {_BACKEND_HINT}"
+        )
 
 
 class LockAcquireError(LockBackendError):
@@ -105,7 +127,9 @@ class LockAcquireError(LockBackendError):
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(f"Failed to acquire lock: name={name}")
+        super().__init__(
+            f"Failed to acquire lock: name={name}. {_BACKEND_HINT}"
+        )
 
 
 class LockReleaseError(LockBackendError):
@@ -116,9 +140,11 @@ class LockReleaseError(LockBackendError):
 
     def __init__(self, *, name: str, reason: str | None = None) -> None:
         """Initialize the error."""
+        hint = _NOT_OWNED_HINT if reason == _NOT_OWNED else _BACKEND_HINT
         super().__init__(
             f"Failed to release lock: name={name}"
-            + (f", reason={reason}" if reason else ""),
+            + (f", reason={reason}" if reason else "")
+            + f". {hint}",
         )
 
 
@@ -131,4 +157,4 @@ class LockNotOwnedError(LockReleaseError):
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(name=name, reason="lock not owned")
+        super().__init__(name=name, reason=_NOT_OWNED)

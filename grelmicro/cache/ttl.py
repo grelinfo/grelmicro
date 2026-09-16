@@ -26,7 +26,11 @@ from grelmicro.cache.serializers import (
     _infer_serializer_from_instance,
     _resolve_serializer,
 )
-from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.errors import (
+    _AMBIENT_SCOPE_NOTE,
+    OutOfContextError,
+    SettingsValidationError,
+)
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -285,8 +289,8 @@ class TTLCache(Generic[T]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryCacheAdapter()` for a per-process
                 cache), register a `Cache` Component, or run the call
-                inside `async with micro:` or after
-                `micro.install(app)`.
+                inside `async with micro:`. `micro.install(app)` covers
+                requests and websockets, and not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
@@ -294,10 +298,10 @@ class TTLCache(Generic[T]):
             cache = resolve_ambient(("cache", "default"))
         except LookupError:
             msg = (
-                "TTLCache resolved no backend. Pass backend= "
-                "(MemoryCacheAdapter() for a per-process cache), register "
-                "a Cache component, or run the call inside `async with micro:` "
-                "or after `micro.install(app)`."
+                f"TTLCache resolved no backend. {_AMBIENT_SCOPE_NOTE} Pass "
+                f"backend= (MemoryCacheAdapter() for a per-process cache), "
+                f"register a Cache component, or run the call inside "
+                f"`async with micro:`."
             )
             raise OutOfContextError(msg) from None
         return cache.backend

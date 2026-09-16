@@ -80,6 +80,54 @@ async def lock(locks: list[Lock]) -> Lock:
     return locks[WORKER_1]
 
 
+def test_lock_ambient_miss_error_names_the_install_scope() -> None:
+    """The miss says what `micro.install(app)` does not cover."""
+    # Arrange
+    unwired = Lock("report")
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        _ = unwired.backend
+
+    msg = str(exc.value)
+    assert "covers requests and websockets only" in msg
+    assert "async with micro:" in msg
+
+
+def test_lock_ambient_miss_error_names_the_wiring_options() -> None:
+    """The miss names each way to give the lock a backend."""
+    # Arrange
+    unwired = Lock("report")
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        _ = unwired.backend
+
+    msg = str(exc.value)
+    assert "MemoryLockAdapter()" in msg
+    assert "register a Coordination component" in msg
+
+
+def test_lock_acquire_error_names_the_fix() -> None:
+    """A backend failure names reaching the backend."""
+    # Arrange / Act
+    error = LockAcquireError(name=LOCK_NAME)
+
+    # Assert
+    assert "Check the backend is reachable and retry." in str(error)
+
+
+def test_lock_not_owned_error_names_the_lease_fix() -> None:
+    """A release that lost the lease names the lease duration, not the backend."""
+    # Arrange / Act
+    error = LockNotOwnedError(name=LOCK_NAME)
+
+    # Assert
+    msg = str(error)
+    assert "Raise duration= above how long the body runs." in msg
+    assert "Check the backend is reachable" not in msg
+
+
 # A lease long enough that it never expires mid-test, even under heavy
 # parallel load. Three shapes need it. A `from_thread` call is a thread<->loop
 # round-trip, and the shared session loop can be starved by parallel
