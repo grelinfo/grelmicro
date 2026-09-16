@@ -18,6 +18,7 @@ from grelmicro._timezone import SHARED_TIMEZONE_ENV, UTC_NAME
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._protocol import Task
 from grelmicro.task.errors import (
+    LeaderNotRegisteredError,
     TaskStartOperationError,
 )
 from grelmicro.task.router import TaskRouter
@@ -261,6 +262,23 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
             handle.cancel()
         self._task_handles.clear()
 
+    def _check_leader_gates(self) -> None:
+        """Refuse a task gated on an election registered nowhere.
+
+        A `LeaderElection` renews its lease only while it runs as a task, so
+        one that is not registered never acquires leadership and every fire of
+        the task it gates is skipped for the life of the process. Read through
+        `getattr` so the task package never imports the coordination package,
+        which imports `Task` from here.
+        """
+        tasks = self.tasks
+        registered = {id(task) for task in tasks}
+        for task in tasks:
+            for primitive in getattr(task, "_sync_primitives", ()):
+                election = getattr(primitive, "_election", None)
+                if election is not None and id(election) not in registered:
+                    raise LeaderNotRegisteredError(election.name, task.name)
+
     async def start(self) -> None:
         """Start all tasks manually."""
         if not self._task_group:
@@ -272,6 +290,7 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         # Resolve before marking as started: `_set_default_timezone`
         # refuses to move a task that is already running.
         self._resolve_timezones(self._config.timezone)
+        self._check_leader_gates()
         self.do_mark_as_started()
 
         loop = asyncio.get_running_loop()

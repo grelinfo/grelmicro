@@ -68,3 +68,21 @@ class TaskStartOperationError(TaskError, RuntimeError):
         super().__init__(
             "Could not start the tasks twice, use one Tasks per application"
         )
+
+
+class LeaderNotRegisteredError(TaskError, RuntimeError):
+    """Leader Not Registered Error.
+
+    Raised when a task is gated on a `LeaderElection` that is not registered
+    with the same `Tasks`. An election renews its lease only while it runs as
+    a task, so an unregistered one never becomes leader and every fire of the
+    task it gates is skipped for the life of the process.
+    """
+
+    def __init__(self, election: str, task: str) -> None:
+        """Initialize the error."""
+        super().__init__(
+            f"Task {task!r} is gated on the leader election {election!r}, "
+            f"which is not registered and would never acquire leadership. "
+            f"Add tasks.add_task(election) beside the task"
+        )

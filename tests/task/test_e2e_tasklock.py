@@ -8,7 +8,16 @@ import asyncio
 
 import pytest
 
+from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination, LeaderElection
 from grelmicro.coordination._protocol import LockBackend
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionAdapter,
+    MemoryLockAdapter,
+)
+from grelmicro.task import Tasks
+from grelmicro.task._interval import IntervalTask
+from grelmicro.task.errors import LeaderNotRegisteredError
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 from tests.task.conftest import TaskFactory
@@ -247,3 +256,57 @@ async def test_tasklock_sequential_executions(
         samples.e2e_event_1 = asyncio.Event()
         await samples.e2e_event_1.wait()
         cancel_group(tg)
+
+
+async def _gated_body() -> None:
+    """Module-level body, because a task refuses a nested function."""
+
+
+async def test_leader_gate_not_registered_is_refused_at_boot() -> None:
+    """An election gating a task but never registered is refused when the app opens.
+
+    Leadership renews only while the election runs as a task. Unregistered, it
+    never acquires, so every fire is skipped forever and nothing says why.
+    """
+    election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+    tasks = Tasks()
+    tasks.add_task(
+        IntervalTask(seconds=60, function=_gated_body, leader=election)
+    )
+
+    micro = Grelmicro(
+        uses=[
+            Coordination(
+                lock=MemoryLockAdapter(),
+                election=MemoryLeaderElectionAdapter(),
+            ),
+            tasks,
+        ]
+    )
+
+    with pytest.raises(LeaderNotRegisteredError, match="not registered"):
+        async with micro:
+            pass
+
+
+async def test_leader_gate_registered_starts() -> None:
+    """A registered election gating a task lets the app start."""
+    election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+    tasks = Tasks()
+    tasks.add_task(election)
+    tasks.add_task(
+        IntervalTask(seconds=60, function=_gated_body, leader=election)
+    )
+
+    micro = Grelmicro(
+        uses=[
+            Coordination(
+                lock=MemoryLockAdapter(),
+                election=MemoryLeaderElectionAdapter(),
+            ),
+            tasks,
+        ]
+    )
+
+    async with micro:
+        assert any(task is election for task in tasks.tasks)
