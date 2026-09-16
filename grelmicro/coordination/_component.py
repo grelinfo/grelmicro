@@ -63,6 +63,28 @@ four.
 """
 
 
+def _positional_backend_message(value: object) -> str:
+    """Say how to pass a backend that arrived where a `Provider` was expected.
+
+    The positional argument resolves every primitive at once, so only a
+    `Provider` can fill it. A backend fills one slot, and the message names
+    the keyword that slot is passed under.
+    """
+    keyword = next(
+        (
+            slot.keyword
+            for slot in COORDINATION_BACKENDS
+            if isinstance(value, slot.protocol)
+        ),
+        "lock",
+    )
+    return (
+        f"Coordination() takes a Provider positionally, got "
+        f"{type(value).__name__}. Pass a backend as a keyword, for example "
+        f"Coordination({keyword}=...)."
+    )
+
+
 class Coordination:
     """Coordination component: wraps backends and exposes coordination primitives.
 
@@ -203,6 +225,8 @@ class Coordination:
 
         if source is not None:
             provider = instantiate_if_class(source)
+            if not isinstance(provider, Provider):
+                raise TypeError(_positional_backend_message(provider))
             # A provider may not ship every adapter kind. Leave a backend
             # unset so the kind raises a clear error only when it is actually
             # used, instead of crashing construction for a locks-only user.

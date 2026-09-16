@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+from time import monotonic
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 import aiosqlite
@@ -27,6 +29,46 @@ if TYPE_CHECKING:
         SQLiteCircuitBreakerAdapter,
     )
     from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
+
+
+_BUSY_TIMEOUT_MS = 5000
+"""Milliseconds a write waits for another process holding the file.
+
+SQLite refuses a write while another connection is writing. With a busy
+timeout the write retries until the deadline instead of failing at once, so
+two processes sharing one file wait for each other. The provider sets it on
+every connection it opens rather than relying on the driver default.
+"""
+
+_WAL_SWITCH_TIMEOUT = 5.0
+"""Seconds the provider keeps trying to switch the file to WAL."""
+
+_WAL_RETRY_INTERVAL = 0.05
+"""Seconds between two attempts at the WAL switch."""
+
+
+async def _enable_wal(connection: aiosqlite.Connection) -> None:
+    """Switch the file to WAL, waiting for another process to let go.
+
+    Changing the journal mode needs the file to itself, and SQLite reports it
+    as locked right away instead of waiting, whatever the busy timeout says.
+    Two processes opening the same new file at the same time would make one of
+    them fail, so the switch is retried until the other one is done.
+
+    Raises:
+        sqlite3.OperationalError: When the file stays locked for longer than
+            `_WAL_SWITCH_TIMEOUT`.
+    """
+    deadline = monotonic() + _WAL_SWITCH_TIMEOUT
+    while True:
+        try:
+            await connection.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.OperationalError:
+            if monotonic() >= deadline:
+                raise
+            await asyncio.sleep(_WAL_RETRY_INTERVAL)
+        else:
+            return
 
 
 class SQLiteConfig(BaseModel):
@@ -264,7 +306,10 @@ class SQLiteProvider(Provider):
         if self._conn is None:
             conn = await aiosqlite.connect(self._path, isolation_level=None)
             try:
-                await conn.execute("PRAGMA journal_mode=WAL;")
+                # The busy timeout comes first, so every later write waits for
+                # another process instead of failing at once.
+                await conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS};")
+                await _enable_wal(conn)
             except BaseException:
                 await conn.close()
                 raise
