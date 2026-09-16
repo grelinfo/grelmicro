@@ -13,19 +13,8 @@ A simple scheduler that runs tasks periodically. Use it for lightweight recurrin
 
 Register a `Tasks` instance with a `Grelmicro` app, then schedule a task with the `every` decorator:
 
-```python
-from grelmicro import Grelmicro
-from grelmicro.task import Tasks
-
-tasks = Tasks()
-micro = Grelmicro(uses=[tasks])
-
-@tasks.every(seconds=5)
-async def cleanup() -> None:
-    ...
-
-async with micro:
-    ...
+```python title="quickstart.py"
+--8<-- "task/quickstart.py"
 ```
 
 !!! warning "Per-process by default"

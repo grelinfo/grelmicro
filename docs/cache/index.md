@@ -116,7 +116,7 @@ cache = TTLCache(maxsize=100, ttl=300, backend=my_backend)
 
 All `TTLCache` methods are async:
 
-```python
+```python title="fragment"
 await cache.set("key", b"value")
 result = await cache.get("key")
 await cache.delete("key")
@@ -137,7 +137,7 @@ Backends store raw bytes. To cache Python objects, name the type:
 
     Type-safe roundtrips using Pydantic's Rust-based TypeAdapter (fastest option):
 
-    ```python
+    ```python title="fragment"
     from pydantic import BaseModel
 
     from grelmicro.cache import TTLCache
@@ -166,7 +166,7 @@ Backends store raw bytes. To cache Python objects, name the type:
 
     For plain dicts and lists, using orjson when available:
 
-    ```python
+    ```python title="fragment"
     from grelmicro.cache import JsonSerializer, TTLCache
 
     cache = TTLCache(ttl=300, serializer=JsonSerializer())
@@ -183,7 +183,7 @@ Backends store raw bytes. To cache Python objects, name the type:
     `JsonSerializer` or `PydanticSerializer` for shared backends like
     Redis or Memcached.
 
-    ```python
+    ```python title="fragment"
     from grelmicro.cache import PickleSerializer, TTLCache
 
     cache = TTLCache(ttl=300, serializer=PickleSerializer())
@@ -198,7 +198,7 @@ With no type parameter and no serializer, only `bytes` values are accepted. `TTL
 
 Override the default TTL for individual entries:
 
-```python
+```python title="fragment"
 await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
 ```
 
@@ -226,7 +226,7 @@ Pass `stale_ttl=` to serve the last good value when the factory fails, the same 
 
 Read, write, and delete many keys in one call:
 
-```python
+```python title="fragment"
 await cache.set_many({"user:1": user1, "user:2": user2}, tags=["users"])
 
 found = await cache.get_many(["user:1", "user:2", "user:3"])
@@ -243,7 +243,7 @@ await cache.delete_many(["user:1", "user:2"])
 
 Tags group entries so you can drop a whole group at once. Tag an entry on `set`, `set_many`, or `get_or_set`, then invalidate by tag with `delete_tags`:
 
-```python
+```python title="fragment"
 await cache.set("user:1", user, tags=["users", "user:1"])
 
 await cache.delete_tags("user:1")   # drop one user

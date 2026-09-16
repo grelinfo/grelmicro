@@ -8,11 +8,27 @@ learn it here and every page after this only lists its own fields.
 ## Two words, on all of them
 
 ```python
+from grelmicro import Grelmicro
+from grelmicro.http import (
+    ConditionalRequests,
+    IdempotentRequests,
+    RateLimitedRequests,
+)
+from grelmicro.log import AccessLog
+from grelmicro.resilience import RateLimiter
+from grelmicro.security import TrustedProxies
+
+burst = RateLimiter.sliding_window("burst", limit=100, window=60)
+
 micro = Grelmicro(
     uses=[
         ConditionalRequests(include=("/carts/*",), exclude=("/carts/legacy",)),
         IdempotentRequests(include=("/payments/*",)),
-        RateLimitedRequests(burst, exclude=("/livez", "/readyz")),
+        RateLimitedRequests(
+            burst,
+            trusted=TrustedProxies(["10.0.0.0/8"]),
+            exclude=("/livez", "/readyz"),
+        ),
         AccessLog(exclude=("/livez", "/readyz")),
     ]
 )

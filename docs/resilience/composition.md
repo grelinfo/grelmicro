@@ -85,7 +85,7 @@ rate limiter max_wait + bulkhead max_wait + timeout seconds
 
 The `Timeout` is innermost, so it bounds the call and nothing above it. A `Bulkhead(max_wait=30.0)` queues for a permit *outside* that deadline, and a limiter with a wait budget queues outside both. To bound one attempt end to end, budget the parts. To bound a whole logical call including its retries, put a deadline above the stack:
 
-```python
+```python title="fragment"
 async with asyncio.timeout(5.0):
     await get_recommendations(user_id)
 ```

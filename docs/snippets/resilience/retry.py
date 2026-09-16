@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 
 from grelmicro.resilience import retry
@@ -10,6 +12,11 @@ async def fetch(client: httpx.AsyncClient, url: str) -> bytes:
     return response.content
 
 
-async def main() -> bytes:
+async def main() -> None:
     async with httpx.AsyncClient() as client:
-        return await fetch(client, "https://example.com")
+        content = await fetch(client, "https://example.com")
+        print(len(content))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

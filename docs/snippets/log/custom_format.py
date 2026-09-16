@@ -2,11 +2,8 @@
 
 from loguru import logger
 
-from grelmicro.log import configure
+from grelmicro.log import LogBackendType, configure
 
-# Ensure clean state
-logger.remove()
-
-configure()
+configure(backend=LogBackendType.LOGURU, format="{level} | {message}")
 
 logger.info("Custom format example")

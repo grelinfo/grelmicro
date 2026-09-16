@@ -340,7 +340,7 @@ too, or `audience="token_endpoint"`.
 
 Open the client yourself and pass it to the pattern:
 
-```python
+```python title="fragment"
 oauth = OAuthClient.discover(...)
 payments_token = ClientCredentials("payments-api", client=oauth, audience="payments-api")
 

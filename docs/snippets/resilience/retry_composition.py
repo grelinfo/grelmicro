@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 from pydantic import BaseModel
 
@@ -27,8 +29,13 @@ async def call_payments(
         return Receipt.model_validate(response.json())
 
 
-async def main() -> Receipt:
+async def main() -> None:
     async with httpx.AsyncClient() as client:
-        return await call_payments(
+        receipt = await call_payments(
             client, "https://example.com", Payment(amount=100)
         )
+        print(receipt)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

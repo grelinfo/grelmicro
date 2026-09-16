@@ -77,7 +77,7 @@ Most Locks are declared once at module load (`lock = Lock("cart")`) and reused
 across requests. When the lock key is computed per request, build a fresh `Lock`
 each time:
 
-```python
+```python title="fragment"
 lock = Lock(f"order:{order_id}")
 async with lock:
     ...
@@ -122,7 +122,7 @@ bounded wait and want to handle the failure yourself.
 Call `extend()` on a `Lock` to renew the TTL without releasing the lock. The
 fencing token stays the same, only the expiry time advances:
 
-```python
+```python title="fragment"
 lock = Lock("cart")
 async with lock as held:
     token_before = held.fencing_token
@@ -139,7 +139,7 @@ A fencing token is a strictly increasing integer the backend mints for a lock
 name. Each acquisition returns a `LockHandle` that carries it. Read it from the
 value the context manager binds:
 
-```python
+```python title="fragment"
 async with Lock("cart") as held:
     print(held.fencing_token)
 ```

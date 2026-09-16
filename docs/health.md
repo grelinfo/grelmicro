@@ -58,7 +58,7 @@ A health check is a function returning `None` (healthy) or a `HealthDetails` dic
 
 Register the `HealthChecks` with a `Grelmicro` app to lifecycle it alongside the rest of your modules. Same FastAPI-style explicit registration as `Tasks`:
 
-```python
+```python title="fragment"
 from grelmicro import Grelmicro
 from grelmicro.health import HealthChecks
 

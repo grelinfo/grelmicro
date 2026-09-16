@@ -12,6 +12,16 @@ pip install "grelmicro[redis]"
 See the [installation guide](installation.md) for `uv`, `poetry`, and the other
 backend extras.
 
+## Reading the examples
+
+Every example with a file name on it is a whole file. Copy it, run it with
+`python`, and it works. The ones that need Redis or Postgres say so, and the
+page gives you the command that starts the service.
+
+Some blocks are a piece of a larger file instead. They carry the label
+`fragment`. Put them inside an `async` function of your own, where the names
+around them are already defined.
+
 ## Mental model
 
 - **Pattern**: the object your app calls, such as `Lock("cart")` or `RateLimiter.sliding_window("api", ...)`.

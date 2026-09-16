@@ -79,7 +79,7 @@ Calling `limiter(...)` returns a `RateLimiterBinding`, which decorates and which
 
 When the limiter protects a service with one shared budget (no per-user or per-IP split), omit `key`. It defaults to `"default"`, and the limiter's own `name` already namespaces the bucket on the backend:
 
-```python
+```python title="fragment"
 api_limiter = RateLimiter.token_bucket("api", capacity=5, refill_rate=1)
 
 await api_limiter.acquire()             # one fleet-wide bucket

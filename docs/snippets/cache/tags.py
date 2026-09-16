@@ -1,3 +1,5 @@
+import asyncio
+
 from pydantic import BaseModel
 
 from grelmicro import Grelmicro
@@ -33,6 +35,10 @@ async def reset_all_users() -> None:
 
 async def main() -> None:
     async with micro:
-        await get_user(1)
+        print(await get_user(1))
         await update_user(1)
         await reset_all_users()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -6,7 +6,7 @@
 
 Pass a Pydantic model. The topic is derived from the model name and the payload is validated at publish time:
 
-```python
+```python title="fragment"
 class OrderPlaced(BaseModel):
     order_id: int
     total: Decimal
@@ -25,7 +25,7 @@ async def on_order(message: Message[OrderPlaced]) -> None:
 
 For a quick call or a message with no model, pass a topic string and a dict instead. The handler reads `message.payload`:
 
-```python
+```python title="fragment"
 await outbox.publish(conn, "email.welcome", {"to": email})
 
 
@@ -125,7 +125,7 @@ async def signup(body: SignUp, session: AsyncSession = Depends(get_session)) -> 
 
 `delay` holds a message back until a future time. `dedup_key` drops a duplicate before it is stored, using an insert that does nothing on conflict, so a producer retry is safe and never raises:
 
-```python
+```python title="fragment"
 await outbox.publish(conn, ReminderDue(...), delay=timedelta(hours=1))
 
 await outbox.publish(conn, OrderPlaced(...), dedup_key=f"order:{order_id}")

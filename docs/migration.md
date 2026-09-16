@@ -60,7 +60,7 @@ Catch the base error, which every one of them already subclassed:
 
 ```python
 # Before
-from grelmicro.log import LogSettingsValidationError
+from grelmicro.log import Log, LogSettingsValidationError
 
 try:
     Log(level="NOPE")
@@ -231,6 +231,7 @@ one backend. Rename the import and the call:
 
 ```python
 # Before
+from grelmicro import Grelmicro
 from grelmicro.resilience import CircuitBreakerRegistry, RateLimiterRegistry
 
 micro = Grelmicro(
@@ -421,7 +422,7 @@ second app.
 The idempotency `Operation.response` attribute is now a `result()` method,
 typed as the stored type so a replay branch returns it without a cast.
 
-```python
+```python title="fragment"
 async with idem(key) as op:
     if op.replayed:
         return op.result()  # was: op.response

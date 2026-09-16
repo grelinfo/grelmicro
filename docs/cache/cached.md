@@ -49,7 +49,7 @@ Arguments not named in the template do not affect the key, so calls that differ 
 
 Each tag is a template filled in from the call's arguments, so one decorator tags every entry with both a shared tag and a per-call tag:
 
-```python
+```python title="fragment"
 @cached(cache, tags=["users", "user:{user_id}"])
 async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
@@ -87,7 +87,7 @@ A `staticmethod` and a `classmethod` are untouched. Neither receives an instance
 
 `refresh()` on a method is reached through the class, because attribute access on an instance returns the helper unbound:
 
-```python
+```python title="fragment"
 await Repo.load.refresh(repo, 42)
 ```
 

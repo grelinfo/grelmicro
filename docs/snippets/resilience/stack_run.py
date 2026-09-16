@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 
 from grelmicro.resilience import Retry, Stack, Timeout
@@ -13,5 +15,11 @@ recs = Stack(
 )
 
 
-async def main(client: httpx.AsyncClient) -> httpx.Response:
-    return await recs.run(client.get, "/recs/42")
+async def main() -> None:
+    async with httpx.AsyncClient(base_url="https://example.com") as client:
+        response = await recs.run(client.get, "/recs/42")
+        print(response.status_code)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

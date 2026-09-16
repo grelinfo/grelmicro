@@ -45,6 +45,9 @@ Set `keep_delivered` to a `timedelta` to keep delivered rows for a window and le
 ```python
 from datetime import timedelta
 
+from grelmicro import Grelmicro
+from grelmicro.outbox import Outbox
+
 micro = Grelmicro(uses=[Outbox(postgres, keep_delivered=timedelta(days=30))])
 ```
 
@@ -52,7 +55,7 @@ The window is measured from delivery time, not publish time, so a delayed or hea
 
 Auto-purge only removes delivered rows. A dead-letter is a failure to inspect and redrive, so dead rows are never deleted automatically. Trim them yourself with `purge`, which deletes both delivered and dead rows, optionally only those past a window:
 
-```python
+```python title="fragment"
 from datetime import timedelta
 
 await outbox.purge()                              # all delivered and dead rows

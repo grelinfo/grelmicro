@@ -1,8 +1,8 @@
 from loguru import logger
 
-from grelmicro.log import configure
+from grelmicro.log import LogBackendType, LogFormatType, configure
 
-configure()
+configure(backend=LogBackendType.LOGURU, format=LogFormatType.JSON)
 
 logger.debug("This is a debug message")
 logger.info("This is an info message")

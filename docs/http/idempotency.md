@@ -263,6 +263,8 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
     ```python
     import json
 
+    from grelmicro.http import IdempotentRequests
+
 
     def tenant_key(scope, key):
         user = scope.get("user")
@@ -359,6 +361,7 @@ A middleware added by hand is documented with `document_idempotency`:
 
 ```python
 from grelmicro.http import IdempotencyMiddleware
+from grelmicro.idempotency import Idempotency
 from grelmicro.integrations.fastapi import document_idempotency
 
 micro.install(app)

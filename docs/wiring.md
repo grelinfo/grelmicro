@@ -29,7 +29,7 @@ extra wiring.
 
 Build the patterns you need and use them inside the app scope:
 
-```python
+```python title="fragment"
 from grelmicro.coordination import Lock
 
 lock = Lock("cart")

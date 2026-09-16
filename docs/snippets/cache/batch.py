@@ -1,3 +1,5 @@
+import asyncio
+
 from grelmicro import Grelmicro
 from grelmicro.cache import JsonSerializer
 from grelmicro.providers.redis import RedisProvider
@@ -22,3 +24,7 @@ async def main() -> None:
 
         # Delete many keys in one call.
         await ttl_cache.delete_many(["user:1", "user:2"])
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

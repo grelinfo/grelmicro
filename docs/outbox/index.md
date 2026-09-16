@@ -12,7 +12,7 @@ This is the transactional outbox pattern. It removes the dual-write problem: the
 
 Define a payload, stage it inside your transaction, and register a handler. The relay does the rest:
 
-```python
+```python title="fragment"
 from pydantic import BaseModel, EmailStr
 
 from grelmicro import Grelmicro
@@ -30,16 +30,21 @@ class WelcomeEmail(BaseModel):
     user_id: int
 
 
+async def send_email(to: str, idempotency_key: str) -> None:
+    """Your own email sending."""
+
+
 @outbox.handler(WelcomeEmail)
 async def send_welcome(message: Message[WelcomeEmail]) -> None:
-    await mailer.send(to=message.data.to, idempotency_key=message.id)
+    await send_email(to=message.data.to, idempotency_key=message.id)
 
 
-async with postgres.client.acquire() as conn, conn.transaction():
-    user_id = await conn.fetchval(
-        "INSERT INTO users (email) VALUES ($1) RETURNING id", email
-    )
-    await outbox.publish(conn, WelcomeEmail(to=email, user_id=user_id))
+async def sign_up(email: str) -> None:
+    async with postgres.client.acquire() as conn, conn.transaction():
+        user_id = await conn.fetchval(
+            "INSERT INTO users (email) VALUES ($1) RETURNING id", email
+        )
+        await outbox.publish(conn, WelcomeEmail(to=email, user_id=user_id))
 ```
 
 One `COMMIT` makes the user row and the message durable together. `async with micro:` starts the relay, which picks up the message and calls `send_welcome`. If the email API is down, the relay retries with backoff. If it stays down, the message lands in the dead-letter state where you can inspect and redrive it.
@@ -81,6 +86,7 @@ To make the side effect itself exactly-once, pass `message.id` as the idempotenc
 
 ```python
 from grelmicro.idempotency import Idempotency, idempotent
+from grelmicro.outbox import Message
 
 charges = Idempotency("charges")
 

@@ -67,7 +67,7 @@ To cover a whole app at once instead of one handler at a time, use
 
 `idem(key)` opens an async context manager. The yielded operation carries `replayed`, `result()`, and `store(...)`.
 
-```python
+```python title="fragment"
 async with idem(key) as op:
     if op.replayed:
         return op.result()
@@ -129,6 +129,8 @@ Without a type parameter, responses store as JSON. Pass `serializer=ChargeRespon
 A duplicate that arrives while the first execution is still in flight waits and receives the stored response. It folds across replicas when a Coordination lock backend is configured, and in-process otherwise.
 
 ```python
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
 from grelmicro.coordination import Coordination
 from grelmicro.providers.redis import RedisProvider
 
@@ -158,7 +160,7 @@ except IdempotencyWaitTimeoutError:
 
 Pass `fingerprint=` to guard against a key reused with a different payload. The fingerprint is a string the caller derives from the request body. It is stored on the first execution. A replay with a different fingerprint raises `IdempotencyConflictError`, because the same key with a different payload is a client bug.
 
-```python
+```python title="fragment"
 import hashlib
 
 fingerprint = hashlib.sha256(raw_body).hexdigest()

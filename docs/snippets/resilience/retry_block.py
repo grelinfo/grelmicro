@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 from pydantic import BaseModel
 
@@ -24,6 +26,13 @@ async def submit(
     raise AssertionError(msg)
 
 
-async def main() -> Receipt:
+async def main() -> None:
     async with httpx.AsyncClient() as client:
-        return await submit(client, "https://example.com", Payment(amount=100))
+        receipt = await submit(
+            client, "https://example.com", Payment(amount=100)
+        )
+        print(receipt)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

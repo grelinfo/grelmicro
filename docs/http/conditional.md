@@ -409,6 +409,8 @@ mapping, and raises `StaleDataError` where the raw form returns zero rows:
 ```python
 from sqlalchemy.orm.exc import StaleDataError
 
+from grelmicro.http import PreconditionFailedError
+
 
 class Cart(Base):
     __mapper_args__ = {"version_id_col": version}
@@ -429,7 +431,7 @@ write before the handler does any work, and it is what turns a missing
 When the write is a read-modify-write over more than one row, take the row lock
 inside the transaction and compare there:
 
-```python
+```python title="fragment"
 async with session.begin():
     cart = await session.get(Cart, cart_id, with_for_update=True)
     check_precondition(cart.version)
@@ -451,7 +453,7 @@ When the state is not a row, there is no `WHERE` clause to make conditional.
 Take a distributed [`ReadWriteLock`](../coordination/read-write-lock.md) around
 the read-modify-write, and keep the check inside it:
 
-```python
+```python title="fragment"
 async with ReadWriteLock(f"cart:{cart_id}").write:
     cart = await store.load(cart_id)
     check_precondition(cart.version)

@@ -2,11 +2,8 @@
 
 from loguru import logger
 
-from grelmicro.log import configure
+from grelmicro.log import LogBackendType, LogFormatType, configure
 
-# Ensure clean state
-logger.remove()
-
-configure()
+configure(backend=LogBackendType.LOGURU, format=LogFormatType.TEXT)
 
 logger.info("Application started", version="1.0.0")

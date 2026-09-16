@@ -60,6 +60,8 @@ in grelmicro's text format instead.
     ```python
     import logging
 
+    from grelmicro.log import configure
+
     configure()
     logger = logging.getLogger(__name__)
     logger.info("Hello, World!", extra={"user_id": 123})
@@ -69,6 +71,8 @@ in grelmicro's text format instead.
     ```python
     from loguru import logger
 
+    from grelmicro.log import configure
+
     configure()
     logger.info("Hello, World!", user_id=123)
     ```
@@ -76,6 +80,8 @@ in grelmicro's text format instead.
 === "structlog"
     ```python
     import structlog
+
+    from grelmicro.log import configure
 
     configure()
     log = structlog.get_logger()
@@ -118,8 +124,8 @@ Extra context fields are passed as keyword arguments and appear as flat top-leve
 ```
 
 Output:
-```json
-{"time":"...","level":"INFO","msg":"User logged in","logger":"...","user_id":123,"ip_address":"192.168.1.1"}
+```json title="output"
+{"user_id":123,"ip_address":"192.168.1.1","time":"2026-04-01T10:30:00.123456+00:00","level":"INFO","msg":"User logged in","logger":"__main__"}
 ```
 
 ## Exception Handling
@@ -131,8 +137,8 @@ Exceptions are automatically captured as structured `ErrorDict`:
 ```
 
 JSON output:
-```json
-{"time":"...","level":"ERROR","msg":"Operation failed","logger":"...","operation":"divide","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
+```json title="output"
+{"operation":"divide","time":"2026-04-01T10:30:00.123456+00:00","level":"ERROR","msg":"Operation failed","logger":"__main__","error":{"type":"ZeroDivisionError","message":"division by zero","stack":"..."}}
 ```
 
 ??? note "LOGFMT and PRETTY output"
@@ -187,8 +193,8 @@ In your terminal:
 ```
 
 In a container or CI:
-```json
-{"time":"2026-04-01T08:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__","version":"1.0.0"}
+```json title="output"
+{"version":"1.0.0","time":"2026-04-01T08:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__"}
 ```
 
 ??? note "JSON, LOGFMT, TEXT, and PRETTY formats"
@@ -205,8 +211,8 @@ In a container or CI:
     ```
 
     Output:
-    ```json
-    {"time":"2026-04-01T10:30:00.123456+02:00","level":"INFO","msg":"Application started","logger":"__main__","version":"1.0.0","environment":"production"}
+    ```json title="output"
+    {"version":"1.0.0","environment":"production","time":"2026-04-01T10:30:00.123456+00:00","level":"INFO","msg":"Application started","logger":"__main__"}
     ```
 
     #### LOGFMT
@@ -222,7 +228,7 @@ In a container or CI:
     ```
 
     Output:
-    ```
+    ```text title="output"
     time=2026-04-01T10:30:00.123456+00:00 level=INFO msg="Request handled" logger=__main__ method=GET path=/health status=200
     ```
 
@@ -244,8 +250,8 @@ In a container or CI:
     ```
 
     Output:
-    ```
-    2026-04-01 10:30:00.123 INFO     __main__:<module>:12 - Application started version=1.0.0
+    ```text title="output"
+    2026-04-01 10:30:00.123Z INFO     __main__ - Application started version=1.0.0
     ```
 
     #### PRETTY
@@ -261,9 +267,9 @@ In a container or CI:
     ```
 
     Output:
-    ```
-      2026-04-01 10:30:00.123 INFO Request handled
-        at __main__:<module>:10
+    ```text title="output"
+      2026-04-01 10:30:00.123Z INFO Request handled
+        at __main__
         method: GET
         path: /health
         status: 200
@@ -295,7 +301,7 @@ GREL_LOG_FORMAT="{level} | {message}"
 ```
 
 Output:
-```
+```text title="output"
 INFO | Custom format example
 ```
 
@@ -425,7 +431,7 @@ file on a busy volume, it is request latency on everything that logs.
 Turn on the queue and the write moves to a background thread:
 
 ```python
---8<-- "log/queue.py"
+--8<-- "log/queue_enabled.py"
 ```
 
 The record is still rendered on the calling thread, so every bound field

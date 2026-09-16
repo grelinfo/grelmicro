@@ -253,7 +253,7 @@ provider shows up in your traces.
 Most providers say where their keys live. Give `JWTVerifier.discover` the
 issuer, and it reads the JWKS URL from the provider's metadata:
 
-```python
+```python title="fragment"
 verifier = JWTVerifier.discover("https://auth.example.com/", audience="orders-api")
 
 async with verifier:
@@ -334,7 +334,7 @@ An access token carries no `aud` claim. It names the application in `client_id`
 instead, so pass `audience=None` and check `client_id` yourself. An ID token
 does carry `aud`, so verify one with a verifier built with `audience=client_id`.
 
-```python
+```python title="fragment"
 verifier = JWTVerifier.discover(
     f"https://cognito-idp.{region}.amazonaws.com/{pool}",
     audience=None,

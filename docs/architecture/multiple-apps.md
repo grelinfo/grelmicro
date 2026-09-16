@@ -12,7 +12,7 @@ Because they own a single global, these components are singletons: registering a
 
 So grelmicro also blocks the cross-app case that is unsafe: opening a second app that owns `Log` or `Trace` while another app that owns one is still active raises `MultipleActiveAppsError`. Apps without those components overlap freely.
 
-```python
+```python title="fragment"
 # Fine: neither app owns process-global state.
 async with Grelmicro(uses=[Coordination(redis)]):
     async with Grelmicro(uses=[Cache(redis)]):
