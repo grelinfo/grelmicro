@@ -29,7 +29,7 @@ async with micro:
 ```
 
 !!! warning "Per-process by default"
-    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run an interval task at most once across the fleet, gate it with [`TaskLock`](coordination/task-lock.md) or [`LeaderElection`](coordination/leader-election.md). Without one of those, a 3-replica deployment runs the same `@tasks.every(...)` three times per tick. Cron tasks work differently. They claim each fire against the schedule backend, so a wired [`Coordination`](coordination/index.md) component is all they need.
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run an interval task at most once across the fleet, wrap it in a [`TaskLock`](coordination/task-lock.md) or run it under [`LeaderElection`](coordination/leader-election.md). Without one of those, a 3-replica deployment runs the same `@tasks.every(...)` three times per tick. Cron tasks work differently. They claim each fire against the schedule backend, so a wired [`Coordination`](coordination/index.md) component is all they need.
 
 !!! note
     This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
@@ -163,7 +163,7 @@ Node A:  [acquire] → [execute] → [hold for seconds] → [TTL expires]
 Node B:  [skip] → ... → [skip] → ... → [acquire] → [execute]
 ```
 
-When combining leader gating, distributed locking, and a resource lock, the synchronization primitives are acquired in this order:
+When combining leader election, distributed locking, and a resource lock, the synchronization primitives are acquired in this order:
 
 | Order | Primitive | Purpose |
 |-------|-----------|---------|
@@ -249,7 +249,7 @@ async def sync_data():
 
 The schedule backend stores the last fire on the provider (Redis, Postgres, and SQLite all ship today). Because that state is durable, a fire missed while every worker was down replays once when a worker comes back. Only the most recent missed fire runs, never a backlog of skipped ones. Without a backend, the task runs on every worker, every fire. Kubernetes is intentionally not provided: use a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/).
 
-!!! warning "Do not gate a cron body on leadership"
+!!! warning "Do not return early from a cron body when the worker is not the leader"
     Winning the claim advances the durable last-fire state **before** the body runs. A body that returns early still consumes the fire, so the work is skipped and the next attempt is a whole cron period away:
 
     ```python
@@ -260,7 +260,7 @@ The schedule backend stores the last fire on the provider (Redis, Postgres, and 
         await do_work()
     ```
 
-    Nothing needs gating here. The claim already picks exactly one worker per fire.
+    Nothing needs a leader check here. The claim already picks exactly one worker per fire.
 
 Set `misfire_grace_seconds` to bound how late a missed fire may run:
 

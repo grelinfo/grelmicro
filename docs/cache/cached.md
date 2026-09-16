@@ -1,6 +1,6 @@
 # The @cached Decorator
 
-The `@cached` decorator automatically caches function results. It works with both sync and async functions.
+The `@cached` decorator automatically caches function results. It works on async functions in either form, and on sync functions when you pass a [`TTLCache`](index.md#ttlcache). The `ttl=` form raises `TypeError` on a `def`, because the private cache it builds has no event loop for a sync wrapper.
 
 For the plain "memoize this function for N seconds" case, pass `ttl=` and nothing else. The decorator builds a private process-local cache for this function alone:
 

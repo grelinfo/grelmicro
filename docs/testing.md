@@ -113,8 +113,9 @@ generated and no token is signed:
 
 A token the verifier does not know is refused the way a bad one is in
 production, so the `401` and its challenge are tested too. To test the verifier
-itself, build a `JWTVerifier.keys(...)` from a key made for the test, as the
-[JWT](security/jwt.md) guide shows.
+itself, generate a key pair in the test, sign a token with the private half, and
+build a `JWTVerifier.keys(...)` from the public half. The
+[Keys](security/jwt.md#keys) section lists the key forms it accepts.
 
 ## Going deeper
 

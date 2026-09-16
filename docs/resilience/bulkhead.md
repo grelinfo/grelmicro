@@ -64,7 +64,7 @@ Prefix: `GREL_BULKHEAD_{NAME_UPPER}_`. The default instance drops the name segme
 
 ## Composition
 
-The recommended outside-in order is **Fallback → Retry → CircuitBreaker → Bulkhead → Timeout → call**. Read more in [Composing patterns](composition.md). Placing the bulkhead above the timeout caps concurrency before a call enters its timeout window.
+The recommended outside-in order is **Fallback → Retry → CircuitBreaker → RateLimiter → Bulkhead → Timeout → call**. Read more in [Composing patterns](composition.md). Placing the bulkhead above the timeout caps concurrency before a call enters its timeout window.
 
 ## Live reconfiguration
 

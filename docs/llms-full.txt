@@ -1,0 +1,131 @@
+# grelmicro: full page index
+
+> Every page of the grelmicro documentation, one line each, in site order. The curated index is [llms.txt](https://grelmicro.grel.info/llms.txt). Read that one first and come here for a page it does not name.
+
+## Start
+
+- [Introduction](https://grelmicro.grel.info/): what grelmicro is and the problem it solves.
+- [Installation](https://grelmicro.grel.info/installation/): install it and pick the extras.
+- [Migration](https://grelmicro.grel.info/migration/): what to change on each minor release, by symptom.
+
+## User guide
+
+- [First steps](https://grelmicro.grel.info/first-steps/): one pattern and one provider.
+- [Wiring an app](https://grelmicro.grel.info/wiring/): providers, components, and `micro.install(app)`. Always call `install`.
+- [Frameworks](https://grelmicro.grel.info/frameworks/): what `install` wires for FastAPI, Starlette, Litestar, and FastStream.
+- [Diagnostics](https://grelmicro.grel.info/diagnostics/): the startup warnings, each with a code to grep and assert on.
+- [Cache](https://grelmicro.grel.info/cache/): `TTLCache`, backends, serializers, tags, and batch operations.
+- [The @cached decorator](https://grelmicro.grel.info/cache/cached/): keys, refresh, stampede protection, and serve-stale-on-error.
+- [Idempotency](https://grelmicro.grel.info/idempotency/): store a response under a key and replay it on a repeat.
+- [Coordination](https://grelmicro.grel.info/coordination/): pick a backend for the distributed primitives.
+- [Lock](https://grelmicro.grel.info/coordination/lock/): mutual exclusion, bounded acquire, lease extension, fencing tokens.
+- [Read-Write Lock](https://grelmicro.grel.info/coordination/read-write-lock/): many readers, one writer, typed guards.
+- [Task Lock](https://grelmicro.grel.info/coordination/task-lock/): a lock that holds past completion to stop re-execution.
+- [Leader Election](https://grelmicro.grel.info/coordination/leader-election/): elect one worker for a long-lived role.
+- [Outbox](https://grelmicro.grel.info/outbox/): a transactional outbox that delivers after your transaction commits.
+- [Outbox producer](https://grelmicro.grel.info/outbox/producer/): `publish` inside your own transaction.
+- [Outbox consumer](https://grelmicro.grel.info/outbox/consumer/): handlers, retry control, and dead-lettering.
+- [Outbox relay](https://grelmicro.grel.info/outbox/relay/): scaling, retention, observability, and every field.
+- [Outbox schema](https://grelmicro.grel.info/outbox/schema/): the table layout and Alembic.
+- [Task Scheduler](https://grelmicro.grel.info/task/): interval tasks per process, cron tasks claimed once across the fleet.
+- [Resilience](https://grelmicro.grel.info/resilience/): which pattern to reach for, and the `AdmissionError` family.
+- [Shield](https://grelmicro.grel.info/resilience/shield/): timeout, retry, and adaptive throttling in one decorator. The recommended starting point.
+- [Bulkhead](https://grelmicro.grel.info/resilience/bulkhead/): cap concurrent in-flight calls and fail fast when saturated.
+- [Circuit Breaker](https://grelmicro.grel.info/resilience/circuit-breaker/): stop calling a failing dependency until it recovers.
+- [Fallback](https://grelmicro.grel.info/resilience/fallback/): return a safe value when a call fails.
+- [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/): token bucket or sliding window, over any backend.
+- [Retry](https://grelmicro.grel.info/resilience/retry/): repeat a failing call with backoff and jitter.
+- [Timeout](https://grelmicro.grel.info/resilience/timeout/): bound how long an async call may run.
+- [Composing patterns](https://grelmicro.grel.info/resilience/composition/): the safe order, and the `Stack` that applies it for you.
+- [Health](https://grelmicro.grel.info/health/): liveness, readiness, and aggregate health endpoints.
+- [HTTP](https://grelmicro.grel.info/http/): what a service puts on the wire, whichever framework it runs on.
+- [Where a rule applies](https://grelmicro.grel.info/http/where/): how the six HTTP components pick the requests they act on.
+- [Error Responses](https://grelmicro.grel.info/http/errors/): RFC 9457 problem details or the TMF630 format, with the delay a client can act on.
+- [Authentication](https://grelmicro.grel.info/http/authentication/): verify every request, hand the caller to the route, declare scopes and public routes.
+- [Conditional Requests](https://grelmicro.grel.info/http/conditional/): `ETag` on reads and `If-Match` on writes.
+- [Idempotency middleware](https://grelmicro.grel.info/http/idempotency/): replay a whole response on a repeated `Idempotency-Key`.
+- [Response Cache](https://grelmicro.grel.info/http/cache/): cache a read once for every caller, across replicas.
+- [Rate Limit](https://grelmicro.grel.info/http/rate-limit/): answer `429` with `Retry-After` and the quota headers.
+- [Ops server](https://grelmicro.grel.info/http/server/): probes and metrics on a port of their own, for a worker with no web framework.
+- [Security](https://grelmicro.grel.info/security/): the checks on an inbound request and the tokens for an outbound one.
+- [Client IP](https://grelmicro.grel.info/security/clientip/): resolve the real caller behind a reverse proxy.
+- [JWT](https://grelmicro.grel.info/security/jwt/): verify a bearer token against keys you hold, a JWKS URL, or an issuer.
+- [Outbound Tokens](https://grelmicro.grel.info/security/tokens/): client credentials and token exchange, cached and refreshed.
+- [Logging](https://grelmicro.grel.info/logging/): 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output.
+- [Logging integrations](https://grelmicro.grel.info/logging/integrations/): OpenTelemetry context, FastAPI, uvicorn, structlog, loguru.
+- [Access log](https://grelmicro.grel.info/logging/access/): one structured record per HTTP request.
+- [Logging filters](https://grelmicro.grel.info/logging/filters/): deduplicate and rate limit a noisy logger.
+- [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and log context through `@instrument`.
+- [Metrics](https://grelmicro.grel.info/metrics/): `@measure`, built-in instrumentation, and a Prometheus endpoint.
+- [Configuration](https://grelmicro.grel.info/config/): build with keyword arguments, tune with environment variables.
+- [Deployment](https://grelmicro.grel.info/deployment/): what a container image and a Kubernetes manifest need.
+- [Testing](https://grelmicro.grel.info/testing/): in-memory backends, `VirtualClock`, `CallLog`, and a fake verifier.
+
+## Advanced user guide
+
+- [Declarative configuration](https://grelmicro.grel.info/advanced/config/): the three construction paths, and what `from_config` skips.
+- [Reconfigure from a ConfigMap](https://grelmicro.grel.info/configuration/reconfigure-from-configmap/): reapply a mounted file to live components.
+- [Providers](https://grelmicro.grel.info/providers/): the connection object behind every component.
+- [Redis and Valkey](https://grelmicro.grel.info/providers/redis/): environment variables, Sentinel, Cluster, and the hash-tag rule.
+- [Postgres](https://grelmicro.grel.info/providers/postgres/): environment variables, `command_timeout`, reader and writer pools.
+- [Capability matrix](https://grelmicro.grel.info/capabilities/): which pattern and adapter combinations ship today.
+- [Comparison](https://grelmicro.grel.info/comparison/): grelmicro next to aiocache, slowapi, pybreaker, tenacity, and aioredlock.
+- [Performance](https://grelmicro.grel.info/performance/): where the overhead is and when it matters.
+- [Benchmarks](https://grelmicro.grel.info/benchmarks/): runnable scripts to verify the numbers on your own hardware.
+
+## API reference
+
+- [App](https://grelmicro.grel.info/reference/app/): `Grelmicro`, `GrelmicroMiddleware`, and the app errors.
+- [Cache](https://grelmicro.grel.info/reference/cache/): `TTLCache`, `cached`, adapters, and serializers.
+- [Clock](https://grelmicro.grel.info/reference/clock/): the clock protocol and `VirtualClock`.
+- [Config](https://grelmicro.grel.info/reference/config/): `ExternalConfig` and the reconfiguration types.
+- [Errors](https://grelmicro.grel.info/reference/errors/): `GrelmicroError` and the cross-cutting errors.
+- [FastAPI](https://grelmicro.grel.info/reference/fastapi/): the FastAPI integration and its dependencies.
+- [FastStream](https://grelmicro.grel.info/reference/faststream/): the FastStream integration.
+- [Litestar](https://grelmicro.grel.info/reference/litestar/): the Litestar integration.
+- [Health](https://grelmicro.grel.info/reference/health/): `HealthChecks` and the probe routers.
+- [HTTP](https://grelmicro.grel.info/reference/http/): the HTTP components and their configs.
+- [Idempotency](https://grelmicro.grel.info/reference/idempotency/): `Idempotency` and its adapters.
+- [Logging](https://grelmicro.grel.info/reference/logging/): `configure`, the formatters, and the filters.
+- [Metrics](https://grelmicro.grel.info/reference/metrics/): `Metrics`, `measure`, and the Prometheus router.
+- [Resilience](https://grelmicro.grel.info/reference/resilience/): every resilience pattern and its config.
+- [Starlette](https://grelmicro.grel.info/reference/starlette/): the Starlette integration.
+- [Security](https://grelmicro.grel.info/reference/security/): `JWTVerifier`, `JWTKey`, `ClientBans`, and `OAuthClient`.
+- [Coordination](https://grelmicro.grel.info/reference/coordination/): the locks, leader election, and their adapters.
+- [Outbox](https://grelmicro.grel.info/reference/outbox/): the outbox, the relay, and the message types.
+- [Task](https://grelmicro.grel.info/reference/task/): `Tasks` and the scheduling errors.
+- [Testing](https://grelmicro.grel.info/reference/testing/): `CallLog` and the test helpers.
+- [Tracing](https://grelmicro.grel.info/reference/trace/): `instrument` and the trace component.
+- [Types](https://grelmicro.grel.info/reference/types/): the shared annotated types.
+
+## Architecture
+
+- [Architecture](https://grelmicro.grel.info/architecture/): the index of the design notes.
+- [Concurrency runtime](https://grelmicro.grel.info/architecture/asyncio/): why grelmicro targets asyncio and not Trio.
+- [Backends and adapters](https://grelmicro.grel.info/architecture/backends/): providers, adapters, components, and ambient resolution.
+- [Configuration internals](https://grelmicro.grel.info/architecture/config/): the resolution contract and its hot-path budget.
+- [Live reconfiguration](https://grelmicro.grel.info/architecture/reconfigure/): the `Reconfigurable` contract and how a swap lands.
+- [HTTP component internals](https://grelmicro.grel.info/architecture/http/): the contract the six HTTP components follow.
+- [JWT verification](https://grelmicro.grel.info/architecture/jwt/): what is compiled, what is cached, and why.
+- [Outbound tokens](https://grelmicro.grel.info/architecture/oauth/): why the outbound token API has the shape it has.
+- [Rust](https://grelmicro.grel.info/architecture/rust/): what is compiled and where the line was drawn.
+- [Import strategy](https://grelmicro.grel.info/architecture/imports/): what a package re-exports and what stays in a submodule.
+- [Plugins](https://grelmicro.grel.info/architecture/plugins/): the entry-point groups a third-party backend registers under.
+- [Multiple apps](https://grelmicro.grel.info/architecture/multiple-apps/): when two apps can be active in one process.
+- [Decorator forms](https://grelmicro.grel.info/architecture/decorators/): the one rule for parentheses.
+- [API conventions](https://grelmicro.grel.info/architecture/api-conventions/): the constructor and factory rules a new primitive follows.
+- [Sync from thread](https://grelmicro.grel.info/architecture/sync-from-thread/): the sync entry points and what they cost.
+- [Coordination internals](https://grelmicro.grel.info/architecture/coordination/): worker identity, leases, and fencing.
+- [Outbox internals](https://grelmicro.grel.info/architecture/outbox/): the dual-write problem and the relay design.
+- [Graceful shutdown](https://grelmicro.grel.info/architecture/graceful-shutdown/): draining, `shutdown_timeout`, and what a cancelled holder releases.
+- [Kubernetes backend](https://grelmicro.grel.info/architecture/kubernetes/): lease resources and the fencing rules.
+- [SQLite backend](https://grelmicro.grel.info/architecture/sqlite/): one connection, and what it is good for.
+- [Tracing architecture](https://grelmicro.grel.info/architecture/tracing/): the shared context stack behind logging and tracing.
+- [Testing architecture](https://grelmicro.grel.info/architecture/testing/): `micro.fake()`, override rules, and the virtual clock.
+
+## Project
+
+- [Roadmap](https://grelmicro.grel.info/roadmap/): where grelmicro is going, with no dates promised.
+- [Changelog](https://grelmicro.grel.info/changelog/): release notes for every version.
+- [Third-party notices](https://grelmicro.grel.info/third_party_notices/): the material adapted from other projects.
+- [Contributing](https://github.com/grelinfo/grelmicro/blob/main/CONTRIBUTING.md): how to report bugs, request features, and contribute code.
