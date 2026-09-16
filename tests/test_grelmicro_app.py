@@ -1357,3 +1357,46 @@ async def test_resolve_ambient_matches_get() -> None:
         resolve_ambient(key)
     with pytest.raises(NoActiveAppError):
         Grelmicro.current()
+
+
+# --- named components resolve ambiently (#752) ---
+
+
+async def test_ambient_falls_back_to_the_sole_named_component() -> None:
+    """A pattern resolves the only component of its kind, whatever its name.
+
+    `micro.<kind>` already prefers `"default"` then falls back to the sole
+    entry. A pattern asking ambiently must resolve the same way, otherwise
+    naming a component breaks every pattern in the app.
+    """
+    backend = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=backend, name="jobs")])
+
+    async with micro:
+        assert Lock("cart").backend is backend
+        assert micro.get("coordination").lock_backend is backend
+
+
+async def test_ambient_explicit_name_still_raises() -> None:
+    """Naming a backend that is not registered stays a loud failure."""
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs")]
+    )
+
+    async with micro:
+        with pytest.raises(OutOfContextError, match="resolved no backend"):
+            _ = Lock("cart", backend="analytics").backend
+
+
+async def test_ambient_two_components_without_default_raises() -> None:
+    """Two components of one kind and no default keeps the miss loud."""
+    micro = Grelmicro(
+        uses=[
+            Coordination(lock=MemoryLockAdapter(), name="jobs"),
+            Coordination(lock=MemoryLockAdapter(), name="analytics"),
+        ]
+    )
+
+    async with micro:
+        with pytest.raises(OutOfContextError, match="resolved no backend"):
+            _ = Lock("cart").backend

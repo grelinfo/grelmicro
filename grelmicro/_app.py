@@ -112,8 +112,11 @@ def resolve_ambient(key: tuple[str, str]) -> Any:  # noqa: ANN401
 
     Backs every pattern that resolves without `backend=`, so it runs on each
     operation. An open `Bulkhead` scope wins, and the app answers whatever
-    the scope leaves alone. Every miss raises `LookupError`, which the caller
-    turns into the `OutOfContextError` that names its own pattern.
+    the scope leaves alone. A pattern that named no backend asks for
+    `"default"`, which falls back to the sole entry of that kind, so naming a
+    component does not strand every pattern in the app. Every miss raises
+    `LookupError`, which the caller turns into the `OutOfContextError` that
+    names its own pattern.
 
     Raises:
         LookupError: No app is bound in this scope, or it registers no such
@@ -630,9 +633,11 @@ class Grelmicro:
             Doc(
                 """
                 Component instance name. `"default"` matches the entry that
-                also backs `micro.<kind>`. Pass the explicit name to resolve
-                a secondary registration such as
-                `Coordination(lock=backend, name="analytics")`.
+                also backs `micro.<kind>`, and falls back to the sole entry
+                of that kind when no entry is named `"default"`. Pass the
+                explicit name to resolve a secondary registration such as
+                `Coordination(lock=backend, name="analytics")`, which misses
+                loudly rather than falling back.
                 """,
             ),
         ] = "default",
@@ -670,6 +675,13 @@ class Grelmicro:
         try:
             return self._by_key[(kind, name)]
         except KeyError as exc:
+            # A caller that named nothing asked for whatever serves this kind,
+            # so the sole entry answers, the way `micro.<kind>` already does.
+            # A caller that named an entry gets the miss it asked about.
+            if name == "default":
+                matches = [v for (k, _), v in self._by_key.items() if k == kind]
+                if len(matches) == 1:
+                    return matches[0]
             registered = sorted(self._by_key)
             if registered:
                 hint = "registered: " + ", ".join(repr(k) for k in registered)
