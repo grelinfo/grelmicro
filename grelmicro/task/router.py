@@ -2,7 +2,7 @@
 
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from typing_extensions import Doc
 
@@ -158,31 +158,27 @@ class TaskRouter:
                 """,
             ),
         ] = None,
-        lock: Annotated[
-            "TaskLock | None",
+        gate: Annotated[
+            'Literal["claim"] | TaskLock | LeaderElection | None',
             Doc(
                 """
-                Optional distributed lock for at-most-once scheduling.
+                Which workers run each interval.
 
-                Pass a `TaskLock` to run the task at most once per interval
-                across all workers. Its ``lease_duration`` must be >=
-                ``seconds``. When the lock keeps its default ``"default"``
-                name, the task name is used so it does not need to be
-                repeated. The lock's ``lease_duration``, ``min_hold_duration``,
-                ``backend`` and ``worker`` are authoritative.
-                """,
-            ),
-        ] = None,
-        leader: Annotated[
-            "LeaderElection | None",
-            Doc(
-                """
-                Optional leader election for leader gating.
+                - `None` (the default): every worker runs every interval.
+                - `"claim"`: one worker claims each interval and runs it. The
+                  claim is held for the whole interval, and a body may run
+                  for up to two intervals before a peer claims again.
+                - A `TaskLock`: one worker claims each interval, with the
+                  lock's own `lease_duration`, `backend` and `worker`. Its
+                  `min_hold_duration` must be at least `seconds`. A lock
+                  still named `"default"` takes the task name.
+                - A `LeaderElection`: only the elected worker runs the task.
+                  It claims each interval as with `"claim"`, so a leader
+                  handover never runs one interval twice.
 
-                When provided, the task only executes on the leader worker.
-                Implies distributed locking (a lock is automatically
-                configured with interval-aware defaults when no ``lock`` is
-                given).
+                Nothing renews a claim while the body runs. A body that
+                outlives the lease lets a peer claim the next interval
+                while it is still running.
                 """,
             ),
         ] = None,
@@ -192,11 +188,10 @@ class TaskRouter:
                 """
                 Optional resource-level synchronization primitive.
 
-                Layered on top of any distributed scheduling chosen via
-                ``lock`` or ``leader``. Use a ``Lock`` to serialise execution
-                against a shared resource. Whether the task runs on every
-                worker or only one is governed by ``lock`` and ``leader``, not
-                this parameter.
+                Wraps the body once the gate lets this worker through. Use a
+                `Lock` to serialise execution against a shared resource.
+                Which workers run the task is set by `gate`, not this
+                parameter.
                 """,
             ),
         ] = None,
@@ -206,19 +201,17 @@ class TaskRouter:
     ]:
         """Decorate a function to run it on a fixed interval.
 
-        Supports three modes:
-
-        - **Local**: No ``lock`` or ``leader``, runs on every worker, every
-          interval.
-        - **Distributed lock**: Pass a ``lock`` to run at most once per
-          interval across all workers.
-        - **Leader-gated**: Set ``leader`` to restrict execution to the leader
-          worker (a lock is implied).
+        Every worker runs it by default. Pass `gate="claim"` to run it
+        on one worker per interval, or a `LeaderElection` to run it on
+        the elected worker.
 
         Raises:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If the lock lease_duration is less than seconds.
+            ValueError: If the gate `TaskLock` holds a claim for less than
+                `seconds`, or already gates another task.
+            TypeError: If `gate` is not a supported value, or `sync` is a
+                leader election.
         """
         from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
@@ -230,8 +223,7 @@ class TaskRouter:
                     name=name,
                     function=function,
                     seconds=seconds,
-                    lock=lock,
-                    leader=leader,
+                    gate=gate,
                     sync=sync,
                 ),
             )
@@ -289,7 +281,7 @@ class TaskRouter:
                 """
                 How late a missed fire may run when a worker comes back.
 
-                A fire missed while every worker was down replays once on
+                Read only by a gated task. A fire missed while every worker was down replays once on
                 restart only when now is within this many seconds of the fire.
                 Past the budget, the fire is dropped. ``None`` (default) sets
                 no budget, so any missed fire replays once, however late.
@@ -303,9 +295,27 @@ class TaskRouter:
                 """
                 The durable schedule backend.
 
-                By default, resolves through the active `Grelmicro` app's
-                `Coordination` component. When no backend is available, the
-                task runs on every worker, every fire.
+                Read only by a gated task. By default, resolves through the
+                active `Grelmicro` app's `Coordination` component.
+                """,
+            ),
+        ] = None,
+        gate: Annotated[
+            'Literal["claim"] | LeaderElection | None',
+            Doc(
+                """
+                Which workers run each fire.
+
+                - `None` (the default): every worker runs every fire.
+                - `"claim"`: one worker claims each fire against the durable
+                  schedule backend and runs it. A fire missed while every
+                  worker was down replays once on restart.
+                - A `LeaderElection`: only the elected worker runs the task.
+                  It claims each fire as with `"claim"`, so a leader handover
+                  never runs one fire twice.
+
+                A gated task with no schedule backend in scope reports a
+                coordination error on every fire and runs nothing.
                 """,
             ),
         ] = None,
@@ -315,10 +325,10 @@ class TaskRouter:
                 """
                 Optional resource-level synchronization primitive.
 
-                Wraps the body once this worker wins the fire. Use a ``Lock`` to
-                serialise execution against a shared resource. Whether the task
-                runs on every worker or only one is governed by the schedule
-                backend, not this parameter.
+                Wraps the body once the gate lets this worker through. Use a
+                `Lock` to serialise execution against a shared resource.
+                Which workers run the task is set by `gate`, not this
+                parameter.
                 """,
             ),
         ] = None,
@@ -331,13 +341,14 @@ class TaskRouter:
         Runs the task whenever the wall-clock time matches the cron
         expression in the given timezone.
 
-        Each fire is claimed against a durable last-fire state, so the task
-        runs at most once across every worker per fire. A fire missed while
-        every worker was down replays once on restart, bounded by
-        ``misfire_grace_seconds``, and only the most recent missed fire runs.
-        Without a backend, the task runs on every worker, every fire.
+        Every worker runs each fire by default. With `gate="claim"` or a
+        `LeaderElection`, each fire is claimed against a durable last-fire
+        state, so the task runs at most once across every worker per fire.
+        A fire missed while every worker was down replays once on restart,
+        bounded by ``misfire_grace_seconds``, and only the most recent
+        missed fire runs.
 
-        The guarantee is at-most-once. A worker that claims a fire and then
+        The claim guarantee is at-most-once. A worker that claims a fire and then
         crashes mid-run does not retry it, because the last-fire state already
         advanced. Make the body idempotent, or wrap it with ``@retry``, when
         correctness depends on completion.
@@ -346,6 +357,9 @@ class TaskRouter:
             FunctionTypeError: If the task name generation fails.
             CronError: If the cron expression is invalid.
             TimezoneError: If the timezone is not an IANA timezone name.
+            TypeError: If `gate` is not a supported value, or `sync` is a
+                leader election.
+            ValueError: If `backend` is passed without a gate.
         """
         from grelmicro.task._cron import CronTask  # noqa: PLC0415
 
@@ -360,6 +374,7 @@ class TaskRouter:
                     timezone=timezone,
                     misfire_grace_seconds=misfire_grace_seconds,
                     backend=backend,
+                    gate=gate,
                     sync=sync,
                 ),
             )

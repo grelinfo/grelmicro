@@ -9,14 +9,14 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import partial
 from logging import getLogger
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
 from grelmicro._timezone import UTC_NAME
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.errors import WouldBlockError
+from grelmicro.errors import OutOfContextError, WouldBlockError
 from grelmicro.metrics import _emit
 from grelmicro.task._protocol import Task
 from grelmicro.task._utils import (
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from grelmicro.coordination._protocol import LockPrimitive, ScheduleBackend
+    from grelmicro.coordination.leaderelection import LeaderElection
 
 logger = getLogger("grelmicro.task")
 
@@ -363,14 +364,17 @@ class CronTask(Task):
     Use the `Tasks.cron()` or `TaskRouter.cron()` decorator instead of
     creating CronTask objects directly.
 
-    Each tick computes the most recent scheduled fire at or before now and
-    asks the schedule backend to claim it. Exactly one worker wins the claim
-    and runs the body, so a fire runs at most once across every worker. The
-    backend stores the last fire durably, so a fire missed while every worker
-    was down replays once on restart, bounded by ``misfire_grace_seconds``.
-    Only the most recent missed fire runs, never a backlog.
+    The ``gate`` decides which workers run each fire:
 
-    Without a schedule backend the task runs on every worker, every fire.
+    - ``None``: every worker, every fire.
+    - ``"claim"``: each tick computes the most recent scheduled fire at or
+      before now and asks the schedule backend to claim it. Exactly one
+      worker wins the claim and runs the body. The backend stores the last
+      fire durably, so a fire missed while every worker was down replays
+      once on restart, bounded by ``misfire_grace_seconds``. Only the most
+      recent missed fire runs, never a backlog.
+    - A ``LeaderElection``: the elected worker claims each fire, as with
+      ``"claim"``. Every other worker skips it.
     """
 
     def __init__(
@@ -382,6 +386,7 @@ class CronTask(Task):
         name: str | None = None,
         misfire_grace_seconds: float | None = None,
         backend: ScheduleBackend | None = None,
+        gate: Literal["claim"] | LeaderElection | None = None,
         sync: LockPrimitive | None = None,
     ) -> None:
         """Initialize the CronTask.
@@ -390,7 +395,30 @@ class CronTask(Task):
             FunctionTypeError: If the function is not supported.
             CronError: If the cron expression is invalid.
             TimezoneError: If the timezone is not an IANA timezone name.
+            TypeError: If `gate` is not a supported value, or `sync` is
+                a leader election.
+            ValueError: If `backend` is passed without a gate.
         """
+        from grelmicro.coordination.leaderelection import (  # noqa: PLC0415
+            LeaderElection,
+            _LeaderGuard,
+        )
+
+        if (
+            gate is not None
+            and gate != "claim"
+            and not isinstance(gate, LeaderElection)
+        ):
+            msg = (
+                f"gate must be None, 'claim' or a LeaderElection, got {gate!r}"
+            )
+            raise TypeError(msg)
+        if isinstance(sync, LeaderElection | _LeaderGuard):
+            msg = "sync takes a resource lock, pass a LeaderElection as gate="
+            raise TypeError(msg)
+        if backend is not None and gate is None:
+            msg = "backend is only read by a gated task, pass gate='claim'"
+            raise ValueError(msg)
         self._expr = CronExpression(expr)
         self._expr_source = expr
         # `None` leaves the task open to the timezone of the `Tasks` that
@@ -410,6 +438,15 @@ class CronTask(Task):
 
         self._misfire_grace_seconds = misfire_grace_seconds
         self._backend = backend
+        self._gate = gate
+        self._leader = gate if isinstance(gate, LeaderElection) else None
+        self._gate_label = (
+            "none"
+            if gate is None
+            else "claim"
+            if gate == "claim"
+            else f"LeaderElection({gate.name!r})"
+        )
         self._sync = sync
 
         self._next_fire_time: datetime | None = None
@@ -474,20 +511,19 @@ class CronTask(Task):
         return self._last_fire
 
     @property
-    def backend(self) -> ScheduleBackend | None:
+    def backend(self) -> ScheduleBackend:
         """Bound schedule backend, resolved on each tick.
 
         When a backend instance was passed at construction it is always
         returned. Otherwise the active `Grelmicro` app is consulted via
         `Grelmicro.current()` so that `micro.override(Coordination(...))`
-        blocks take effect. Returns `None` when no app is running and no
-        backend was passed, which runs the body on every worker.
+        blocks take effect.
 
         Raises:
-            OutOfContextError: An app is running but no `Coordination`
-                component is registered. Pass `backend=`, register a
-                `Coordination` Component, or run the call inside
-                `async with micro:` or after `micro.install(app)`.
+            OutOfContextError: No backend resolved in this scope. Pass
+                `backend=`, register a `Coordination` Component, or run
+                the call inside `async with micro:` or after
+                `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
@@ -496,15 +532,10 @@ class CronTask(Task):
             Grelmicro,
             NoActiveAppError,
         )
-        from grelmicro.errors import OutOfContextError  # noqa: PLC0415
 
         try:
-            app = Grelmicro.current()
-        except NoActiveAppError:
-            return None
-        try:
-            coordination = app.get("coordination", "default")
-        except ComponentNotRegisteredError:
+            coordination = Grelmicro.current().get("coordination", "default")
+        except (NoActiveAppError, ComponentNotRegisteredError):
             msg = (
                 f"Cron task {self.name!r} resolved no schedule backend. "
                 f"Pass backend=, register a Coordination component, or run "
@@ -523,17 +554,18 @@ class CronTask(Task):
         """Run the cron task loop."""
         self._running = True
         logger.info(
-            "Task started (cron: %s, timezone: %s): %s",
+            "Task started (cron: %s, timezone: %s, gate: %s): %s",
             self._expr_source,
             self._timezone or UTC_NAME,
+            self._gate_label,
             self.name,
         )
         if ready is not None and not ready.done():  # pragma: no branch
             ready.set_result(None)
         try:
             # Replay a fire missed while this worker was down before sleeping
-            # to the next one. Only meaningful with a durable backend: in local
-            # mode there is no past state, so startup is the baseline.
+            # to the next one. Only meaningful with a gate: without one there
+            # is no past state, so startup is the baseline.
             await self._tick_guarded(catchup=True)
             while True:
                 now = _now(self._tz)
@@ -551,7 +583,7 @@ class CronTask(Task):
                     # which happens inside the hour a fall-back transition
                     # repeats. Wait for the next minute and compute again.
                     # No tick: nothing is due, and a tick would run the body
-                    # in local mode, where every tick is a fire.
+                    # of an ungated task, where every tick is a fire.
                     if await sleep_or_stop(_delay_to_next_minute(now), stop):
                         break
                     continue
@@ -601,11 +633,12 @@ class CronTask(Task):
     async def _tick(self, *, catchup: bool) -> None:
         """Evaluate the current fire and run the body when this worker claims it.
 
-        Computes ``due``, the most recent scheduled fire at or before now. With
-        no backend, runs the body for a scheduled fire (every worker) and skips
-        the startup catch-up tick. With a backend, claims ``due`` against the
-        durable ``last_fired`` and runs only on a won claim, dropping coalesced
-        or out-of-grace fires.
+        Computes ``due``, the most recent scheduled fire at or before now.
+        Without a gate, runs the body for a scheduled fire (every worker) and
+        skips the startup catch-up tick. With a gate, claims ``due`` against
+        the durable ``last_fired`` and runs only on a won claim, dropping
+        coalesced or out-of-grace fires. A leader gate skips the fire on a
+        worker that is not the leader before touching the backend.
         """
         now = _now(self._tz)
         due_dt = self._expr.previous_or_equal(now)
@@ -613,13 +646,20 @@ class CronTask(Task):
             return
         due = due_dt.timestamp()
 
-        backend = self.backend
-        if backend is None:
-            # Local mode: no durable state, so a past fire cannot be replayed.
-            # Skip the startup catch-up and run the body for scheduled fires.
+        if self._gate is None:
+            # No durable state, so a past fire cannot be replayed. Skip the
+            # startup catch-up and run the body for scheduled fires.
             if not catchup:
                 await self._run(due)
             return
+        if self._leader is not None and not self._leader.is_leader():
+            if not catchup:
+                self._last_fire = _report_unrun_fire(
+                    self.name, now, FireOutcome.SKIPPED
+                )
+            return
+
+        backend = self.backend
 
         last = await backend.last_fired(self.name)
         if last is None:

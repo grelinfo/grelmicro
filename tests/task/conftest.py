@@ -27,12 +27,12 @@ def _create_task(
     min_hold_duration: float,
     lease_duration: float,
 ) -> IntervalTask:
-    """Create IntervalTask using the lock=TaskLock() API."""
+    """Create IntervalTask using the gate=TaskLock() API."""
     return IntervalTask(
         seconds=seconds,
         function=function,
         name=name,
-        lock=TaskLock(
+        gate=TaskLock(
             backend=backend,
             worker=worker,
             min_hold_duration=min_hold_duration,
@@ -69,3 +69,5 @@ def _reset_e2e_state() -> None:
     samples.condition = asyncio.Condition()
     samples.e2e_counter = {"worker_1": 0, "worker_2": 0}
     samples.execution_count = 0
+    samples.run_starts = []
+    samples.gate_lock = None

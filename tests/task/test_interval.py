@@ -87,7 +87,11 @@ def test_interval_task_lock_default_name_restamped() -> None:
         seconds=60,
         function=test1,
         name="cleanup",
-        lock=TaskLock(backend=backend, lease_duration=lease_duration),
+        gate=TaskLock(
+            backend=backend,
+            lease_duration=lease_duration,
+            min_hold_duration=60,
+        ),
     )
     task_lock = task._sync_primitives[0]
     assert isinstance(task_lock, TaskLock)
@@ -102,24 +106,26 @@ def test_interval_task_lock_explicit_name_honored() -> None:
         seconds=60,
         function=test1,
         name="cleanup",
-        lock=TaskLock("shared", backend=backend, lease_duration=300),
+        gate=TaskLock(
+            "shared", backend=backend, lease_duration=300, min_hold_duration=60
+        ),
     )
     task_lock = task._sync_primitives[0]
     assert isinstance(task_lock, TaskLock)
     assert task_lock.name == "shared"
 
 
-def test_interval_task_lock_lease_less_than_seconds_raises() -> None:
-    """A lock lease_duration below seconds raises ValueError."""
+def test_interval_task_lock_min_hold_less_than_seconds_raises() -> None:
+    """A lock min_hold_duration below seconds raises ValueError."""
     backend = MemoryLockAdapter()
     with pytest.raises(
         ValueError,
-        match="lease_duration must be greater than or equal to seconds",
+        match="min_hold_duration must be greater than or equal to seconds",
     ):
         IntervalTask(
             seconds=60,
             function=test1,
-            lock=TaskLock(backend=backend, lease_duration=10),
+            gate=TaskLock(backend=backend, lease_duration=10),
         )
 
 
@@ -131,19 +137,111 @@ def test_interval_task_leader_auto_locks() -> None:
         seconds=seconds,
         function=test1,
         name="cleanup",
-        leader=leader,
+        gate=leader,
     )
     task_locks = [p for p in task._sync_primitives if isinstance(p, TaskLock)]
     assert len(task_locks) == 1
     assert task_locks[0].name == "cleanup"
-    assert task_locks[0].config.lease_duration == seconds * 5
+    assert task_locks[0].config.lease_duration == seconds * 2
     assert task_locks[0].config.min_hold_duration == seconds
 
 
 def test_interval_task_local_no_sync() -> None:
-    """Neither lock nor leader leaves the task local."""
+    """No gate leaves the task local."""
     task = IntervalTask(seconds=60, function=test1)
     assert task._sync_primitives == []
+
+
+def test_interval_task_claim_builds_interval_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A claim holds for the interval, leases two, and ignores the environment."""
+    seconds = 60
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_TASKLOCK_LEASE_DURATION", "999")
+    monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MIN_HOLD_DURATION", "1")
+    task = IntervalTask(
+        seconds=seconds, function=test1, name="cleanup", gate="claim"
+    )
+    (task_lock,) = task._sync_primitives
+    assert isinstance(task_lock, TaskLock)
+    assert task_lock.name == "cleanup"
+    assert task_lock.config.min_hold_duration == seconds
+    assert task_lock.config.lease_duration == seconds * 2
+
+
+def test_interval_task_lock_gate_is_the_callers_handle() -> None:
+    """The task enters the lock the caller holds, so its handle stays live."""
+    lock = TaskLock(
+        backend=MemoryLockAdapter(), lease_duration=120, min_hold_duration=60
+    )
+    task = IntervalTask(seconds=60, function=test1, name="cleanup", gate=lock)
+    assert task._sync_primitives == [lock]
+    assert lock.name == "cleanup"
+
+
+def test_interval_task_lock_gate_refuses_a_second_task() -> None:
+    """One `TaskLock` gates one task."""
+    lock = TaskLock(
+        backend=MemoryLockAdapter(), lease_duration=120, min_hold_duration=60
+    )
+    IntervalTask(seconds=60, function=test1, name="first", gate=lock)
+    with pytest.raises(ValueError, match="already gates task 'first'"):
+        IntervalTask(seconds=60, function=test1, name="second", gate=lock)
+
+
+def test_interval_task_gate_rejects_unknown_value() -> None:
+    """A gate outside None, "claim", `TaskLock` and `LeaderElection` is refused."""
+    with pytest.raises(TypeError, match="gate must be"):
+        IntervalTask(
+            seconds=60,
+            function=test1,
+            gate="leader",  # ty: ignore[invalid-argument-type]
+        )
+
+
+@pytest.mark.parametrize("as_guard", [False, True])
+def test_interval_task_sync_rejects_leader_election(*, as_guard: bool) -> None:
+    """A leader election passed as `sync` is refused in favour of `gate`."""
+    election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+    sync = election.guard() if as_guard else election
+    with pytest.raises(TypeError, match="as gate="):
+        IntervalTask(seconds=60, function=test1, sync=sync)
+
+
+@pytest.mark.parametrize(
+    ("gate", "label"),
+    [
+        (None, "none"),
+        ("claim", "claim"),
+        ("lock", "TaskLock('named')"),
+        ("leader", "LeaderElection('svc')"),
+    ],
+)
+async def test_interval_task_logs_gate_at_start(
+    mocker: MockFixture,
+    caplog: pytest.LogCaptureFixture,
+    gate: str | None,
+    label: str,
+) -> None:
+    """The start log names the resolved gate."""
+    caplog.set_level("INFO")
+    resolved = {
+        "lock": TaskLock("named", lease_duration=60, min_hold_duration=60),
+        "leader": LeaderElection("svc", backend=MemoryLeaderElectionAdapter()),
+    }.get(gate or "", gate)
+    task = IntervalTask(
+        seconds=60,
+        function=test1,
+        gate=resolved,  # ty: ignore[invalid-argument-type]
+    )
+    mocker.patch.object(task, "_run_with_sync")
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        cancel_group(tg)
+
+    assert any(f"gate: {label})" in r.message for r in caplog.records)
 
 
 async def test_interval_task_start() -> None:

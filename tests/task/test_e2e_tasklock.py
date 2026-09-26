@@ -1,14 +1,19 @@
 """End-to-end tests for IntervalTask with TaskLock.
 
 These tests build the task through a shared factory that wires a
-``lock=TaskLock(...)`` onto the interval.
+``gate=TaskLock(...)`` onto the interval.
 """
 
 import asyncio
+from itertools import pairwise
 
 import pytest
 
+from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LockBackend
+from grelmicro.coordination.tasklock import TaskLock
+from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 from tests.task.conftest import TaskFactory
@@ -16,6 +21,7 @@ from tests.task.conftest import TaskFactory
 pytestmark = [pytest.mark.timeout(10)]
 
 INTERVAL = 0.1
+WORKERS = 3
 
 
 async def test_tasklock_basic_execution(
@@ -28,7 +34,7 @@ async def test_tasklock_basic_execution(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=0.001,
+        min_hold_duration=INTERVAL,
         lease_duration=10,
     )
 
@@ -124,7 +130,7 @@ async def test_tasklock_lease_duration(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=0.01,
+        min_hold_duration=INTERVAL,
         lease_duration=max_lock,
     )
     task_2 = task_factory(
@@ -133,7 +139,7 @@ async def test_tasklock_lease_duration(
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_hold_duration=0.01,
+        min_hold_duration=INTERVAL,
         lease_duration=max_lock,
     )
 
@@ -247,3 +253,57 @@ async def test_tasklock_sequential_executions(
         samples.e2e_event_1 = asyncio.Event()
         await samples.e2e_event_1.wait()
         cancel_group(tg)
+
+
+async def test_claim_runs_each_interval_once_across_offset_workers(
+    backend: LockBackend,
+) -> None:
+    """Workers whose timers are offset never both run the same interval.
+
+    Each worker starts half an interval after the previous one, so a claim
+    released when the body ends would let every worker win its own tick.
+    """
+    interval = 0.2
+    workers = [
+        IntervalTask(
+            seconds=interval,
+            function=samples.record_start,
+            name="claimed",
+            gate="claim",
+        )
+        for _ in range(WORKERS)
+    ]
+    async with (
+        Grelmicro(uses=[Coordination(lock=backend)]),
+        asyncio.TaskGroup() as tg,
+    ):
+        for worker in workers:
+            await start_task(tg, worker)
+            await asyncio.sleep(interval / 2)
+        await asyncio.sleep(interval * 5)
+        cancel_group(tg)
+
+    starts = samples.run_starts
+    assert len(starts) >= WORKERS
+    assert min(b - a for a, b in pairwise(starts)) >= interval * 0.8
+
+
+async def test_gate_lock_refreshes_from_the_body(
+    backend: LockBackend, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The handle passed as the gate is the one the task holds, so it renews."""
+    samples.gate_lock = TaskLock(
+        backend=backend, lease_duration=10, min_hold_duration=INTERVAL
+    )
+    task = IntervalTask(
+        seconds=INTERVAL,
+        function=samples.refresh_gate_lock,
+        gate=samples.gate_lock,
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await samples.e2e_event_1.wait()
+        cancel_group(tg)
+
+    assert not any(r.levelname == "ERROR" for r in caplog.records)

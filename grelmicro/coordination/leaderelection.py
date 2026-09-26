@@ -775,11 +775,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
     def guard(self) -> "_LeaderGuard":
         """Return a non-blocking synchronization guard.
 
-        The guard raises ``WouldBlock`` if the current worker is not the leader,
-        making it suitable for use as the ``sync`` parameter of ``IntervalTask``.
+        The guard raises ``WouldBlockError`` if the current worker is not the
+        leader. Unlike using ``LeaderElection`` directly (which blocks until
+        leader), the guard lets the caller skip the work and try again later.
 
-        Unlike using ``LeaderElection`` directly (which blocks until leader),
-        the guard skips the current tick and retries on the next interval.
+        To run a scheduled task on the leader only, pass the election itself
+        as the task ``gate``.
         """
         return _LeaderGuard(self)
 

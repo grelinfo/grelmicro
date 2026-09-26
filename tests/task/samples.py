@@ -2,12 +2,14 @@
 
 import asyncio
 import sys
+import time
 from types import TracebackType
 from typing import Self
 
 from typer import echo
 
 from grelmicro.coordination._protocol import LockPrimitive
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError as WouldBlock
 from grelmicro.task._protocol import Task
 
@@ -19,6 +21,8 @@ e2e_event_1: Event = Event()
 e2e_event_2: Event = Event()
 e2e_counter: dict[str, int] = {"worker_1": 0, "worker_2": 0}
 execution_count: int = 0
+run_starts: list[float] = []
+gate_lock: TaskLock | None = None
 
 
 def test1() -> None:
@@ -72,6 +76,18 @@ async def count_execution() -> None:
     """Increment execution counter."""
     global execution_count  # noqa: PLW0603
     execution_count += 1
+
+
+async def record_start() -> None:
+    """Record the monotonic instant the body started."""
+    run_starts.append(time.monotonic())
+
+
+async def refresh_gate_lock() -> None:
+    """Renew the gate lock from inside the body, then set e2e_event_1."""
+    assert gate_lock is not None
+    await gate_lock.refresh()
+    e2e_event_1.set()
 
 
 async def noop() -> None:

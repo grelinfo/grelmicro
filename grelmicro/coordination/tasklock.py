@@ -101,7 +101,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     There is no background task that maintains the lock active during execution.
     The lock relies entirely on the TTL (`lease_duration`) set at acquire time.
 
-    This lock is designed to be used as the `lock` parameter of `@task.interval`.
+    This lock is designed to be used as the `gate` of `@tasks.every`.
 
     Supports live reconfiguration via
     `reconfigure(new_config)`.
@@ -123,9 +123,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
                 It will be used as the lock name so make sure it is unique on the lock backend.
 
-                Defaults to `"default"`. When used as the `lock` of
-                `@task.interval`, the default name is re-stamped to the
-                task name so it does not need to be repeated.
+                Defaults to `"default"`. When used as the `gate` of
+                `@tasks.every`, a lock still named `"default"` takes the
+                task name, so it does not need to be repeated.
                 """
             ),
         ] = "default",
@@ -279,13 +279,6 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         instance._setup(name, config, backend)  # noqa: SLF001
         return instance
 
-    def _with_name(self, name: str) -> "TaskLock":
-        """Return a copy bound to a new name, preserving config and backend."""
-        backend: LockBackend | str | None = (
-            self._backend if self._backend is not None else self._backend_name
-        )
-        return type(self).from_config(name, self._config, backend=backend)
-
     def _setup(
         self,
         name: str,
@@ -307,6 +300,29 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         self._acquired_at: float | None = None
         self._token_nonce = generate_token_nonce()
         self._from_thread: ThreadTaskLockAdapter | None = None
+        self._task_name: str | None = None
+
+    def _bind_task(self, task_name: str) -> None:
+        """Bind the lock to the one task it gates.
+
+        A lock still named ``"default"`` takes the task name. The rename
+        happens in place, so the handle the caller holds is the lock the
+        task enters.
+
+        Raises:
+            ValueError: If the lock already gates another task.
+        """
+        if self._task_name is not None:
+            msg = (
+                f"TaskLock {self._name!r} already gates task "
+                f"{self._task_name!r}, give each task its own TaskLock"
+            )
+            raise ValueError(msg)
+        self._task_name = task_name
+        if self._name == "default":
+            self._name = task_name
+            self._lock_name = f"{self._LOCK_PREFIX}:{task_name}"
+            self._metrics = LockMetrics(task_name, "task")
 
     @property
     def name(self) -> str:

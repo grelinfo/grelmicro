@@ -6,14 +6,14 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
-from typing import Any
+from typing import Any, Literal
 
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.coordination.leaderelection import LeaderElection
+from grelmicro.coordination.leaderelection import LeaderElection, _LeaderGuard
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
@@ -30,10 +30,13 @@ class IntervalTask(Task):
     Use the `Tasks.every()` or `TaskRouter.every()` decorator instead
     of creating IntervalTask objects directly.
 
-    Supports three modes:
-    - Local: No ``lock`` or ``leader``, runs on every worker.
-    - Distributed lock: Pass a ``lock`` to enable at-most-once per interval.
-    - Leader-gated: Set ``leader`` to restrict execution to the leader worker.
+    The ``gate`` decides which workers run each interval:
+
+    - ``None``: every worker.
+    - ``"claim"``: one worker claims each interval.
+    - A ``TaskLock``: one worker claims each interval, with the lock's
+      own tuning.
+    - A ``LeaderElection``: the elected worker.
     """
 
     def __init__(
@@ -42,8 +45,7 @@ class IntervalTask(Task):
         function: Callable[..., Any],
         name: str | None = None,
         seconds: float | timedelta,
-        lock: TaskLock | None = None,
-        leader: LeaderElection | None = None,
+        gate: Literal["claim"] | TaskLock | LeaderElection | None = None,
         sync: LockPrimitive | None = None,
     ) -> None:
         """Initialize the IntervalTask.
@@ -51,7 +53,10 @@ class IntervalTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If the lock lease_duration is less than seconds.
+            ValueError: If the gate lock holds a claim for less than
+                `seconds`, or already gates another task.
+            TypeError: If `gate` is not a supported value, or `sync` is
+                a leader election.
         """
         seconds = (
             seconds.total_seconds()
@@ -61,6 +66,7 @@ class IntervalTask(Task):
         if seconds <= 0:
             msg = "seconds must be greater than 0"
             raise ValueError(msg)
+        _check_sync(sync)
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
@@ -68,19 +74,10 @@ class IntervalTask(Task):
         self._function = function
         self._async_function = self._prepare_async_function(function)
 
-        distributed = lock is not None or leader is not None
-
-        if distributed:
-            task_lock = self._resolve_task_lock(lock, seconds)
-            self._sync_primitives: list[LockPrimitive] = _build_sync_list(
-                leader=leader,
-                task_lock=task_lock,
-                resource_lock=sync,
-            )
-        elif sync is not None:
-            self._sync_primitives = [sync]
-        else:
-            self._sync_primitives = []
+        self._gate_label, primitives = self._resolve_gate(gate, seconds)
+        if sync is not None:
+            primitives.append(sync)
+        self._sync_primitives: list[LockPrimitive] = primitives
 
         self._last_fire: FireInfo | None = None
         self._last_loop_start: float | None = None
@@ -91,34 +88,48 @@ class IntervalTask(Task):
         # raised after it started is already counted by `_run_with_sync`.
         self._body_started = False
 
-    def _resolve_task_lock(
-        self, lock: TaskLock | None, seconds: float
-    ) -> TaskLock:
-        """Resolve the at-most-once task lock for the interval.
+    def _resolve_gate(
+        self,
+        gate: Literal["claim"] | TaskLock | LeaderElection | None,
+        seconds: float,
+    ) -> tuple[str, list[LockPrimitive]]:
+        """Resolve the gate into its log label and ordered sync primitives.
 
-        When ``lock`` is given, it is authoritative. Its ``lease_duration``
-        must be at least ``seconds``. A lock still carrying the default
-        ``"default"`` name is re-stamped to the task name so the name is
-        never repeated.
-
-        When ``lock`` is None (leader-gated mode), a ``TaskLock`` is built
-        with interval-aware defaults: ``lease_duration`` of ``seconds * 5``
-        and ``min_hold_duration`` of ``seconds``.
+        A leader guard comes first, because it rejects a worker that is
+        not the leader without touching the backend. The claim lock comes
+        next, so it is held only once leadership is confirmed.
         """
-        if lock is None:
-            return TaskLock(
-                self._name,
-                min_hold_duration=seconds,
-                lease_duration=seconds * 5,
-            )
+        if gate is None:
+            return "none", []
+        if gate == "claim":
+            return "claim", [self._claim_lock(seconds)]
+        if isinstance(gate, TaskLock):
+            _check_task_lock(gate, seconds)
+            gate._bind_task(self._name)  # noqa: SLF001
+            return f"TaskLock({gate.name!r})", [gate]
+        if isinstance(gate, LeaderElection):
+            return f"LeaderElection({gate.name!r})", [
+                gate.guard(),
+                self._claim_lock(seconds),
+            ]
+        msg = (
+            "gate must be None, 'claim', a TaskLock or a LeaderElection,"
+            f" got {gate!r}"
+        )
+        raise TypeError(msg)
 
-        if lock.config.lease_duration < seconds:
-            msg = "lease_duration must be greater than or equal to seconds"
-            raise ValueError(msg)
+    def _claim_lock(self, seconds: float) -> TaskLock:
+        """Build the lock that holds one claim per interval.
 
-        if lock.name == "default":
-            return lock._with_name(self._name)  # noqa: SLF001
-        return lock
+        The claim is held for the whole interval, and the lease lets a
+        body run for up to two intervals before a peer may claim again.
+        """
+        return TaskLock(
+            self._name,
+            min_hold_duration=seconds,
+            lease_duration=seconds * 2,
+            env_load=False,
+        )
 
     @property
     def function(self) -> Callable[..., Any]:
@@ -157,7 +168,10 @@ class IntervalTask(Task):
     ) -> None:
         """Run the repeated task loop."""
         logger.info(
-            "Task started (interval: %ss): %s", self._seconds, self.name
+            "Task started (interval: %ss, gate: %s): %s",
+            self._seconds,
+            self._gate_label,
+            self.name,
         )
         if ready is not None and not ready.done():  # pragma: no branch
             ready.set_result(None)
@@ -297,29 +311,29 @@ class IntervalTask(Task):
         )
 
 
-def _build_sync_list(
-    *,
-    leader: LeaderElection | None,
-    task_lock: TaskLock,
-    resource_lock: LockPrimitive | None = None,
-) -> list[LockPrimitive]:
-    """Build an ordered list of sync primitives.
+def _check_task_lock(lock: TaskLock, seconds: float) -> None:
+    """Refuse a lock that cannot hold one claim for a whole interval.
 
-    Acquisition order (outermost to innermost):
+    `TaskLockConfig` keeps `lease_duration` at or above
+    `min_hold_duration`, so the lease covers the interval too.
 
-    1. **Leader guard**: Cheapest check; instantly rejects non-leader workers
-       without touching any lock, avoiding unnecessary contention.
-    2. **Task lock**: The distributed ``TaskLock`` with TTL that guarantees
-       at-most-once execution per interval. Acquired after leadership is
-       confirmed to keep the TTL window tight.
-    3. **Resource lock**: A user-provided ``Lock`` for shared-resource access.
-       Acquired last so the resource is held only during actual execution,
-       minimizing contention on the shared resource.
+    Raises:
+        ValueError: If `min_hold_duration` is shorter than `seconds`.
     """
-    primitives: list[LockPrimitive] = []
-    if leader is not None:
-        primitives.append(leader.guard())
-    primitives.append(task_lock)
-    if resource_lock is not None:
-        primitives.append(resource_lock)
-    return primitives
+    if lock.config.min_hold_duration < seconds:
+        msg = (
+            "min_hold_duration must be greater than or equal to seconds,"
+            " or a peer claims the same interval once the body ends"
+        )
+        raise ValueError(msg)
+
+
+def _check_sync(sync: LockPrimitive | None) -> None:
+    """Refuse a leader election passed as `sync`.
+
+    Raises:
+        TypeError: If `sync` is a `LeaderElection` or its guard.
+    """
+    if isinstance(sync, LeaderElection | _LeaderGuard):
+        msg = "sync takes a resource lock, pass a LeaderElection as gate="
+        raise TypeError(msg)

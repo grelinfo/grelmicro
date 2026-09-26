@@ -13,7 +13,11 @@ from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.coordination.memory import MemoryScheduleAdapter
+from grelmicro.coordination.leaderelection import LeaderElection
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionAdapter,
+    MemoryScheduleAdapter,
+)
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._cron import CronTask, FireInfo, FireOutcome
 from grelmicro.task.errors import CronError
@@ -296,6 +300,7 @@ async def test_cron_task_runs_once_with_backend(
         function=count_execution,
         name=name,
         backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act: loop fast over many ticks against a single due fire.
@@ -316,10 +321,18 @@ async def test_cron_task_second_worker_does_not_double_run(
     name = "no-double-run"
     await schedule.claim(name, _previous_fire_epoch() - 120)
     worker_a = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     worker_b = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act: both workers loop fast against the same shared fire.
@@ -341,7 +354,11 @@ async def test_cron_task_replays_missed_fire(
     name = "missed-replay"
     await schedule.claim(name, _previous_fire_epoch() - 120)
     task = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act
@@ -365,6 +382,7 @@ async def test_cron_task_misfire_grace_skips_when_too_late(
         function=count_execution,
         name=name,
         backend=schedule,
+        gate="claim",
         misfire_grace_seconds=1,
     )
     _run_fast(mocker)
@@ -387,7 +405,11 @@ async def test_cron_task_first_sight_establishes_baseline(
     # Arrange: no prior last_fired for this name.
     name = "first-sight"
     task = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act
@@ -525,7 +547,11 @@ async def test_cron_task_tick_error_is_logged(
     name = "tick-error"
     await schedule.claim(name, _previous_fire_epoch() - 120)
     task = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     mocker.patch.object(
         schedule, "claim", side_effect=RuntimeError("backend down")
@@ -601,10 +627,11 @@ async def test_cron_task_resolves_backend_from_active_app() -> None:
         assert task.backend is schedule
 
 
-async def test_cron_task_backend_none_without_app() -> None:
-    """With no app and no explicit backend, the task runs on every worker."""
-    task = CronTask(expr=EVERY_MINUTE, function=count_execution)
-    assert task.backend is None
+async def test_cron_task_backend_out_of_context_without_app() -> None:
+    """With no app and no explicit backend, `OutOfContextError` is raised."""
+    task = CronTask(expr=EVERY_MINUTE, function=count_execution, gate="claim")
+    with pytest.raises(OutOfContextError, match="Cron task"):
+        _ = task.backend
 
 
 async def test_cron_task_backend_out_of_context_without_coordination() -> None:
@@ -615,3 +642,135 @@ async def test_cron_task_backend_out_of_context_without_coordination() -> None:
     async with micro:
         with pytest.raises(OutOfContextError, match="Cron task"):
             _ = task.backend
+
+
+# --- Gate ---
+
+
+def _election() -> LeaderElection:
+    """Return a leader election that is never started."""
+    return LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+
+
+def test_cron_task_gate_rejects_unknown_value() -> None:
+    """A gate that is not None, "claim" or a `LeaderElection` is refused."""
+    with pytest.raises(TypeError, match="gate must be"):
+        CronTask(
+            expr=EVERY_MINUTE,
+            function=test1,
+            gate="leader",  # ty: ignore[invalid-argument-type]
+        )
+
+
+def test_cron_task_backend_without_gate_rejected(
+    schedule: MemoryScheduleAdapter,
+) -> None:
+    """A backend passed to an ungated task is refused, it would never be read."""
+    with pytest.raises(ValueError, match="gate='claim'"):
+        CronTask(expr=EVERY_MINUTE, function=test1, backend=schedule)
+
+
+@pytest.mark.parametrize("as_guard", [False, True])
+def test_cron_task_sync_rejects_leader_election(*, as_guard: bool) -> None:
+    """A leader election passed as `sync` is refused in favour of `gate`."""
+    election = _election()
+    sync = election.guard() if as_guard else election
+    with pytest.raises(TypeError, match="as gate="):
+        CronTask(expr=EVERY_MINUTE, function=test1, sync=sync)
+
+
+async def test_cron_task_ungated_ignores_registered_schedule() -> None:
+    """Without a gate every worker runs the fire, even with a backend in scope."""
+    schedule = MemoryScheduleAdapter()
+    name = "ungated"
+    workers = [
+        CronTask(expr=EVERY_MINUTE, function=count_execution, name=name)
+        for _ in range(2)
+    ]
+    async with Grelmicro(uses=[Coordination(schedule=schedule)]):
+        for worker in workers:
+            await worker._tick(catchup=False)
+        assert await schedule.last_fired(name) is None
+    assert samples.execution_count == len(workers)
+
+
+async def test_cron_task_leader_gate_follower_skips_without_claiming(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A follower skips the fire and never touches the schedule backend."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=False)
+    claim = mocker.spy(schedule, "claim")
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        backend=schedule,
+        gate=election,
+    )
+
+    await task._tick(catchup=True)
+    assert task.last_fire is None
+    await task._tick(catchup=False)
+
+    assert samples.execution_count == 0
+    claim.assert_not_called()
+    assert task.last_fire is not None
+    assert task.last_fire.outcome == FireOutcome.SKIPPED
+
+
+async def test_cron_task_leader_gate_claims_each_fire(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """Two workers that both believe they lead still run a fire once."""
+    name = "handover"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=True)
+    workers = [
+        CronTask(
+            expr=EVERY_MINUTE,
+            function=count_execution,
+            name=name,
+            backend=schedule,
+            gate=election,
+        )
+        for _ in range(2)
+    ]
+    _run_fast(mocker)
+
+    async with asyncio.TaskGroup() as tg:
+        for worker in workers:
+            await start_task(tg, worker)
+        await sleep(SLEEP * 5)
+        cancel_group(tg)
+
+    assert samples.execution_count == 1
+
+
+@pytest.mark.parametrize(
+    ("gate", "label"),
+    [(None, "none"), ("claim", "claim"), ("leader", "LeaderElection('svc')")],
+)
+async def test_cron_task_logs_gate_at_start(
+    mocker: MockFixture,
+    caplog: pytest.LogCaptureFixture,
+    gate: str | None,
+    label: str,
+) -> None:
+    """The start log names the resolved gate."""
+    caplog.set_level("INFO")
+    resolved = _election() if gate == "leader" else gate
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=test1,
+        backend=MemoryScheduleAdapter() if resolved is not None else None,
+        gate=resolved,  # ty: ignore[invalid-argument-type]
+    )
+    mocker.patch.object(task, "_tick_guarded")
+    _run_fast(mocker)
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        cancel_group(tg)
+
+    assert any(f"gate: {label})" in r.message for r in caplog.records)

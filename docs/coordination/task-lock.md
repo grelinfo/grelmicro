@@ -24,11 +24,13 @@ async with task_lock:
 ```
 
 !!! tip
-    For interval tasks, prefer the
-    [`every()` decorator with `lock=TaskLock(...)`](../task.md#distributed-lock),
-    which re-stamps the lock with the task name automatically. Cron tasks need
-    no lock at all. They claim each fire against the
-    [schedule backend](../task.md#distributed-cron) instead.
+    For interval tasks, pass the lock as the
+    [`gate` of `every()`](../task.md#tune-the-claim). A lock still named
+    `"default"` takes the task name, and the task holds the same lock you
+    keep, so `refresh()` on it extends the claim. Most tasks need no
+    `TaskLock` at all: [`gate="claim"`](../task.md#claim) builds one sized
+    to the interval. Cron tasks never take a lock. They claim each fire
+    against the schedule backend instead.
 
 !!! warning
     When the lock expires before the task completes (`lease_duration`
