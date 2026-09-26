@@ -30,7 +30,11 @@ from starlette.routing import Mount, Route
 
 from grelmicro import Grelmicro
 from grelmicro._caller import subject_of
-from grelmicro.errors import InsufficientScopeError
+from grelmicro.errors import (
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+)
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
@@ -42,6 +46,7 @@ from grelmicro.http._authentication import (
     recorded,
     refusal_of,
 )
+from grelmicro.http._kinds import classify
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
 )
@@ -1049,6 +1054,30 @@ class TestRefusalOf:
     ) -> None:
         """A rejected token by its reason, anything else by its type."""
         assert refusal_of(error) == expected
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            AuthenticationRequiredError(),
+            AmbiguousCredentialsError(),
+            InsufficientScopeError(scopes=("orders:read",)),
+            ClientBannedError(retry_after=1.0),
+            SigningKeysUnavailableError("down"),
+            TokenRejectedError(TokenRejectedReason.EXPIRED),
+        ],
+        ids=type,
+    )
+    def test_each_refusal_answers_the_status_it_renders_with(
+        self, error: BaseException
+    ) -> None:
+        """A refusal is recorded with the status its response carries."""
+        occurrence = classify(error)
+        assert occurrence is not None
+        found = refusal_of(error)
+        assert found is not None
+        assert found[1] == occurrence.kind.status
+        if not isinstance(error, TokenRejectedError):
+            assert found[0] == occurrence.kind.slug
 
 
 def _tracing() -> tuple[InMemorySpanExporter, Any]:
