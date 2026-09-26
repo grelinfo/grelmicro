@@ -821,3 +821,133 @@ def test_a_component_answers_without_error_responses() -> None:
         assert status == HTTP_412_PRECONDITION_FAILED, name
         assert headers["content-type"] == PROBLEM_MEDIA_TYPE, name
         assert (status, headers, body) == reference, name
+
+
+# --- Tier 2: an authenticated route admits the same callers ---------------
+
+
+class _Caller:
+    """A caller an outer authentication layer set, of any shape."""
+
+    def __init__(
+        self, *, is_authenticated: object, scopes: frozenset[str]
+    ) -> None:
+        self.is_authenticated = is_authenticated
+        self.subject = "user-1"
+        self.scopes = scopes
+
+
+_CALLERS = {
+    "anonymous": None,
+    "truthy": _Caller(is_authenticated=1, scopes=frozenset({"orders:read"})),
+    "unscoped": _Caller(is_authenticated=True, scopes=frozenset()),
+    "scoped": _Caller(is_authenticated=True, scopes=frozenset({"orders:read"})),
+}
+"""Each caller the case names in its `X-Caller` header."""
+
+
+class _SetsCaller:
+    """Put the caller a request names on its scope, as an auth layer would."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        if scope["type"] == "http":
+            name = dict(scope["headers"]).get(b"x-caller", b"").decode()
+            caller = _CALLERS.get(name)
+            if caller is not None:
+                scope["user"] = caller
+        await self.app(scope, receive, send)
+
+
+def _requirement_answers(client: Any) -> Answers:  # noqa: ANN401
+    """Ask the protected route as each caller."""
+    return {
+        name: _answer(client.get("/orders", headers={"X-Caller": name}))
+        for name in _CALLERS
+    }
+
+
+def _requirement_fastapi() -> Answers:
+    """Protect a FastAPI route with `Authenticated`."""
+    from grelmicro.integrations.fastapi import Authenticated  # noqa: PLC0415
+
+    app = FastAPI(
+        dependencies=[Authenticated(scopes=["orders:read"])], openapi_url=None
+    )
+
+    @app.get("/orders")
+    async def orders() -> dict[str, bool]:
+        return {"served": True}
+
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+    app.add_middleware(_SetsCaller)
+    with TestClient(app) as client:
+        return _requirement_answers(client)
+
+
+def _requirement_starlette() -> Answers:
+    """Protect the same route with the Starlette decorator."""
+    from grelmicro.integrations.starlette import Authenticated  # noqa: PLC0415
+
+    @Authenticated(scopes=["orders:read"])
+    async def orders(request: Request) -> JSONResponse:  # noqa: ARG001
+        return JSONResponse({"served": True})
+
+    app = Starlette(routes=[Route("/orders", orders)])
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+    app.add_middleware(_SetsCaller)
+    with StarletteTestClient(app) as client:
+        return _requirement_answers(client)
+
+
+def _requirement_litestar() -> Answers:
+    """Protect the same route with the Litestar guard."""
+    from litestar import get  # noqa: PLC0415
+
+    from grelmicro.integrations.litestar import Authenticated  # noqa: PLC0415
+
+    @get("/orders", guards=[Authenticated(scopes=["orders:read"])])
+    async def orders() -> dict[str, bool]:
+        return {"served": True}
+
+    app = Litestar(route_handlers=[orders], middleware=[_SetsCaller])
+    Grelmicro(uses=[ErrorResponses()]).install(app)
+    with LitestarTestClient(app=app) as client:
+        return _requirement_answers(client)
+
+
+REQUIREMENT_FRAMEWORKS = {
+    "fastapi": _requirement_fastapi,
+    "starlette": _requirement_starlette,
+    "litestar": _requirement_litestar,
+}
+"""Every HTTP framework, protecting one route with its `Authenticated`."""
+
+REQUIREMENT_STATUS = {
+    "anonymous": 401,
+    "truthy": 401,
+    "unscoped": 403,
+    "scoped": 200,
+}
+"""What each caller is answered with.
+
+A caller is authenticated only when its `is_authenticated` is `True`. One
+that is merely truthy is refused, the same way the security events and the
+access log name nobody for it.
+"""
+
+
+def test_every_http_framework_admits_the_same_callers() -> None:
+    """One `Authenticated`, one answer per caller, whichever framework serves it."""
+    # Act
+    answers = {name: serve() for name, serve in REQUIREMENT_FRAMEWORKS.items()}
+
+    # Assert
+    assert len(answers) == len(REQUIREMENT_FRAMEWORKS)
+    reference = answers["fastapi"]
+    for name, answer in answers.items():
+        for case, expected in REQUIREMENT_STATUS.items():
+            assert answer[case][0] == expected, f"{name}: {case}"
+            assert answer[case] == reference[case], f"{name}: {case}"

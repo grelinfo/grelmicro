@@ -25,6 +25,7 @@ from urllib.parse import unquote, urlsplit
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Doc
 
+from grelmicro._caller import is_authenticated, subject_of
 from grelmicro._config import build_config
 from grelmicro._paths import (
     PathPatterns,
@@ -55,7 +56,7 @@ from grelmicro.http._component import (
 )
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
-from grelmicro.security._events import SCOPE_KEY, SecurityEvents, subject_of
+from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
 from grelmicro.security.jwt import (
@@ -1954,7 +1955,7 @@ async def _checked(check: _Check, caller: Principal, scope: Scope) -> Principal:
         raise TokenRejectedError(
             TokenRejectedReason.REVOKED, subject=subject_of(caller)
         )
-    if getattr(checked, "is_authenticated", False) is not True:
+    if not is_authenticated(checked):
         msg = (
             f"check= answered with a {type(checked).__name__}, which is not "
             f"an authenticated caller. Return the caller, or None to refuse "

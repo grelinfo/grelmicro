@@ -29,6 +29,7 @@ from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
 from grelmicro import Grelmicro
+from grelmicro._caller import subject_of
 from grelmicro.errors import InsufficientScopeError
 from grelmicro.http import (
     AuthenticatedRequests,
@@ -993,8 +994,8 @@ class TestEncoding:
             def is_authenticated(self) -> bool:
                 raise RuntimeError
 
-        assert _events.subject_of(Broken()) is None
-        assert _events.subject_of(object()) is None
+        assert subject_of(Broken()) is None
+        assert subject_of(object()) is None
 
 
 class TestWithoutTracing:
@@ -1164,7 +1165,7 @@ class TestMutationGaps:
         self, caller: object
     ) -> None:
         """A caller not marked authenticated, or naming no string, is nobody."""
-        assert _events.subject_of(caller) is None
+        assert subject_of(caller) is None
 
     def test_each_address_is_held_back_on_its_own(
         self, events: list[logging.LogRecord]

@@ -376,7 +376,11 @@ def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
 
 
 def _authenticated_scope(scope: Scope) -> bool:
-    """Return whether authentication already established a caller identity."""
+    """Return whether authentication already established a caller identity.
+
+    Any truthy `is_authenticated` counts, so the default key is never shared
+    by two callers when an authentication layer marks its caller loosely.
+    """
     user = scope.get("user")
     if user is not None and getattr(user, "is_authenticated", False):
         return True
