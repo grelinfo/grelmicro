@@ -280,13 +280,6 @@ class IntervalTask(Task):
                 "grelmicro.task.name": self._name,
                 "grelmicro.outcome": FireOutcome.ERROR,
             }
-            claim = self._claim
-            renewed = asyncio.Event()
-            renewal = (
-                asyncio.create_task(self._renew_claim(claim, renewed))
-                if claim is not None
-                else None
-            )
             try:
                 await self._async_function()
                 outcome = FireOutcome.SUCCESS
@@ -297,11 +290,6 @@ class IntervalTask(Task):
                 attributes["error.type"] = type(exc).__name__
                 _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
             finally:
-                if renewal is not None:
-                    # Signal instead of cancel, so a renewal already sent to
-                    # the backend lands before the claim is released.
-                    renewed.set()
-                    await renewal
                 duration = time.perf_counter() - start_monotonic
                 self._last_fire = FireInfo(
                     started_at=started_at,
@@ -319,11 +307,25 @@ class IntervalTask(Task):
                 )
             return
 
-        async with primitives[index]:
-            await self._run_with_sync(primitives, index + 1)
+        primitive = primitives[index]
+        async with primitive:
+            if primitive is not self._claim:
+                await self._run_with_sync(primitives, index + 1)
+                return
+            # Renew from the moment the claim is held, so waiting for a
+            # `sync` lock after it never lets the lease run out.
+            done = asyncio.Event()
+            renewal = asyncio.create_task(self._renew_claim(primitive, done))
+            try:
+                await self._run_with_sync(primitives, index + 1)
+            finally:
+                # Signal instead of cancel, so a renewal already sent to the
+                # backend lands before the claim is released.
+                done.set()
+                await renewal
 
     async def _renew_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
-        """Keep the claim while the body runs, until `done` is set.
+        """Keep the claim until `done` is set.
 
         Renews every third of the lease. A renewal the backend fails is
         retried every tenth of the lease until two thirds of it passed

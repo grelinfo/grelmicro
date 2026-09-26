@@ -3,11 +3,14 @@
 import asyncio
 from asyncio import sleep
 from datetime import datetime, timedelta
+from types import TracebackType
+from typing import Self
 
 import pytest
 from pytest_mock import MockFixture
 
 from grelmicro._config import reconfigure_all
+from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError, LockReleaseError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.memory import (
@@ -692,3 +695,45 @@ async def test_interval_task_gate_built_from_config_stays_static() -> None:
     )
 
     assert lock.config.min_hold_duration == RELOAD_INTERVAL
+
+
+class _SlowLock(LockPrimitive):
+    """Resource lock that takes a while to enter, as a contended one does."""
+
+    def __init__(self, delay: float) -> None:
+        """Wait `delay` seconds on every entry."""
+        self._delay = delay
+
+    async def __aenter__(self) -> Self:
+        """Enter after the delay."""
+        await sleep(self._delay)
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Exit at once."""
+
+
+async def test_interval_task_renews_the_claim_while_waiting_for_sync() -> None:
+    """The claim is renewed from the moment it is held, sync wait included."""
+    interval = 0.03
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 2,
+        min_hold_duration=interval,
+    )
+    task = IntervalTask(
+        seconds=interval,
+        function=test1,
+        gate=lock,
+        sync=_SlowLock(interval * 4),
+    )
+
+    await task._run_with_sync(task._sync_primitives)
+
+    assert task.last_fire is not None
+    assert task.last_fire.outcome == FireOutcome.SUCCESS

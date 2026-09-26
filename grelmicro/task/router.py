@@ -177,8 +177,9 @@ class TaskRouter:
                   It claims each interval as with `"claim"`, so a leader
                   handover never runs one interval twice.
 
-                A gated task renews its claim every third of the lease while
-                the body runs, so a body may run as long as it needs. A
+                A gated task renews its claim every third of the lease from
+                the moment it holds it until the body ends, so a body, and a
+                wait for a `sync` lock before it, may take as long as needed. A
                 worker that crashes frees its claim within the lease. A
                 claim lost anyway, to a backend outage or a stalled event
                 loop, logs a warning and lets the body finish.
