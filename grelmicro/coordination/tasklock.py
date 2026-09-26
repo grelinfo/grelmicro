@@ -6,6 +6,7 @@ A distributed lock for scheduled tasks with two time boundaries:
 """
 
 import asyncio
+from contextlib import suppress
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
@@ -335,18 +336,25 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             )
             raise ValueError(msg)
         _check_min_hold(self._config, interval)
+        renamed = self._name == "default"
+        # A tracked lock that took the shared default prefix reloads under
+        # its task name from now on, like a lock named after it. A name no
+        # env var can spell leaves it out of external reload instead.
+        moves = renamed and getattr(self, "_env_prefix", None) == (
+            default_env_prefix("TASKLOCK", "default")
+        )
+        env_prefix: str | None = None
+        if moves:
+            with suppress(SettingsValidationError):
+                env_prefix = default_env_prefix("TASKLOCK", task_name)
         self._min_hold_floor = interval
         self._task_name = task_name
-        if self._name == "default":
+        if renamed:
             self._name = task_name
             self._lock_name = f"{self._LOCK_PREFIX}:{task_name}"
             self._metrics = LockMetrics(task_name, "task")
-            # A tracked lock that took the shared default prefix reloads
-            # under its task name from now on, like a lock named after it.
-            if getattr(self, "_env_prefix", None) == default_env_prefix(
-                "TASKLOCK", "default"
-            ):
-                self._env_prefix = default_env_prefix("TASKLOCK", task_name)
+        if moves:
+            self._env_prefix = env_prefix
 
     @property
     def name(self) -> str:

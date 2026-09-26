@@ -224,7 +224,7 @@ Each task logs its resolved gate once when it starts, for example `Task started 
 
 An interval claim is a [`TaskLock`](coordination/task-lock.md) named after the task. The worker that wins it holds it for the whole interval, so a replica whose timer fires a moment later finds it taken and skips. A cron claim advances the durable last-fire state instead, which also [replays a missed fire](#missed-fires).
 
-From the moment it holds the claim until the body ends, the task renews it every third of the lease, so a body, and a wait for a `sync` lock before it, may take as long as it needs. The lease (two intervals) only bounds how long a worker that crashed keeps the claim. If a renewal cannot reach the backend, it is retried until two thirds of the lease have passed. A claim lost that way logs a warning and the body finishes, since stopping it mid-write would be worse than a second run. Work that must never overlap takes a [`Lock`](coordination/lock.md) as `sync` too.
+From the moment it holds the claim until the body ends, the task renews it every third of the lease, so a body, and a wait for a `sync` lock before it, may take as long as it needs. The lease (two intervals) only bounds how long a worker that crashed keeps the claim. If a renewal cannot reach the backend, it is retried for as long as the lease lasts. A claim lost that way logs a warning and the body finishes, since stopping it mid-write would be worse than a second run. Work that must never overlap takes a [`Lock`](coordination/lock.md) as `sync` too.
 
 ### Leader
 

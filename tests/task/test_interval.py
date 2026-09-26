@@ -1,6 +1,7 @@
 """Test Interval Task."""
 
 import asyncio
+import time
 from asyncio import sleep
 from datetime import datetime, timedelta
 from types import TracebackType
@@ -40,6 +41,7 @@ async def sleep_forever() -> None:
 pytestmark = [pytest.mark.timeout(10)]
 
 SLEEP = 0.01
+RENEWALS_AT_THE_NEW_PACE = 3
 RELOAD_INTERVAL = 60
 RELOAD_TUNED = 120
 RETRIES_BEFORE_DEADLINE = 2
@@ -737,3 +739,81 @@ async def test_interval_task_renews_the_claim_while_waiting_for_sync() -> None:
 
     assert task.last_fire is not None
     assert task.last_fire.outcome == FireOutcome.SUCCESS
+
+
+async def test_interval_task_renewal_follows_a_reconfigured_lease(
+    mocker: MockFixture,
+) -> None:
+    """A lease shortened while the body runs is renewed at its new pace."""
+    interval = 0.03
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 20,
+        min_hold_duration=interval,
+    )
+    samples.long_body_seconds = interval * 10
+    task = IntervalTask(
+        seconds=interval, function=samples.run_long_body, gate=lock
+    )
+    renewals = mocker.spy(lock, "_renew_held")
+    shorter = lock.config.model_copy(update={"lease_duration": interval * 3})
+
+    async def shorten() -> None:
+        await sleep(interval)
+        await lock.reconfigure(shorter)
+
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(shorten())
+        await task._run_with_sync(task._sync_primitives)
+
+    assert renewals.call_count >= RENEWALS_AT_THE_NEW_PACE
+
+
+async def test_interval_task_renewal_outlasts_a_short_backend_outage(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Renewal keeps retrying while the lease lasts, so a short outage passes."""
+    caplog.set_level("WARNING")
+    interval = 0.03
+    lease = interval * 4
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=lease,
+        min_hold_duration=interval,
+    )
+    samples.long_body_seconds = lease * 1.5
+    task = IntervalTask(
+        seconds=interval, function=samples.run_long_body, gate=lock
+    )
+    renew = lock._renew_held
+    back_at = time.monotonic() + lease * 0.85
+
+    async def down_then_back() -> None:
+        if time.monotonic() < back_at:
+            raise LockReleaseError(name="down")
+        await renew()
+
+    mocker.patch.object(lock, "_renew_held", side_effect=down_then_back)
+
+    await task._run_with_sync(task._sync_primitives)
+
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+async def test_interval_task_default_gate_on_a_name_env_cannot_spell() -> None:
+    """A task name no env var can spell still binds, and reload skips it."""
+    lock = TaskLock(
+        lease_duration=RELOAD_INTERVAL * 2,
+        min_hold_duration=RELOAD_INTERVAL,
+        env_load=False,
+    )
+    IntervalTask(
+        seconds=RELOAD_INTERVAL, function=test1, name="5m-sync", gate=lock
+    )
+
+    await reconfigure_all(
+        {"GREL_TASKLOCK_MIN_HOLD_DURATION": str(RELOAD_TUNED)}
+    )
+
+    assert lock.name == "5m-sync"
+    assert lock.config.min_hold_duration == RELOAD_INTERVAL

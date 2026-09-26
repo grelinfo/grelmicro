@@ -327,15 +327,19 @@ class IntervalTask(Task):
     async def _renew_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
         """Keep the claim until `done` is set.
 
-        Renews every third of the lease. A renewal the backend fails is
-        retried every tenth of the lease until two thirds of it passed
-        since the last one that worked. A claim the backend no longer
+        Renews every third of the lease, read again before each wait so
+        a `reconfigure` sets the pace. A renewal the backend fails is
+        retried every tenth of the lease for as long as the lease since
+        the last one that worked lasts. A claim the backend no longer
         holds stops the renewals. The body keeps running either way.
         """
-        lease = claim.config.lease_duration
         renewed_at = time.monotonic()
-        delay = lease / 3
-        while not await sleep_or_stop(delay, done):
+        failing = False
+        while True:
+            lease = claim.config.lease_duration
+            delay = lease / 10 if failing else lease / 3
+            if await sleep_or_stop(delay, done):
+                return
             try:
                 await claim._renew_held()  # noqa: SLF001
             except LockNotOwnedError:
@@ -344,7 +348,7 @@ class IntervalTask(Task):
                 )
                 return
             except Exception:
-                if time.monotonic() - renewed_at >= lease * 2 / 3:
+                if time.monotonic() - renewed_at >= lease:
                     logger.warning(
                         "Task could not renew its claim while the body ran: %s",
                         self.name,
@@ -356,10 +360,10 @@ class IntervalTask(Task):
                     self.name,
                     exc_info=True,
                 )
-                delay = lease / 10
+                failing = True
             else:
                 renewed_at = time.monotonic()
-                delay = lease / 3
+                failing = False
 
     def _prepare_async_function(
         self, function: Callable[..., Any]
