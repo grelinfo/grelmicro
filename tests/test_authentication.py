@@ -98,6 +98,7 @@ from grelmicro.http import (
 from grelmicro.http._authentication import (
     _litestar_declares_public,
     document_operations,
+    routes_of,
 )
 from grelmicro.http._idempotency import _has_dependencies
 from grelmicro.integrations.fastapi import (
@@ -4096,6 +4097,16 @@ class TestRoutesMatchedElsewhere:
             HTTP_401_UNAUTHORIZED
         )
 
+    def test_a_route_matching_on_its_own_leaves_the_others_named(self) -> None:
+        """A refusal is named after the route the URL fits, not the one before it."""
+        lowered = APIRouter(route_class=CaseInsensitiveRoute)
+        lowered.add_api_route("/items/{item_id}", listed)
+        app = FastAPI()
+        app.include_router(lowered)
+        app.add_api_route("/admin", secret)
+
+        assert routes_of(app).template_of("http", "GET", "/admin") == "/admin"
+
     def test_a_route_matching_with_a_regex_of_its_own_rivals_every_public_route(
         self,
     ) -> None:
@@ -4327,6 +4338,45 @@ class TestRoutesAddedLater:
             )
             refused = client.get("/public")
 
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_methods_added_to_a_protected_route_after_startup(self) -> None:
+        """A method the protected route now serves is held against the public one."""
+        protected = APIRoute("/items", secret, methods=["POST"])
+        app = FastAPI()
+        app.router.routes.append(protected)
+        app.add_api_route("/items", listed, dependencies=[Anonymous()])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            served = client.get("/items")
+            cast("set[str]", protected.methods).add("GET")
+            refused = client.get("/items")
+
+        assert served.json() == {"listed": True}
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_slash_redirects_turned_off_after_startup(self) -> None:
+        """A path missing its slash then goes to the default, which is protected."""
+
+        async def default(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(scope, receive, send)
+
+        app = FastAPI()
+        app.add_api_route("/items/", listed, dependencies=[Anonymous()])
+        app.router.default = default
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            redirected = client.get("/items", follow_redirects=False)
+            app.router.redirect_slashes = False
+            refused = client.get("/items", follow_redirects=False)
+
+        assert redirected.status_code == HTTP_307_TEMPORARY_REDIRECT
         assert refused.status_code == HTTP_401_UNAUTHORIZED
 
     async def test_middleware_added_to_a_mounted_app_after_startup(

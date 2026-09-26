@@ -11,7 +11,7 @@ import warnings
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from itertools import chain, repeat
-from operator import is_
+from operator import attrgetter, is_
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -85,7 +85,6 @@ if TYPE_CHECKING:
         Awaitable,
         Callable,
         Iterable,
-        Iterator,
         Mapping,
         MutableMapping,
     )
@@ -299,8 +298,9 @@ class _Snapshot:
     Each attribute read is held with its value. A list is also held item by
     item, so a list changed in place counts as changed, and so does a route
     swapped for an equal one, since items are compared by identity. Each
-    route is held with the regex it matches with and how many attributes it
-    carries, so a regex replaced or a `matches` set on it counts too.
+    route is held with the regex it matches with, its methods and how many
+    attributes it carries, so a regex replaced, a method added or a
+    `matches` set on it counts too.
     """
 
     __slots__ = (
@@ -311,8 +311,11 @@ class _Snapshot:
         "_list_names",
         "_lists",
         "_names",
+        "_others",
         "_regexes",
         "_routes",
+        "_served",
+        "_shapes",
         "_sizes",
         "_values",
     )
@@ -341,17 +344,29 @@ class _Snapshot:
         self._routes = tuple(
             route for route in routes if hasattr(route, "__dict__")
         )
-        self._regexes = tuple(self._regexes_now())
         self._sizes = list(map(len, map(vars, self._routes)))
-
-    def _regexes_now(self) -> Iterator[Any]:
-        """Return the regex each route matches with now."""
-        count = len(self._routes)
-        return map(
-            getattr,
-            self._routes,
-            repeat("path_regex", count),
-            repeat(None, count),
+        self._served = tuple(
+            route
+            for route in self._routes
+            if getattr(route, "methods", None) is not None
+            and hasattr(route, "path_regex")
+        )
+        self._shapes = [
+            (route.path_regex, frozenset(route.methods))
+            for route in self._served
+        ]
+        served = set(map(id, self._served))
+        self._others = tuple(
+            route for route in self._routes if id(route) not in served
+        )
+        count = len(self._others)
+        self._regexes = tuple(
+            map(
+                getattr,
+                self._others,
+                repeat("path_regex", count),
+                repeat(None, count),
+            )
         )
 
     def changed(self) -> bool:
@@ -361,13 +376,30 @@ class _Snapshot:
         ):
             return True
         lists = tuple(map(getattr, self._list_holders, self._list_names))
+        count = len(self._others)
         return (
             not all(map(is_, lists, self._lists))
             or list(map(len, lists)) != self._lengths
             or not all(map(is_, chain.from_iterable(lists), self._items))
-            or not all(map(is_, self._regexes_now(), self._regexes))
+            or list(map(_SHAPE, self._served)) != self._shapes
+            or not all(
+                map(
+                    is_,
+                    map(
+                        getattr,
+                        self._others,
+                        repeat("path_regex", count),
+                        repeat(None, count),
+                    ),
+                    self._regexes,
+                )
+            )
             or list(map(len, map(vars, self._routes))) != self._sizes
         )
+
+
+_SHAPE: Final = attrgetter("path_regex", "methods")
+"""What an HTTP route matches a request with: its regex and its methods."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -656,7 +688,10 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             (f"{prefix}{getattr(route, 'path_format', route.path)}", reach)
         )
         if _matches_its_own_way(route):
-            anywhere.append(reach)
+            # It may answer any path beneath its mounts, whatever it names.
+            anywhere.append(
+                _Reach(_EITHER, None, _ANY_PATH, mounts=reach.mounts)
+            )
             rewriting.update(tree.rewritten.get(key, ()))
             continue
         if (
@@ -717,19 +752,16 @@ def _reach_of(
     key: tuple[int, str],
     tree: _Tree,
 ) -> _Reach:
-    """Return where a Starlette or FastAPI route answers.
+    """Return where a Starlette or FastAPI route answers, as its path says.
 
     Beneath a mount it is matched through each mount above it, as Starlette
-    matches it. A route matching requests its own way may answer any path
-    beneath its mounts, over HTTP or a websocket.
+    matches it.
     """
     from starlette.routing import WebSocketRoute  # noqa: PLC0415
 
     chain = tree.chains.get(key)
     mounts, relative = ((), "") if chain is None else chain
     compiled = tuple(compile_mount(mount) for mount in mounts)
-    if _matches_its_own_way(route):
-        return _Reach(_EITHER, None, _ANY_PATH, mounts=compiled)
     methods = getattr(route, "methods", None)
     return _Reach(
         _WEBSOCKET if isinstance(route, WebSocketRoute) else _HTTP,
@@ -862,7 +894,12 @@ def _read_tree(
         held: Any = (routed,)
     else:
         held = getattr(routed, "routes", None) or ()
-        tree.watched.extend(((routed, "routes"), (routed, "redirect_slashes")))
+        tree.watched.extend(
+            (
+                (routed, "routes"),
+                (getattr(routed, "router", routed), "redirect_slashes"),
+            )
+        )
     for route in held:
         included = getattr(route, "original_router", None)
         if included is not None:
