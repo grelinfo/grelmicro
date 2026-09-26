@@ -4294,6 +4294,41 @@ class TestRoutesAddedLater:
         assert served.json() == {"listed": True}
         assert refused.status_code == HTTP_401_UNAUTHORIZED
 
+    def test_a_route_given_a_regex_of_its_own_after_startup(self) -> None:
+        """A route changed in place is read again like a route added."""
+        protected = APIRoute("/private", secret)
+        app = FastAPI()
+        app.router.routes.append(protected)
+        app.add_api_route("/public", listed, dependencies=[Anonymous()])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            protected.path_regex = re.compile("^/public$")
+            refused = client.get("/public")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_route_given_matches_of_its_own_after_startup(self) -> None:
+        """A `matches` set on the route once the app started counts too."""
+        protected = APIRoute("/private", secret)
+        app = FastAPI()
+        app.router.routes.append(protected)
+        app.add_api_route("/public", listed, dependencies=[Anonymous()])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            framework = protected.matches
+            protected.matches = lambda scope: framework(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+                {**scope, "path": "/private"}
+            )
+            refused = client.get("/public")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
     async def test_middleware_added_to_a_mounted_app_after_startup(
         self,
     ) -> None:

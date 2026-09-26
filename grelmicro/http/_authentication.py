@@ -10,7 +10,7 @@ import re
 import warnings
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
-from itertools import chain
+from itertools import chain, repeat
 from operator import is_
 from types import MappingProxyType
 from typing import (
@@ -85,6 +85,7 @@ if TYPE_CHECKING:
         Awaitable,
         Callable,
         Iterable,
+        Iterator,
         Mapping,
         MutableMapping,
     )
@@ -297,7 +298,9 @@ class _Snapshot:
 
     Each attribute read is held with its value. A list is also held item by
     item, so a list changed in place counts as changed, and so does a route
-    swapped for an equal one, since items are compared by identity.
+    swapped for an equal one, since items are compared by identity. Each
+    route is held with the regex it matches with and how many attributes it
+    carries, so a regex replaced or a `matches` set on it counts too.
     """
 
     __slots__ = (
@@ -308,11 +311,18 @@ class _Snapshot:
         "_list_names",
         "_lists",
         "_names",
+        "_regexes",
+        "_routes",
+        "_sizes",
         "_values",
     )
 
-    def __init__(self, read: Iterable[tuple[Any, str]] = ()) -> None:
-        """Hold each `(holder, name)` attribute as it is now."""
+    def __init__(
+        self,
+        read: Iterable[tuple[Any, str]] = (),
+        routes: Iterable[Any] = (),
+    ) -> None:
+        """Hold each `(holder, name)` attribute and each route as it is now."""
         present = [
             (holder, name, getattr(holder, name))
             for holder, name in read
@@ -328,6 +338,21 @@ class _Snapshot:
         self._lists = tuple(value for _, _, value in lists)
         self._lengths = list(map(len, self._lists))
         self._items = tuple(chain.from_iterable(self._lists))
+        self._routes = tuple(
+            route for route in routes if hasattr(route, "__dict__")
+        )
+        self._regexes = tuple(self._regexes_now())
+        self._sizes = list(map(len, map(vars, self._routes)))
+
+    def _regexes_now(self) -> Iterator[Any]:
+        """Return the regex each route matches with now."""
+        count = len(self._routes)
+        return map(
+            getattr,
+            self._routes,
+            repeat("path_regex", count),
+            repeat(None, count),
+        )
 
     def changed(self) -> bool:
         """Return whether any attribute holds anything else now."""
@@ -340,6 +365,8 @@ class _Snapshot:
             not all(map(is_, lists, self._lists))
             or list(map(len, lists)) != self._lengths
             or not all(map(is_, chain.from_iterable(lists), self._items))
+            or not all(map(is_, self._regexes_now(), self._regexes))
+            or list(map(len, map(vars, self._routes))) != self._sizes
         )
 
 
@@ -668,7 +695,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         declared=MappingProxyType(declared),
         redirects=_redirects_slashes(app),
         templates=tuple(ordered),
-        snapshot=_Snapshot(tree.watched),
+        snapshot=_Snapshot(tree.watched, tree.routes),
         nodes=tuple(
             (
                 node,
@@ -793,6 +820,8 @@ class _Tree:
     """The nodes with middleware of their own that hold what no route declares."""
     watched: list[tuple[Any, str]] = field(default_factory=list)
     """Each object read, with the attribute read off it."""
+    routes: list[Any] = field(default_factory=list)
+    """Each route, mount and host read."""
 
 
 def _read_tree(
@@ -833,7 +862,7 @@ def _read_tree(
         held: Any = (routed,)
     else:
         held = getattr(routed, "routes", None) or ()
-        tree.watched.append((routed, "routes"))
+        tree.watched.extend(((routed, "routes"), (routed, "redirect_slashes")))
     for route in held:
         included = getattr(route, "original_router", None)
         if included is not None:
@@ -852,6 +881,7 @@ def _read_tree(
                 seen=seen,
             )
             continue
+        tree.routes.append(route)
         if _is_route(route):
             key = (id(route), prefix)
             tree.within[key] = within
