@@ -35,6 +35,7 @@ from grelmicro._paths import (
     as_patterns,
     compile_mount,
     compile_route,
+    declared_dependencies,
     holds_control_character,
     route_path,
     route_template,
@@ -918,16 +919,9 @@ def _declares_anonymous(
     On the route, on the router that holds it, or where that router was
     included.
     """
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    if any(
-        is_anonymous_declaration(dependency.call)
-        for dependency in getattr(declared, "dependencies", ())
-    ):
-        return True
     return any(
-        is_anonymous_declaration(getattr(dependency, "dependency", None))
-        for context in contexts
-        for dependency in getattr(context, "dependencies", ()) or ()
+        is_anonymous_declaration(call)
+        for call in declared_dependencies(route, contexts)
     )
 
 

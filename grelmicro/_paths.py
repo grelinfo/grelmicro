@@ -16,7 +16,7 @@ from pydantic import BeforeValidator
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, MutableMapping
+    from collections.abc import Callable, Iterator, MutableMapping
     from re import Pattern
 
 __all__ = [
@@ -30,6 +30,7 @@ __all__ = [
     "as_patterns",
     "compile_mount",
     "compile_route",
+    "declared_dependencies",
     "holds_control_character",
     "matches",
     "names_route",
@@ -1291,6 +1292,25 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     if not root or not asked.startswith(root):
         return template
     return f"{root}{template}"
+
+
+def declared_dependencies(
+    route: Any,  # noqa: ANN401
+    contexts: tuple[Any, ...] = (),
+) -> Iterator[object]:
+    """Yield what a FastAPI route declares as its dependencies, in order.
+
+    Those the route resolves itself come first, then what `contexts`, the
+    routers above it, were included with. Only the dependencies named
+    directly are yielded, not what they depend on. A route of another
+    framework declares none.
+    """
+    tree = getattr(route, "dependant", None)  # codespell:ignore
+    for dependency in getattr(tree, "dependencies", ()) or ():
+        yield dependency.call
+    for context in contexts:
+        for dependency in getattr(context, "dependencies", ()) or ():
+            yield getattr(dependency, "dependency", None)
 
 
 def walk_routes(
