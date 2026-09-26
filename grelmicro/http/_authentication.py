@@ -894,10 +894,12 @@ def _read_tree(
         held: Any = (routed,)
     else:
         held = getattr(routed, "routes", None) or ()
+        router = getattr(routed, "router", routed)
         tree.watched.extend(
             (
                 (routed, "routes"),
-                (getattr(routed, "router", routed), "redirect_slashes"),
+                (router, "redirect_slashes"),
+                (router, "_low_priority_routes"),
             )
         )
     for route in held:
@@ -970,11 +972,36 @@ def _turns_away_elsewhere(route: Any, holder: Any) -> bool:  # noqa: ANN401
 
 
 def _answers_unrouted(holder: Any) -> bool:  # noqa: ANN401
-    """Return whether an app answers a request no route takes with more than a `404`."""
+    """Return whether an app answers a request no route takes with more than a `404`.
+
+    A default of its own does, and so do the routes FastAPI tries once no
+    other matched, such as a frontend, its own or an included router's.
+    """
     from starlette.routing import Router  # noqa: PLC0415
 
-    default = getattr(getattr(holder, "router", holder), "default", None)
-    return getattr(default, "__func__", None) is not Router.not_found
+    router = getattr(holder, "router", holder)
+    default = getattr(router, "default", None)
+    return getattr(
+        default, "__func__", None
+    ) is not Router.not_found or _serves_last(router)
+
+
+def _serves_last(router: Any, seen: set[int] | None = None) -> bool:  # noqa: ANN401
+    """Return whether a router, or one it includes, holds routes tried last.
+
+    A router included more than once is read once.
+    """
+    seen = set() if seen is None else seen
+    if id(router) in seen:
+        return False
+    seen.add(id(router))
+    if getattr(router, "_low_priority_routes", None):
+        return True
+    return any(
+        _serves_last(included, seen)
+        for route in getattr(router, "routes", ()) or ()
+        if (included := getattr(route, "original_router", None)) is not None
+    )
 
 
 def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401

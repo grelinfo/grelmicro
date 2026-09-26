@@ -141,6 +141,7 @@ from tests.security.jwt_signing import Signer
 
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
+    from pathlib import Path
 
     from starlette.requests import Request
     from starlette.websockets import WebSocket
@@ -4094,6 +4095,89 @@ class TestRoutesMatchedElsewhere:
         ).install(app)
 
         assert await status_of(app, "/sub/files/../elsewhere") == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    async def test_a_rewriting_mounted_app_serving_a_frontend_is_protected(
+        self, tmp_path: Path
+    ) -> None:
+        """Its middleware may route a public path to the files it serves."""
+        (tmp_path / "secret.txt").write_text("secret")
+        sub = FastAPI(openapi_url=None)
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        sub.frontend("/", directory=tmp_path)
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert await status_of(app, "/sub/files/../secret.txt") == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    async def test_a_frontend_on_a_router_a_rewriting_app_includes(
+        self, tmp_path: Path
+    ) -> None:
+        """An included router's frontend answers what no route takes, too."""
+        (tmp_path / "secret.txt").write_text("secret")
+        site = APIRouter()
+        site.frontend("/", directory=tmp_path)
+        sub = FastAPI(openapi_url=None)
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        sub.include_router(site)
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert await status_of(app, "/sub/files/../secret.txt") == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    async def test_a_router_a_rewriting_app_includes_twice_stays_public(
+        self,
+    ) -> None:
+        """Included under two prefixes, its public routes are read once each."""
+        files = APIRouter()
+        files.add_api_route("/{name:path}", listed, dependencies=[Anonymous()])
+        sub = FastAPI(openapi_url=None)
+        sub.add_middleware(NormalizedPath)
+        sub.include_router(files, prefix="/files")
+        sub.include_router(files, prefix="/assets")
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert await status_of(app, "/sub/files/x") == HTTP_200_OK
+
+    async def test_a_frontend_added_to_a_rewriting_mounted_app_after_startup(
+        self, tmp_path: Path
+    ) -> None:
+        """Files served from then on keep the mounted app protected."""
+        (tmp_path / "secret.txt").write_text("secret")
+        sub = FastAPI(openapi_url=None)
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        sub.frontend("/", directory=tmp_path)
+
+        assert await status_of(app, "/sub/files/../secret.txt") == (
             HTTP_401_UNAUTHORIZED
         )
 
