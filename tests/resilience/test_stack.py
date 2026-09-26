@@ -33,7 +33,7 @@ from grelmicro.resilience import (
     Timeout,
 )
 from grelmicro.resilience.stack import _detach_control
-from grelmicro.task import Tasks
+from grelmicro.task import FireOutcome, Tasks
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -1005,9 +1005,9 @@ async def test_a_task_registered_above_the_stack_runs_through_it() -> None:
     tasks.every(seconds=INTERVAL)(stack(stacked_job))
 
     task = cast("Any", tasks.tasks[0])
-    with pytest.raises(RuntimeError):
-        await task._async_function()
+    await task._run_with_sync([])
 
+    assert task.last_fire.outcome is FireOutcome.ERROR
     assert len(_task_calls) == ATTEMPTS
 
 

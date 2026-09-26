@@ -2,23 +2,20 @@
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
 from typing import Any, Literal
 
-from fast_depends import inject
-
-from grelmicro._async import is_async_callable, sleep_or_stop
+from grelmicro._async import sleep_or_stop
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination._tokens import generate_worker_id
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.leaderelection import LeaderElection, _LeaderGuard
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
-from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
-from grelmicro.task._cron import FireInfo, FireOutcome, _report_unrun_fire
+from grelmicro.task._fire import FireInfo, FireRecorder
 from grelmicro.task._protocol import Task
 from grelmicro.task._utils import validate_and_generate_reference
 
@@ -74,7 +71,9 @@ class IntervalTask(Task):
         self._name = name or alt_name
         self._seconds = seconds
         self._function = function
-        self._async_function = self._prepare_async_function(function)
+        self._fire = FireRecorder(
+            self._name, function, clock=partial(datetime.now, UTC)
+        )
 
         self._gate_label, primitives = self._resolve_gate(gate, seconds)
         self._claim = next(
@@ -84,14 +83,7 @@ class IntervalTask(Task):
             primitives.append(sync)
         self._sync_primitives: list[LockPrimitive] = primitives
 
-        self._last_fire: FireInfo | None = None
         self._last_loop_start: float | None = None
-        # Bound once: the task name never changes, so every emit that
-        # carries only the name reuses this mapping instead of building one.
-        self._metric_attrs: dict[str, Any] = {"grelmicro.task.name": self._name}
-        # Whether the body started on the current iteration. A failure
-        # raised after it started is already counted by `_run_with_sync`.
-        self._body_started = False
 
     def _resolve_gate(
         self,
@@ -169,7 +161,7 @@ class IntervalTask(Task):
     @property
     def last_fire(self) -> FireInfo | None:
         """The most recent fire info, or None before the first fire."""
-        return self._last_fire
+        return self._fire.last
 
     async def __call__(
         self,
@@ -188,42 +180,9 @@ class IntervalTask(Task):
             ready.set_result(None)
         try:
             while True:
-                self._body_started = False
-                try:
-                    await self._run_with_sync(self._sync_primitives)
-                except asyncio.CancelledError:
-                    raise
-                except WouldBlockError as exc:
-                    self._last_fire = _report_unrun_fire(
-                        self.name, datetime.now(UTC), FireOutcome.SKIPPED
-                    )
-                    logger.debug("Task skipped: %s (%s)", self.name, exc)
-                except LockNotOwnedError:
-                    # The lock expired on release, so the body already ran
-                    # and already reported its own outcome. Counting it
-                    # again would double the fire.
-                    logger.warning(
-                        "Task released a lock it no longer held: %s."
-                        " Its lease ran out while the body ran.",
-                        self.name,
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "Task synchronization error: %s", self.name
-                    )
-                    if not self._body_started:
-                        self._last_fire = _report_unrun_fire(
-                            self.name,
-                            datetime.now(UTC),
-                            FireOutcome.COORDINATION_ERROR,
-                            exc,
-                        )
-                # Re-raise pending cancellation that an inner cleanup
-                # may have shadowed with a regular Exception.
-                task = asyncio.current_task()
-                if task is not None and task.cancelling():
-                    task.uncancel()
-                    raise asyncio.CancelledError
+                await self._fire.guard(
+                    self._run_with_sync(self._sync_primitives)
+                )
                 # The current iteration finished. Break here on a graceful
                 # stop so in-flight work is never interrupted; otherwise
                 # sleep until the next interval (waking early on stop).
@@ -231,7 +190,7 @@ class IntervalTask(Task):
                 _emit.observe(
                     "grelmicro.task.next_run",
                     time.time() + self._seconds,
-                    self._metric_attrs,
+                    self._fire.metric_attrs,
                     unit="s",
                 )
                 if await sleep_or_stop(self._seconds, stop):
@@ -239,23 +198,19 @@ class IntervalTask(Task):
         finally:
             logger.info("Task stopped: %s", self.name)
 
-    def _record_schedule_delay(self) -> None:
-        """Record how late the body started against its planned instant.
+    def _schedule_delay(self) -> float | None:
+        """Return how late the body starts against its planned instant.
 
         The interval is measured from the end of the previous iteration,
         so the planned instant is that moment plus `seconds`. It rises
         when a worker is saturated or when acquiring the lock takes
         longer than the interval it guards. Nothing was planned before
-        the first iteration, which records no point.
+        the first iteration, which answers `None`.
         """
         planned = self._last_loop_start
         if planned is None:
-            return
-        _emit.record_duration(
-            "grelmicro.task.schedule.delay",
-            max(time.monotonic() - (planned + self._seconds), 0.0),
-            self._metric_attrs,
-        )
+            return None
+        return max(time.monotonic() - (planned + self._seconds), 0.0)
 
     async def _run_with_sync(
         self, primitives: list[LockPrimitive], index: int = 0
@@ -266,45 +221,8 @@ class IntervalTask(Task):
         overhead on every iteration.
         """
         if index >= len(primitives):
-            self._body_started = True
-            _emit.add_up_down(
-                "grelmicro.task.active", 1, self._metric_attrs, unit="{run}"
-            )
-            started_at = datetime.now(UTC)
-            self._record_schedule_delay()
-            start_monotonic = time.perf_counter()
-            outcome = FireOutcome.ERROR
-            # Assumes failure until the body returns, so a fire cancelled
-            # mid-body records its duration as the error it was.
-            attributes: dict[str, Any] = {
-                "grelmicro.task.name": self._name,
-                "grelmicro.outcome": FireOutcome.ERROR,
-            }
-            try:
-                await self._async_function()
-                outcome = FireOutcome.SUCCESS
-                attributes["grelmicro.outcome"] = FireOutcome.SUCCESS
-                _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
-            except Exception as exc:
-                logger.exception("Task execution error: %s", self.name)
-                attributes["error.type"] = type(exc).__name__
-                _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
-            finally:
-                duration = time.perf_counter() - start_monotonic
-                self._last_fire = FireInfo(
-                    started_at=started_at,
-                    outcome=outcome,
-                    duration=duration,
-                )
-                _emit.record_duration(
-                    "grelmicro.task.duration", duration, attributes
-                )
-                _emit.add_up_down(
-                    "grelmicro.task.active",
-                    -1,
-                    self._metric_attrs,
-                    unit="{run}",
-                )
+            fire = self._fire
+            await fire.run(fire.now(), self._schedule_delay())
             return
 
         primitive = primitives[index]
@@ -364,17 +282,6 @@ class IntervalTask(Task):
             else:
                 renewed_at = time.monotonic()
                 failing = False
-
-    def _prepare_async_function(
-        self, function: Callable[..., Any]
-    ) -> Callable[..., Awaitable[Any]]:
-        """Prepare the function with lock and ensure async function."""
-        function = inject(function)
-        return (
-            function
-            if is_async_callable(function)
-            else partial(asyncio.to_thread, function)
-        )
 
 
 def _check_sync(sync: LockPrimitive | None) -> None:

@@ -20,7 +20,7 @@ from grelmicro.coordination.memory import (
 )
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.errors import SettingsValidationError
-from grelmicro.task._cron import FireInfo, FireOutcome
+from grelmicro.task import FireInfo, FireOutcome
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task

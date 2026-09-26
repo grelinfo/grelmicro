@@ -21,7 +21,8 @@ from grelmicro.coordination.memory import (
 )
 from grelmicro.errors import OutOfContextError
 from grelmicro.resilience import Bulkhead
-from grelmicro.task._cron import CronTask, FireInfo, FireOutcome
+from grelmicro.task import FireInfo, FireOutcome
+from grelmicro.task._cron import CronTask
 from grelmicro.task.errors import CronError
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task

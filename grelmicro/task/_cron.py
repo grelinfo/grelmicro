@@ -3,22 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import time
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import StrEnum
-from functools import partial
 from logging import getLogger
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from fast_depends import inject
-
 from grelmicro._app import resolve_ambient
-from grelmicro._async import is_async_callable, sleep_or_stop
+from grelmicro._async import sleep_or_stop
 from grelmicro._timezone import UTC_NAME
-from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
+from grelmicro.task._fire import FireInfo, FireOutcome, FireRecorder
 from grelmicro.task._protocol import Task
 from grelmicro.task._utils import (
     normalize_timezone,
@@ -28,7 +22,7 @@ from grelmicro.task._utils import (
 from grelmicro.task.errors import CronError, TaskAddOperationError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Callable
 
     from grelmicro.coordination._protocol import LockPrimitive, ScheduleBackend
     from grelmicro.coordination.leaderelection import LeaderElection
@@ -45,63 +39,10 @@ _NO_BACKEND: Final = (
 """What `backend` raises when no `backend=` was passed and none resolves."""
 
 
-class FireOutcome(StrEnum):
-    """Outcome of a task fire.
-
-    - ``SUCCESS``: the body ran and returned without raising.
-    - ``ERROR``: the body raised an exception.
-    - ``SKIPPED``: another worker handled the fire, so this one stood
-      down. The peer either ran it or recorded it as missed.
-    - ``MISSED``: the fire was dropped and no worker ran it. Either it
-      came back too late to replay, past ``misfire_grace_seconds``, or
-      this worker claimed it and then could not admit the body.
-    - ``COORDINATION_ERROR``: the fire never reached the body because
-      coordination itself failed, such as an unreachable schedule backend
-      or a lock acquire that raised.
-    """
-
-    SUCCESS = "success"
-    ERROR = "error"
-    SKIPPED = "skipped"
-    MISSED = "missed"
-    COORDINATION_ERROR = "coordination_error"
-
-
-@dataclass(frozen=True)
-class FireInfo:
-    """Information about a task fire."""
-
-    started_at: datetime
-    outcome: FireOutcome
-    duration: float
-
-
 # Wall-clock seam for the current time. Tests pin it to a fixed instant so
 # cron matching is deterministic and never straddles a real minute boundary.
 # Mirrors the `_now` seam in the cache.
 _now = datetime.now
-
-
-def _report_unrun_fire(
-    name: str,
-    started_at: datetime,
-    outcome: FireOutcome,
-    error: Exception | None = None,
-) -> FireInfo:
-    """Record a fire that never reached the body and return its `FireInfo`.
-
-    Emits one `grelmicro.task.runs` point and builds the matching
-    `FireInfo` together, so the counter and `last_fire` cannot disagree
-    about a fire. The caller assigns the return value to `_last_fire`.
-    """
-    attributes: dict[str, Any] = {
-        "grelmicro.task.name": name,
-        "grelmicro.outcome": outcome,
-    }
-    if error is not None:
-        attributes["error.type"] = type(error).__name__
-    _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
-    return FireInfo(started_at=started_at, outcome=outcome, duration=0.0)
 
 
 # Maximum number of years to search for the next matching datetime before
@@ -445,7 +386,7 @@ class CronTask(Task):
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
         self._function = function
-        self._async_function = self._prepare_async_function(function)
+        self._fire = FireRecorder(self._name, function, clock=self._wall_clock)
 
         self._misfire_grace_seconds = misfire_grace_seconds
         self._backend = backend
@@ -463,13 +404,10 @@ class CronTask(Task):
         self._sync = sync
 
         self._next_fire_time: datetime | None = None
-        self._last_fire: FireInfo | None = None
-        # Bound once: the task name never changes, so every emit that
-        # carries only the name reuses this mapping instead of building one.
-        self._metric_attrs: dict[str, Any] = {"grelmicro.task.name": self._name}
-        # Whether the body started on the current tick. A failure raised
-        # after it started is already counted by `_run_body`.
-        self._body_started = False
+
+    def _wall_clock(self) -> datetime:
+        """Return the current time in the task's timezone."""
+        return _now(self._tz)
 
     @property
     def function(self) -> Callable[..., Any]:
@@ -521,7 +459,7 @@ class CronTask(Task):
     @property
     def last_fire(self) -> FireInfo | None:
         """The most recent fire info, or None before the first fire."""
-        return self._last_fire
+        return self._fire.last
 
     @property
     def backend(self) -> ScheduleBackend:
@@ -575,7 +513,7 @@ class CronTask(Task):
                 _emit.observe(
                     "grelmicro.task.next_run",
                     next_fire.timestamp(),
-                    self._metric_attrs,
+                    self._fire.metric_attrs,
                     unit="s",
                 )
                 delay = next_fire.timestamp() - now.timestamp()
@@ -645,40 +583,7 @@ class CronTask(Task):
 
     async def _tick_guarded(self, *, catchup: bool) -> None:
         """Run one tick, catching the errors a single fire may raise."""
-        self._body_started = False
-        try:
-            await self._tick(catchup=catchup)
-        except asyncio.CancelledError:
-            raise
-        except WouldBlockError as exc:
-            self._last_fire = _report_unrun_fire(
-                self.name, _now(self._tz), FireOutcome.SKIPPED
-            )
-            logger.debug("Task skipped: %s (%s)", self.name, exc)
-        except LockNotOwnedError:
-            # The lock expired on release, so the body already ran and
-            # already reported its own outcome. Counting it again would
-            # double the fire.
-            logger.warning(
-                "Task released a lock it no longer held: %s."
-                " Its lease ran out while the body ran.",
-                self.name,
-            )
-        except Exception as exc:
-            logger.exception("Task synchronization error: %s", self.name)
-            if not self._body_started:
-                self._last_fire = _report_unrun_fire(
-                    self.name,
-                    _now(self._tz),
-                    FireOutcome.COORDINATION_ERROR,
-                    exc,
-                )
-        # Re-raise pending cancellation that an inner cleanup may have
-        # shadowed with a regular Exception.
-        task = asyncio.current_task()
-        if task is not None and task.cancelling():
-            task.uncancel()
-            raise asyncio.CancelledError
+        await self._fire.guard(self._tick(catchup=catchup))
 
     async def _tick(self, *, catchup: bool) -> None:
         """Evaluate the current fire and run the body when this worker claims it.
@@ -719,9 +624,7 @@ class CronTask(Task):
             # On a scheduled tick that means a peer claimed this fire while
             # this worker was reading, which is where most losers land.
             if not catchup:
-                self._last_fire = _report_unrun_fire(
-                    self.name, now, FireOutcome.SKIPPED
-                )
+                self._fire.unrun(now, FireOutcome.SKIPPED)
             return
         if (
             self._misfire_grace_seconds is not None
@@ -746,9 +649,7 @@ class CronTask(Task):
             return False
         self._owes_catchup = True
         if not catchup:
-            self._last_fire = _report_unrun_fire(
-                self.name, now, FireOutcome.SKIPPED
-            )
+            self._fire.unrun(now, FireOutcome.SKIPPED)
         return True
 
     async def _drop_late_fire(
@@ -769,16 +670,14 @@ class CronTask(Task):
             outcome = FireOutcome.MISSED
         else:
             outcome = FireOutcome.SKIPPED
-        self._last_fire = _report_unrun_fire(self.name, now, outcome)
+        self._fire.unrun(now, outcome)
 
     async def _claim_and_run(
         self, backend: ScheduleBackend, due: float, now: datetime
     ) -> None:
         """Run the body when this worker wins the claim for `due`."""
         if not await backend.claim(self.name, due):
-            self._last_fire = _report_unrun_fire(
-                self.name, now, FireOutcome.SKIPPED
-            )
+            self._fire.unrun(now, FireOutcome.SKIPPED)
             return
         try:
             await self._run(due)
@@ -789,9 +688,7 @@ class CronTask(Task):
             logger.warning(
                 "Task fire missed, claimed but not admitted: %s", self.name
             )
-            self._last_fire = _report_unrun_fire(
-                self.name, now, FireOutcome.MISSED
-            )
+            self._fire.unrun(now, FireOutcome.MISSED)
 
     async def _run(self, due: float) -> None:
         """Run the body, optionally under the resource sync lock, with metrics."""
@@ -809,54 +706,6 @@ class CronTask(Task):
         delay, which is seconds of queueing on a healthy worker and the
         full replay age on a fire that came back after a restart.
         """
-        self._body_started = True
-        _emit.add_up_down(
-            "grelmicro.task.active", 1, self._metric_attrs, unit="{run}"
-        )
-        started_at = _now(self._tz)
-        _emit.record_duration(
-            "grelmicro.task.schedule.delay",
-            max(started_at.timestamp() - due, 0.0),
-            self._metric_attrs,
-        )
-        start_monotonic = time.perf_counter()
-        outcome = FireOutcome.ERROR
-        # Assumes failure until the body returns, so a fire cancelled
-        # mid-body records its duration as the error it was.
-        attributes: dict[str, Any] = {
-            "grelmicro.task.name": self._name,
-            "grelmicro.outcome": FireOutcome.ERROR,
-        }
-        try:
-            await self._async_function()
-            outcome = FireOutcome.SUCCESS
-            attributes["grelmicro.outcome"] = FireOutcome.SUCCESS
-            _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
-        except Exception as exc:
-            logger.exception("Task execution error: %s", self.name)
-            attributes["error.type"] = type(exc).__name__
-            _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
-        finally:
-            duration = time.perf_counter() - start_monotonic
-            self._last_fire = FireInfo(
-                started_at=started_at,
-                outcome=outcome,
-                duration=duration,
-            )
-            _emit.record_duration(
-                "grelmicro.task.duration", duration, attributes
-            )
-            _emit.add_up_down(
-                "grelmicro.task.active", -1, self._metric_attrs, unit="{run}"
-            )
-
-    def _prepare_async_function(
-        self, function: Callable[..., Any]
-    ) -> Callable[..., Awaitable[Any]]:
-        """Prepare the function and ensure it is async."""
-        function = inject(function)
-        return (
-            function
-            if is_async_callable(function)
-            else partial(asyncio.to_thread, function)
-        )
+        fire = self._fire
+        started_at = fire.now()
+        await fire.run(started_at, max(started_at.timestamp() - due, 0.0))
