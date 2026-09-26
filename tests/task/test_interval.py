@@ -7,13 +7,14 @@ from datetime import datetime, timedelta
 import pytest
 from pytest_mock import MockFixture
 
+from grelmicro._config import reconfigure_all
 from grelmicro.coordination.errors import LockNotOwnedError, LockReleaseError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
     MemoryLockAdapter,
 )
-from grelmicro.coordination.tasklock import TaskLock
+from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.errors import SettingsValidationError
 from grelmicro.task._cron import FireInfo, FireOutcome
 from grelmicro.task._interval import IntervalTask
@@ -36,6 +37,8 @@ async def sleep_forever() -> None:
 pytestmark = [pytest.mark.timeout(10)]
 
 SLEEP = 0.01
+RELOAD_INTERVAL = 60
+RELOAD_TUNED = 120
 RETRIES_BEFORE_DEADLINE = 2
 """A third of the lease to the first try, then a tenth per retry up to two thirds."""
 
@@ -637,3 +640,55 @@ async def test_interval_task_cancel_survives_a_claim_lost_on_release(
         cancel_group(tg)
 
     assert handle.cancelled()
+
+
+async def test_interval_task_default_named_gate_reloads_under_its_task() -> (
+    None
+):
+    """A default-named gate lock takes external config under its task name."""
+    first, second = (
+        TaskLock(
+            lease_duration=RELOAD_INTERVAL * 10,
+            min_hold_duration=RELOAD_INTERVAL,
+            env_load=False,
+        )
+        for _ in range(2)
+    )
+    IntervalTask(
+        seconds=RELOAD_INTERVAL, function=test1, name="first", gate=first
+    )
+    IntervalTask(
+        seconds=RELOAD_INTERVAL, function=test1, name="second", gate=second
+    )
+
+    await reconfigure_all(
+        {
+            "GREL_TASKLOCK_FIRST_MIN_HOLD_DURATION": str(RELOAD_TUNED),
+            "GREL_TASKLOCK_MIN_HOLD_DURATION": str(RELOAD_INTERVAL * 5),
+        }
+    )
+
+    assert first.config.min_hold_duration == RELOAD_TUNED
+    assert second.config.min_hold_duration == RELOAD_INTERVAL
+
+
+async def test_interval_task_gate_built_from_config_stays_static() -> None:
+    """A default-named gate lock built from a config ignores external reload."""
+    lock = TaskLock.from_config(
+        "default",
+        TaskLockConfig(
+            worker="worker",
+            lease_duration=RELOAD_INTERVAL * 10,
+            min_hold_duration=RELOAD_INTERVAL,
+        ),
+        backend=MemoryLockAdapter(),
+    )
+    IntervalTask(
+        seconds=RELOAD_INTERVAL, function=test1, name="static", gate=lock
+    )
+
+    await reconfigure_all(
+        {"GREL_TASKLOCK_STATIC_MIN_HOLD_DURATION": str(RELOAD_TUNED)}
+    )
+
+    assert lock.config.min_hold_duration == RELOAD_INTERVAL

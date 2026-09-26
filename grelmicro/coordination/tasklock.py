@@ -23,6 +23,7 @@ from grelmicro._async import (
 )
 from grelmicro._config import (
     Reconfigurable,
+    default_env_prefix,
     env_prefixes,
     resolve_config,
 )
@@ -317,8 +318,10 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
         A lock still named ``"default"`` takes the task name. The rename
         happens in place, so the handle the caller holds is the lock the
-        task enters. From then on, every config the lock takes must hold
-        a claim for at least ``interval``, a later `reconfigure` included.
+        task enters, and an external reload reads it under the task name,
+        ``GREL_TASKLOCK_{TASK}_``, instead of the prefix every default lock
+        shares. From then on, every config the lock takes must hold a
+        claim for at least ``interval``, a later `reconfigure` included.
 
         Raises:
             ValueError: If the lock already gates another task.
@@ -338,6 +341,12 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             self._name = task_name
             self._lock_name = f"{self._LOCK_PREFIX}:{task_name}"
             self._metrics = LockMetrics(task_name, "task")
+            # A tracked lock that took the shared default prefix reloads
+            # under its task name from now on, like a lock named after it.
+            if getattr(self, "_env_prefix", None) == default_env_prefix(
+                "TASKLOCK", "default"
+            ):
+                self._env_prefix = default_env_prefix("TASKLOCK", task_name)
 
     @property
     def name(self) -> str:
