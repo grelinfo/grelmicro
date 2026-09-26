@@ -1,9 +1,8 @@
 """Who the caller of a request is, read the same way everywhere.
 
-A route requirement, the security events, the access log, and idempotency
-all read the caller an authentication layer left on the request scope. They
-read it through here, so a caller one of them admits is never one another
-names as nobody.
+A route requirement, the security events, and the access log read the
+caller an authentication layer left on the request scope through here, so
+a caller one of them admits is never one another names as nobody.
 """
 
 from __future__ import annotations

@@ -40,9 +40,6 @@ from grelmicro._caller import is_authenticated
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
 from grelmicro._paths import selects, walk_routes
-from grelmicro.errors import (
-    _scope_tokens,
-)
 from grelmicro.health._checks import HealthChecks
 from grelmicro.health._endpoints import (
     JSON_MEDIA_TYPE,
@@ -60,7 +57,6 @@ from grelmicro.http import (
     check_freshness,
 )
 from grelmicro.http._authentication import (
-    AUTHENTICATED_MARKER,
     AuthenticatedRequestsMiddleware,
     declare_anonymous,
     document_operations,
@@ -79,7 +75,11 @@ from grelmicro.http._ratelimit import (
     spend,
     state_on,
 )
-from grelmicro.http._requirement import requirement_for, verified_token
+from grelmicro.http._requirement import (
+    Requirement,
+    declare_from_request,
+    requirement_for,
+)
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -461,9 +461,7 @@ async def _current_token(
         InsufficientScopeError: If the caller lacks a scope a `Security`
             around it names.
     """
-    requirement = requirement_for(security_scopes.scopes)
-    requirement.caller(connection.scope)
-    return verified_token(connection.scope, requirement.scopes)
+    return requirement_for(security_scopes.scopes).token(connection.scope)
 
 
 async def _authenticated(
@@ -473,10 +471,10 @@ async def _authenticated(
     return requirement_for(security_scopes.scopes).caller(connection.scope)
 
 
-setattr(_authenticated, AUTHENTICATED_MARKER, True)
-setattr(_current_principal, AUTHENTICATED_MARKER, True)
-setattr(_current_claims, AUTHENTICATED_MARKER, True)
-setattr(_current_token, AUTHENTICATED_MARKER, True)
+declare_from_request(_authenticated)
+declare_from_request(_current_principal)
+declare_from_request(_current_claims)
+declare_from_request(_current_token)
 
 
 CurrentPrincipal = Annotated[
@@ -612,7 +610,7 @@ def Authenticated(  # noqa: N802
         )
 
         raise DependencyNotFoundError(module="fastapi")
-    return _Security(_authenticated, scopes=list(_scope_tokens(scopes)))
+    return _Security(_authenticated, scopes=list(Requirement(scopes).scopes))
 
 
 def Anonymous() -> Any:  # noqa: N802, ANN401

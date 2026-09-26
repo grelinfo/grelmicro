@@ -41,12 +41,9 @@ from grelmicro.http import (
     AuthenticatedRequestsMiddleware,
     ErrorResponses,
 )
-from grelmicro.http._authentication import (
-    _PublicRoutes,
-    recorded,
-    refusal_of,
-)
+from grelmicro.http._authentication import _PublicRoutes, refusal_of
 from grelmicro.http._kinds import classify
+from grelmicro.http._requirement import recorded
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
 )

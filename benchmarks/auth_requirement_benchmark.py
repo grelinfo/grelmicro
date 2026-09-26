@@ -25,19 +25,18 @@ ROUNDS = 1_000_000
 REPEAT = 7
 
 SCOPES = ("orders:read",)
-SCOPE: dict[str, Any] = {
-    "type": "http",
-    "user": JWTClaims(
-        claims={},
-        subject="user-1",
-        issuer="https://issuer.example",
-        audience="orders",
-        expires_at=None,
-        issued_at=None,
-        token_id=None,
-        scopes=frozenset({"orders:read", "orders:write"}),
-    ),
-}
+CALLER = JWTClaims(
+    claims={},
+    subject="user-1",
+    issuer="https://issuer.example",
+    audience="orders",
+    expires_at=None,
+    issued_at=None,
+    token_id=None,
+    scopes=frozenset({"orders:read", "orders:write"}),
+)
+SCOPE: dict[str, Any] = {"type": "http", "user": CALLER, "auth": CALLER}
+"""A request scope the way `AuthenticatedRequests` leaves it."""
 
 
 def _rebuilt_per_request(scope: dict[str, Any]) -> Any:  # noqa: ANN401

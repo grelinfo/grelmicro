@@ -64,6 +64,7 @@ from grelmicro.http._kinds import (
 )
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
+from grelmicro.http._requirement import TOKEN_SCOPE_KEY, declared_scopes
 from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
@@ -114,9 +115,6 @@ __all__ = [
 _BEARER = "bearer"
 """The scheme a bearer token travels under, lowercased for the comparison."""
 
-TOKEN_SCOPE_KEY: Final = "grelmicro.verified_token"  # noqa: S105
-"""Where the middleware leaves the bearer token it verified, as a `VerifiedToken`."""
-
 _POLICY_VIOLATION = 1008
 """Close code for a websocket refused on a server that cannot send a `401`."""
 
@@ -159,21 +157,6 @@ def refusal_of(error: BaseException) -> tuple[str, int] | None:
         if isinstance(error, error_type):
             return kind.slug, kind.status
     return None
-
-
-def recorded[E: BaseException](scope: Scope, error: E) -> E:
-    """Return `error`, recorded as a refusal when authentication handled the request.
-
-    For a refusal a route raises after the middleware authenticated the
-    request, such as a missing scope. A request authentication left alone
-    records nothing.
-    """
-    middleware = scope.get(SCOPE_KEY)
-    if isinstance(middleware, AuthenticatedRequestsMiddleware):
-        middleware._record(  # noqa: SLF001
-            scope, error, caller=scope.get("user"), authenticated=True
-        )
-    return error
 
 
 def _arrived_path(scope: Scope) -> str:
@@ -948,16 +931,6 @@ def _declares_anonymous(
     )
 
 
-AUTHENTICATED_MARKER = "__grelmicro_authenticated__"
-"""Set on what a route declares `Authenticated` with, so a reader finds it.
-
-Read by attribute rather than by identity, so a declaration made before its
-module was imported again is still recognised as one. The FastAPI
-dependency carries `True`, and its scopes come from the dependency tree. A
-Litestar guard carries the scopes it requires.
-"""
-
-
 def is_anonymous_declaration(call: object) -> bool:
     """Return whether a dependency is `Anonymous()`, which computes nothing.
 
@@ -1015,11 +988,11 @@ def _declarations(
     handlers = _litestar_handlers(route)
     if handlers is not None:
         return [
-            tuple(getattr(guard, AUTHENTICATED_MARKER))
+            declared
             for handler in handlers
             if _handles(handler, method)
             for guard in handler.resolve_guards()
-            if hasattr(guard, AUTHENTICATED_MARKER)
+            if (declared := declared_scopes(guard)) is not None
         ]
     found: list[tuple[str, ...]] = []
     endpoint = getattr(route, "endpoint", None)
@@ -1029,8 +1002,9 @@ def _declarations(
         if isinstance(endpoint, type)
         else endpoint
     )
-    if hasattr(target, AUTHENTICATED_MARKER):
-        found.append(tuple(getattr(target, AUTHENTICATED_MARKER)))
+    declared_here = declared_scopes(target)
+    if declared_here is not None:
+        found.append(declared_here)
     declared = getattr(route, "dependant", None)  # codespell:ignore
     pending = [
         *getattr(declared, "dependencies", ()),
@@ -1038,7 +1012,7 @@ def _declarations(
     ]
     while pending:
         dependency = pending.pop(0)
-        if getattr(dependency.call, AUTHENTICATED_MARKER, False):
+        if declared_scopes(dependency.call) is not None:
             # What `SecurityScopes` hands it: the scopes of every `Security`
             # around it as well as its own, under either spelling FastAPI
             # has used for them.
@@ -1679,6 +1653,9 @@ class AuthenticatedRequestsMiddleware:
             enduser=enduser,
         )
         self._events = SecurityEvents(enduser=described.enduser)
+        # Bound once, so a request leaves it on the scope without building
+        # a new bound method each time.
+        self._record_route_refusal = self._record_raised
         self._metadata = _resource_metadata(
             described.resource,
             described.authorization_servers,
@@ -1733,10 +1710,14 @@ class AuthenticatedRequestsMiddleware:
                 return
         scope["user"] = caller
         scope["auth"] = caller
-        scope[SCOPE_KEY] = self
+        scope[SCOPE_KEY] = self._record_route_refusal
         scope[TOKEN_SCOPE_KEY] = verified
         self._events.authenticated(caller)
         await self._forward(scope, receive, send)
+
+    def _record_raised(self, scope: Scope, error: BaseException) -> None:
+        """Record a refusal a route raised after this middleware authenticated it."""
+        self._record(scope, error, caller=scope.get("user"), authenticated=True)
 
     def _record(
         self,

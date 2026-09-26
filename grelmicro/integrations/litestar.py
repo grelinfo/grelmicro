@@ -10,12 +10,10 @@ from typing_extensions import Doc
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
-    _scope_tokens,
 )
 from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
-    AUTHENTICATED_MARKER,
     METADATA_MARKER,
     _serve_metadata,
     document_operations,
@@ -27,7 +25,7 @@ from grelmicro.http._authentication import (
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._openapi import add_error_schema
-from grelmicro.http._requirement import Requirement, verified_token
+from grelmicro.http._requirement import AUTHENTICATED, Requirement
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping, Sequence
@@ -345,7 +343,7 @@ def Authenticated(  # noqa: N802
         TypeError: If `scopes` is a single string.
         ValueError: If a scope is not an OAuth scope token.
     """
-    requirement = Requirement(_scope_tokens(scopes))
+    requirement = Requirement(scopes)
 
     async def authenticated(
         connection: ASGIConnection,
@@ -354,8 +352,7 @@ def Authenticated(  # noqa: N802
         """Refuse a caller that is not authenticated or lacks a scope."""
         requirement.caller(cast("Scope", connection.scope))
 
-    setattr(authenticated, AUTHENTICATED_MARKER, requirement.scopes)
-    return authenticated
+    return requirement.declare(authenticated)
 
 
 def current_token(
@@ -392,7 +389,7 @@ def current_token(
             `AuthenticatedRequests` verified, such as one on a handler
             declaring `Anonymous()`.
     """
-    return verified_token(cast("Scope", connection.scope))
+    return AUTHENTICATED.token(cast("Scope", connection.scope))
 
 
 def _wrap_outside(
