@@ -68,6 +68,7 @@ from starlette.routing import (
     Route,
     Router,
     WebSocketRoute,
+    compile_path,
 )
 from starlette.status import (
     HTTP_307_TEMPORARY_REDIRECT,
@@ -4462,6 +4463,50 @@ class TestRoutesAddedLater:
 
         assert redirected.status_code == HTTP_307_TEMPORARY_REDIRECT
         assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_an_included_route_removed_after_startup_is_gone_for_the_router_too(
+        self,
+    ) -> None:
+        """The router answers from the routes read, not from what it cached."""
+        included = APIRouter()
+        included.add_api_route("/a", secret)
+        included.add_api_route("/{name}", listed, dependencies=[Anonymous()])
+        app = FastAPI()
+        app.include_router(included, prefix="/s")
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            client.get("/s/warm")
+            included.routes.pop(0)
+            client.get("/s/other")
+            response = client.get("/s/a")
+
+        assert response.json() == {"listed": True}
+
+    def test_an_included_route_moved_in_place_after_startup(self) -> None:
+        """The router answers the URL it left from the routes read, too."""
+        included = APIRouter()
+        included.add_api_route("/a", secret)
+        included.add_api_route("/{name}", listed, dependencies=[Anonymous()])
+        app = FastAPI()
+        app.include_router(included, prefix="/s")
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            client.get("/s/warm")
+            moved = cast("APIRoute", included.routes[0])
+            moved.path = "/zz"
+            moved.path_regex, moved.path_format, moved.param_convertors = (
+                compile_path("/zz")
+            )
+            client.get("/s/other")
+            response = client.get("/s/a")
+
+        assert response.json() == {"listed": True}
 
     async def test_middleware_added_to_a_mounted_app_after_startup(
         self,

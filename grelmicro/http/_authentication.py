@@ -425,6 +425,8 @@ class _Routes:
     """A Litestar app, whose own router names the template a request routes to."""
     snapshot: _Snapshot = field(default_factory=_Snapshot)
     """What the routes were read off, as it was then."""
+    routers: tuple[Any, ...] = ()
+    """Each router the routes were read off."""
 
     def template_of(
         self,
@@ -556,8 +558,19 @@ class _PublicRoutes:
         return tuple(self._apps)
 
     def read(self, app: Any) -> None:  # noqa: ANN401
-        """Read every route `app` declares, public or not."""
-        self._apps[app] = routes_of(app)
+        """Read every route `app` declares, public or not.
+
+        FastAPI serves an included router's routes from a copy it refreshes
+        only when told its routes changed, which a route removed or edited
+        in place does not tell it. Each router read is told, so the app
+        serves the routes read here.
+        """
+        routes = routes_of(app)
+        for router in routes.routers:
+            changed = getattr(router, "_mark_routes_changed", None)
+            if changed is not None:
+                changed()
+        self._apps[app] = routes
 
     def reread(self) -> None:
         """Read every app again, for the routes declared since install."""
@@ -731,6 +744,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         redirects=_redirects_slashes(app),
         templates=tuple(ordered),
         snapshot=_Snapshot(tree.watched, tree.routes),
+        routers=tuple(tree.routers),
         nodes=tuple(
             (
                 node,
@@ -854,6 +868,8 @@ class _Tree:
     """Each object read, with the attribute read off it."""
     routes: list[Any] = field(default_factory=list)
     """Each route, mount and host read."""
+    routers: list[Any] = field(default_factory=list)
+    """Each router read."""
 
 
 def _read_tree(
@@ -895,6 +911,7 @@ def _read_tree(
     else:
         held = getattr(routed, "routes", None) or ()
         router = getattr(routed, "router", routed)
+        tree.routers.append(router)
         tree.watched.extend(
             (
                 (routed, "routes"),
