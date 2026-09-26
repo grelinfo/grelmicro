@@ -90,6 +90,17 @@ async def refresh_gate_lock() -> None:
     e2e_event_1.set()
 
 
+long_body_seconds: float = 0.0
+
+
+async def run_long_body() -> None:
+    """Count the run, sleep `long_body_seconds`, then set e2e_event_1."""
+    global execution_count  # noqa: PLW0603
+    execution_count += 1
+    await asyncio.sleep(long_body_seconds)
+    e2e_event_1.set()
+
+
 async def noop() -> None:
     """Do nothing."""
 

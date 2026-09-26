@@ -77,6 +77,9 @@ class IntervalTask(Task):
         self._async_function = self._prepare_async_function(function)
 
         self._gate_label, primitives = self._resolve_gate(gate, seconds)
+        self._claim = next(
+            (p for p in primitives if isinstance(p, TaskLock)), None
+        )
         if sync is not None:
             primitives.append(sync)
         self._sync_primitives: list[LockPrimitive] = primitives
@@ -122,8 +125,9 @@ class IntervalTask(Task):
     def _claim_lock(self, seconds: float) -> TaskLock:
         """Build the lock that holds one claim per interval.
 
-        The claim is held for the whole interval, and the lease lets a
-        body run for up to two intervals before a peer may claim again.
+        The claim is held for the whole interval. The task renews it
+        while the body runs, so the lease of two intervals only bounds
+        how long a crashed worker keeps it.
         The lock is built from a fixed config, so neither the environment
         nor an external reload retunes it.
         """
@@ -199,8 +203,8 @@ class IntervalTask(Task):
                     # and already reported its own outcome. Counting it
                     # again would double the fire.
                     logger.warning(
-                        "Task took too long and lock expired: %s."
-                        " Consider increasing lease_duration.",
+                        "Task released a lock it no longer held: %s."
+                        " Its lease ran out while the body ran.",
                         self.name,
                     )
                 except Exception as exc:
@@ -276,6 +280,13 @@ class IntervalTask(Task):
                 "grelmicro.task.name": self._name,
                 "grelmicro.outcome": FireOutcome.ERROR,
             }
+            claim = self._claim
+            renewed = asyncio.Event()
+            renewal = (
+                asyncio.create_task(self._renew_claim(claim, renewed))
+                if claim is not None
+                else None
+            )
             try:
                 await self._async_function()
                 outcome = FireOutcome.SUCCESS
@@ -286,6 +297,11 @@ class IntervalTask(Task):
                 attributes["error.type"] = type(exc).__name__
                 _emit.incr("grelmicro.task.runs", attributes, unit="{run}")
             finally:
+                if renewal is not None:
+                    # Signal instead of cancel, so a renewal already sent to
+                    # the backend lands before the claim is released.
+                    renewed.set()
+                    await renewal
                 duration = time.perf_counter() - start_monotonic
                 self._last_fire = FireInfo(
                     started_at=started_at,
@@ -305,6 +321,43 @@ class IntervalTask(Task):
 
         async with primitives[index]:
             await self._run_with_sync(primitives, index + 1)
+
+    async def _renew_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
+        """Keep the claim while the body runs, until `done` is set.
+
+        Renews every third of the lease. A renewal the backend fails is
+        retried every tenth of the lease until two thirds of it passed
+        since the last one that worked. A claim the backend no longer
+        holds stops the renewals. The body keeps running either way.
+        """
+        lease = claim.config.lease_duration
+        renewed_at = time.monotonic()
+        delay = lease / 3
+        while not await sleep_or_stop(delay, done):
+            try:
+                await claim._renew_held()  # noqa: SLF001
+            except LockNotOwnedError:
+                logger.warning(
+                    "Task lost its claim while the body ran: %s", self.name
+                )
+                return
+            except Exception:
+                if time.monotonic() - renewed_at >= lease * 2 / 3:
+                    logger.warning(
+                        "Task could not renew its claim while the body ran: %s",
+                        self.name,
+                        exc_info=True,
+                    )
+                    return
+                logger.debug(
+                    "Task claim renewal failed, retrying: %s",
+                    self.name,
+                    exc_info=True,
+                )
+                delay = lease / 10
+            else:
+                renewed_at = time.monotonic()
+                delay = lease / 3
 
     def _prepare_async_function(
         self, function: Callable[..., Any]

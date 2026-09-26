@@ -166,8 +166,8 @@ class TaskRouter:
 
                 - `None` (the default): every worker runs every interval.
                 - `"claim"`: one worker claims each interval and runs it. The
-                  claim is held for the whole interval, and a body may run
-                  for up to two intervals before a peer claims again.
+                  claim is held for the whole interval, with a lease of two
+                  intervals.
                 - A `TaskLock`: one worker claims each interval, with the
                   lock's own `lease_duration`, `backend` and `worker`. Its
                   `min_hold_duration` must be at least `seconds`, now and on
@@ -177,9 +177,11 @@ class TaskRouter:
                   It claims each interval as with `"claim"`, so a leader
                   handover never runs one interval twice.
 
-                Nothing renews a claim while the body runs. A body that
-                outlives the lease lets a peer claim the next interval
-                while it is still running.
+                A gated task renews its claim every third of the lease while
+                the body runs, so a body may run as long as it needs. A
+                worker that crashes frees its claim within the lease. A
+                claim lost anyway, to a backend outage or a stalled event
+                loop, logs a warning and lets the body finish.
                 """,
             ),
         ] = None,

@@ -655,7 +655,9 @@ class CronTask(Task):
             # already reported its own outcome. Counting it again would
             # double the fire.
             logger.warning(
-                "Task took too long and lock expired: %s.", self.name
+                "Task released a lock it no longer held: %s."
+                " Its lease ran out while the body ran.",
+                self.name,
             )
         except Exception as exc:
             logger.exception("Task synchronization error: %s", self.name)

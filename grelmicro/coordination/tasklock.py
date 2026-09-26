@@ -306,6 +306,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         # The nonce and local end of the hold this instance last set, so it
         # can take the hold back once it ran out (see `_take_back_hold`).
         self._hold_nonce: str | None = None
+        self._held_token: str | None = None
         self._hold_ends = 0.0
         self._from_thread: ThreadTaskLockAdapter | None = None
         self._task_name: str | None = None
@@ -392,6 +393,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if not await self.do_acquire(token, duration=config.lease_duration):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
+        self._held_token = token
 
         return self
 
@@ -434,6 +436,23 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         token = generate_task_token(config.worker, self._token_nonce)
         renewed = await self.do_reacquire(token, config.lease_duration)
         if not renewed:
+            raise LockNotOwnedError(name=self._name)
+
+    async def _renew_held(self) -> None:
+        """Renew the lease the lock holds, from any asyncio task.
+
+        `refresh` answers only in the task that entered the lock. The
+        scheduler renews a claim from a task of its own while the body
+        runs, with the token captured on entry.
+
+        Raises:
+            LockNotOwnedError: If the lock is not held or the lease was lost.
+            LockReleaseError: If the backend call fails.
+        """
+        token = self._held_token
+        if token is None or not await self.do_reacquire(
+            token, self._config.lease_duration
+        ):
             raise LockNotOwnedError(name=self._name)
 
     async def locked(self) -> bool:
@@ -555,6 +574,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if not await self.do_acquire(token, duration=config.lease_duration):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
             raise WouldBlockError(msg)
+        self._held_token = token
 
     async def do_thread_exit(self) -> None:
         """Release or extend the lock from a worker thread.
@@ -606,6 +626,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
         elapsed = monotonic() - self._acquired_at
         self._acquired_at = None
+        self._held_token = None
         nonce = self._token_nonce
         self._token_nonce = generate_token_nonce()
         self._metrics.hold(-1)

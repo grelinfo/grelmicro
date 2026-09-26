@@ -224,7 +224,7 @@ Each task logs its resolved gate once when it starts, for example `Task started 
 
 An interval claim is a [`TaskLock`](coordination/task-lock.md) named after the task. The worker that wins it holds it for the whole interval, so a replica whose timer fires a moment later finds it taken and skips. A cron claim advances the durable last-fire state instead, which also [replays a missed fire](#missed-fires).
 
-Nothing renews an interval claim while the body runs. The lease lets a body run for two intervals. A body that outlives it lets a peer claim the next interval while it is still running. Pass a `TaskLock` with a longer `lease_duration` when a run can take longer.
+While the body runs, the task renews its claim every third of the lease, so a body may run as long as it needs. The lease (two intervals) only bounds how long a worker that crashed keeps the claim. If a renewal cannot reach the backend, it is retried until two thirds of the lease have passed. A claim lost that way logs a warning and the body finishes, since stopping it mid-write would be worse than a second run. Work that must never overlap takes a [`Lock`](coordination/lock.md) as `sync` too.
 
 ### Leader
 
@@ -260,7 +260,7 @@ For an interval task, pass a [`TaskLock`](coordination/task-lock.md) to set the 
 --8<-- "task/interval_lock_custom.py"
 ```
 
-`min_hold_duration` must be at least `seconds`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is the longest a body may run before a peer may claim again. A lock still named `"default"` takes the task name, so you never repeat it. The task uses the lock you pass, so the handle you keep is the one it holds: call `refresh()` on it from a long body to extend the claim.
+`min_hold_duration` must be at least `seconds`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is how long a crashed worker keeps the claim, since the task renews it while the body runs. A lock still named `"default"` takes the task name, so you never repeat it. The task uses the lock you pass, so the handle you keep is the one it holds.
 
 Cron takes no `TaskLock`. Its claim is a compare-and-set on durable state, with nothing held while the body runs.
 

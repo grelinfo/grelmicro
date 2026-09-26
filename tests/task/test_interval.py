@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import pytest
 from pytest_mock import MockFixture
 
+from grelmicro.coordination.errors import LockNotOwnedError, LockReleaseError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
@@ -35,6 +36,8 @@ async def sleep_forever() -> None:
 pytestmark = [pytest.mark.timeout(10)]
 
 SLEEP = 0.01
+RETRIES_BEFORE_DEADLINE = 2
+"""A third of the lease to the first try, then a tenth per retry up to two thirds."""
 
 
 def test_interval_task_init() -> None:
@@ -501,3 +504,136 @@ async def test_interval_task_built_claim_lock_refuses_a_shorter_hold(
         await lock.reconfigure(shorter)
 
     assert lock.config.min_hold_duration == interval
+
+
+async def test_interval_task_renewal_stops_when_the_body_ends(
+    mocker: MockFixture,
+) -> None:
+    """The claim is renewed while the body runs, and never after it ends."""
+    interval = 0.03
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 2,
+        min_hold_duration=interval,
+    )
+    samples.long_body_seconds = interval * 4
+    task = IntervalTask(
+        seconds=interval, function=samples.run_long_body, gate=lock
+    )
+    refresh = mocker.spy(lock, "_renew_held")
+
+    await task._run_with_sync(task._sync_primitives)
+    renewals = refresh.call_count
+    await sleep(interval * 2)
+
+    assert renewals >= 1
+    assert refresh.call_count == renewals
+
+
+async def test_interval_task_lost_claim_warns_once_and_keeps_the_body(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A claim the backend no longer holds warns once, and the body finishes."""
+    caplog.set_level("WARNING")
+    interval = 0.03
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 2,
+        min_hold_duration=interval,
+    )
+    samples.long_body_seconds = interval * 4
+    task = IntervalTask(
+        seconds=interval, function=samples.run_long_body, gate=lock
+    )
+    refresh = mocker.patch.object(
+        lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
+    )
+
+    with pytest.raises(LockNotOwnedError):
+        await task._run_with_sync(task._sync_primitives)
+
+    assert samples.e2e_event_1.is_set()
+    assert refresh.call_count == 1
+    lost = [r for r in caplog.records if "lost its claim" in r.message]
+    assert len(lost) == 1
+
+
+async def test_interval_task_renewal_retries_until_the_deadline(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unreachable backend is retried, then given up at the deadline."""
+    caplog.set_level("WARNING")
+    interval = 0.03
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 2,
+        min_hold_duration=interval,
+    )
+    samples.long_body_seconds = interval * 6
+    task = IntervalTask(
+        seconds=interval, function=samples.run_long_body, gate=lock
+    )
+    refresh = mocker.patch.object(
+        lock, "_renew_held", side_effect=LockReleaseError(name="down")
+    )
+
+    with pytest.raises(LockNotOwnedError):
+        await task._run_with_sync(task._sync_primitives)
+
+    assert refresh.call_count >= RETRIES_BEFORE_DEADLINE
+    lost = [r for r in caplog.records if "could not renew" in r.message]
+    assert len(lost) == 1
+
+
+async def test_interval_task_logs_a_claim_lost_before_release(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A claim lost while the body ran is logged, and the loop goes on."""
+    caplog.set_level("WARNING")
+    interval = 0.03
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 2,
+        min_hold_duration=interval,
+    )
+    samples.long_body_seconds = interval * 4
+    task = IntervalTask(
+        seconds=interval, function=samples.run_long_body, gate=lock
+    )
+    mocker.patch.object(
+        lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await samples.e2e_event_1.wait()
+        await sleep(interval)
+        cancel_group(tg)
+
+    assert any("no longer held" in r.message for r in caplog.records)
+
+
+async def test_interval_task_cancel_survives_a_claim_lost_on_release(
+    mocker: MockFixture,
+) -> None:
+    """Cancelling mid-body still stops the task when the release then fails."""
+    interval = 0.03
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 2,
+        min_hold_duration=interval,
+    )
+    task = IntervalTask(
+        seconds=interval, function=samples.worker_1_hold, gate=lock
+    )
+    mocker.patch.object(
+        lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        handle = await start_task(tg, task)
+        await samples.e2e_event_1.wait()
+        await sleep(interval * 3)
+        cancel_group(tg)
+
+    assert handle.cancelled()

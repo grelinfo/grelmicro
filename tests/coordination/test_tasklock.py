@@ -983,3 +983,12 @@ async def test_tasklock_keeps_its_own_hold_until_it_ran_out(
     with pytest.raises(WouldBlock):
         async with lock:
             pass
+
+
+async def test_tasklock_renew_held_refused_when_not_held(
+    backend: LockBackend,
+) -> None:
+    """Renewing a lock that is not held raises `LockNotOwnedError`."""
+    lock = TaskLock(LOCK_NAME, backend=backend, lease_duration=LOCK_AT_MOST_FOR)
+    with pytest.raises(LockNotOwnedError):
+        await lock._renew_held()

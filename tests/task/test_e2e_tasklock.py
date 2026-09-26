@@ -119,10 +119,10 @@ async def test_tasklock_min_hold_duration(
     assert worker_2_ran
 
 
-async def test_tasklock_lease_duration(
+async def test_tasklock_lease_renewed_while_the_body_runs(
     backend: LockBackend, task_factory: TaskFactory
 ) -> None:
-    """Test lease_duration auto-expires when task takes too long."""
+    """A body running past lease_duration keeps its claim, so the peer waits."""
     max_lock = 0.2
     task_1 = task_factory(
         seconds=INTERVAL,
@@ -147,14 +147,11 @@ async def test_tasklock_lease_duration(
         await start_task(tg, task_1)
         await samples.e2e_event_1.wait()
         await start_task(tg, task_2)
-        await asyncio.sleep(max_lock * 0.25)
-        worker_2_blocked = not samples.e2e_event_2.is_set()
-        await asyncio.sleep(max_lock * 1.5)
+        await asyncio.sleep(max_lock * 3)
         worker_2_ran = samples.e2e_event_2.is_set()
         cancel_group(tg)
 
-    assert worker_2_blocked
-    assert worker_2_ran
+    assert not worker_2_ran
 
 
 async def test_tasklock_would_block_debug_log(
@@ -307,3 +304,32 @@ async def test_gate_lock_refreshes_from_the_body(
         cancel_group(tg)
 
     assert not any(r.levelname == "ERROR" for r in caplog.records)
+
+
+async def test_claim_renews_while_a_long_body_runs(
+    backend: LockBackend, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A body longer than the lease keeps its claim, so no peer runs it too."""
+    caplog.set_level("WARNING")
+    samples.long_body_seconds = INTERVAL * 6
+    workers = [
+        IntervalTask(
+            seconds=INTERVAL,
+            function=samples.run_long_body,
+            name="long",
+            gate="claim",
+        )
+        for _ in range(2)
+    ]
+    async with (
+        Grelmicro(uses=[Coordination(lock=backend)]),
+        asyncio.TaskGroup() as tg,
+    ):
+        await start_task(tg, workers[0])
+        await asyncio.sleep(INTERVAL / 2)
+        await start_task(tg, workers[1])
+        await samples.e2e_event_1.wait()
+        cancel_group(tg)
+
+    assert samples.execution_count == 1
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]

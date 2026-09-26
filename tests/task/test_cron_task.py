@@ -533,7 +533,7 @@ async def test_cron_task_lock_lost_is_logged(
         await sleep(SLEEP * 3)
         cancel_group(tg)
     assert any(
-        "lock expired" in record.message
+        "no longer held" in record.message
         for record in caplog.records
         if record.levelname == "WARNING"
     )

@@ -71,3 +71,4 @@ def _reset_e2e_state() -> None:
     samples.execution_count = 0
     samples.run_starts = []
     samples.gate_lock = None
+    samples.long_body_seconds = 0.0
