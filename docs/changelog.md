@@ -3,9 +3,9 @@
 ## Unreleased
 
 ### Breaking
-* 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count.
-* 🔒 A route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential.
-* 🔒 Routes, mounts and a mounted app's middleware changed after startup are read again before a request is served without a credential.
+* 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 A route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 Routes, mounts and a mounted app's middleware changed after startup are read again before a request is served without a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
 * 💥 `every` and `cron` take one `gate=` saying which workers run a task: `None`, `"claim"` for one worker per interval or fire, or a `LeaderElection`. `every` also takes a tuned `TaskLock`. `lock=` and `leader=` are gone. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 💥 `cron` runs on every worker by default, as `every` does. Pass `gate="claim"` to keep running each fire once across the fleet. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 💥 A gated task with no schedule or lock backend reports a coordination error and runs nothing, instead of running on every worker. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
