@@ -934,3 +934,48 @@ async def test_cron_task_leader_won_after_the_fire_replays_it(
     await task()
 
     assert samples.execution_count == 1
+
+
+async def test_cron_task_leader_that_flaps_at_the_fire_replays_it(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A leader that loses leadership at a fire and wins it back replays it."""
+    name = "flap"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    elected = asyncio.Event()
+    elected.set()
+    mocker.patch.object(election, "is_leader", side_effect=elected.is_set)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate=election,
+    )
+    tick = task._tick_guarded
+    ticks = 0
+
+    async def lose_at_the_fire(*_: object) -> bool:
+        if elected.is_set() and ticks == 1:
+            elected.clear()
+            return False
+        return True
+
+    async def win_back_after_it(*, catchup: bool) -> None:
+        nonlocal ticks
+        ticks += 1
+        if ticks == 1:
+            return
+        await tick(catchup=catchup)
+        if not catchup:
+            elected.set()
+
+    mocker.patch(
+        "grelmicro.task._cron.sleep_or_stop", side_effect=lose_at_the_fire
+    )
+    mocker.patch.object(task, "_tick_guarded", side_effect=win_back_after_it)
+
+    await task()
+
+    assert samples.execution_count == 1

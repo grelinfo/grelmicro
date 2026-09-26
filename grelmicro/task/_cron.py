@@ -441,6 +441,8 @@ class CronTask(Task):
         self._backend = backend
         self._gate = gate
         self._leader = gate if isinstance(gate, LeaderElection) else None
+        # Set when a leader-gated tick skipped a fire as a follower.
+        self._owes_catchup = False
         self._gate_label = (
             "none"
             if gate is None
@@ -569,9 +571,6 @@ class CronTask(Task):
             # is no past state, so startup is the baseline.
             await self._tick_guarded(catchup=True)
             leader = self._leader
-            # Whether this worker led when it last checked, so leadership
-            # won at any moment is followed by one catch-up tick.
-            led = leader is not None and leader.is_leader()
             while True:
                 now = _now(self._tz)
                 next_fire = self._expr.next_after(now)
@@ -593,20 +592,17 @@ class CronTask(Task):
                         break
                     continue
                 if leader is not None and not leader.is_leader():
-                    led = False
                     # A follower that becomes leader before the next fire
                     # replays the fire missed while no worker led.
                     if await self._wait_for_leadership(leader, delay, stop):
-                        led = True
                         await self._tick_guarded(catchup=True)
                         continue
                     if stop is not None and stop.is_set():
                         break
-                elif leader is not None and not led:
-                    # Leadership won after the fire instant, while this
-                    # worker was ticking as a follower. Replay that fire
-                    # before sleeping to the next one.
-                    led = True
+                elif self._owes_catchup:
+                    # This worker skipped a fire as a follower and leads
+                    # again, whether it took over or won leadership back.
+                    # Replay that fire before sleeping to the next one.
                     await self._tick_guarded(catchup=True)
                     continue
                 # Wait until the next fire instant, waking early on stop.
@@ -709,11 +705,7 @@ class CronTask(Task):
             if not catchup:
                 await self._run(due)
             return
-        if self._leader is not None and not self._leader.is_leader():
-            if not catchup:
-                self._last_fire = _report_unrun_fire(
-                    self.name, now, FireOutcome.SKIPPED
-                )
+        if self._skips_as_follower(now, catchup=catchup):
             return
 
         backend = self.backend
@@ -741,6 +733,26 @@ class CronTask(Task):
             await self._drop_late_fire(backend, due, now)
             return
         await self._claim_and_run(backend, due, now)
+
+    def _skips_as_follower(self, now: datetime, *, catchup: bool) -> bool:
+        """Return True when a leader gate turns this worker away from the fire.
+
+        A follower owes a catch-up, so the fire it skips replays once it
+        leads, however leadership came back. A scheduled skip is reported,
+        a startup catch-up skip is not.
+        """
+        leader = self._leader
+        if leader is None:
+            return False
+        if leader.is_leader():
+            self._owes_catchup = False
+            return False
+        self._owes_catchup = True
+        if not catchup:
+            self._last_fire = _report_unrun_fire(
+                self.name, now, FireOutcome.SKIPPED
+            )
+        return True
 
     async def _drop_late_fire(
         self, backend: ScheduleBackend, due: float, now: datetime
