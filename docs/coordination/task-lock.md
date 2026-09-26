@@ -4,8 +4,10 @@ The Task Lock is a distributed lock for scheduled tasks. Unlike a regular
 [`Lock`](lock.md), it does not release immediately. It keeps the lock held for a
 configurable minimum duration to stop re-execution on other nodes.
 
-No background task keeps the lock active during execution. The lock relies on the
-TTL (`lease_duration`) set at acquire time. If the task runs longer than
+As the `gate` of an interval task, the task renews the lease from the moment it
+holds the lock until the body ends, so `lease_duration` only bounds how long a
+crashed worker keeps it. Entered directly with `async with`, the lock relies on
+the TTL (`lease_duration`) set at acquire time. If the body runs longer than
 `lease_duration`, the lock expires and another node may acquire it.
 
 - **`min_hold_duration`**: minimum duration to hold the lock after the task

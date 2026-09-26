@@ -104,10 +104,12 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     the lock held for at least `min_hold_duration` seconds to prevent re-execution
     on other nodes.
 
-    There is no background task that maintains the lock active during execution.
-    The lock relies entirely on the TTL (`lease_duration`) set at acquire time.
-
-    This lock is designed to be used as the `gate` of `@tasks.every`.
+    This lock is designed to be used as the `gate` of `@tasks.every`. There,
+    the task renews the lease every third of `lease_duration` from the moment
+    it holds the lock until the body ends, so `lease_duration` only bounds how
+    long a crashed worker keeps it. Entered directly with `async with`, the
+    lock renews nothing and relies on the TTL set at acquire time. Call
+    `refresh()` from a long body to extend it.
 
     Supports live reconfiguration via
     `reconfigure(new_config)`.
