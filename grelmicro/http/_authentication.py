@@ -1673,7 +1673,7 @@ class AuthenticatedRequestsMiddleware:
         metadata = self._metadata
         if metadata is not None:
             if scope["type"] == "http" and route_path(scope) in metadata.paths:
-                await _serve_metadata(scope, send, metadata)
+                await metadata.serve(scope, send)
                 return
             if (
                 not self._routing_checked
@@ -2455,6 +2455,75 @@ class _ResourceMetadata:
     body: bytes
     """The document itself."""
 
+    async def serve(self, scope: Scope, send: Send) -> None:
+        """Answer a request for the document, whoever asks.
+
+        It is public by definition, so no credential is read, and a browser
+        client on any origin may read it, with whatever headers its
+        preflight asks to send.
+        """
+        method = scope.get("method")
+        headers = [(b"access-control-allow-origin", b"*")]
+        if method in ("GET", "HEAD"):
+            status, body = 200, self.body
+            headers += [
+                (b"content-type", b"application/json"),
+                (
+                    b"cache-control",
+                    f"public, max-age={_METADATA_MAX_AGE}".encode(),
+                ),
+                (b"content-length", str(len(body)).encode()),
+            ]
+        elif method == "OPTIONS":
+            status, body = 204, b""
+            headers += [
+                (b"access-control-allow-methods", _METADATA_METHODS),
+                (b"allow", _METADATA_METHODS),
+                *(
+                    (b"access-control-allow-headers", value)
+                    for name, value in scope["headers"]
+                    if name == b"access-control-request-headers"
+                ),
+            ]
+        else:
+            status, body = 405, b""
+            headers += [
+                (b"allow", _METADATA_METHODS),
+                (b"content-length", b"0"),
+            ]
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"" if method == "HEAD" else body,
+            }
+        )
+
+    def document(self) -> Callable[[Scope, Receive, Send], Awaitable[None]]:
+        """Return an ASGI app serving the document, for a router to route to it.
+
+        A websocket is closed, since the document is not served over one.
+        """
+
+        async def protected_resource_metadata(
+            scope: Scope,
+            receive: Receive,  # noqa: ARG001
+            send: Send,
+        ) -> None:
+            if scope["type"] != "http":
+                await send({"type": "websocket.close"})
+                return
+            await self.serve(scope, send)
+
+        setattr(protected_resource_metadata, METADATA_MARKER, True)
+        return protected_resource_metadata
+
 
 def metadata_path_of(options: Mapping[str, Any]) -> str | None:
     """Return where a middleware built with `options` serves its metadata."""
@@ -2571,52 +2640,6 @@ def _names(value: tuple[str, ...] | list[str], *, name: str) -> tuple[str, ...]:
         )
         raise TypeError(msg)
     return tuple(value)
-
-
-async def _serve_metadata(
-    scope: Scope, send: Send, metadata: _ResourceMetadata
-) -> None:
-    """Answer a request for the metadata document, whoever asks.
-
-    It is public by definition, so no credential is read, and a browser
-    client on any origin may read it, with whatever headers its preflight
-    asks to send.
-    """
-    method = scope.get("method")
-    headers = [(b"access-control-allow-origin", b"*")]
-    if method in ("GET", "HEAD"):
-        status, body = 200, metadata.body
-        headers += [
-            (b"content-type", b"application/json"),
-            (
-                b"cache-control",
-                f"public, max-age={_METADATA_MAX_AGE}".encode(),
-            ),
-            (b"content-length", str(len(body)).encode()),
-        ]
-    elif method == "OPTIONS":
-        status, body = 204, b""
-        headers += [
-            (b"access-control-allow-methods", _METADATA_METHODS),
-            (b"allow", _METADATA_METHODS),
-            *(
-                (b"access-control-allow-headers", value)
-                for name, value in scope["headers"]
-                if name == b"access-control-request-headers"
-            ),
-        ]
-    else:
-        status, body = 405, b""
-        headers += [(b"allow", _METADATA_METHODS), (b"content-length", b"0")]
-    await send(
-        {"type": "http.response.start", "status": status, "headers": headers}
-    )
-    await send(
-        {
-            "type": "http.response.body",
-            "body": b"" if method == "HEAD" else body,
-        }
-    )
 
 
 def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:

@@ -14,8 +14,6 @@ from grelmicro.errors import (
 from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
-    METADATA_MARKER,
-    _serve_metadata,
     document_operations,
     metadata_path_of,
     operation_authentication,
@@ -240,7 +238,7 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
             continue
         app.register(
             asgi(metadata.route, opt=Anonymous(), copy_scope=False)(
-                _metadata_document(metadata)
+                metadata.document()
             )
         )
 
@@ -254,25 +252,6 @@ def _routes(app: Litestar, path: str) -> bool:
     except HTTPException:
         return False
     return True
-
-
-def _metadata_document(metadata: Any) -> Any:  # noqa: ANN401
-    """Return the ASGI handler that serves the protected resource metadata."""
-
-    async def protected_resource_metadata(
-        scope: Any,  # noqa: ANN401
-        receive: Any,  # noqa: ANN401, ARG001
-        send: Any,  # noqa: ANN401
-    ) -> None:
-        if scope["type"] != "http":
-            # Only a websocket whose caller was authenticated gets here, and
-            # the document is not served over one.
-            await send({"type": "websocket.close"})
-            return
-        await _serve_metadata(scope, send, metadata)
-
-    setattr(protected_resource_metadata, METADATA_MARKER, True)
-    return protected_resource_metadata
 
 
 def Anonymous() -> dict[str, Any]:  # noqa: N802
