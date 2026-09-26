@@ -1,6 +1,7 @@
 """Test Cron Task (durable design)."""
 
 import asyncio
+import time
 from asyncio import sleep
 from datetime import UTC, datetime
 from types import TracebackType
@@ -872,3 +873,27 @@ async def test_cron_task_wait_for_leadership(
     result = await CronTask._wait_for_leadership(election, SLEEP, stop)
 
     assert result is expected
+
+
+async def test_cron_task_wait_for_leadership_outlasts_a_lost_win(
+    mocker: MockFixture,
+) -> None:
+    """Leadership won then lost before the check keeps waiting for the fire."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=False)
+    calls = 0
+
+    async def won_then_lost() -> None:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            await asyncio.Event().wait()
+
+    mocker.patch.object(election, "wait_for_leader", side_effect=won_then_lost)
+    delay = SLEEP * 5
+    started = time.monotonic()
+
+    result = await CronTask._wait_for_leadership(election, delay, None)
+
+    assert result is False
+    assert time.monotonic() - started >= delay * 0.9

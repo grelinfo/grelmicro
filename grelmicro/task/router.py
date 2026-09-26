@@ -209,8 +209,9 @@ class TaskRouter:
         Raises:
             FunctionTypeError: If the task name generation fails.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If the gate `TaskLock` holds a claim for less than
-                `seconds`, or already gates another task.
+            ValueError: If the gate `TaskLock` already gates another task.
+            SettingsValidationError: If the gate `TaskLock` holds a claim
+                for less than `seconds`.
             TypeError: If `gate` is not a supported value, or `sync` is a
                 leader election.
         """

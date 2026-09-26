@@ -12,9 +12,10 @@ from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
 from grelmicro.coordination._protocol import LockPrimitive
+from grelmicro.coordination._tokens import generate_worker_id
 from grelmicro.coordination.errors import LockNotOwnedError
 from grelmicro.coordination.leaderelection import LeaderElection, _LeaderGuard
-from grelmicro.coordination.tasklock import TaskLock
+from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
 from grelmicro.task._cron import FireInfo, FireOutcome, _report_unrun_fire
@@ -53,8 +54,9 @@ class IntervalTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If the gate lock holds a claim for less than
-                `seconds`, or already gates another task.
+            ValueError: If the gate lock already gates another task.
+            SettingsValidationError: If the gate lock holds a claim for
+                less than `seconds`.
             TypeError: If `gate` is not a supported value, or `sync` is
                 a leader election.
         """
@@ -122,13 +124,19 @@ class IntervalTask(Task):
 
         The claim is held for the whole interval, and the lease lets a
         body run for up to two intervals before a peer may claim again.
+        The lock is built from a fixed config, so neither the environment
+        nor an external reload retunes it.
         """
-        return TaskLock(
+        lock = TaskLock.from_config(
             self._name,
-            min_hold_duration=seconds,
-            lease_duration=seconds * 2,
-            env_load=False,
+            TaskLockConfig(
+                worker=generate_worker_id(),
+                min_hold_duration=seconds,
+                lease_duration=seconds * 2,
+            ),
         )
+        lock._bind_task(self._name, interval=seconds)  # noqa: SLF001
+        return lock
 
     @property
     def function(self) -> Callable[..., Any]:

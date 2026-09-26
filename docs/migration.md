@@ -45,7 +45,7 @@ that a client library used to accept.
 | `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
-| `ValueError: min_hold_duration must be greater than or equal to seconds` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
+| `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to seconds` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
 
 ## 0.42
 

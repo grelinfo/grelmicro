@@ -612,22 +612,31 @@ class CronTask(Task):
         """Wait up to `delay` seconds for this worker to become the leader.
 
         Returns True when it became the leader, and False when the delay
-        ran out or `stop` was set first.
+        ran out or `stop` was set first. Leadership won and lost again
+        before it is checked keeps the wait going until the delay ends.
         """
-        waiters: list[asyncio.Future[object]] = [
-            asyncio.ensure_future(leader.wait_for_leader())
-        ]
-        if stop is not None:
-            waiters.append(asyncio.ensure_future(stop.wait()))
-        try:
-            await asyncio.wait(
-                waiters, timeout=delay, return_when=asyncio.FIRST_COMPLETED
-            )
-        finally:
-            for waiter in waiters:
-                waiter.cancel()
-        stopped = stop is not None and stop.is_set()
-        return not stopped and leader.is_leader()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + delay
+        while (remaining := deadline - loop.time()) > 0:
+            waiters: list[asyncio.Future[object]] = [
+                asyncio.ensure_future(leader.wait_for_leader())
+            ]
+            if stop is not None:
+                waiters.append(asyncio.ensure_future(stop.wait()))
+            try:
+                await asyncio.wait(
+                    waiters,
+                    timeout=remaining,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                for waiter in waiters:
+                    waiter.cancel()
+            if stop is not None and stop.is_set():
+                return False
+            if leader.is_leader():
+                return True
+        return False
 
     async def _tick_guarded(self, *, catchup: bool) -> None:
         """Run one tick, catching the errors a single fire may raise."""

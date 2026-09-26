@@ -476,3 +476,28 @@ async def test_interval_task_lock_gate_takes_a_longer_reconfigured_hold() -> (
     await lock.reconfigure(longer)
 
     assert lock.config.min_hold_duration == interval * 2
+
+
+@pytest.mark.parametrize("gate", ["claim", "leader"])
+async def test_interval_task_built_claim_lock_refuses_a_shorter_hold(
+    gate: str,
+) -> None:
+    """The lock a claim or leader gate builds keeps holding for the interval."""
+    interval = 60
+    resolved = (
+        LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+        if gate == "leader"
+        else gate
+    )
+    task = IntervalTask(
+        seconds=interval,
+        function=test1,
+        gate=resolved,  # ty: ignore[invalid-argument-type]
+    )
+    (lock,) = [p for p in task._sync_primitives if isinstance(p, TaskLock)]
+    shorter = lock.config.model_copy(update={"min_hold_duration": 1})
+
+    with pytest.raises(SettingsValidationError, match="min_hold_duration"):
+        await lock.reconfigure(shorter)
+
+    assert lock.config.min_hold_duration == interval
