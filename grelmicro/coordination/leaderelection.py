@@ -6,7 +6,7 @@ from contextlib import suppress
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, Any, ClassVar, Self
+from typing import Annotated, Any, ClassVar, Final, Self
 from uuid import UUID
 
 from pydantic import model_validator
@@ -41,6 +41,15 @@ from grelmicro.metrics import _emit
 from grelmicro.task._protocol import Task
 
 logger = getLogger("grelmicro.leader_election")
+
+
+_NO_BACKEND: Final = (
+    "LeaderElection({name!r}) resolved no backend. Pass backend= "
+    "(MemoryLeaderElectionAdapter() for a per-process election), register a"
+    " Coordination component, or run the call inside `async with micro:` or"
+    " after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class LeaderElectionConfig(BaseLockConfig):
@@ -464,19 +473,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         """
         if self._backend is not None:
             return self._backend
-        try:
-            coordination = resolve_ambient(
-                ("coordination", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"LeaderElection({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryLeaderElectionAdapter() for a per-process "
-                f"election), register a Coordination component, or run the "
-                f"call inside `async with micro:` or after `micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return coordination.election_backend
+        return resolve_ambient(
+            ("coordination", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).election_backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""

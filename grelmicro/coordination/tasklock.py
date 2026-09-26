@@ -10,7 +10,7 @@ from contextlib import suppress
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, Self
+from typing import Annotated, Final, Self
 from uuid import UUID
 
 from pydantic import model_validator
@@ -54,12 +54,20 @@ from grelmicro.coordination.errors import (
     LockReleaseError,
 )
 from grelmicro.errors import (
-    OutOfContextError,
     SettingsValidationError,
     WouldBlockError,
 )
 
 logger = getLogger("grelmicro.coordination")
+
+
+_NO_BACKEND: Final = (
+    "TaskLock({name!r}) resolved no backend. Pass backend= "
+    "(MemoryLockAdapter() for a per-process lock), register a Coordination "
+    "component, or run the call inside `async with micro:` or after "
+    "`micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class TaskLockConfig(BaseLockConfig):
@@ -381,19 +389,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         """
         if self._backend is not None:
             return self._backend
-        try:
-            coordination = resolve_ambient(
-                ("coordination", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"TaskLock({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryLockAdapter() for a per-process lock), "
-                f"register a Coordination component, or run the call inside "
-                f"`async with micro:` or after `micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return coordination.lock_backend
+        return resolve_ambient(
+            ("coordination", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).lock_backend
 
     async def __aenter__(self) -> Self:
         """Acquire the lock with duration=lease_duration.

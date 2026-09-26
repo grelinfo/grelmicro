@@ -3,7 +3,7 @@
 import asyncio
 import re
 from types import TracebackType
-from typing import Annotated, ClassVar, Self
+from typing import Annotated, ClassVar, Final, Self
 from uuid import UUID
 from weakref import WeakSet
 
@@ -53,7 +53,6 @@ from grelmicro.coordination.errors import (
 )
 from grelmicro.errors import (
     LockTimeoutError,
-    OutOfContextError,
     SettingsValidationError,
     WouldBlockError,
 )
@@ -79,6 +78,14 @@ def validate_lock_name(name: str) -> None:
             f"Valid examples: 'cart', 'users:42', 'payments/eu'."
         )
         raise SettingsValidationError(msg)
+
+
+_NO_BACKEND: Final = (
+    "Lock({name!r}) resolved no backend. Pass backend= (MemoryLockAdapter()"
+    " for a per-process lock), register a Coordination component, or run "
+    "the call inside `async with micro:` or after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class LockConfig(BaseLockConfig):
@@ -375,19 +382,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         if self._backend is not None:
             return self._backend
-        try:
-            coordination = resolve_ambient(
-                ("coordination", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"Lock({self._name!r}) resolved no backend. Pass backend= "
-                f"(MemoryLockAdapter() for a per-process lock), register a "
-                f"Coordination component, or run the call inside "
-                f"`async with micro:` or after `micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return coordination.lock_backend
+        return resolve_ambient(
+            ("coordination", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).lock_backend
 
     async def __aenter__(self) -> LockHandle:
         """Acquire the lock with the async context manager.

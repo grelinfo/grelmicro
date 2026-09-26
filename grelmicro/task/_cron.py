@@ -9,14 +9,15 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import partial
 from logging import getLogger
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from fast_depends import inject
 
+from grelmicro._app import resolve_ambient
 from grelmicro._async import is_async_callable, sleep_or_stop
 from grelmicro._timezone import UTC_NAME
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.errors import OutOfContextError, WouldBlockError
+from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
 from grelmicro.task._protocol import Task
 from grelmicro.task._utils import (
@@ -33,6 +34,15 @@ if TYPE_CHECKING:
     from grelmicro.coordination.leaderelection import LeaderElection
 
 logger = getLogger("grelmicro.task")
+
+
+_NO_BACKEND: Final = (
+    "CronTask({name!r}) resolved no backend. Pass backend= "
+    "(MemoryScheduleAdapter() for a per-process schedule), register a "
+    "Coordination component, or run the call inside `async with micro:` "
+    "or after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class FireOutcome(StrEnum):
@@ -518,35 +528,22 @@ class CronTask(Task):
         """Bound schedule backend, resolved on each tick.
 
         When a backend instance was passed at construction it is always
-        returned. Otherwise the active `Grelmicro` app is consulted via
-        `Grelmicro.current()` so that `micro.override(Coordination(...))`
-        blocks take effect.
+        returned. Otherwise the active `Grelmicro` app is consulted on
+        every access, so `micro.override(Coordination(...))` and a
+        `Bulkhead` scope take effect.
 
         Raises:
             OutOfContextError: No backend resolved in this scope. Pass
-                `backend=`, register a `Coordination` Component, or run
-                the call inside `async with micro:` or after
+                `backend=` (a `MemoryScheduleAdapter()` for a per-process
+                schedule), register a `Coordination` Component, or run the
+                call inside `async with micro:` or after
                 `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
-        from grelmicro._app import (  # noqa: PLC0415
-            ComponentNotRegisteredError,
-            Grelmicro,
-            NoActiveAppError,
-        )
-
-        try:
-            coordination = Grelmicro.current().get("coordination", "default")
-        except (NoActiveAppError, ComponentNotRegisteredError):
-            msg = (
-                f"Cron task {self.name!r} resolved no schedule backend. "
-                f"Pass backend=, register a Coordination component, or run "
-                f"the call inside `async with micro:` or after "
-                f"`micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return coordination.schedule_backend
+        return resolve_ambient(
+            ("coordination", "default"), _NO_BACKEND, self.name
+        ).schedule_backend
 
     async def __call__(
         self,
