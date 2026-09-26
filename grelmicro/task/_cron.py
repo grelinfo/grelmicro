@@ -568,6 +568,10 @@ class CronTask(Task):
             # to the next one. Only meaningful with a gate: without one there
             # is no past state, so startup is the baseline.
             await self._tick_guarded(catchup=True)
+            leader = self._leader
+            # Whether this worker led when it last checked, so leadership
+            # won at any moment is followed by one catch-up tick.
+            led = leader is not None and leader.is_leader()
             while True:
                 now = _now(self._tz)
                 next_fire = self._expr.next_after(now)
@@ -588,15 +592,23 @@ class CronTask(Task):
                     if await sleep_or_stop(_delay_to_next_minute(now), stop):
                         break
                     continue
-                leader = self._leader
                 if leader is not None and not leader.is_leader():
+                    led = False
                     # A follower that becomes leader before the next fire
                     # replays the fire missed while no worker led.
                     if await self._wait_for_leadership(leader, delay, stop):
+                        led = True
                         await self._tick_guarded(catchup=True)
                         continue
                     if stop is not None and stop.is_set():
                         break
+                elif leader is not None and not led:
+                    # Leadership won after the fire instant, while this
+                    # worker was ticking as a follower. Replay that fire
+                    # before sleeping to the next one.
+                    led = True
+                    await self._tick_guarded(catchup=True)
+                    continue
                 # Wait until the next fire instant, waking early on stop.
                 elif await sleep_or_stop(delay, stop):
                     break

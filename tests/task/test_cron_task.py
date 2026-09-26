@@ -897,3 +897,40 @@ async def test_cron_task_wait_for_leadership_outlasts_a_lost_win(
 
     assert result is False
     assert time.monotonic() - started >= delay * 0.9
+
+
+async def test_cron_task_leader_won_after_the_fire_replays_it(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """Leadership won just after a fire replays it before sleeping on."""
+    name = "late-win"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    elected = asyncio.Event()
+    mocker.patch.object(election, "is_leader", side_effect=elected.is_set)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate=election,
+    )
+
+    async def fire_comes(*_: object) -> bool:
+        await sleep(SLEEP)
+        return False
+
+    tick = task._tick_guarded
+
+    async def win_after_the_fire(*, catchup: bool) -> None:
+        await tick(catchup=catchup)
+        if not catchup:
+            elected.set()
+
+    mocker.patch.object(task, "_wait_for_leadership", side_effect=fire_comes)
+    mocker.patch.object(task, "_tick_guarded", side_effect=win_after_the_fire)
+    mocker.patch("grelmicro.task._cron.sleep_or_stop", return_value=True)
+
+    await task()
+
+    assert samples.execution_count == 1
