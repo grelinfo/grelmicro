@@ -8,10 +8,10 @@ from typing import Self
 
 from typer import echo
 
+from grelmicro._task import Task
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import WouldBlockError as WouldBlock
-from grelmicro.task._protocol import Task
 
 condition: asyncio.Condition = asyncio.Condition()
 Event = asyncio.Event

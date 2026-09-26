@@ -1059,6 +1059,41 @@ class TestStarlette:
             'Bearer error="insufficient_scope", scope="orders:write"'
         )
 
+    @pytest.mark.parametrize(
+        ("granted", "status"),
+        [
+            (["orders:write"], HTTP_200_OK),
+            (["orders:read"], HTTP_403_FORBIDDEN),
+        ],
+    )
+    def test_starlette_authentication_grants_its_scopes(
+        self, granted: list[str], status: int
+    ) -> None:
+        """Scopes Starlette's own authentication grants are the caller's."""
+
+        class Granting(AuthenticationBackend):
+            async def authenticate(
+                self,
+                conn: Any,  # noqa: ANN401, ARG002
+            ) -> tuple[AuthCredentials, SimpleUser]:
+                return AuthCredentials(granted), SimpleUser("outer")
+
+        @StarletteAuthenticated(scopes=["orders:write"])
+        async def cancel(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({"cancelled": True})
+
+        app = Starlette(
+            routes=[Route("/orders/1", cancel, methods=["DELETE"])],
+            middleware=[
+                Middleware(AuthenticationMiddleware, backend=Granting())
+            ],
+        )
+        Grelmicro(uses=[ErrorResponses()]).install(app)
+
+        response = TestClient(app).delete("/orders/1")
+
+        assert response.status_code == status
+
     def test_a_websocket_without_the_scope_is_denied(self) -> None:
         """The handshake is refused, and granted with the scope."""
         client = TestClient(scoped_app(AuthenticatedRequests(verifier())))

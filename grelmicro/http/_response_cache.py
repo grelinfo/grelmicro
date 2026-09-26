@@ -54,6 +54,7 @@ from grelmicro._paths import (
     _same_routing_root,
     as_patterns,
     compile_route,
+    declared_dependencies,
     holds_control_character,
     matches,
     names_route,
@@ -1060,10 +1061,9 @@ def _declared_ttl(route: Any, above: set[int]) -> Any:  # noqa: ANN401
     every route it holds, so `above` says which of them the route did not
     write itself.
     """
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    for dependency in getattr(declared, "dependencies", ()):
-        ttl = getattr(dependency.call, _MARKER, _UNMARKED)
-        if ttl is not _UNMARKED and id(dependency.call) not in above:
+    for call in declared_dependencies(route):
+        ttl = getattr(call, _MARKER, _UNMARKED)
+        if ttl is not _UNMARKED and id(call) not in above:
             return ttl
     return _UNMARKED
 

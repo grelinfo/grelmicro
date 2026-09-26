@@ -7,17 +7,19 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from typing_extensions import Doc
 
 from grelmicro._markers import Registered, mark_registered
+from grelmicro.task._cron import CronTask
+from grelmicro.task._interval import IntervalTask
 from grelmicro.task._utils import normalize_timezone
 from grelmicro.task.errors import TaskAddOperationError
 
 if TYPE_CHECKING:
+    from grelmicro._task import Task
     from grelmicro.coordination._protocol import (
         LockPrimitive,
         ScheduleBackend,
     )
     from grelmicro.coordination.leaderelection import LeaderElection
     from grelmicro.coordination.tasklock import TaskLock
-    from grelmicro.task._protocol import Task
 
 
 class TaskRouter:
@@ -123,8 +125,6 @@ class TaskRouter:
         declares a timezone overrides the inherited one for its own
         subtree, and a task that declares one keeps it.
         """
-        from grelmicro.task._cron import CronTask  # noqa: PLC0415
-
         effective = self._timezone or inherited
         for task in self._tasks:
             if isinstance(task, CronTask):
@@ -218,7 +218,6 @@ class TaskRouter:
             TypeError: If `gate` is not a supported value, or `sync` is a
                 leader election.
         """
-        from grelmicro.task._interval import IntervalTask  # noqa: PLC0415
 
         def decorator(
             function: Callable[[], Awaitable[None] | None],
@@ -367,7 +366,6 @@ class TaskRouter:
                 leader election.
             ValueError: If `backend` is passed without a gate.
         """
-        from grelmicro.task._cron import CronTask  # noqa: PLC0415
 
         def decorator(
             function: Callable[[], Awaitable[None] | None],

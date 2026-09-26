@@ -35,6 +35,7 @@ from grelmicro._paths import (
     as_patterns,
     compile_mount,
     compile_route,
+    declared_dependencies,
     holds_control_character,
     route_path,
     route_template,
@@ -64,6 +65,7 @@ from grelmicro.http._kinds import (
 )
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
+from grelmicro.http._requirement import TOKEN_SCOPE_KEY, declared_scopes
 from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
@@ -114,9 +116,6 @@ __all__ = [
 _BEARER = "bearer"
 """The scheme a bearer token travels under, lowercased for the comparison."""
 
-TOKEN_SCOPE_KEY: Final = "grelmicro.verified_token"  # noqa: S105
-"""Where the middleware leaves the bearer token it verified, as a `VerifiedToken`."""
-
 _POLICY_VIOLATION = 1008
 """Close code for a websocket refused on a server that cannot send a `401`."""
 
@@ -159,21 +158,6 @@ def refusal_of(error: BaseException) -> tuple[str, int] | None:
         if isinstance(error, error_type):
             return kind.slug, kind.status
     return None
-
-
-def recorded[E: BaseException](scope: Scope, error: E) -> E:
-    """Return `error`, recorded as a refusal when authentication handled the request.
-
-    For a refusal a route raises after the middleware authenticated the
-    request, such as a missing scope. A request authentication left alone
-    records nothing.
-    """
-    middleware = scope.get(SCOPE_KEY)
-    if isinstance(middleware, AuthenticatedRequestsMiddleware):
-        middleware._record(  # noqa: SLF001
-            scope, error, caller=scope.get("user"), authenticated=True
-        )
-    return error
 
 
 def _arrived_path(scope: Scope) -> str:
@@ -935,27 +919,10 @@ def _declares_anonymous(
     On the route, on the router that holds it, or where that router was
     included.
     """
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    if any(
-        is_anonymous_declaration(dependency.call)
-        for dependency in getattr(declared, "dependencies", ())
-    ):
-        return True
     return any(
-        is_anonymous_declaration(getattr(dependency, "dependency", None))
-        for context in contexts
-        for dependency in getattr(context, "dependencies", ()) or ()
+        is_anonymous_declaration(call)
+        for call in declared_dependencies(route, contexts)
     )
-
-
-AUTHENTICATED_MARKER = "__grelmicro_authenticated__"
-"""Set on what a route declares `Authenticated` with, so a reader finds it.
-
-Read by attribute rather than by identity, so a declaration made before its
-module was imported again is still recognised as one. The FastAPI
-dependency carries `True`, and its scopes come from the dependency tree. A
-Litestar guard carries the scopes it requires.
-"""
 
 
 def is_anonymous_declaration(call: object) -> bool:
@@ -1015,11 +982,11 @@ def _declarations(
     handlers = _litestar_handlers(route)
     if handlers is not None:
         return [
-            tuple(getattr(guard, AUTHENTICATED_MARKER))
+            declared
             for handler in handlers
             if _handles(handler, method)
             for guard in handler.resolve_guards()
-            if hasattr(guard, AUTHENTICATED_MARKER)
+            if (declared := declared_scopes(guard)) is not None
         ]
     found: list[tuple[str, ...]] = []
     endpoint = getattr(route, "endpoint", None)
@@ -1029,8 +996,9 @@ def _declarations(
         if isinstance(endpoint, type)
         else endpoint
     )
-    if hasattr(target, AUTHENTICATED_MARKER):
-        found.append(tuple(getattr(target, AUTHENTICATED_MARKER)))
+    declared_here = declared_scopes(target)
+    if declared_here is not None:
+        found.append(declared_here)
     declared = getattr(route, "dependant", None)  # codespell:ignore
     pending = [
         *getattr(declared, "dependencies", ()),
@@ -1038,7 +1006,7 @@ def _declarations(
     ]
     while pending:
         dependency = pending.pop(0)
-        if getattr(dependency.call, AUTHENTICATED_MARKER, False):
+        if declared_scopes(dependency.call) is not None:
             # What `SecurityScopes` hands it: the scopes of every `Security`
             # around it as well as its own, under either spelling FastAPI
             # has used for them.
@@ -1679,6 +1647,9 @@ class AuthenticatedRequestsMiddleware:
             enduser=enduser,
         )
         self._events = SecurityEvents(enduser=described.enduser)
+        # Bound once, so a request leaves it on the scope without building
+        # a new bound method each time.
+        self._record_route_refusal = self._record_raised
         self._metadata = _resource_metadata(
             described.resource,
             described.authorization_servers,
@@ -1696,7 +1667,7 @@ class AuthenticatedRequestsMiddleware:
         metadata = self._metadata
         if metadata is not None:
             if scope["type"] == "http" and route_path(scope) in metadata.paths:
-                await _serve_metadata(scope, send, metadata)
+                await metadata.serve(scope, send)
                 return
             if (
                 not self._routing_checked
@@ -1733,10 +1704,14 @@ class AuthenticatedRequestsMiddleware:
                 return
         scope["user"] = caller
         scope["auth"] = caller
-        scope[SCOPE_KEY] = self
+        scope[SCOPE_KEY] = self._record_route_refusal
         scope[TOKEN_SCOPE_KEY] = verified
         self._events.authenticated(caller)
         await self._forward(scope, receive, send)
+
+    def _record_raised(self, scope: Scope, error: BaseException) -> None:
+        """Record a refusal a route raised after this middleware authenticated it."""
+        self._record(scope, error, caller=scope.get("user"), authenticated=True)
 
     def _record(
         self,
@@ -2474,6 +2449,75 @@ class _ResourceMetadata:
     body: bytes
     """The document itself."""
 
+    async def serve(self, scope: Scope, send: Send) -> None:
+        """Answer a request for the document, whoever asks.
+
+        It is public by definition, so no credential is read, and a browser
+        client on any origin may read it, with whatever headers its
+        preflight asks to send.
+        """
+        method = scope.get("method")
+        headers = [(b"access-control-allow-origin", b"*")]
+        if method in ("GET", "HEAD"):
+            status, body = 200, self.body
+            headers += [
+                (b"content-type", b"application/json"),
+                (
+                    b"cache-control",
+                    f"public, max-age={_METADATA_MAX_AGE}".encode(),
+                ),
+                (b"content-length", str(len(body)).encode()),
+            ]
+        elif method == "OPTIONS":
+            status, body = 204, b""
+            headers += [
+                (b"access-control-allow-methods", _METADATA_METHODS),
+                (b"allow", _METADATA_METHODS),
+                *(
+                    (b"access-control-allow-headers", value)
+                    for name, value in scope["headers"]
+                    if name == b"access-control-request-headers"
+                ),
+            ]
+        else:
+            status, body = 405, b""
+            headers += [
+                (b"allow", _METADATA_METHODS),
+                (b"content-length", b"0"),
+            ]
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"" if method == "HEAD" else body,
+            }
+        )
+
+    def document(self) -> Callable[[Scope, Receive, Send], Awaitable[None]]:
+        """Return an ASGI app serving the document, for a router to route to it.
+
+        A websocket is closed, since the document is not served over one.
+        """
+
+        async def protected_resource_metadata(
+            scope: Scope,
+            receive: Receive,  # noqa: ARG001
+            send: Send,
+        ) -> None:
+            if scope["type"] != "http":
+                await send({"type": "websocket.close"})
+                return
+            await self.serve(scope, send)
+
+        setattr(protected_resource_metadata, METADATA_MARKER, True)
+        return protected_resource_metadata
+
 
 def metadata_path_of(options: Mapping[str, Any]) -> str | None:
     """Return where a middleware built with `options` serves its metadata."""
@@ -2590,52 +2634,6 @@ def _names(value: tuple[str, ...] | list[str], *, name: str) -> tuple[str, ...]:
         )
         raise TypeError(msg)
     return tuple(value)
-
-
-async def _serve_metadata(
-    scope: Scope, send: Send, metadata: _ResourceMetadata
-) -> None:
-    """Answer a request for the metadata document, whoever asks.
-
-    It is public by definition, so no credential is read, and a browser
-    client on any origin may read it, with whatever headers its preflight
-    asks to send.
-    """
-    method = scope.get("method")
-    headers = [(b"access-control-allow-origin", b"*")]
-    if method in ("GET", "HEAD"):
-        status, body = 200, metadata.body
-        headers += [
-            (b"content-type", b"application/json"),
-            (
-                b"cache-control",
-                f"public, max-age={_METADATA_MAX_AGE}".encode(),
-            ),
-            (b"content-length", str(len(body)).encode()),
-        ]
-    elif method == "OPTIONS":
-        status, body = 204, b""
-        headers += [
-            (b"access-control-allow-methods", _METADATA_METHODS),
-            (b"allow", _METADATA_METHODS),
-            *(
-                (b"access-control-allow-headers", value)
-                for name, value in scope["headers"]
-                if name == b"access-control-request-headers"
-            ),
-        ]
-    else:
-        status, body = 405, b""
-        headers += [(b"allow", _METADATA_METHODS), (b"content-length", b"0")]
-    await send(
-        {"type": "http.response.start", "status": status, "headers": headers}
-    )
-    await send(
-        {
-            "type": "http.response.body",
-            "body": b"" if method == "HEAD" else body,
-        }
-    )
 
 
 def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:

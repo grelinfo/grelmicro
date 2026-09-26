@@ -15,15 +15,13 @@ from typing_extensions import Doc
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._wrapping import refuse_registered
-from grelmicro.errors import (
-    _scope_tokens,
-)
 from grelmicro.http import ErrorResponses, merge_headers
-from grelmicro.http._authentication import (
-    AUTHENTICATED_MARKER,
-)
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
-from grelmicro.http._requirement import Requirement, verified_token
+from grelmicro.http._requirement import (
+    AUTHENTICATED,
+    Requirement,
+    declared_scopes,
+)
 from grelmicro.security.principal import VerifiedToken
 
 if TYPE_CHECKING:
@@ -683,13 +681,13 @@ def Authenticated(  # noqa: N802
             `request` or `websocket` argument.
         ValueError: If a scope is not an OAuth scope token.
     """
-    own = _scope_tokens(scopes)
+    own = Requirement(scopes).scopes
 
     def decorate(endpoint: "Callable[..., Any]") -> "Callable[..., Any]":
         refuse_registered(endpoint, "@Authenticated")
         name, position = _connection_argument(endpoint)
         # Stacked on another `@Authenticated`, it requires the scopes of both.
-        inner = getattr(endpoint, AUTHENTICATED_MARKER, ())
+        inner = declared_scopes(endpoint) or ()
         requirement = Requirement(tuple(dict.fromkeys((*own, *inner))))
 
         def check(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
@@ -712,8 +710,7 @@ def Authenticated(  # noqa: N802
                 return endpoint(*args, **kwargs)
 
             wrapper = synchronous
-        setattr(wrapper, AUTHENTICATED_MARKER, requirement.scopes)
-        return wrapper
+        return requirement.declare(wrapper)
 
     return decorate
 
@@ -749,7 +746,7 @@ def current_token(
             `AuthenticatedRequests` verified, such as one on an excluded
             path.
     """
-    return verified_token(connection.scope)
+    return AUTHENTICATED.token(connection.scope)
 
 
 def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:

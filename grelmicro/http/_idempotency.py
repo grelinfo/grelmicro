@@ -52,6 +52,7 @@ from grelmicro._paths import (
     _wrapped_app,
     as_patterns,
     compile_route,
+    declared_dependencies,
     route_path,
     selects,
     walk_routes,
@@ -522,16 +523,9 @@ def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: A
     `Anonymous()` computes nothing, so a route declaring only that gates no
     replay.
     """
-    dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
-    if any(
-        not is_anonymous_declaration(dependency.call)
-        for dependency in getattr(dependency_tree, "dependencies", ()) or ()
-    ):
-        return True
     return any(
-        not is_anonymous_declaration(getattr(dependency, "dependency", None))
-        for context in contexts
-        for dependency in getattr(context, "dependencies", ()) or ()
+        not is_anonymous_declaration(call)
+        for call in declared_dependencies(route, contexts)
     )
 
 
