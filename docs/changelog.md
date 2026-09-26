@@ -54,6 +54,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 A claimed interval task whose `sync` lock refuses the body reports the fire as `missed`, as a cron task does, instead of `skipped`. The claim holds the interval, so no other worker runs it.
 * 🐛 `@Authenticated(scopes=[...])` on Starlette reads the scopes Starlette's own authentication grants on `request.auth`, so a caller holding them is no longer refused with `403`.
 * 🐛 An interval task claimed with a `TaskLock` runs once per interval across the fleet. The claim used to free one second after the body ended, so replicas with offset timers each ran their own tick. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 🐛 A `TaskLock` whose hold ran out on its own clock lets the same instance back in, even when the backend stores lease times in whole seconds (SQLite, Kubernetes). A claimed interval task on those backends no longer skips every other interval. ([#879](https://github.com/grelinfo/grelmicro/issues/879))

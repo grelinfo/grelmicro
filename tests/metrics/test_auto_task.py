@@ -16,9 +16,14 @@ from typing import TYPE_CHECKING, Any, Self
 
 import pytest
 
+from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.coordination.memory import MemoryScheduleAdapter
+from grelmicro.coordination.memory import (
+    MemoryLockAdapter,
+    MemoryScheduleAdapter,
+)
 from grelmicro.task._cron import CronTask
 from grelmicro.task._interval import IntervalTask
 from tests.task._helpers import cancel_group, start_task
@@ -349,6 +354,38 @@ async def test_cron_task_emits_missed_when_claimed_but_not_admitted(
         "grelmicro.task.name": "unadmitted",
         "grelmicro.outcome": "missed",
     }
+    assert any(
+        "claimed but not admitted" in record.message
+        for record in caplog.records
+        if record.levelname == "WARNING"
+    )
+
+
+async def test_interval_task_emits_missed_when_claimed_but_not_admitted(
+    metrics_reader: MetricsHarness, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A claimed interval whose `sync` refuses the body is missed, as on cron.
+
+    The claim holds the interval, so no peer runs it either.
+    """
+    micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
+    task = IntervalTask(
+        seconds=60,
+        function=_work,
+        name="unadmitted",
+        gate="claim",
+        sync=WouldBlockLock(),
+    )
+
+    async with micro:
+        await task._fire.guard(task._run_with_sync(task._sync_primitives))
+
+    assert _outcomes(metrics_reader)["missed"] == {
+        "grelmicro.task.name": "unadmitted",
+        "grelmicro.outcome": "missed",
+    }
+    assert task.last_fire is not None
+    assert task.last_fire.outcome == "missed"
     assert any(
         "claimed but not admitted" in record.message
         for record in caplog.records

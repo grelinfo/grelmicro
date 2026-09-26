@@ -19,6 +19,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._task import Task
 from grelmicro.coordination._base import (
     BaseLockConfig,
     assert_worker_unchanged,
@@ -38,7 +39,6 @@ from grelmicro.coordination._protocol import (
 from grelmicro.coordination._tokens import resolve_worker
 from grelmicro.errors import OutOfContextError, WouldBlockError
 from grelmicro.metrics import _emit
-from grelmicro.task._protocol import Task
 
 logger = getLogger("grelmicro.leader_election")
 

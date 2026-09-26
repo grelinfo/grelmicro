@@ -172,6 +172,23 @@ class FireRecorder:
                 "grelmicro.task.active", -1, self.metric_attrs, unit="{run}"
             )
 
+    async def claimed(
+        self, admission: Awaitable[None], at: datetime | None = None
+    ) -> None:
+        """Await the rest of a fire this worker claimed.
+
+        The claim stops every peer from running the fire, so a `sync`
+        primitive refusing to admit the body loses it outright. That is
+        recorded as a miss at `at`, now by default, and not as a skip.
+        """
+        try:
+            await admission
+        except WouldBlockError:
+            logger.warning(
+                "Task fire missed, claimed but not admitted: %s", self._name
+            )
+            self.unrun(self.now() if at is None else at, FireOutcome.MISSED)
+
     async def guard(self, fire: Awaitable[None]) -> None:
         """Await one fire, recording what kept it from the body.
 

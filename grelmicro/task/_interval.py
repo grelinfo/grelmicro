@@ -9,14 +9,15 @@ from logging import getLogger
 from typing import Any, Literal
 
 from grelmicro._async import sleep_or_stop
+from grelmicro._task import Task
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination._tokens import generate_worker_id
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.coordination.leaderelection import LeaderElection, _LeaderGuard
+from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.metrics import _emit
 from grelmicro.task._fire import FireInfo, FireRecorder
-from grelmicro.task._protocol import Task
+from grelmicro.task._gate import check_sync, gate_label
 from grelmicro.task._utils import validate_and_generate_reference
 
 logger = getLogger("grelmicro.task")
@@ -65,7 +66,7 @@ class IntervalTask(Task):
         if seconds <= 0:
             msg = "seconds must be greater than 0"
             raise ValueError(msg)
-        _check_sync(sync)
+        check_sync(sync)
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
@@ -75,7 +76,8 @@ class IntervalTask(Task):
             self._name, function, clock=partial(datetime.now, UTC)
         )
 
-        self._gate_label, primitives = self._resolve_gate(gate, seconds)
+        self._gate_label = gate_label(gate, takes_lock=True)
+        primitives = self._gate_primitives(gate, seconds)
         self._claim = next(
             (p for p in primitives if isinstance(p, TaskLock)), None
         )
@@ -85,34 +87,25 @@ class IntervalTask(Task):
 
         self._last_loop_start: float | None = None
 
-    def _resolve_gate(
+    def _gate_primitives(
         self,
         gate: Literal["claim"] | TaskLock | LeaderElection | None,
         seconds: float,
-    ) -> tuple[str, list[LockPrimitive]]:
-        """Resolve the gate into its log label and ordered sync primitives.
+    ) -> list[LockPrimitive]:
+        """Return the primitives a gate enters before the body, in order.
 
         A leader guard comes first, because it rejects a worker that is
         not the leader without touching the backend. The claim lock comes
         next, so it is held only once leadership is confirmed.
         """
         if gate is None:
-            return "none", []
-        if gate == "claim":
-            return "claim", [self._claim_lock(seconds)]
+            return []
         if isinstance(gate, TaskLock):
             gate._bind_task(self._name, interval=seconds)  # noqa: SLF001
-            return f"TaskLock({gate.name!r})", [gate]
+            return [gate]
         if isinstance(gate, LeaderElection):
-            return f"LeaderElection({gate.name!r})", [
-                gate.guard(),
-                self._claim_lock(seconds),
-            ]
-        msg = (
-            "gate must be None, 'claim', a TaskLock or a LeaderElection,"
-            f" got {gate!r}"
-        )
-        raise TypeError(msg)
+            return [gate.guard(), self._claim_lock(seconds)]
+        return [self._claim_lock(seconds)]
 
     def _claim_lock(self, seconds: float) -> TaskLock:
         """Build the lock that holds one claim per interval.
@@ -235,7 +228,9 @@ class IntervalTask(Task):
             done = asyncio.Event()
             renewal = asyncio.create_task(self._renew_claim(primitive, done))
             try:
-                await self._run_with_sync(primitives, index + 1)
+                await self._fire.claimed(
+                    self._run_with_sync(primitives, index + 1)
+                )
             finally:
                 # Signal instead of cancel, so a renewal already sent to the
                 # backend lands before the claim is released.
@@ -282,14 +277,3 @@ class IntervalTask(Task):
             else:
                 renewed_at = time.monotonic()
                 failing = False
-
-
-def _check_sync(sync: LockPrimitive | None) -> None:
-    """Refuse a leader election passed as `sync`.
-
-    Raises:
-        TypeError: If `sync` is a `LeaderElection` or its guard.
-    """
-    if isinstance(sync, LeaderElection | _LeaderGuard):
-        msg = "sync takes a resource lock, pass a LeaderElection as gate="
-        raise TypeError(msg)

@@ -9,11 +9,12 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 from grelmicro._app import resolve_ambient
 from grelmicro._async import sleep_or_stop
+from grelmicro._task import Task
 from grelmicro._timezone import UTC_NAME
-from grelmicro.errors import WouldBlockError
+from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.metrics import _emit
+from grelmicro.task import _gate
 from grelmicro.task._fire import FireInfo, FireOutcome, FireRecorder
-from grelmicro.task._protocol import Task
 from grelmicro.task._utils import (
     normalize_timezone,
     resolve_timezone,
@@ -25,7 +26,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from grelmicro.coordination._protocol import LockPrimitive, ScheduleBackend
-    from grelmicro.coordination.leaderelection import LeaderElection
 
 logger = getLogger("grelmicro.task")
 
@@ -351,23 +351,8 @@ class CronTask(Task):
                 a leader election.
             ValueError: If `backend` is passed without a gate.
         """
-        from grelmicro.coordination.leaderelection import (  # noqa: PLC0415
-            LeaderElection,
-            _LeaderGuard,
-        )
-
-        if (
-            gate is not None
-            and gate != "claim"
-            and not isinstance(gate, LeaderElection)
-        ):
-            msg = (
-                f"gate must be None, 'claim' or a LeaderElection, got {gate!r}"
-            )
-            raise TypeError(msg)
-        if isinstance(sync, LeaderElection | _LeaderGuard):
-            msg = "sync takes a resource lock, pass a LeaderElection as gate="
-            raise TypeError(msg)
+        gate_label = _gate.gate_label(gate, takes_lock=False)
+        _gate.check_sync(sync)
         if backend is not None and gate is None:
             msg = "backend is only read by a gated task, pass gate='claim'"
             raise ValueError(msg)
@@ -394,13 +379,7 @@ class CronTask(Task):
         self._leader = gate if isinstance(gate, LeaderElection) else None
         # Set when a leader-gated tick skipped a fire as a follower.
         self._owes_catchup = False
-        self._gate_label = (
-            "none"
-            if gate is None
-            else "claim"
-            if gate == "claim"
-            else f"LeaderElection({gate.name!r})"
-        )
+        self._gate_label = gate_label
         self._sync = sync
 
         self._next_fire_time: datetime | None = None
@@ -679,16 +658,8 @@ class CronTask(Task):
         if not await backend.claim(self.name, due):
             self._fire.unrun(now, FireOutcome.SKIPPED)
             return
-        try:
-            await self._run(due)
-        except WouldBlockError:
-            # The claim advanced the baseline, so no peer replays this
-            # fire. A `sync` primitive that refuses to admit the body
-            # loses it outright, which is a miss and not a skip.
-            logger.warning(
-                "Task fire missed, claimed but not admitted: %s", self.name
-            )
-            self._fire.unrun(now, FireOutcome.MISSED)
+        # The claim advanced the baseline, so no peer replays this fire.
+        await self._fire.claimed(self._run(due), at=now)
 
     async def _run(self, due: float) -> None:
         """Run the body, optionally under the resource sync lock, with metrics."""
