@@ -36,12 +36,11 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Doc
 
+from grelmicro._caller import is_authenticated
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
 from grelmicro._paths import selects, walk_routes
 from grelmicro.errors import (
-    AuthenticationRequiredError,
-    InsufficientScopeError,
     _scope_tokens,
 )
 from grelmicro.health._checks import HealthChecks
@@ -62,13 +61,11 @@ from grelmicro.http import (
 )
 from grelmicro.http._authentication import (
     AUTHENTICATED_MARKER,
-    TOKEN_SCOPE_KEY,
     AuthenticatedRequestsMiddleware,
     declare_anonymous,
     document_operations,
     metadata_path_of,
     operation_authentication,
-    recorded,
 )
 from grelmicro.http._conditional import _UNSET as _UNSET_VERSION
 from grelmicro.http._conditional import _check_sent_precondition
@@ -82,6 +79,7 @@ from grelmicro.http._ratelimit import (
     spend,
     state_on,
 )
+from grelmicro.http._requirement import requirement_for, verified_token
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -448,7 +446,7 @@ async def _current_claims(
 async def _optional_principal(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
     """Return the authenticated caller, or `None` for a request that sent no token."""
     caller = connection.scope.get("user")
-    return caller if getattr(caller, "is_authenticated", False) else None
+    return caller if is_authenticated(caller) else None
 
 
 async def _current_token(
@@ -463,31 +461,16 @@ async def _current_token(
         InsufficientScopeError: If the caller lacks a scope a `Security`
             around it names.
     """
-    await _authenticated(connection, security_scopes)
-    token = connection.scope.get(TOKEN_SCOPE_KEY)
-    if not isinstance(token, VerifiedToken):
-        raise recorded(
-            connection.scope,
-            AuthenticationRequiredError(scopes=tuple(security_scopes.scopes)),
-        )
-    return token
+    requirement = requirement_for(security_scopes.scopes)
+    requirement.caller(connection.scope)
+    return verified_token(connection.scope, requirement.scopes)
 
 
 async def _authenticated(
     connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
 ) -> Any:  # noqa: ANN401
     """Return the caller, holding every scope this declaration names."""
-    required = tuple(security_scopes.scopes)
-    caller = connection.scope.get("user")
-    if caller is None or not getattr(caller, "is_authenticated", False):
-        raise recorded(
-            connection.scope, AuthenticationRequiredError(scopes=required)
-        )
-    if not set(required) <= set(getattr(caller, "scopes", ())):
-        raise recorded(
-            connection.scope, InsufficientScopeError(scopes=required)
-        )
-    return caller
+    return requirement_for(security_scopes.scopes).caller(connection.scope)
 
 
 setattr(_authenticated, AUTHENTICATED_MARKER, True)

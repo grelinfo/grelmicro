@@ -28,6 +28,8 @@
 * 💥 `JWTClaims.raw` is now `JWTClaims.claims`, the name `Principal` reads the claim set by. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🔒 `JWTClaims.claims` is read-only all the way down: a nested object is a read-only mapping and an array is a tuple, and `JWTClaims.audience` is a tuple when a token names several audiences. A cached claim set is shared by every request presenting the token, so a handler can no longer change what a later one is authorized as. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
+* 🔒 A caller is authenticated only when its `is_authenticated` is `True`. `Authenticated`, `CurrentPrincipal` and `CurrentToken` refuse one whose value is merely truthy, which the security events and the access log already named as nobody. ([#909](https://github.com/grelinfo/grelmicro/pull/909))
+
 ### Added
 * ✨ `OAuthClient` gets the tokens a service calls other APIs with: `ClientCredentials` for the service itself and `TokenExchange` for the user it is serving, cached, refreshed before they expire, and sent through `auth()` with `httpx`. The service authenticates with a secret, a private key signed in the compiled core, or a workload identity token read from a file. ([#859](https://github.com/grelinfo/grelmicro/issues/859))
 * ✨ `CurrentToken` hands a FastAPI handler the bearer token that verified, and `current_token(request)` does the same on Starlette and Litestar, so a call made for the user exchanges the token that was checked. ([#859](https://github.com/grelinfo/grelmicro/issues/859))

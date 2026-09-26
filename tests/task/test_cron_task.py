@@ -20,7 +20,9 @@ from grelmicro.coordination.memory import (
     MemoryScheduleAdapter,
 )
 from grelmicro.errors import OutOfContextError
-from grelmicro.task._cron import CronTask, FireInfo, FireOutcome
+from grelmicro.resilience import Bulkhead
+from grelmicro.task import FireInfo, FireOutcome
+from grelmicro.task._cron import CronTask
 from grelmicro.task.errors import CronError
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
@@ -628,10 +630,26 @@ async def test_cron_task_resolves_backend_from_active_app() -> None:
         assert task.backend is schedule
 
 
+async def test_cron_task_backend_follows_a_bulkhead_scope() -> None:
+    """A `Bulkhead` scope overrides the backend, as it does for a lock."""
+    schedule = MemoryScheduleAdapter()
+    dedicated = MemoryScheduleAdapter()
+    micro = Grelmicro(uses=[Coordination(schedule=schedule)])
+    bulkhead = Bulkhead("reports", uses=[Coordination(schedule=dedicated)])
+    task = CronTask(expr=EVERY_MINUTE, function=count_execution)
+
+    async with micro:
+        async with bulkhead:
+            assert task.backend is dedicated
+        assert task.backend is schedule
+
+
 async def test_cron_task_backend_out_of_context_without_app() -> None:
     """With no app and no explicit backend, `OutOfContextError` is raised."""
     task = CronTask(expr=EVERY_MINUTE, function=count_execution, gate="claim")
-    with pytest.raises(OutOfContextError, match="Cron task"):
+    with pytest.raises(
+        OutOfContextError, match=r"CronTask\(.*\) resolved no backend"
+    ):
         _ = task.backend
 
 
@@ -641,7 +659,9 @@ async def test_cron_task_backend_out_of_context_without_coordination() -> None:
     task = CronTask(expr=EVERY_MINUTE, function=count_execution)
 
     async with micro:
-        with pytest.raises(OutOfContextError, match="Cron task"):
+        with pytest.raises(
+            OutOfContextError, match=r"CronTask\(.*\) resolved no backend"
+        ):
             _ = task.backend
 
 

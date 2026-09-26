@@ -25,6 +25,7 @@ from urllib.parse import unquote, urlsplit
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Doc
 
+from grelmicro._caller import is_authenticated, subject_of
 from grelmicro._config import build_config
 from grelmicro._paths import (
     PathPatterns,
@@ -53,9 +54,17 @@ from grelmicro.http._component import (
     raw_headers_of,
     send_error,
 )
+from grelmicro.http._kinds import (
+    AMBIGUOUS_CREDENTIALS,
+    AUTHENTICATION_REQUIRED,
+    CLIENT_BANNED,
+    INSUFFICIENT_SCOPE,
+    SIGNING_KEYS_UNAVAILABLE,
+    TOKEN_REJECTED,
+)
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
-from grelmicro.security._events import SCOPE_KEY, SecurityEvents, subject_of
+from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
 from grelmicro.security.jwt import (
@@ -129,13 +138,13 @@ _ROUTE_CHALLENGES = (
 """Every bearer refusal a route may raise, which may be rendered above us."""
 
 _REFUSAL_KINDS: Final = (
-    (AuthenticationRequiredError, "authentication-required", 401),
-    (AmbiguousCredentialsError, "ambiguous-credentials", 400),
-    (InsufficientScopeError, "insufficient-scope", 403),
-    (ClientBannedError, "client-banned", 429),
-    (SigningKeysUnavailableError, "signing-keys-unavailable", 503),
+    (AuthenticationRequiredError, AUTHENTICATION_REQUIRED),
+    (AmbiguousCredentialsError, AMBIGUOUS_CREDENTIALS),
+    (InsufficientScopeError, INSUFFICIENT_SCOPE),
+    (ClientBannedError, CLIENT_BANNED),
+    (SigningKeysUnavailableError, SIGNING_KEYS_UNAVAILABLE),
 )
-"""The refusal each kind of error is recorded as, and the status it answers."""
+"""The kind each error is recorded as, whose slug and status it answers with."""
 
 
 def refusal_of(error: BaseException) -> tuple[str, int] | None:
@@ -145,10 +154,10 @@ def refusal_of(error: BaseException) -> tuple[str, int] | None:
     carries. Every other refusal by the anchor of its error type.
     """
     if isinstance(error, TokenRejectedError):
-        return error.reason.value, 401
-    for kind, refusal, status in _REFUSAL_KINDS:
-        if isinstance(error, kind):
-            return refusal, status
+        return error.reason.value, TOKEN_REJECTED.status
+    for error_type, kind in _REFUSAL_KINDS:
+        if isinstance(error, error_type):
+            return kind.slug, kind.status
     return None
 
 
@@ -1954,7 +1963,7 @@ async def _checked(check: _Check, caller: Principal, scope: Scope) -> Principal:
         raise TokenRejectedError(
             TokenRejectedReason.REVOKED, subject=subject_of(caller)
         )
-    if getattr(checked, "is_authenticated", False) is not True:
+    if not is_authenticated(checked):
         msg = (
             f"check= answered with a {type(checked).__name__}, which is not "
             f"an authenticated caller. Return the caller, or None to refuse "

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from time import monotonic
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self
+from typing import TYPE_CHECKING, Annotated, ClassVar, Final, Self
 from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
@@ -51,7 +51,6 @@ from grelmicro.coordination.errors import (
 from grelmicro.coordination.lock import LockConfig, validate_lock_name
 from grelmicro.errors import (
     LockTimeoutError,
-    OutOfContextError,
     WouldBlockError,
 )
 
@@ -66,6 +65,15 @@ if TYPE_CHECKING:
         Seconds,
         WriteGrant,
     )
+
+
+_NO_BACKEND: Final = (
+    "ReadWriteLock({name!r}) resolved no backend. Pass backend= "
+    "(MemoryReadWriteLockAdapter() for a per-process lock), register a "
+    "Coordination component, or run the call inside `async with micro:` or "
+    "after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class ReadWriteLockConfig(LockConfig):
@@ -296,19 +304,11 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
         """
         if self._backend is not None:
             return self._backend
-        try:
-            coordination = resolve_ambient(
-                ("coordination", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"ReadWriteLock({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryReadWriteLockAdapter() for a per-process "
-                f"lock), register a Coordination component, or run the call "
-                f"inside `async with micro:` or after `micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return coordination.rwlock_backend
+        return resolve_ambient(
+            ("coordination", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).rwlock_backend
 
     async def state(self) -> ReadWriteLockState:
         """Return a point-in-time view of the lock.
