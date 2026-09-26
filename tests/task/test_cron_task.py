@@ -774,3 +774,101 @@ async def test_cron_task_logs_gate_at_start(
         cancel_group(tg)
 
     assert any(f"gate: {label})" in r.message for r in caplog.records)
+
+
+async def test_cron_task_leader_gate_replays_missed_fire_on_gaining_leadership(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A worker that becomes leader replays the fire missed while none led."""
+    name = "gained"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    elected = asyncio.Event()
+    mocker.patch.object(election, "is_leader", side_effect=elected.is_set)
+    mocker.patch.object(election, "wait_for_leader", side_effect=elected.wait)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate=election,
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        ran_as_follower = samples.execution_count
+        elected.set()
+        await sleep(SLEEP * 5)
+        cancel_group(tg)
+
+    assert ran_as_follower == 0
+    assert samples.execution_count == 1
+
+
+async def test_cron_task_leader_gate_follower_ticks_when_the_fire_comes(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A follower still ticks at the fire instant, and reports the skip."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=False)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        backend=schedule,
+        gate=election,
+    )
+
+    async def fire_comes(*_: object) -> bool:
+        await sleep(SLEEP)
+        return False
+
+    mocker.patch.object(task, "_wait_for_leadership", side_effect=fire_comes)
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        cancel_group(tg)
+
+    assert samples.execution_count == 0
+    assert task.last_fire is not None
+    assert task.last_fire.outcome == FireOutcome.SKIPPED
+
+
+async def test_cron_task_leader_gate_follower_stops_while_waiting(
+    schedule: MemoryScheduleAdapter,
+) -> None:
+    """A follower waiting for leadership stops as soon as asked."""
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        backend=schedule,
+        gate=_election(),
+    )
+    stop = asyncio.Event()
+
+    async with asyncio.TaskGroup() as tg:
+        handle = await start_task(tg, task, stop=stop)
+        stop.set()
+
+    assert handle.done()
+    assert samples.execution_count == 0
+
+
+@pytest.mark.parametrize(
+    ("elected", "stopped", "expected"),
+    [(True, False, True), (False, False, False), (False, True, False)],
+)
+async def test_cron_task_wait_for_leadership(
+    mocker: MockFixture, *, elected: bool, stopped: bool, expected: bool
+) -> None:
+    """Waiting for leadership ends on leadership, on stop, or on the delay."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=elected)
+    stop = asyncio.Event()
+    if stopped:
+        stop.set()
+
+    result = await CronTask._wait_for_leadership(election, SLEEP, stop)
+
+    assert result is expected

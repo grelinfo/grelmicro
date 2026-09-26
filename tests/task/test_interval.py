@@ -13,6 +13,7 @@ from grelmicro.coordination.memory import (
     MemoryLockAdapter,
 )
 from grelmicro.coordination.tasklock import TaskLock
+from grelmicro.errors import SettingsValidationError
 from grelmicro.task._cron import FireInfo, FireOutcome
 from grelmicro.task._interval import IntervalTask
 from tests.task import samples
@@ -438,3 +439,40 @@ async def test_interval_task_last_fire_skipped() -> None:
         assert task.last_fire.outcome == "skipped"
         assert task.last_fire.duration == 0.0
         cancel_group(tg)
+
+
+async def test_interval_task_lock_gate_refuses_a_shorter_reconfigured_hold() -> (
+    None
+):
+    """A gate lock reconfigured to hold less than the interval is refused."""
+    interval = 60
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 2,
+        min_hold_duration=interval,
+    )
+    IntervalTask(seconds=interval, function=test1, name="cleanup", gate=lock)
+    shorter = lock.config.model_copy(update={"min_hold_duration": 1})
+
+    with pytest.raises(SettingsValidationError, match="min_hold_duration"):
+        await lock.reconfigure(shorter)
+
+    assert lock.config.min_hold_duration == interval
+
+
+async def test_interval_task_lock_gate_takes_a_longer_reconfigured_hold() -> (
+    None
+):
+    """A gate lock reconfigured to hold longer than the interval is taken."""
+    interval = 60
+    lock = TaskLock(
+        backend=MemoryLockAdapter(),
+        lease_duration=interval * 5,
+        min_hold_duration=interval,
+    )
+    IntervalTask(seconds=interval, function=test1, name="cleanup", gate=lock)
+    longer = lock.config.model_copy(update={"min_hold_duration": interval * 2})
+
+    await lock.reconfigure(longer)
+
+    assert lock.config.min_hold_duration == interval * 2

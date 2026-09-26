@@ -104,8 +104,7 @@ class IntervalTask(Task):
         if gate == "claim":
             return "claim", [self._claim_lock(seconds)]
         if isinstance(gate, TaskLock):
-            _check_task_lock(gate, seconds)
-            gate._bind_task(self._name)  # noqa: SLF001
+            gate._bind_task(self._name, interval=seconds)  # noqa: SLF001
             return f"TaskLock({gate.name!r})", [gate]
         if isinstance(gate, LeaderElection):
             return f"LeaderElection({gate.name!r})", [
@@ -309,23 +308,6 @@ class IntervalTask(Task):
             if is_async_callable(function)
             else partial(asyncio.to_thread, function)
         )
-
-
-def _check_task_lock(lock: TaskLock, seconds: float) -> None:
-    """Refuse a lock that cannot hold one claim for a whole interval.
-
-    `TaskLockConfig` keeps `lease_duration` at or above
-    `min_hold_duration`, so the lease covers the interval too.
-
-    Raises:
-        ValueError: If `min_hold_duration` is shorter than `seconds`.
-    """
-    if lock.config.min_hold_duration < seconds:
-        msg = (
-            "min_hold_duration must be greater than or equal to seconds,"
-            " or a peer claims the same interval once the body ends"
-        )
-        raise ValueError(msg)
 
 
 def _check_sync(sync: LockPrimitive | None) -> None:

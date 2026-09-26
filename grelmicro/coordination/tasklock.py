@@ -51,7 +51,11 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
-from grelmicro.errors import OutOfContextError, WouldBlockError
+from grelmicro.errors import (
+    OutOfContextError,
+    SettingsValidationError,
+    WouldBlockError,
+)
 
 logger = getLogger("grelmicro.coordination")
 
@@ -299,18 +303,26 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         )
         self._acquired_at: float | None = None
         self._token_nonce = generate_token_nonce()
+        # The nonce and local end of the hold this instance last set, so it
+        # can take the hold back once it ran out (see `_take_back_hold`).
+        self._hold_nonce: str | None = None
+        self._hold_ends = 0.0
         self._from_thread: ThreadTaskLockAdapter | None = None
         self._task_name: str | None = None
+        self._min_hold_floor = 0.0
 
-    def _bind_task(self, task_name: str) -> None:
-        """Bind the lock to the one task it gates.
+    def _bind_task(self, task_name: str, *, interval: float) -> None:
+        """Bind the lock to the one interval task it gates.
 
         A lock still named ``"default"`` takes the task name. The rename
         happens in place, so the handle the caller holds is the lock the
-        task enters.
+        task enters. From then on, every config the lock takes must hold
+        a claim for at least ``interval``, a later `reconfigure` included.
 
         Raises:
             ValueError: If the lock already gates another task.
+            SettingsValidationError: If `min_hold_duration` is shorter
+                than ``interval``.
         """
         if self._task_name is not None:
             msg = (
@@ -318,6 +330,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 f"{self._task_name!r}, give each task its own TaskLock"
             )
             raise ValueError(msg)
+        _check_min_hold(self._config, interval)
+        self._min_hold_floor = interval
         self._task_name = task_name
         if self._name == "default":
             self._name = task_name
@@ -373,6 +387,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if self._acquired_at is not None:
             raise LockReentrantError(name=self._name)
 
+        self._take_back_hold()
         token = generate_task_token(config.worker, self._token_nonce)
         if not await self.do_acquire(token, duration=config.lease_duration):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
@@ -466,6 +481,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             raise LockAcquireError(name=self._name) from exc
         acquired = fencing_token is not None
         if acquired:
+            self._hold_nonce = None
             self._acquired_at = monotonic()
             self._metrics.attempt(ACQUIRED)
             self._metrics.hold(1)
@@ -534,6 +550,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if self._acquired_at is not None:
             raise LockReentrantError(name=self._name)
 
+        self._take_back_hold()
         token = generate_thread_token(config.worker, self._token_nonce)
         if not await self.do_acquire(token, duration=config.lease_duration):
             msg = f"Task lock not acquired: name={self._name}, token={token}"
@@ -553,8 +570,25 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         await self.do_exit(token, min_hold_duration=config.min_hold_duration)
 
     async def _apply_reconfigure(self, new_config: TaskLockConfig) -> None:
-        """Validate the immutable `worker` field before publishing `new_config`."""
+        """Validate `new_config` before publishing it.
+
+        The `worker` field is immutable, and a lock gating an interval
+        task keeps holding a claim for the whole interval.
+        """
         assert_worker_unchanged(self._config, new_config)
+        _check_min_hold(new_config, self._min_hold_floor)
+
+    def _take_back_hold(self) -> None:
+        """Enter with the token of this instance's own hold once it ran out.
+
+        A backend that stores lease times in whole seconds keeps a hold
+        past `min_hold_duration`. Once the hold ran out on this
+        instance's clock, reusing its token lets the instance that set
+        it through, while every other holder still waits for the
+        backend to expire it.
+        """
+        if self._hold_nonce is not None and monotonic() >= self._hold_ends:
+            self._token_nonce = self._hold_nonce
 
     async def do_exit(self, token: str, *, min_hold_duration: Seconds) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time.
@@ -572,6 +606,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
         elapsed = monotonic() - self._acquired_at
         self._acquired_at = None
+        nonce = self._token_nonce
         self._token_nonce = generate_token_nonce()
         self._metrics.hold(-1)
 
@@ -587,6 +622,26 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             re_acquired = await self.do_reacquire(token, remaining)
             if not re_acquired:
                 raise LockNotOwnedError(name=self._name)
+            self._hold_nonce = nonce
+            self._hold_ends = monotonic() + remaining
+
+
+def _check_min_hold(config: TaskLockConfig, interval: float) -> None:
+    """Refuse a config that holds a claim for less than `interval`.
+
+    `TaskLockConfig` keeps `lease_duration` at or above
+    `min_hold_duration`, so the lease covers the interval too.
+
+    Raises:
+        SettingsValidationError: If `min_hold_duration` is shorter than
+            `interval`.
+    """
+    if config.min_hold_duration < interval:
+        msg = (
+            "min_hold_duration must be greater than or equal to seconds,"
+            " or a peer claims the same interval once the body ends"
+        )
+        raise SettingsValidationError(msg)
 
 
 class ThreadTaskLockAdapter:

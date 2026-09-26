@@ -170,8 +170,9 @@ class TaskRouter:
                   for up to two intervals before a peer claims again.
                 - A `TaskLock`: one worker claims each interval, with the
                   lock's own `lease_duration`, `backend` and `worker`. Its
-                  `min_hold_duration` must be at least `seconds`. A lock
-                  still named `"default"` takes the task name.
+                  `min_hold_duration` must be at least `seconds`, now and on
+                  every later `reconfigure`. A lock still named `"default"`
+                  takes the task name.
                 - A `LeaderElection`: only the elected worker runs the task.
                   It claims each interval as with `"claim"`, so a leader
                   handover never runs one interval twice.
@@ -312,7 +313,8 @@ class TaskRouter:
                   worker was down replays once on restart.
                 - A `LeaderElection`: only the elected worker runs the task.
                   It claims each fire as with `"claim"`, so a leader handover
-                  never runs one fire twice.
+                  never runs one fire twice. A fire missed while no worker
+                  led replays once when a worker becomes the leader.
 
                 A gated task with no schedule backend in scope reports a
                 coordination error on every fire and runs nothing.

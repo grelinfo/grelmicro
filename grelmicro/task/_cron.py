@@ -374,7 +374,8 @@ class CronTask(Task):
       once on restart, bounded by ``misfire_grace_seconds``. Only the most
       recent missed fire runs, never a backlog.
     - A ``LeaderElection``: the elected worker claims each fire, as with
-      ``"claim"``. Every other worker skips it.
+      ``"claim"``. Every other worker skips it. A follower that becomes the
+      leader replays the fire missed while no worker led.
     """
 
     def __init__(
@@ -587,13 +588,46 @@ class CronTask(Task):
                     if await sleep_or_stop(_delay_to_next_minute(now), stop):
                         break
                     continue
+                leader = self._leader
+                if leader is not None and not leader.is_leader():
+                    # A follower that becomes leader before the next fire
+                    # replays the fire missed while no worker led.
+                    if await self._wait_for_leadership(leader, delay, stop):
+                        await self._tick_guarded(catchup=True)
+                        continue
+                    if stop is not None and stop.is_set():
+                        break
                 # Wait until the next fire instant, waking early on stop.
-                if await sleep_or_stop(delay, stop):
+                elif await sleep_or_stop(delay, stop):
                     break
                 await self._tick_guarded(catchup=False)
         finally:
             self._running = False
             logger.info("Task stopped: %s", self.name)
+
+    @staticmethod
+    async def _wait_for_leadership(
+        leader: LeaderElection, delay: float, stop: asyncio.Event | None
+    ) -> bool:
+        """Wait up to `delay` seconds for this worker to become the leader.
+
+        Returns True when it became the leader, and False when the delay
+        ran out or `stop` was set first.
+        """
+        waiters: list[asyncio.Future[object]] = [
+            asyncio.ensure_future(leader.wait_for_leader())
+        ]
+        if stop is not None:
+            waiters.append(asyncio.ensure_future(stop.wait()))
+        try:
+            await asyncio.wait(
+                waiters, timeout=delay, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            for waiter in waiters:
+                waiter.cancel()
+        stopped = stop is not None and stop.is_set()
+        return not stopped and leader.is_leader()
 
     async def _tick_guarded(self, *, catchup: bool) -> None:
         """Run one tick, catching the errors a single fire may raise."""

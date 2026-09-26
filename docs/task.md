@@ -231,7 +231,7 @@ Nothing renews an interval claim while the body runs. The lease lets a body run 
 --8<-- "task/interval_leader.py"
 ```
 
-Add the [`LeaderElection`](coordination/leader-election.md) to the `Tasks` too, so it campaigns. A worker that is not the leader skips each interval or fire without touching the backend.
+Add the [`LeaderElection`](coordination/leader-election.md) to the `Tasks` too, so it campaigns. A worker that is not the leader skips each interval or fire without touching the backend. A cron fire missed while no worker led, at startup or during a handover, replays once when a worker becomes the leader.
 
 !!! warning "Gate on leadership with `gate`, not in the body"
     A cron claim advances the last-fire state **before** the body runs. A body that checks leadership and returns early still consumes the fire, so the work is lost until the next one:
@@ -259,7 +259,7 @@ For an interval task, pass a [`TaskLock`](coordination/task-lock.md) to set the 
 --8<-- "task/interval_lock_custom.py"
 ```
 
-`min_hold_duration` must be at least `seconds`, or a peer could claim the same interval once the body ends. `lease_duration` is the longest a body may run before a peer may claim again. A lock still named `"default"` takes the task name, so you never repeat it. The task uses the lock you pass, so the handle you keep is the one it holds: call `refresh()` on it from a long body to extend the claim.
+`min_hold_duration` must be at least `seconds`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is the longest a body may run before a peer may claim again. A lock still named `"default"` takes the task name, so you never repeat it. The task uses the lock you pass, so the handle you keep is the one it holds: call `refresh()` on it from a long body to extend the claim.
 
 Cron takes no `TaskLock`. Its claim is a compare-and-set on durable state, with nothing held while the body runs.
 
