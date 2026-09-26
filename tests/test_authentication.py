@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import posixpath
+import re
 import time
 import warnings
 from dataclasses import dataclass, replace
@@ -3544,7 +3546,7 @@ class TestRouting:
                 scope, receive, send
             )  # pragma: no cover
 
-        sub = FastAPI()
+        sub = FastAPI(openapi_url=None)
 
         @sub.get("/status", dependencies=[Anonymous()])
         async def status() -> dict[str, bool]:
@@ -3721,7 +3723,7 @@ class TestRouting:
         self,
     ) -> None:
         """Middleware wrapped around a mounted app hides none of its routes."""
-        sub = FastAPI()
+        sub = FastAPI(openapi_url=None)
 
         @sub.get("/status", dependencies=[Anonymous()])
         async def status() -> dict[str, bool]:
@@ -3897,6 +3899,420 @@ class TestRouting:
         ).install(app)
 
         assert TestClient(app).get("/open").status_code == HTTP_401_UNAUTHORIZED
+
+
+class NormalizedPath:
+    """Middleware of an app's own that resolves `..` in the path it routes."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        """Wrap `app`."""
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        """Route the normalized path."""
+        path = posixpath.normpath(scope["path"])
+        await self.app({**scope, "path": path}, receive, send)
+
+
+class CaseInsensitiveRoute(APIRoute):
+    """A route class matching the path whatever its case."""
+
+    def matches(self, scope: Any) -> tuple[Match, MutableMapping[str, Any]]:  # noqa: ANN401
+        """Match the lowered path."""
+        return super().matches({**scope, "path": scope["path"].lower()})
+
+
+async def secret() -> dict[str, bool]:
+    """Answer what only a caller may read."""
+    return {"secret": True}
+
+
+async def listed() -> dict[str, bool]:
+    """Answer what anyone may read."""
+    return {"listed": True}
+
+
+async def status_of(app: Any, path: str) -> int:  # noqa: ANN401
+    """Return the status `app` answers `GET path` with, sent as a server sends it.
+
+    A test client resolves `..` in the URL before sending it, and a server
+    passes it on as the client wrote it.
+    """
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": path,
+            "raw_path": path.encode(),
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"host", b"testserver")],
+            "client": CALLER,
+            "server": ("testserver", 80),
+        },
+        receive,
+        send,
+    )
+    return next(
+        message["status"]
+        for message in sent
+        if message["type"] == "http.response.start"
+    )
+
+
+class TestRoutesMatchedElsewhere:
+    """A route matched other than by its path is never served without a credential."""
+
+    async def test_a_mounted_app_rewriting_the_path_keeps_its_routes_protected(
+        self,
+    ) -> None:
+        """Its middleware may route a public path to any route it holds."""
+        sub = FastAPI()
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        sub.add_api_route("/admin", secret)
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert await status_of(app, "/sub/files/../admin") == (
+            HTTP_401_UNAUTHORIZED
+        )
+        assert await status_of(app, "/sub/files/x") == HTTP_401_UNAUTHORIZED
+
+    def test_a_mounted_app_with_middleware_and_only_public_routes_stays_public(
+        self,
+    ) -> None:
+        """Whatever its middleware routes to is public."""
+        sub = FastAPI(openapi_url=None)
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        app = FastAPI()
+        app.mount("/sub", sub)
+        app.add_api_route("/admin", secret)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/sub/files/x").json() == {"listed": True}
+        assert client.get("/admin").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_route_class_matching_on_its_own_rivals_every_public_route(
+        self,
+    ) -> None:
+        """Its path says nothing about the URLs it answers."""
+        admin = APIRouter(route_class=CaseInsensitiveRoute)
+        admin.add_api_route("/items/special", secret)
+        app = FastAPI()
+        app.include_router(admin)
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/items/SPECIAL").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/items/7").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_public_route_of_a_class_matching_on_its_own_is_protected(
+        self,
+    ) -> None:
+        """Declaring it public cannot say which URLs it answers."""
+        public = APIRouter(route_class=CaseInsensitiveRoute)
+        public.add_api_route("/open", listed, dependencies=[Anonymous()])
+        app = FastAPI()
+        app.include_router(public)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/open").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_mount_matching_on_its_own_keeps_its_routes_protected(
+        self,
+    ) -> None:
+        """Its path says nothing about the URLs it takes."""
+
+        class CaseInsensitiveMount(Mount):
+            def matches(
+                self,
+                scope: Any,  # noqa: ANN401
+            ) -> tuple[Match, MutableMapping[str, Any]]:
+                return super().matches({**scope, "path": scope["path"].lower()})
+
+        sub = FastAPI()
+        sub.add_api_route("/open", listed, dependencies=[Anonymous()])
+        app = FastAPI()
+        app.router.routes.append(CaseInsensitiveMount("/sub", app=sub))
+        app.add_api_route("/SUB/open", secret)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        client = TestClient(app)
+
+        assert client.get("/sub/open").status_code == HTTP_401_UNAUTHORIZED
+
+    async def test_a_rewriting_mounted_app_answering_unrouted_paths_is_protected(
+        self,
+    ) -> None:
+        """Its middleware may route a public path to what answers no route."""
+
+        async def default(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await JSONResponse({"secret": True})(scope, receive, send)
+
+        sub = FastAPI(openapi_url=None)
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        sub.router.default = default
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert await status_of(app, "/sub/files/../elsewhere") == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    def test_a_route_matching_with_a_regex_of_its_own_rivals_every_public_route(
+        self,
+    ) -> None:
+        """A regex its path does not compile to says nothing about its URLs."""
+        protected = APIRoute("/items/special", secret)
+        protected.path_regex = re.compile(
+            protected.path_regex.pattern, re.IGNORECASE
+        )
+        app = FastAPI()
+        app.router.routes.append(protected)
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert (
+            TestClient(app).get("/items/SPECIAL").status_code
+            == HTTP_401_UNAUTHORIZED
+        )
+
+    def test_a_mount_matching_with_a_regex_of_its_own_keeps_its_routes_protected(
+        self,
+    ) -> None:
+        """What it takes is not what its path says."""
+        sub = FastAPI()
+        sub.add_api_route("/open", secret)
+        mount = Mount("/sub", app=sub)
+        mount.path_regex = re.compile(mount.path_regex.pattern, re.IGNORECASE)
+        app = FastAPI()
+        app.router.routes.append(mount)
+        app.add_api_route("/SUB/open", listed, dependencies=[Anonymous()])
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert TestClient(app).get("/SUB/open").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    def test_a_route_given_matches_of_its_own_rivals_every_public_route(
+        self,
+    ) -> None:
+        """A `matches` set on the route itself counts as one on its class."""
+        protected = APIRoute("/items/special", secret)
+        framework = protected.matches
+        protected.matches = lambda scope: framework(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+            {**scope, "path": scope["path"].lower()}
+        )
+        app = FastAPI()
+        app.router.routes.append(protected)
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert (
+            TestClient(app).get("/items/SPECIAL").status_code
+            == HTTP_401_UNAUTHORIZED
+        )
+
+    def test_a_route_class_claiming_the_framework_module_is_not_trusted(
+        self,
+    ) -> None:
+        """Only the `matches` the framework wrote is read as matching by path."""
+
+        class Lowered(APIRoute):
+            __module__ = "starlette.routing"
+
+            def matches(
+                self,
+                scope: Any,  # noqa: ANN401
+            ) -> tuple[Match, MutableMapping[str, Any]]:
+                return super().matches({**scope, "path": scope["path"].lower()})
+
+        app = FastAPI()
+        app.router.routes.append(Lowered("/items/special", secret))
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        assert (
+            TestClient(app).get("/items/SPECIAL").status_code
+            == HTTP_401_UNAUTHORIZED
+        )
+
+
+class TestRoutesAddedLater:
+    """A route added once the app started is authenticated like the others."""
+
+    def test_a_route_added_to_an_included_router_after_startup(self) -> None:
+        """It rivals the public route it shadows."""
+        admin = APIRouter()
+        admin.add_api_route("/admin", secret)
+        app = FastAPI()
+        app.include_router(admin)
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            admin.add_api_route("/items/special", secret)
+            refused = client.get("/items/special")
+            served = client.get("/items/7")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert served.json() == {"listed": True}
+
+    def test_a_route_inserted_first_after_startup(self) -> None:
+        """Inserted ahead of the public route, it answers the URL."""
+        app = FastAPI()
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            app.router.routes.insert(0, APIRoute("/items/special", secret))
+            refused = client.get("/items/special")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_route_list_replaced_after_startup(self) -> None:
+        """A new list is read like a list changed in place."""
+        app = FastAPI()
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            app.router.routes = [
+                APIRoute("/items/special", secret),
+                *app.router.routes,
+            ]
+            refused = client.get("/items/special")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_public_route_swapped_for_a_protected_one_after_startup(
+        self,
+    ) -> None:
+        """A route of the same path that does not declare `Anonymous()` is protected."""
+        app = FastAPI()
+        app.add_api_route(
+            "/items/{item_id}", listed, dependencies=[Anonymous()]
+        )
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            index = next(
+                index
+                for index, route in enumerate(app.router.routes)
+                if getattr(route, "path", None) == "/items/{item_id}"
+            )
+            app.router.routes[index] = APIRoute("/items/{item_id}", listed)
+            refused = client.get("/items/7")
+
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    def test_a_mounted_app_replaced_after_startup(self) -> None:
+        """The routes of the app mounted now are the ones held against the URL."""
+        public = FastAPI(openapi_url=None)
+        public.add_api_route("/open", listed, dependencies=[Anonymous()])
+        protected = FastAPI(openapi_url=None)
+        protected.add_api_route("/open", secret)
+        app = FastAPI()
+        app.mount("/sub", public)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with TestClient(app) as client:
+            served = client.get("/sub/open")
+            mount = next(
+                route for route in app.router.routes if isinstance(route, Mount)
+            )
+            mount.app = protected
+            refused = client.get("/sub/open")
+
+        assert served.json() == {"listed": True}
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+
+    async def test_middleware_added_to_a_mounted_app_after_startup(
+        self,
+    ) -> None:
+        """It may rewrite the path from then on, so its routes are protected."""
+        sub = FastAPI(openapi_url=None)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        sub.add_api_route("/admin", secret)
+        app = FastAPI()
+        app.mount("/sub", sub)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+        sub.add_middleware(NormalizedPath)
+
+        assert await status_of(app, "/sub/files/../admin") == (
+            HTTP_401_UNAUTHORIZED
+        )
 
 
 class TestConsistency:

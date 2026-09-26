@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import copy
+import functools
 import inspect
 import json
 import re
 import warnings
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
+from itertools import chain
+from operator import is_
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -29,6 +32,7 @@ from grelmicro._caller import is_authenticated, subject_of
 from grelmicro._config import build_config
 from grelmicro._paths import (
     PathPatterns,
+    _has_configured_middleware,
     _is_mount,
     _is_route,
     _route_source,
@@ -77,7 +81,13 @@ from grelmicro.security.jwt import (
 from grelmicro.security.principal import _verified_token
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, MutableMapping
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Iterable,
+        Mapping,
+        MutableMapping,
+    )
     from contextlib import AbstractAsyncContextManager
     from re import Pattern
     from types import TracebackType
@@ -282,6 +292,57 @@ class _Reach:
         return self.pattern.match(routed) is not None
 
 
+class _Snapshot:
+    """What an app's routes were read off, as it was then.
+
+    Each attribute read is held with its value. A list is also held item by
+    item, so a list changed in place counts as changed, and so does a route
+    swapped for an equal one, since items are compared by identity.
+    """
+
+    __slots__ = (
+        "_holders",
+        "_items",
+        "_lengths",
+        "_list_holders",
+        "_list_names",
+        "_lists",
+        "_names",
+        "_values",
+    )
+
+    def __init__(self, read: Iterable[tuple[Any, str]] = ()) -> None:
+        """Hold each `(holder, name)` attribute as it is now."""
+        present = [
+            (holder, name, getattr(holder, name))
+            for holder, name in read
+            if hasattr(holder, name)
+        ]
+        lists = [entry for entry in present if isinstance(entry[2], list)]
+        others = [entry for entry in present if not isinstance(entry[2], list)]
+        self._holders = tuple(holder for holder, _, _ in others)
+        self._names = tuple(name for _, name, _ in others)
+        self._values = tuple(value for _, _, value in others)
+        self._list_holders = tuple(holder for holder, _, _ in lists)
+        self._list_names = tuple(name for _, name, _ in lists)
+        self._lists = tuple(value for _, _, value in lists)
+        self._lengths = list(map(len, self._lists))
+        self._items = tuple(chain.from_iterable(self._lists))
+
+    def changed(self) -> bool:
+        """Return whether any attribute holds anything else now."""
+        if not all(
+            map(is_, map(getattr, self._holders, self._names), self._values)
+        ):
+            return True
+        lists = tuple(map(getattr, self._list_holders, self._list_names))
+        return (
+            not all(map(is_, lists, self._lists))
+            or list(map(len, lists)) != self._lengths
+            or not all(map(is_, chain.from_iterable(lists), self._items))
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class _Routes:
     """An app's public routes, and every other route that could answer.
@@ -303,6 +364,8 @@ class _Routes:
     """Every route with its template, in the order the router tries them."""
     router: Any = None
     """A Litestar app, whose own router names the template a request routes to."""
+    snapshot: _Snapshot = field(default_factory=_Snapshot)
+    """What the routes were read off, as it was then."""
 
     def template_of(
         self,
@@ -439,38 +502,31 @@ class _PublicRoutes:
 
     def reread(self) -> None:
         """Read every app again, for the routes declared since install."""
-        for app in self._apps:
-            self._apps[app] = routes_of(app)
+        for app in tuple(self._apps):
+            self.read(app)
 
     def matches(self, scope: Scope) -> bool:
         """Return whether the request is served by a route declared public.
 
         Held against the routes of the app serving it, which the framework
         names in `scope["app"]`, so one registration installed on two apps
-        serves each by its own routes.
+        serves each by its own routes. Before a request is served without a
+        credential, the routes are read again if any changed since, so a
+        route added once the app started is held against it too.
         """
-        routes = self._apps.get(scope.get("app"))
+        app = scope.get("app")
+        routes = self._apps.get(app)
         # Never served without a credential: see `holds_control_character`.
         if routes is None or holds_control_character(scope["path"]):
             return False
         if routes.litestar is not None:
             return _litestar_serves_publicly(routes.litestar, scope)
-        if not routes.public:
+        if not _serves_publicly(routes, scope):
             return False
-        kind = scope["type"]
-        path = scope["path"]
-        root_path = scope.get("root_path", "")
-        if routes.serves(kind, scope.get("method"), path, root_path):
+        if not routes.snapshot.changed():
             return True
-        routed = starlette_route_path(path, root_path)
-        if kind != "http" or routed == "/" or not routes.redirects:
-            return False
-        # Starlette redirects a path no route matches to the same path with
-        # its trailing slash added or removed, when a route matches that one.
-        toggled = path.rstrip("/") if routed.endswith("/") else f"{path}/"
-        return routes.serves(
-            kind, scope["method"], toggled, root_path
-        ) and not routes.routed(path, root_path)
+        self.read(app)
+        return _serves_publicly(self._apps[app], scope)
 
     def template(self, scope: Scope) -> str | None:
         """Return the template of the route a request is served by, before routing.
@@ -498,6 +554,26 @@ class _PublicRoutes:
         if template is None or not root or not path.startswith(root):
             return template
         return f"{root}{template}"
+
+
+def _serves_publicly(routes: _Routes, scope: Scope) -> bool:
+    """Return whether a public route of a Starlette or FastAPI app serves the request."""
+    if not routes.public:
+        return False
+    kind = scope["type"]
+    path = scope["path"]
+    root_path = scope.get("root_path", "")
+    if routes.serves(kind, scope.get("method"), path, root_path):
+        return True
+    routed = starlette_route_path(path, root_path)
+    if kind != "http" or routed == "/" or not routes.redirects:
+        return False
+    # Starlette redirects a path no route matches to the same path with
+    # its trailing slash added or removed, when a route matches that one.
+    toggled = path.rstrip("/") if routed.endswith("/") else f"{path}/"
+    return routes.serves(
+        kind, scope["method"], toggled, root_path
+    ) and not routes.routed(path, root_path)
 
 
 def routes_of(app: Any) -> _Routes:  # noqa: ANN401
@@ -535,44 +611,40 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     counts as a route that could answer each of them, except for the
     public routes it holds.
     """
-    from starlette.routing import WebSocketRoute  # noqa: PLC0415
-
     tree = _Tree()
     _read_tree(app, tree)
-    public: list[_Reach] = []
-    declared: dict[tuple[int, str], tuple[_Reach, str]] = {}
+    candidates: list[tuple[tuple[int, str], _Reach, str]] = []
     rivals: list[tuple[str, _Reach]] = []
+    anywhere: list[_Reach] = []
     ordered: list[tuple[str, _Reach]] = []
+    # A node holding a route that is not public may route a public path to
+    # it, once its middleware changed the path.
+    rewriting = set(tree.opaque)
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{route.path}"
-        if isinstance(route, WebSocketRoute):
-            reach = _Reach(_WEBSOCKET, None, compile_route(template))
-        else:
-            methods = getattr(route, "methods", None)
-            reach = _Reach(
-                _HTTP,
-                frozenset(methods) if methods else None,
-                compile_route(template),
-            )
         key = (id(route), prefix)
         chain = tree.chains.get(key)
-        if chain is not None:
-            # Matched through each mount above it, as Starlette matches it.
-            mounts, relative = chain
-            reach = replace(
-                reach,
-                pattern=compile_route(f"{relative}{route.path}"),
-                within=tree.within[key],
-                mounts=tuple(compile_mount(mount) for mount in mounts),
-            )
+        reach = _reach_of(route, template, key, tree)
         ordered.append(
             (f"{prefix}{getattr(route, 'path_format', route.path)}", reach)
         )
+        if _matches_its_own_way(route):
+            anywhere.append(reach)
+            rewriting.update(tree.rewritten.get(key, ()))
+            continue
         if (
             chain is not None
             and _declares_anonymous(route, contexts)
             and key not in tree.closed
         ):
+            candidates.append((key, reach, template))
+        else:
+            rivals.append((template, reach))
+            rewriting.update(tree.rewritten.get(key, ()))
+    public: list[_Reach] = []
+    declared: dict[tuple[int, str], tuple[_Reach, str]] = {}
+    for key, reach, template in candidates:
+        if rewriting.isdisjoint(tree.rewritten.get(key, ())):
             public.append(reach)
             declared[key] = (reach, template)
         else:
@@ -580,7 +652,6 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     if not public:
         return _Routes(templates=tuple(ordered))
     by_depth: dict[int, list[_Reach]] = {}
-    anywhere: list[_Reach] = []
     for template, reach in rivals:
         # A route beneath a mount is matched against a path the root path may
         # leave whole, so its depth says nothing about the URLs it answers.
@@ -597,6 +668,7 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         declared=MappingProxyType(declared),
         redirects=_redirects_slashes(app),
         templates=tuple(ordered),
+        snapshot=_Snapshot(tree.watched),
         nodes=tuple(
             (
                 node,
@@ -609,6 +681,37 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             )
             for node, mounts, own in tree.nodes
         ),
+    )
+
+
+def _reach_of(
+    route: Any,  # noqa: ANN401
+    template: str,
+    key: tuple[int, str],
+    tree: _Tree,
+) -> _Reach:
+    """Return where a Starlette or FastAPI route answers.
+
+    Beneath a mount it is matched through each mount above it, as Starlette
+    matches it. A route matching requests its own way may answer any path
+    beneath its mounts, over HTTP or a websocket.
+    """
+    from starlette.routing import WebSocketRoute  # noqa: PLC0415
+
+    chain = tree.chains.get(key)
+    mounts, relative = ((), "") if chain is None else chain
+    compiled = tuple(compile_mount(mount) for mount in mounts)
+    if _matches_its_own_way(route):
+        return _Reach(_EITHER, None, _ANY_PATH, mounts=compiled)
+    methods = getattr(route, "methods", None)
+    return _Reach(
+        _WEBSOCKET if isinstance(route, WebSocketRoute) else _HTTP,
+        None
+        if isinstance(route, WebSocketRoute) or not methods
+        else frozenset(methods),
+        compile_route(template if chain is None else f"{relative}{route.path}"),
+        within=tree.within.get(key, frozenset()),
+        mounts=compiled,
     )
 
 
@@ -629,6 +732,47 @@ _ANY_PATH: Final = re.compile(r"(?s).*")
 """What a host, or a node of another kind, answers: any path at all."""
 
 
+def _matches_its_own_way(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a route or a mount matches requests other than by its path.
+
+    True when its `matches` is not the one its framework wrote, on its class
+    or on the route itself, or when the regex it matches with is not the one
+    its path compiles to.
+    """
+    if "matches" in getattr(route, "__dict__", ()):
+        return True
+    if getattr(type(route), "matches", None) not in _framework_matches():
+        return True
+    regex = getattr(route, "path_regex", None)
+    if regex is None:
+        return False
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    path = f"{route.path}/{{path:path}}" if _is_mount(route) else route.path
+    expected, _, _ = compile_path(path)
+    return (regex.pattern, regex.flags) != (expected.pattern, expected.flags)
+
+
+@functools.cache
+def _framework_matches() -> frozenset[Any]:
+    """Return the `matches` Starlette and FastAPI give their routes and mounts."""
+    from starlette import routing  # noqa: PLC0415
+
+    classes: list[Any] = [
+        routing.Route,
+        routing.WebSocketRoute,
+        routing.Mount,
+        routing.Host,
+    ]
+    try:
+        from fastapi import routing as fastapi_routing  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - FastAPI is optional
+        pass
+    else:
+        classes += [fastapi_routing.APIRoute, fastapi_routing.APIWebSocketRoute]
+    return frozenset(klass.matches for klass in classes)
+
+
 @dataclass(slots=True)
 class _Tree:
     """Where each routing node of an app sits, and what each route sits in."""
@@ -641,6 +785,14 @@ class _Tree:
     chains: dict[tuple[int, str], tuple[tuple[str, ...], str]] = field(
         default_factory=dict
     )
+    rewritten: dict[tuple[int, str], frozenset[int]] = field(
+        default_factory=dict
+    )
+    """The nodes above each route whose app has middleware of its own."""
+    opaque: set[int] = field(default_factory=set)
+    """The nodes with middleware of their own that hold what no route declares."""
+    watched: list[tuple[Any, str]] = field(default_factory=list)
+    """Each object read, with the attribute read off it."""
 
 
 def _read_tree(
@@ -652,6 +804,7 @@ def _read_tree(
     mounts: tuple[str, ...] = (),
     relative: str = "",
     closed: bool = False,
+    rewritten: frozenset[int] = frozenset(),
     seen: frozenset[int] = frozenset(),
 ) -> None:
     """Record every mount and host, and where each route sits under them.
@@ -661,18 +814,26 @@ def _read_tree(
     is recorded with the mounts above it and the path it sits under within
     the innermost one, because Starlette matches each mount on its own. A
     route under a node that turns a request away to anything but a `404` is
-    closed, because what answers instead is not the route.
+    closed, because what answers instead is not the route, and so is one
+    under a node whose class matches requests its own way.
+
+    A route is also recorded with the nodes above it whose app has
+    middleware of its own. That middleware may change the path before the
+    app routes it, so any route beneath the node may answer any URL the
+    node takes.
     """
     routed = _route_source(app, unwrap_middleware=True)
     if routed is None or id(routed) in seen:
         return
     seen |= {id(routed)}
+    if rewritten and _answers_unrouted(routed):
+        tree.opaque.update(rewritten)
     # A mount or a route mounted as an app is matched itself, as a route is.
-    held = (
-        (routed,)
-        if _is_mount(routed) or _is_route(routed)
-        else getattr(routed, "routes", None) or ()
-    )
+    if _is_mount(routed) or _is_route(routed):
+        held: Any = (routed,)
+    else:
+        held = getattr(routed, "routes", None) or ()
+        tree.watched.append((routed, "routes"))
     for route in held:
         included = getattr(route, "original_router", None)
         if included is not None:
@@ -687,6 +848,7 @@ def _read_tree(
                 mounts=mounts,
                 relative=f"{relative}{added}",
                 closed=closed,
+                rewritten=rewritten,
                 seen=seen,
             )
             continue
@@ -694,24 +856,38 @@ def _read_tree(
             key = (id(route), prefix)
             tree.within[key] = within
             tree.chains[key] = (mounts, relative)
+            tree.rewritten[key] = rewritten
             if closed:
                 tree.closed.add(key)
             continue
-        mount = _is_mount(route)
-        under = f"{prefix}{route.path}" if mount else prefix
+        tree.opaque.update(rewritten)
         # A mount matches by its own path beneath the mounts above it. A
-        # host, or a node of another kind, matches by something else.
+        # host, a node of another kind, or one matching its own way, matches
+        # by something else.
+        own = _is_mount(route) and not _matches_its_own_way(route)
+        under = f"{prefix}{route.path}" if _is_mount(route) else prefix
         tree.nodes.append(
-            (id(route), mounts, f"{relative}{route.path}" if mount else None)
+            (id(route), mounts, f"{relative}{route.path}" if own else None)
         )
+        nested = getattr(route, "app", None)
+        tree.watched.append((route, "app"))
+        if hasattr(nested, "user_middleware"):
+            tree.watched.append((nested, "user_middleware"))
         _read_tree(
-            getattr(route, "app", None),
+            nested,
             tree,
             prefix=under,
             within=within | {id(route)},
-            mounts=(*mounts, route.path) if mount else mounts,
-            relative="" if mount else relative,
-            closed=closed or _turns_away_elsewhere(route, routed),
+            mounts=(*mounts, route.path) if own else mounts,
+            relative="" if own else relative,
+            closed=closed
+            or _turns_away_elsewhere(route, routed)
+            or _matches_its_own_way(route),
+            rewritten=(
+                rewritten | {id(route)}
+                if _has_configured_middleware(nested)
+                else rewritten
+            ),
             seen=seen,
         )
 
@@ -723,8 +899,11 @@ def _turns_away_elsewhere(route: Any, holder: Any) -> bool:  # noqa: ANN401
     turn a request for its paths away, and its router then answers with its
     default.
     """
-    if _is_mount(route):
-        return False
+    return not _is_mount(route) and _answers_unrouted(holder)
+
+
+def _answers_unrouted(holder: Any) -> bool:  # noqa: ANN401
+    """Return whether an app answers a request no route takes with more than a `404`."""
     from starlette.routing import Router  # noqa: PLC0415
 
     default = getattr(getattr(holder, "router", holder), "default", None)
