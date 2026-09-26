@@ -914,3 +914,81 @@ async def test_task_lock_from_thread_unopened_backend_raises() -> None:
 
     with pytest.raises(RuntimeError, match="async with micro:"):
         await asyncio.to_thread(enter)
+
+
+class _RoundingLockAdapter(MemoryLockAdapter):
+    """Memory adapter that keeps every lease longer than asked.
+
+    Stands in for a backend that stores lease times in whole seconds.
+    """
+
+    async def acquire(
+        self, *, name: str, token: str, duration: float
+    ) -> int | None:
+        """Acquire with the duration rounded up past what was asked."""
+        return await super().acquire(
+            name=name, token=token, duration=duration + ROUNDING
+        )
+
+
+ROUNDING = 0.5
+HOLD = 0.05
+
+
+async def test_tasklock_takes_back_its_own_hold_once_it_ran_out() -> None:
+    """The instance that set a hold takes it back once it ran out locally.
+
+    A backend that rounds lease times up keeps the hold past
+    `min_hold_duration`. Only the instance that set it gets through.
+    """
+    async with _RoundingLockAdapter() as backend:
+        holder = TaskLock(
+            LOCK_NAME,
+            backend=backend,
+            worker=WORKER_1,
+            min_hold_duration=HOLD,
+            lease_duration=LOCK_AT_MOST_FOR,
+        )
+        peer = TaskLock(
+            LOCK_NAME,
+            backend=backend,
+            worker=WORKER_2,
+            min_hold_duration=HOLD,
+            lease_duration=LOCK_AT_MOST_FOR,
+        )
+        async with holder:
+            pass
+        await sleep(HOLD * 2)
+
+        with pytest.raises(WouldBlock):
+            async with peer:
+                pass
+        async with holder:
+            pass
+
+
+async def test_tasklock_keeps_its_own_hold_until_it_ran_out(
+    backend: LockBackend,
+) -> None:
+    """The instance that set a hold is refused until it runs out."""
+    lock = TaskLock(
+        LOCK_NAME,
+        backend=backend,
+        worker=WORKER_1,
+        min_hold_duration=LOCK_AT_LEAST_FOR,
+        lease_duration=LOCK_AT_MOST_FOR,
+    )
+    async with lock:
+        pass
+    with pytest.raises(WouldBlock):
+        async with lock:
+            pass
+
+
+async def test_tasklock_renew_held_refused_when_not_held(
+    backend: LockBackend,
+) -> None:
+    """Renewing a lock that is not held raises `LockNotOwnedError`."""
+    lock = TaskLock(LOCK_NAME, backend=backend, lease_duration=LOCK_AT_MOST_FOR)
+    with pytest.raises(LockNotOwnedError):
+        await lock._renew_held()

@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Breaking
+* 💥 `every` and `cron` take one `gate=` saying which workers run a task: `None`, `"claim"` for one worker per interval or fire, or a `LeaderElection`. `every` also takes a tuned `TaskLock`. `lock=` and `leader=` are gone. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 💥 `cron` runs on every worker by default, as `every` does. Pass `gate="claim"` to keep running each fire once across the fleet. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 💥 A gated task with no schedule or lock backend reports a coordination error and runs nothing, instead of running on every worker. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 💥 A `TaskLock` gate whose `min_hold_duration` is shorter than the interval is refused, at construction and on `reconfigure`, and so is one already gating another task. A leader election passed as `sync=` is refused too. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 🔒 `sub` is always required, as `exp` is, so a token with no subject, a `null` one or one that is not a string is rejected with `missing-claim` and every verified caller has a subject to be keyed by. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 A token whose `jti` is not a string is rejected with `malformed`, one whose `iat` is not a number with `invalid`, and one whose `iat` is still to come with `not-yet-valid`, so a handler never reads a number as a subject. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 💥 A token declaring a `typ` other than `JWT`, `JOSE` or `at+jwt` is rejected with `type`, so a DPoP proof or a logout token signed by the same keys no longer passes as an access token. `token_type="at+jwt"` requires the RFC 9068 type. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
@@ -48,6 +52,10 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 An interval task claimed with a `TaskLock` runs once per interval across the fleet. The claim used to free one second after the body ended, so replicas with offset timers each ran their own tick. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 🐛 A `TaskLock` whose hold ran out on its own clock lets the same instance back in, even when the backend stores lease times in whole seconds (SQLite, Kubernetes). A claimed interval task on those backends no longer skips every other interval. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 🐛 A gated interval task renews its claim while the body runs, so a long body never lets a peer run the same interval. The lease now only bounds how long a crashed worker keeps the claim. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 🐛 The `TaskLock` passed as a gate is the one the task holds, so `reconfigure()` on it reaches the running task. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 🐛 `JWTClaims.expires_at` and `issued_at` are whole seconds for a token whose `exp` or `iat` carries a fraction, rounded down, instead of a `float` their `int` type never announced. `claims` keeps the value as it arrived. ([#871](https://github.com/grelinfo/grelmicro/pull/871))
 * 🐛 On Litestar, an `include` or `exclude` pattern matches the path its router serves, with a trailing slash or a doubled slash dropped, whether or not the app has a root path. `exclude=("/livez",)` covers `/livez/` too. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 On Litestar, middleware added with `Litestar(middleware=[...])` matches `include` and `exclude` against the path the request was routed to. The root path is taken off once, and a mount is matched by its own path, so `exclude` can no longer match a path inside a mount. ([#839](https://github.com/grelinfo/grelmicro/issues/839))

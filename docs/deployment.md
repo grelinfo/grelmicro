@@ -89,8 +89,7 @@ because a replay has to find the stored response wherever the retry lands.
 
 Only a bound backend is checked. A component you never registered is the
 [documented way](architecture/backends.md#distribution-model) to say you want
-local behavior: a `@cron` with no `Coordination` fires on every replica on
-purpose. Wiring a memory schedule backend instead says you expected the fleet
+local behavior: a `@cron` with no gate fires on every replica on purpose. Wiring a memory schedule backend instead says you expected the fleet
 to agree, so that one is reported.
 
 A [`Bulkhead(uses=[...])`](resilience/bulkhead.md) holds components the app

@@ -246,7 +246,11 @@ async def test_cron_task_emits_coordination_error(
     backend = _UnreachableSchedule()
     await backend.__aenter__()
     task = CronTask(
-        expr=EVERY_MINUTE, function=_work, name="down", backend=backend
+        expr=EVERY_MINUTE,
+        function=_work,
+        name="down",
+        backend=backend,
+        gate="claim",
     )
 
     await task._tick_guarded(catchup=False)
@@ -272,7 +276,11 @@ async def test_cron_task_emits_skipped_when_peer_claimed_first(
     backend = MemoryScheduleAdapter()
     await backend.__aenter__()
     task = CronTask(
-        expr=EVERY_MINUTE, function=_work, name="late-read", backend=backend
+        expr=EVERY_MINUTE,
+        function=_work,
+        name="late-read",
+        backend=backend,
+        gate="claim",
     )
     await backend.claim("late-read", PINNED_DUE)
 
@@ -331,6 +339,7 @@ async def test_cron_task_emits_missed_when_claimed_but_not_admitted(
         function=_work,
         name="unadmitted",
         backend=backend,
+        gate="claim",
         sync=WouldBlockLock(),
     )
 
@@ -355,7 +364,11 @@ async def test_cron_task_emits_skipped_when_claim_lost(
     await backend.__aenter__()
     backend._last_fired["lost"] = datetime.now(UTC).timestamp() - 120
     task = CronTask(
-        expr=EVERY_MINUTE, function=_work, name="lost", backend=backend
+        expr=EVERY_MINUTE,
+        function=_work,
+        name="lost",
+        backend=backend,
+        gate="claim",
     )
 
     await task._tick_guarded(catchup=False)
@@ -374,7 +387,11 @@ async def test_cron_task_catchup_tick_reports_nothing(
     backend = MemoryScheduleAdapter()
     await backend.__aenter__()
     task = CronTask(
-        expr=EVERY_MINUTE, function=_work, name="catchup", backend=backend
+        expr=EVERY_MINUTE,
+        function=_work,
+        name="catchup",
+        backend=backend,
+        gate="claim",
     )
     await backend.claim("catchup", PINNED_DUE)
 
@@ -403,6 +420,7 @@ async def test_cron_task_emits_missed_when_too_late_to_replay(
         function=_work,
         name="dropped",
         backend=backend,
+        gate="claim",
         misfire_grace_seconds=1,
     )
 
@@ -438,6 +456,7 @@ async def test_cron_task_emits_skipped_when_peer_took_the_dropped_fire(
         function=_work,
         name="taken",
         backend=backend,
+        gate="claim",
         misfire_grace_seconds=1,
     )
 
@@ -458,6 +477,7 @@ async def test_cron_task_counts_fire_once_when_release_fails(
         function=_work,
         name="release",
         backend=backend,
+        gate="claim",
         sync=_FailsOnRelease(),
     )
 
@@ -480,6 +500,7 @@ async def test_cron_task_missed_fire_counted_once_across_workers(
             function=_work,
             name="shared",
             backend=backend,
+            gate="claim",
             misfire_grace_seconds=1,
         )
         for _ in range(WORKERS)

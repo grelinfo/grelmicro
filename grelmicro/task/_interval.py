@@ -6,15 +6,16 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from logging import getLogger
-from typing import Any
+from typing import Any, Literal
 
 from fast_depends import inject
 
 from grelmicro._async import is_async_callable, sleep_or_stop
 from grelmicro.coordination._protocol import LockPrimitive
+from grelmicro.coordination._tokens import generate_worker_id
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.coordination.leaderelection import LeaderElection
-from grelmicro.coordination.tasklock import TaskLock
+from grelmicro.coordination.leaderelection import LeaderElection, _LeaderGuard
+from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.errors import WouldBlockError
 from grelmicro.metrics import _emit
 from grelmicro.task._cron import FireInfo, FireOutcome, _report_unrun_fire
@@ -30,10 +31,13 @@ class IntervalTask(Task):
     Use the `Tasks.every()` or `TaskRouter.every()` decorator instead
     of creating IntervalTask objects directly.
 
-    Supports three modes:
-    - Local: No ``lock`` or ``leader``, runs on every worker.
-    - Distributed lock: Pass a ``lock`` to enable at-most-once per interval.
-    - Leader-gated: Set ``leader`` to restrict execution to the leader worker.
+    The ``gate`` decides which workers run each interval:
+
+    - ``None``: every worker.
+    - ``"claim"``: one worker claims each interval.
+    - A ``TaskLock``: one worker claims each interval, with the lock's
+      own tuning.
+    - A ``LeaderElection``: the elected worker.
     """
 
     def __init__(
@@ -42,8 +46,7 @@ class IntervalTask(Task):
         function: Callable[..., Any],
         name: str | None = None,
         seconds: float | timedelta,
-        lock: TaskLock | None = None,
-        leader: LeaderElection | None = None,
+        gate: Literal["claim"] | TaskLock | LeaderElection | None = None,
         sync: LockPrimitive | None = None,
     ) -> None:
         """Initialize the IntervalTask.
@@ -51,7 +54,11 @@ class IntervalTask(Task):
         Raises:
             FunctionTypeError: If the function is not supported.
             ValueError: If seconds is less than or equal to 0.
-            ValueError: If the lock lease_duration is less than seconds.
+            ValueError: If the gate lock already gates another task.
+            SettingsValidationError: If the gate lock holds a claim for
+                less than `seconds`.
+            TypeError: If `gate` is not a supported value, or `sync` is
+                a leader election.
         """
         seconds = (
             seconds.total_seconds()
@@ -61,6 +68,7 @@ class IntervalTask(Task):
         if seconds <= 0:
             msg = "seconds must be greater than 0"
             raise ValueError(msg)
+        _check_sync(sync)
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
@@ -68,19 +76,13 @@ class IntervalTask(Task):
         self._function = function
         self._async_function = self._prepare_async_function(function)
 
-        distributed = lock is not None or leader is not None
-
-        if distributed:
-            task_lock = self._resolve_task_lock(lock, seconds)
-            self._sync_primitives: list[LockPrimitive] = _build_sync_list(
-                leader=leader,
-                task_lock=task_lock,
-                resource_lock=sync,
-            )
-        elif sync is not None:
-            self._sync_primitives = [sync]
-        else:
-            self._sync_primitives = []
+        self._gate_label, primitives = self._resolve_gate(gate, seconds)
+        self._claim = next(
+            (p for p in primitives if isinstance(p, TaskLock)), None
+        )
+        if sync is not None:
+            primitives.append(sync)
+        self._sync_primitives: list[LockPrimitive] = primitives
 
         self._last_fire: FireInfo | None = None
         self._last_loop_start: float | None = None
@@ -91,33 +93,53 @@ class IntervalTask(Task):
         # raised after it started is already counted by `_run_with_sync`.
         self._body_started = False
 
-    def _resolve_task_lock(
-        self, lock: TaskLock | None, seconds: float
-    ) -> TaskLock:
-        """Resolve the at-most-once task lock for the interval.
+    def _resolve_gate(
+        self,
+        gate: Literal["claim"] | TaskLock | LeaderElection | None,
+        seconds: float,
+    ) -> tuple[str, list[LockPrimitive]]:
+        """Resolve the gate into its log label and ordered sync primitives.
 
-        When ``lock`` is given, it is authoritative. Its ``lease_duration``
-        must be at least ``seconds``. A lock still carrying the default
-        ``"default"`` name is re-stamped to the task name so the name is
-        never repeated.
-
-        When ``lock`` is None (leader-gated mode), a ``TaskLock`` is built
-        with interval-aware defaults: ``lease_duration`` of ``seconds * 5``
-        and ``min_hold_duration`` of ``seconds``.
+        A leader guard comes first, because it rejects a worker that is
+        not the leader without touching the backend. The claim lock comes
+        next, so it is held only once leadership is confirmed.
         """
-        if lock is None:
-            return TaskLock(
-                self._name,
+        if gate is None:
+            return "none", []
+        if gate == "claim":
+            return "claim", [self._claim_lock(seconds)]
+        if isinstance(gate, TaskLock):
+            gate._bind_task(self._name, interval=seconds)  # noqa: SLF001
+            return f"TaskLock({gate.name!r})", [gate]
+        if isinstance(gate, LeaderElection):
+            return f"LeaderElection({gate.name!r})", [
+                gate.guard(),
+                self._claim_lock(seconds),
+            ]
+        msg = (
+            "gate must be None, 'claim', a TaskLock or a LeaderElection,"
+            f" got {gate!r}"
+        )
+        raise TypeError(msg)
+
+    def _claim_lock(self, seconds: float) -> TaskLock:
+        """Build the lock that holds one claim per interval.
+
+        The claim is held for the whole interval. The task renews it
+        while the body runs, so the lease of two intervals only bounds
+        how long a crashed worker keeps it.
+        The lock is built from a fixed config, so neither the environment
+        nor an external reload retunes it.
+        """
+        lock = TaskLock.from_config(
+            self._name,
+            TaskLockConfig(
+                worker=generate_worker_id(),
                 min_hold_duration=seconds,
-                lease_duration=seconds * 5,
-            )
-
-        if lock.config.lease_duration < seconds:
-            msg = "lease_duration must be greater than or equal to seconds"
-            raise ValueError(msg)
-
-        if lock.name == "default":
-            return lock._with_name(self._name)  # noqa: SLF001
+                lease_duration=seconds * 2,
+            ),
+        )
+        lock._bind_task(self._name, interval=seconds)  # noqa: SLF001
         return lock
 
     @property
@@ -157,7 +179,10 @@ class IntervalTask(Task):
     ) -> None:
         """Run the repeated task loop."""
         logger.info(
-            "Task started (interval: %ss): %s", self._seconds, self.name
+            "Task started (interval: %ss, gate: %s): %s",
+            self._seconds,
+            self._gate_label,
+            self.name,
         )
         if ready is not None and not ready.done():  # pragma: no branch
             ready.set_result(None)
@@ -178,8 +203,8 @@ class IntervalTask(Task):
                     # and already reported its own outcome. Counting it
                     # again would double the fire.
                     logger.warning(
-                        "Task took too long and lock expired: %s."
-                        " Consider increasing lease_duration.",
+                        "Task released a lock it no longer held: %s."
+                        " Its lease ran out while the body ran.",
                         self.name,
                     )
                 except Exception as exc:
@@ -282,8 +307,63 @@ class IntervalTask(Task):
                 )
             return
 
-        async with primitives[index]:
-            await self._run_with_sync(primitives, index + 1)
+        primitive = primitives[index]
+        async with primitive:
+            if primitive is not self._claim:
+                await self._run_with_sync(primitives, index + 1)
+                return
+            # Renew from the moment the claim is held, so waiting for a
+            # `sync` lock after it never lets the lease run out.
+            done = asyncio.Event()
+            renewal = asyncio.create_task(self._renew_claim(primitive, done))
+            try:
+                await self._run_with_sync(primitives, index + 1)
+            finally:
+                # Signal instead of cancel, so a renewal already sent to the
+                # backend lands before the claim is released.
+                done.set()
+                await renewal
+
+    async def _renew_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
+        """Keep the claim until `done` is set.
+
+        Renews every third of the lease, read again before each wait so
+        a `reconfigure` sets the pace. A renewal the backend fails is
+        retried every tenth of the lease for as long as the lease since
+        the last one that worked lasts. A claim the backend no longer
+        holds stops the renewals. The body keeps running either way.
+        """
+        renewed_at = time.monotonic()
+        failing = False
+        while True:
+            lease = claim.config.lease_duration
+            delay = lease / 10 if failing else lease / 3
+            if await sleep_or_stop(delay, done):
+                return
+            try:
+                await claim._renew_held()  # noqa: SLF001
+            except LockNotOwnedError:
+                logger.warning(
+                    "Task lost its claim while the body ran: %s", self.name
+                )
+                return
+            except Exception:
+                if time.monotonic() - renewed_at >= lease:
+                    logger.warning(
+                        "Task could not renew its claim while the body ran: %s",
+                        self.name,
+                        exc_info=True,
+                    )
+                    return
+                logger.debug(
+                    "Task claim renewal failed, retrying: %s",
+                    self.name,
+                    exc_info=True,
+                )
+                failing = True
+            else:
+                renewed_at = time.monotonic()
+                failing = False
 
     def _prepare_async_function(
         self, function: Callable[..., Any]
@@ -297,29 +377,12 @@ class IntervalTask(Task):
         )
 
 
-def _build_sync_list(
-    *,
-    leader: LeaderElection | None,
-    task_lock: TaskLock,
-    resource_lock: LockPrimitive | None = None,
-) -> list[LockPrimitive]:
-    """Build an ordered list of sync primitives.
+def _check_sync(sync: LockPrimitive | None) -> None:
+    """Refuse a leader election passed as `sync`.
 
-    Acquisition order (outermost to innermost):
-
-    1. **Leader guard**: Cheapest check; instantly rejects non-leader workers
-       without touching any lock, avoiding unnecessary contention.
-    2. **Task lock**: The distributed ``TaskLock`` with TTL that guarantees
-       at-most-once execution per interval. Acquired after leadership is
-       confirmed to keep the TTL window tight.
-    3. **Resource lock**: A user-provided ``Lock`` for shared-resource access.
-       Acquired last so the resource is held only during actual execution,
-       minimizing contention on the shared resource.
+    Raises:
+        TypeError: If `sync` is a `LeaderElection` or its guard.
     """
-    primitives: list[LockPrimitive] = []
-    if leader is not None:
-        primitives.append(leader.guard())
-    primitives.append(task_lock)
-    if resource_lock is not None:
-        primitives.append(resource_lock)
-    return primitives
+    if isinstance(sync, LeaderElection | _LeaderGuard):
+        msg = "sync takes a resource lock, pass a LeaderElection as gate="
+        raise TypeError(msg)

@@ -1,6 +1,7 @@
 """Test Cron Task (durable design)."""
 
 import asyncio
+import time
 from asyncio import sleep
 from datetime import UTC, datetime
 from types import TracebackType
@@ -13,7 +14,11 @@ from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination.errors import LockNotOwnedError
-from grelmicro.coordination.memory import MemoryScheduleAdapter
+from grelmicro.coordination.leaderelection import LeaderElection
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionAdapter,
+    MemoryScheduleAdapter,
+)
 from grelmicro.errors import OutOfContextError
 from grelmicro.task._cron import CronTask, FireInfo, FireOutcome
 from grelmicro.task.errors import CronError
@@ -296,6 +301,7 @@ async def test_cron_task_runs_once_with_backend(
         function=count_execution,
         name=name,
         backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act: loop fast over many ticks against a single due fire.
@@ -316,10 +322,18 @@ async def test_cron_task_second_worker_does_not_double_run(
     name = "no-double-run"
     await schedule.claim(name, _previous_fire_epoch() - 120)
     worker_a = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     worker_b = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act: both workers loop fast against the same shared fire.
@@ -341,7 +355,11 @@ async def test_cron_task_replays_missed_fire(
     name = "missed-replay"
     await schedule.claim(name, _previous_fire_epoch() - 120)
     task = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act
@@ -365,6 +383,7 @@ async def test_cron_task_misfire_grace_skips_when_too_late(
         function=count_execution,
         name=name,
         backend=schedule,
+        gate="claim",
         misfire_grace_seconds=1,
     )
     _run_fast(mocker)
@@ -387,7 +406,11 @@ async def test_cron_task_first_sight_establishes_baseline(
     # Arrange: no prior last_fired for this name.
     name = "first-sight"
     task = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     _run_fast(mocker)
     # Act
@@ -510,7 +533,7 @@ async def test_cron_task_lock_lost_is_logged(
         await sleep(SLEEP * 3)
         cancel_group(tg)
     assert any(
-        "lock expired" in record.message
+        "no longer held" in record.message
         for record in caplog.records
         if record.levelname == "WARNING"
     )
@@ -525,7 +548,11 @@ async def test_cron_task_tick_error_is_logged(
     name = "tick-error"
     await schedule.claim(name, _previous_fire_epoch() - 120)
     task = CronTask(
-        expr=EVERY_MINUTE, function=count_execution, name=name, backend=schedule
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate="claim",
     )
     mocker.patch.object(
         schedule, "claim", side_effect=RuntimeError("backend down")
@@ -601,10 +628,11 @@ async def test_cron_task_resolves_backend_from_active_app() -> None:
         assert task.backend is schedule
 
 
-async def test_cron_task_backend_none_without_app() -> None:
-    """With no app and no explicit backend, the task runs on every worker."""
-    task = CronTask(expr=EVERY_MINUTE, function=count_execution)
-    assert task.backend is None
+async def test_cron_task_backend_out_of_context_without_app() -> None:
+    """With no app and no explicit backend, `OutOfContextError` is raised."""
+    task = CronTask(expr=EVERY_MINUTE, function=count_execution, gate="claim")
+    with pytest.raises(OutOfContextError, match="Cron task"):
+        _ = task.backend
 
 
 async def test_cron_task_backend_out_of_context_without_coordination() -> None:
@@ -615,3 +643,339 @@ async def test_cron_task_backend_out_of_context_without_coordination() -> None:
     async with micro:
         with pytest.raises(OutOfContextError, match="Cron task"):
             _ = task.backend
+
+
+# --- Gate ---
+
+
+def _election() -> LeaderElection:
+    """Return a leader election that is never started."""
+    return LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+
+
+def test_cron_task_gate_rejects_unknown_value() -> None:
+    """A gate that is not None, "claim" or a `LeaderElection` is refused."""
+    with pytest.raises(TypeError, match="gate must be"):
+        CronTask(
+            expr=EVERY_MINUTE,
+            function=test1,
+            gate="leader",  # ty: ignore[invalid-argument-type]
+        )
+
+
+def test_cron_task_backend_without_gate_rejected(
+    schedule: MemoryScheduleAdapter,
+) -> None:
+    """A backend passed to an ungated task is refused, it would never be read."""
+    with pytest.raises(ValueError, match="gate='claim'"):
+        CronTask(expr=EVERY_MINUTE, function=test1, backend=schedule)
+
+
+@pytest.mark.parametrize("as_guard", [False, True])
+def test_cron_task_sync_rejects_leader_election(*, as_guard: bool) -> None:
+    """A leader election passed as `sync` is refused in favour of `gate`."""
+    election = _election()
+    sync = election.guard() if as_guard else election
+    with pytest.raises(TypeError, match="as gate="):
+        CronTask(expr=EVERY_MINUTE, function=test1, sync=sync)
+
+
+async def test_cron_task_ungated_ignores_registered_schedule() -> None:
+    """Without a gate every worker runs the fire, even with a backend in scope."""
+    schedule = MemoryScheduleAdapter()
+    name = "ungated"
+    workers = [
+        CronTask(expr=EVERY_MINUTE, function=count_execution, name=name)
+        for _ in range(2)
+    ]
+    async with Grelmicro(uses=[Coordination(schedule=schedule)]):
+        for worker in workers:
+            await worker._tick(catchup=False)
+        assert await schedule.last_fired(name) is None
+    assert samples.execution_count == len(workers)
+
+
+async def test_cron_task_leader_gate_follower_skips_without_claiming(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A follower skips the fire and never touches the schedule backend."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=False)
+    claim = mocker.spy(schedule, "claim")
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        backend=schedule,
+        gate=election,
+    )
+
+    await task._tick(catchup=True)
+    assert task.last_fire is None
+    await task._tick(catchup=False)
+
+    assert samples.execution_count == 0
+    claim.assert_not_called()
+    assert task.last_fire is not None
+    assert task.last_fire.outcome == FireOutcome.SKIPPED
+
+
+async def test_cron_task_leader_gate_claims_each_fire(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """Two workers that both believe they lead still run a fire once."""
+    name = "handover"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=True)
+    workers = [
+        CronTask(
+            expr=EVERY_MINUTE,
+            function=count_execution,
+            name=name,
+            backend=schedule,
+            gate=election,
+        )
+        for _ in range(2)
+    ]
+    _run_fast(mocker)
+
+    async with asyncio.TaskGroup() as tg:
+        for worker in workers:
+            await start_task(tg, worker)
+        await sleep(SLEEP * 5)
+        cancel_group(tg)
+
+    assert samples.execution_count == 1
+
+
+@pytest.mark.parametrize(
+    ("gate", "label"),
+    [(None, "none"), ("claim", "claim"), ("leader", "LeaderElection('svc')")],
+)
+async def test_cron_task_logs_gate_at_start(
+    mocker: MockFixture,
+    caplog: pytest.LogCaptureFixture,
+    gate: str | None,
+    label: str,
+) -> None:
+    """The start log names the resolved gate."""
+    caplog.set_level("INFO")
+    resolved = _election() if gate == "leader" else gate
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=test1,
+        backend=MemoryScheduleAdapter() if resolved is not None else None,
+        gate=resolved,  # ty: ignore[invalid-argument-type]
+    )
+    mocker.patch.object(task, "_tick_guarded")
+    _run_fast(mocker)
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        cancel_group(tg)
+
+    assert any(f"gate: {label})" in r.message for r in caplog.records)
+
+
+async def test_cron_task_leader_gate_replays_missed_fire_on_gaining_leadership(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A worker that becomes leader replays the fire missed while none led."""
+    name = "gained"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    elected = asyncio.Event()
+    mocker.patch.object(election, "is_leader", side_effect=elected.is_set)
+    mocker.patch.object(election, "wait_for_leader", side_effect=elected.wait)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate=election,
+    )
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        ran_as_follower = samples.execution_count
+        elected.set()
+        await sleep(SLEEP * 5)
+        cancel_group(tg)
+
+    assert ran_as_follower == 0
+    assert samples.execution_count == 1
+
+
+async def test_cron_task_leader_gate_follower_ticks_when_the_fire_comes(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A follower still ticks at the fire instant, and reports the skip."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=False)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        backend=schedule,
+        gate=election,
+    )
+
+    async def fire_comes(*_: object) -> bool:
+        await sleep(SLEEP)
+        return False
+
+    mocker.patch.object(task, "_wait_for_leadership", side_effect=fire_comes)
+
+    async with asyncio.TaskGroup() as tg:
+        await start_task(tg, task)
+        await sleep(SLEEP)
+        cancel_group(tg)
+
+    assert samples.execution_count == 0
+    assert task.last_fire is not None
+    assert task.last_fire.outcome == FireOutcome.SKIPPED
+
+
+async def test_cron_task_leader_gate_follower_stops_while_waiting(
+    schedule: MemoryScheduleAdapter,
+) -> None:
+    """A follower waiting for leadership stops as soon as asked."""
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        backend=schedule,
+        gate=_election(),
+    )
+    stop = asyncio.Event()
+
+    async with asyncio.TaskGroup() as tg:
+        handle = await start_task(tg, task, stop=stop)
+        stop.set()
+
+    assert handle.done()
+    assert samples.execution_count == 0
+
+
+@pytest.mark.parametrize(
+    ("elected", "stopped", "expected"),
+    [(True, False, True), (False, False, False), (False, True, False)],
+)
+async def test_cron_task_wait_for_leadership(
+    mocker: MockFixture, *, elected: bool, stopped: bool, expected: bool
+) -> None:
+    """Waiting for leadership ends on leadership, on stop, or on the delay."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=elected)
+    stop = asyncio.Event()
+    if stopped:
+        stop.set()
+
+    result = await CronTask._wait_for_leadership(election, SLEEP, stop)
+
+    assert result is expected
+
+
+async def test_cron_task_wait_for_leadership_outlasts_a_lost_win(
+    mocker: MockFixture,
+) -> None:
+    """Leadership won then lost before the check keeps waiting for the fire."""
+    election = _election()
+    mocker.patch.object(election, "is_leader", return_value=False)
+    calls = 0
+
+    async def won_then_lost() -> None:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            await asyncio.Event().wait()
+
+    mocker.patch.object(election, "wait_for_leader", side_effect=won_then_lost)
+    delay = SLEEP * 5
+    started = time.monotonic()
+
+    result = await CronTask._wait_for_leadership(election, delay, None)
+
+    assert result is False
+    assert time.monotonic() - started >= delay * 0.9
+
+
+async def test_cron_task_leader_won_after_the_fire_replays_it(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """Leadership won just after a fire replays it before sleeping on."""
+    name = "late-win"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    elected = asyncio.Event()
+    mocker.patch.object(election, "is_leader", side_effect=elected.is_set)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate=election,
+    )
+
+    async def fire_comes(*_: object) -> bool:
+        await sleep(SLEEP)
+        return False
+
+    tick = task._tick_guarded
+
+    async def win_after_the_fire(*, catchup: bool) -> None:
+        await tick(catchup=catchup)
+        if not catchup:
+            elected.set()
+
+    mocker.patch.object(task, "_wait_for_leadership", side_effect=fire_comes)
+    mocker.patch.object(task, "_tick_guarded", side_effect=win_after_the_fire)
+    mocker.patch("grelmicro.task._cron.sleep_or_stop", return_value=True)
+
+    await task()
+
+    assert samples.execution_count == 1
+
+
+async def test_cron_task_leader_that_flaps_at_the_fire_replays_it(
+    schedule: MemoryScheduleAdapter, mocker: MockFixture
+) -> None:
+    """A leader that loses leadership at a fire and wins it back replays it."""
+    name = "flap"
+    await schedule.claim(name, _previous_fire_epoch() - 120)
+    election = _election()
+    elected = asyncio.Event()
+    elected.set()
+    mocker.patch.object(election, "is_leader", side_effect=elected.is_set)
+    task = CronTask(
+        expr=EVERY_MINUTE,
+        function=count_execution,
+        name=name,
+        backend=schedule,
+        gate=election,
+    )
+    tick = task._tick_guarded
+    ticks = 0
+
+    async def lose_at_the_fire(*_: object) -> bool:
+        if elected.is_set() and ticks == 1:
+            elected.clear()
+            return False
+        return True
+
+    async def win_back_after_it(*, catchup: bool) -> None:
+        nonlocal ticks
+        ticks += 1
+        if ticks == 1:
+            return
+        await tick(catchup=catchup)
+        if not catchup:
+            elected.set()
+
+    mocker.patch(
+        "grelmicro.task._cron.sleep_or_stop", side_effect=lose_at_the_fire
+    )
+    mocker.patch.object(task, "_tick_guarded", side_effect=win_back_after_it)
+
+    await task()
+
+    assert samples.execution_count == 1
