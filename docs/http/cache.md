@@ -237,7 +237,9 @@ async def create(product: ProductIn) -> Product:
 ```
 
 `purge()` deletes every response that component stored, and nothing else in
-the cache, because each entry carries its tag.
+the cache, because each entry carries its tag. On a memory `Cache` it clears
+the replica it runs on, and every other replica serves what it holds until the
+TTL runs out. Put the `Cache` on Redis when a write has to reach every replica.
 
 ## When the store is down
 

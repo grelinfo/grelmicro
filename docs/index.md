@@ -64,7 +64,7 @@ Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? S
 | [**Idempotency**](https://grelmicro.grel.info/idempotency/) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
 | [**Coordination**](https://grelmicro.grel.info/coordination/) | Distributed `Lock`, `ReadWriteLock`, `TaskLock`, and `LeaderElection`. Redis, Valkey, PostgreSQL, SQLite, Kubernetes, in-memory. |
 | [**Outbox**](https://grelmicro.grel.info/outbox/) | Transactional outbox. `publish` a message inside your database transaction and a background relay delivers it at least once with retries and dead-lettering. PostgreSQL, in-memory. |
-| [**Task Scheduler**](https://grelmicro.grel.info/task/) | Interval and cron tasks. A cron task claims each fire against a durable backend, so one worker runs it at most once across the fleet. An interval task runs in every process until you put a lock or a leader in front of it. A modern, lightweight alternative to APScheduler and Celery beat. |
+| [**Task Scheduler**](https://grelmicro.grel.info/task/) | Interval and cron tasks. Every worker runs a task by default. `gate="claim"` or a leader election runs it on one worker across the fleet. A modern, lightweight alternative to APScheduler and Celery beat. |
 | [**Resilience**](https://grelmicro.grel.info/resilience/) | [Shield](https://grelmicro.grel.info/resilience/shield/), [Stack](https://grelmicro.grel.info/resilience/composition/#stack), [Circuit Breaker](https://grelmicro.grel.info/resilience/circuit-breaker/), [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/), [Retry](https://grelmicro.grel.info/resilience/retry/), [Timeout](https://grelmicro.grel.info/resilience/timeout/), [Bulkhead](https://grelmicro.grel.info/resilience/bulkhead/), and [Fallback](https://grelmicro.grel.info/resilience/fallback/), with pluggable algorithms and backends. |
 | [**Logging**](https://grelmicro.grel.info/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
 | [**Tracing**](https://grelmicro.grel.info/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
@@ -175,7 +175,7 @@ from grelmicro.resilience import (
     RateLimitExceededError,
     RateLimiter,
 )
-from grelmicro.coordination import LeaderElection, Lock, TaskLock
+from grelmicro.coordination import LeaderElection, Lock
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -272,13 +272,13 @@ def heartbeat():
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.every(seconds=60, lock=TaskLock(lease_duration=300))
+@tasks.every(seconds=60, gate="claim")
 def cleanup():
     logger.info("cleanup")
 
 
 # --- Leader-gated Task: only the leader executes ---
-@tasks.every(seconds=10, leader=leader)
+@tasks.every(seconds=10, gate=leader)
 def leader_only_task():
     logger.info("leader task")
 ```

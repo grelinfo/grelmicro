@@ -27,7 +27,7 @@
 - [Outbox consumer](https://grelmicro.grel.info/outbox/consumer/): handlers, retry control, and dead-lettering.
 - [Outbox relay](https://grelmicro.grel.info/outbox/relay/): scaling, retention, observability, and every field.
 - [Outbox schema](https://grelmicro.grel.info/outbox/schema/): the table layout and Alembic.
-- [Task Scheduler](https://grelmicro.grel.info/task/): interval tasks per process, cron tasks claimed once across the fleet.
+- [Task Scheduler](https://grelmicro.grel.info/task/): interval and cron tasks on every worker, or on one with `gate="claim"` or a leader election.
 - [Resilience](https://grelmicro.grel.info/resilience/): which pattern to reach for, and the `AdmissionError` family.
 - [Shield](https://grelmicro.grel.info/resilience/shield/): timeout, retry, and adaptive throttling in one decorator. The recommended starting point.
 - [Bulkhead](https://grelmicro.grel.info/resilience/bulkhead/): cap concurrent in-flight calls and fail fast when saturated.
@@ -58,8 +58,8 @@
 - [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and log context through `@instrument`.
 - [Metrics](https://grelmicro.grel.info/metrics/): `@measure`, built-in instrumentation, and a Prometheus endpoint.
 - [Configuration](https://grelmicro.grel.info/config/): build with keyword arguments, tune with environment variables.
-- [Deployment](https://grelmicro.grel.info/deployment/): what a container image and a Kubernetes manifest need.
-- [Testing](https://grelmicro.grel.info/testing/): in-memory backends, `VirtualClock`, `CallLog`, and a fake verifier.
+- [Deployment](https://grelmicro.grel.info/deployment/): what a container image and a Kubernetes manifest need, and the backend scope check.
+- [Testing](https://grelmicro.grel.info/testing/): one `micro.fake()` fixture for the app you ship, `override`, `VirtualClock`, `CallLog`, and a fake verifier.
 
 ## Advanced user guide
 
@@ -102,7 +102,7 @@
 
 - [Architecture](https://grelmicro.grel.info/architecture/): the index of the design notes.
 - [Concurrency runtime](https://grelmicro.grel.info/architecture/asyncio/): why grelmicro targets asyncio and not Trio.
-- [Backends and adapters](https://grelmicro.grel.info/architecture/backends/): providers, adapters, components, and ambient resolution.
+- [Backends and adapters](https://grelmicro.grel.info/architecture/backends/): providers, adapters, components, ambient resolution, and the backend scope check.
 - [Configuration internals](https://grelmicro.grel.info/architecture/config/): the resolution contract and its hot-path budget.
 - [Live reconfiguration](https://grelmicro.grel.info/architecture/reconfigure/): the `Reconfigurable` contract and how a swap lands.
 - [HTTP component internals](https://grelmicro.grel.info/architecture/http/): the contract the six HTTP components follow.
@@ -111,7 +111,7 @@
 - [Rust](https://grelmicro.grel.info/architecture/rust/): what is compiled and where the line was drawn.
 - [Import strategy](https://grelmicro.grel.info/architecture/imports/): what a package re-exports and what stays in a submodule.
 - [Plugins](https://grelmicro.grel.info/architecture/plugins/): the entry-point groups a third-party backend registers under.
-- [Multiple apps](https://grelmicro.grel.info/architecture/multiple-apps/): when two apps can be active in one process.
+- [Multiple apps](https://grelmicro.grel.info/architecture/multiple-apps/): when two apps can be active in one process, and app factories for two clients at once.
 - [Decorator forms](https://grelmicro.grel.info/architecture/decorators/): the one rule for parentheses.
 - [API conventions](https://grelmicro.grel.info/architecture/api-conventions/): the constructor and factory rules a new primitive follows.
 - [Sync from thread](https://grelmicro.grel.info/architecture/sync-from-thread/): the sync entry points and what they cost.

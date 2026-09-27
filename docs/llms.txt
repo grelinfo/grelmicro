@@ -20,7 +20,7 @@ One page per module. Each one links the rest of its section.
 - [Idempotency](https://grelmicro.grel.info/idempotency/): idempotency keys that make a retried operation safe.
 - [Coordination](https://grelmicro.grel.info/coordination/): distributed `Lock`, `ReadWriteLock`, `TaskLock`, and `LeaderElection`.
 - [Outbox](https://grelmicro.grel.info/outbox/): deliver messages at least once after your database transaction commits.
-- [Task Scheduler](https://grelmicro.grel.info/task/): interval tasks per process, cron tasks claimed once across the fleet.
+- [Task Scheduler](https://grelmicro.grel.info/task/): interval and cron tasks on every worker, or on one with `gate="claim"` or a leader election.
 - [Resilience](https://grelmicro.grel.info/resilience/): start with [Shield](https://grelmicro.grel.info/resilience/shield/), the recommended entry point, and use [Stack](https://grelmicro.grel.info/resilience/composition/) to compose patterns you tuned yourself.
 - [Health](https://grelmicro.grel.info/health/): liveness, readiness, and aggregate health endpoints.
 - [HTTP](https://grelmicro.grel.info/http/): error responses, authentication, conditional requests, idempotency, caching, and rate limits on the wire.
@@ -29,8 +29,8 @@ One page per module. Each one links the rest of its section.
 - [Tracing](https://grelmicro.grel.info/tracing/): OpenTelemetry spans and log context through `@instrument`.
 - [Metrics](https://grelmicro.grel.info/metrics/): OpenTelemetry metrics and a Prometheus endpoint.
 - [Configuration](https://grelmicro.grel.info/config/): build with keyword arguments, tune with environment variables.
-- [Deployment](https://grelmicro.grel.info/deployment/): run a grelmicro app in a container.
-- [Testing](https://grelmicro.grel.info/testing/): test with the in-memory backends and a virtual clock.
+- [Deployment](https://grelmicro.grel.info/deployment/): run a grelmicro app in a container, and the backend scope check that refuses a per-process store in production.
+- [Testing](https://grelmicro.grel.info/testing/): enter `micro.fake()` before the test client starts, so the app you ship runs on in-process stores.
 
 ## Optional
 

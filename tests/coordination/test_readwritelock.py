@@ -462,7 +462,7 @@ async def test_backend_without_an_app() -> None:
     """A lock with nothing wired says what to do about it."""
     lock = ReadWriteLock("catalog")
 
-    with pytest.raises(OutOfContextError, match="MemoryReadWriteLockAdapter"):
+    with pytest.raises(OutOfContextError, match="Register a Coordination"):
         await lock.read.acquire_nowait()
 
 

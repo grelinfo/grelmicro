@@ -1,7 +1,8 @@
 # Testing
 
-grelmicro gives you three tools for tests: swap a backend for the test, drive
-time by hand, and record the calls a pattern makes.
+grelmicro gives you four tools for tests: run the app on in-process stores,
+swap one backend for a test, drive time by hand, and record the calls a
+pattern makes.
 
 ## Declare the test environment
 
@@ -20,44 +21,44 @@ os.environ.setdefault("GREL_ENVIRONMENT", "test")
 `micro.check_backends()` for the app you deploy: it answers for production
 whatever this process declares.
 
-## Swap a backend
+## Test the app you ship
 
-Inside an active app, `micro.override(...)` replaces a component for the duration
-of a block and restores the original on exit:
-
-```python
-from unittest.mock import AsyncMock
-
-from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination
-from grelmicro.coordination import LockBackend
-
-
-async def test_login(micro: Grelmicro) -> None:
-    fake = AsyncMock(spec=LockBackend)
-    async with micro:
-        async with micro.override(Coordination(lock=fake)):
-            await do_login("u1")
-            fake.acquire.assert_awaited()
-```
-
-A handy `micro` fixture in `conftest.py` keeps tests short:
+Enter `micro.fake()` before the test client starts. The client runs your
+app's lifespan, the lifespan opens `micro`, and `micro` opens on in-process
+stores:
 
 ```python
-from collections.abc import AsyncIterator
-
-import pytest
-
-from grelmicro import Grelmicro
-from grelmicro.providers.memory import MemoryProvider
-
-
-@pytest.fixture
-async def micro() -> AsyncIterator[Grelmicro]:
-    app = Grelmicro(uses=[MemoryProvider()])
-    async with app:
-        yield app
+--8<-- "testing/installed_app.py"
 ```
+
+The test runs the app you deploy, with every component and name it really
+registers. `Coordination`, `Cache`, `RateLimiterComponent` and
+`CircuitBreakerComponent` open on memory, so the `Lock` above is a real lock
+that needs no database. The Postgres they would have used is never opened, so
+the suite connects to nothing and `/readyz` does not probe it.
+
+Do not open `micro` in the fixture as well. `install(app)` already opens it
+when the client starts, and a second open raises.
+
+A Provider stays open when a component that is not faked still uses it, such
+as the Postgres an `Outbox` stores in. A test that reaches a closed Provider
+directly, `postgres.client` for example, is told so. Pass
+`micro.fake(keep=[postgres])` to open the real one for that test.
+
+### An app with no HTTP
+
+With no framework to open it, the fixture opens `micro` itself, after the fake:
+
+```python
+--8<-- "testing/plain_app.py"
+```
+
+## Swap one backend
+
+`micro.override(...)` replaces a component on the open app for a block and
+puts the original back on exit. The last test above uses it to check that
+`reserve` takes the lock. Reach for `fake()` when the test is about your code,
+and for `override()` when it is about the calls to a backend.
 
 ## Drive time with VirtualClock
 

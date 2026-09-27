@@ -8,6 +8,7 @@ import importlib
 import json
 import sys
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any
 from unittest.mock import patch
 
@@ -599,6 +600,48 @@ def test_authenticated_asgi_scope_never_replays_across_callers(
 
     # Act
     with TestClient(app) as client:
+        alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
+        bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
+
+    # Assert
+    assert alice.json() == {"user": "alice"}
+    assert bob.json() == {"user": "bob"}
+    assert "idempotent-replayed" not in bob.headers
+
+
+def test_a_loosely_marked_caller_never_replays_across_callers() -> None:
+    """A truthy `is_authenticated` counts, so two callers never share a replay.
+
+    A route refuses such a caller, but idempotency reads it the careful way:
+    treating it as anonymous would replay one caller's response to another.
+    """
+
+    # Arrange
+    async def private(request: Request) -> JSONResponse:
+        return JSONResponse({"user": request.scope["user"].name})
+
+    async def loose_authentication(
+        scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] == "http":
+            name = dict(scope["headers"]).get(b"x-api-key", b"").decode()
+            scope["user"] = SimpleNamespace(is_authenticated=1, name=name)
+        await app(scope, receive, send)
+
+    app = Starlette(routes=[Route("/private", private, methods=["POST"])])
+    app.add_middleware(
+        IdempotencyMiddleware,
+        idempotency=Idempotency(
+            "loose-authentication",
+            ttl=60,
+            cache=TTLCache(
+                backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+            ),
+        ),
+    )
+
+    # Act
+    with TestClient(loose_authentication) as client:
         alice = client.post("/private", headers={**KEY, "X-API-Key": "alice"})
         bob = client.post("/private", headers={**KEY, "X-API-Key": "bob"})
 

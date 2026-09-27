@@ -42,7 +42,7 @@ Something has to open the Provider a Component borrows: list it here, list it on
 
 Listing an item in both places is fine: whichever opens it first owns it. That holds within one app run, for the same object, a Provider, or a bare backend. It does not reach across runs: a second run that lists an item, in `uses=` or on the app itself, opens it again while the first still holds it open. Two Components you build separately around one backend are two items too, so share the Component or list the backend bare. A Component in the list claims its whole kind, so a bare Provider beside it fills only the other kinds it serves, exactly as on the app.
 
-`micro.fake()` and `micro.override(...)` swap the app's Components, and a scope answers before the app does, so neither reaches inside `uses=`. Build the bulkhead with the backends the test wants when a test needs the scope faked.
+`micro.fake()` and `micro.override(...)` swap the app's Components, and a scope answers before the app does, so neither reaches inside `uses=`. Build the bulkhead with the backends the test wants when a test needs the scope faked. A Provider that only the scope's Components borrow is left closed by `fake()`, which cannot see them, so pass it as `micro.fake(keep=[provider])` when the scope should run on the real one.
 
 These Components are not registered on the app, so the [backend check](../deployment.md#the-backend-check) cannot run at startup for them. It runs on first entry instead, with the same rules.
 
