@@ -51,6 +51,9 @@ jobs:
           persist-credentials: false
       - name: Plan the core release
         id: plan
+        # An explicit bash shell runs with pipefail, so a refused plan fails
+        # the step rather than passing on the exit code of `tee`.
+        shell: bash
         run: python3 tools/core_release.py plan | tee -a "$GITHUB_OUTPUT"
   core-build:
     needs: core-plan
