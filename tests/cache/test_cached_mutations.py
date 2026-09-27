@@ -21,13 +21,15 @@ from contextlib import suppress
 import pytest
 
 from grelmicro import Grelmicro
+from grelmicro.cache._stampede import _stampede_lock_name
 from grelmicro.cache.cached import _make_key, _read_meta, cached
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
-from grelmicro.coordination import Coordination
+from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import EventLoopDeadlockError
+from grelmicro.testing import record
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -387,6 +389,35 @@ class TestDistributedComputePath:
             members = backend._tag_keys.get("user:42")
         assert members is not None
         assert len(members) == 1
+
+    async def test_a_value_stored_while_waiting_for_the_lock_is_served(
+        self,
+    ) -> None:
+        """A caller that waited on the lock serves what the holder stored."""
+        loop = asyncio.get_running_loop()
+        cache = _shared_cache(loop)
+        lock_backend = MemoryLockAdapter()
+        attempts = record(lock_backend)
+        micro = Grelmicro(uses=[Coordination(lock=lock_backend)])
+        calls = 0
+
+        def impl(x: int) -> int:
+            nonlocal calls
+            calls += 1
+            return x * 2
+
+        fetch = cached(cache, lock=True)(impl)
+        key = _make_key(impl, (5,), {}, None, typed=False)
+        async with micro:
+            async with Lock(_stampede_lock_name(key)):
+                waiter = asyncio.create_task(asyncio.to_thread(fetch, 5))
+                # The attempt lands on a worker thread, so it cannot signal an
+                # event on this loop.
+                while attempts.count("acquire") < 2:  # noqa: ASYNC110, PLR2004
+                    await asyncio.sleep(0.001)
+                await cache.set(key, 99)
+            assert await waiter == 99  # noqa: PLR2004
+        assert calls == 0
 
     async def test_distributed_compute_skip_passes_the_result(self) -> None:
         """The skip predicate sees the real result in the distributed path."""
