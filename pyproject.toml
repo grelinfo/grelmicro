@@ -492,5 +492,11 @@ only_mutate = [
     "grelmicro/coordination/lock.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/"]
-pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
-also_copy = ["README.md"]
+# The release tool reads the Rust crate, which is not copied into mutants/.
+pytest_add_cli_args = [
+    "-n0",
+    "-m",
+    "not integration and not slow and not stress",
+    "--ignore=tests/test_core_release_tool.py",
+]
+also_copy = ["README.md", "docs/", "tools/"]
