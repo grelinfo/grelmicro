@@ -536,8 +536,9 @@ def cached(  # noqa: PLR0913, C901
 
     Raises:
         TypeError: If both ``cache`` and ``ttl`` are given, if neither is
-            given, if both ``key`` and ``key_maker`` are given, or if the
-            decorated function is a sync generator.
+            given, if both ``key`` and ``key_maker`` are given, if the
+            decorated function is a sync generator, or if the ``ttl=``
+            form decorates a sync function.
         SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
             ``"local"``, if ``early`` is outside ``[0, 1)``, or if
             ``stale_ttl`` is not positive.

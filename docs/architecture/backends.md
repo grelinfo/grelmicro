@@ -226,4 +226,4 @@ A Provider is shared by identity: every Component that uses the same Provider at
 
 ## Error handling
 
-Accessing a Component that has not been registered raises `ComponentNotRegisteredError` with a descriptive message. Resolving a Pattern outside any `async with micro:` block raises `OutOfContextError`, naming the wiring step to take. `Grelmicro.current()` itself raises the lower-level `NoActiveAppError`, which each Pattern turns into `OutOfContextError`.
+Accessing a Component that has not been registered raises `ComponentNotRegisteredError` with a descriptive message. Resolving a Pattern outside any `async with micro:` block raises `OutOfContextError`, naming the wiring step to take. A `Bulkhead` holding its own components in `uses=` raises `NoActiveAppError` when entered outside the app. `Grelmicro.current()` raises `NoActiveAppError` too.
