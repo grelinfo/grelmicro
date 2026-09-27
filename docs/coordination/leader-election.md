@@ -22,7 +22,7 @@ it becomes the leader.
 
 ## Run only while leader
 
-`@tasks.every(..., leader=leader)` gates each tick. When you have one long-lived
+`@tasks.every(..., gate=leader)` gates each tick. When you have one long-lived
 piece of work that should run for as long as you lead and stop the instant you do
 not, use `lead`:
 

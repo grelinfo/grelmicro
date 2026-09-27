@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.coordination import LeaderElection, Lock, TaskLock
+from grelmicro.coordination import LeaderElection, Lock
 from grelmicro.log import configure
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import CircuitBreaker
@@ -61,12 +61,12 @@ def heartbeat():
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.every(seconds=60, lock=TaskLock(lease_duration=300))
+@tasks.every(seconds=60, gate="claim")
 def cleanup():
     logger.info("cleanup")
 
 
 # --- Leader-gated Task: only the leader executes ---
-@tasks.every(seconds=10, leader=leader_election)
+@tasks.every(seconds=10, gate=leader_election)
 def leader_only_task():
     logger.info("leader task")

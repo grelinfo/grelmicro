@@ -44,8 +44,9 @@ updates:
       prefix: "⬆️ ci: "
 
   # The compiled JWT core. Its dependencies include the crypto provider, so a
-  # security fix there only reaches users through a grelmicro-core release:
-  # merging the bump is the first step, cutting core-* is the second.
+  # security fix there only reaches users through a grelmicro-core release.
+  # A bump fails CI until the crate version is bumped too, and the next
+  # grelmicro release publishes that core.
   - package-ecosystem: "cargo"
     directory: "/rust/grelmicro-core"
     schedule:

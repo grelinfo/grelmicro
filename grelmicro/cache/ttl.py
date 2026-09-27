@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Generic, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final, Generic, Self, cast
 
 from pydantic import (
     BaseModel,
@@ -26,11 +26,7 @@ from grelmicro.cache.serializers import (
     _infer_serializer_from_instance,
     _resolve_serializer,
 )
-from grelmicro.errors import (
-    _AMBIENT_SCOPE_NOTE,
-    OutOfContextError,
-    SettingsValidationError,
-)
+from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
 
 if TYPE_CHECKING:
@@ -40,6 +36,14 @@ if TYPE_CHECKING:
     from grelmicro.cache.serializers import CacheSerializer
 
 T = TypeVar("T", default=Any)
+
+
+_NO_BACKEND: Final = (
+    "TTLCache resolved no backend. Pass backend= (MemoryCacheAdapter() for "
+    "a per-process cache), register a Cache component, or run the call "
+    "inside `async with micro:` or after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class TTLCacheConfig(BaseModel, frozen=True, extra="forbid"):
@@ -289,22 +293,14 @@ class TTLCache(Generic[T]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryCacheAdapter()` for a per-process
                 cache), register a `Cache` Component, or run the call
-                inside `async with micro:`. `micro.install(app)` covers
-                requests and websockets, and not a lifespan of your own.
+                inside `async with micro:` or after
+                `micro.install(app)`.
+                `micro.install(app)` covers request and message handlers,
+                and not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
-        try:
-            cache = resolve_ambient(("cache", "default"))
-        except LookupError:
-            msg = (
-                f"TTLCache resolved no backend. {_AMBIENT_SCOPE_NOTE} Pass "
-                f"backend= (MemoryCacheAdapter() for a per-process cache), "
-                f"register a Cache component, or run the call inside "
-                f"`async with micro:`."
-            )
-            raise OutOfContextError(msg) from None
-        return cache.backend
+        return resolve_ambient(("cache", "default"), _NO_BACKEND).backend
 
     def _bind_serializer(self) -> CacheSerializer[T] | None:
         """Resolve the serializer from the type parameter, once.

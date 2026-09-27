@@ -12,7 +12,7 @@ as an exception a caller is not told to catch.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Final
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -522,6 +522,16 @@ class TestBoundTokens:
 VALID = SIGNER.token(claims())
 
 
+_INTERPRETED_CLAIMS: Final = frozenset(
+    {"exp", "nbf", "iat", "iss", "aud", "sub", "jti", "cnf"}
+)
+"""Claims the verifier reads, so a value of the wrong type is refused.
+
+Left out of the extra claims below: a claim the verifier interprets is not
+extra, and refusing a malformed one is the verdict working.
+"""
+
+
 class TestInvariants:
     """The two properties the module rests on, stated over arbitrary input."""
 
@@ -569,7 +579,9 @@ class TestInvariants:
     @settings(max_examples=150, suppress_health_check=[HealthCheck.too_slow])
     @given(
         st.dictionaries(
-            st.text(min_size=1, max_size=12),
+            st.text(min_size=1, max_size=12).filter(
+                lambda name: name not in _INTERPRETED_CLAIMS
+            ),
             st.one_of(st.text(max_size=20), st.integers(), st.booleans()),
             max_size=6,
         )

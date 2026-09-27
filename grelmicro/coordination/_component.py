@@ -15,7 +15,13 @@ from typing import (
 
 from typing_extensions import Doc
 
+from grelmicro._backend_kinds import (
+    BackendKind,
+    most_specific_backend,
+    resolve_source,
+)
 from grelmicro._component import instantiate_if_class
+from grelmicro._environment import SUSPENDED, record_coordination
 from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
     LockBackend,
@@ -30,6 +36,7 @@ from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import TracebackType
 
     from grelmicro.types import BackendScope
@@ -61,6 +68,24 @@ itself, the app's Provider discovery, the wrapping of a bare backend into its
 Component, and the backend scope check. A fifth backend added here reaches all
 four.
 """
+
+
+def _slot_serving(backend: object) -> CoordinationBackend:
+    """Return the slot a coordination backend fills.
+
+    Raises:
+        AmbiguousBackendError: If it serves two slots and neither protocol
+            subsumes the other.
+    """
+    matches = [
+        BackendKind(slot.protocol, f"Coordination({slot.keyword}=...)", None)
+        for slot in COORDINATION_BACKENDS
+        if isinstance(backend, slot.protocol)
+    ]
+    protocol = most_specific_backend(matches, backend).protocol
+    return next(
+        slot for slot in COORDINATION_BACKENDS if slot.protocol is protocol
+    )
 
 
 class Coordination:
@@ -103,14 +128,30 @@ class Coordination:
     def __init__(
         self,
         source: Annotated[
-            Provider | type[Provider] | None,
+            Provider
+            | LockBackend
+            | ReadWriteLockBackend
+            | LeaderElectionBackend
+            | ScheduleBackend
+            | type[
+                Provider
+                | LockBackend
+                | ReadWriteLockBackend
+                | LeaderElectionBackend
+                | ScheduleBackend
+            ]
+            | None,
             Doc(
                 """
-                A `Provider` (e.g. `RedisProvider`) that resolves both
-                primitives. The component calls `provider.lock()` for the lock
-                backend and `provider.leaderelection()` for the election
-                backend. A zero-arg Provider class is instantiated for you.
-                Use `lock=`/`election=` to set either backend independently.
+                A `Provider` (e.g. `RedisProvider`) that resolves every
+                primitive, or one coordination backend. The component calls
+                `provider.lock()` for the lock backend,
+                `provider.leaderelection()` for the election backend, and so
+                on for each kind the Provider ships. A backend fills the one
+                slot its kind serves, so `Coordination(MemoryLockAdapter())`
+                is `Coordination(lock=MemoryLockAdapter())`. A zero-arg class
+                is instantiated for you. Use `lock=`/`election=` to set
+                either backend independently.
                 """,
             ),
         ] = None,
@@ -202,16 +243,17 @@ class Coordination:
         self._schedule_backend: ScheduleBackend | None = None
 
         if source is not None:
-            provider = instantiate_if_class(source)
-            # A provider may not ship every adapter kind. Leave a backend
-            # unset so the kind raises a clear error only when it is actually
-            # used, instead of crashing construction for a locks-only user.
-            for slot in COORDINATION_BACKENDS:
-                try:
-                    backend = getattr(provider, slot.factory)()
-                except (AttributeError, NotImplementedError):
-                    backend = None
-                setattr(self, f"_{slot.keyword}_backend", backend)
+            resolved = resolve_source(
+                source,
+                owner="Coordination",
+                expects="a coordination backend",
+                protocols=[slot.protocol for slot in COORDINATION_BACKENDS],
+            )
+            if isinstance(resolved, Provider):
+                self._fill_from_provider(resolved)
+            else:
+                slot = _slot_serving(resolved)
+                setattr(self, f"_{slot.keyword}_backend", resolved)
 
         if lock is not None:
             resolved_lock = cast(
@@ -257,17 +299,20 @@ class Coordination:
                 else resolved_schedule
             )
 
-    @classmethod
-    def _holding(cls, keyword: str, backend: object) -> Self:
-        """Return a `Coordination` holding `backend` in the `keyword` slot.
+    def _fill_from_provider(self, provider: Provider) -> None:
+        """Fill every slot with the backend `provider` ships for it.
 
-        Used to wrap a bare backend passed to `Grelmicro(uses=[...])`. The
-        slot comes from `COORDINATION_BACKENDS`, so a backend added there is
-        wrapped without another branch to write.
+        A provider may not ship every adapter kind. Its `NotImplementedError`
+        leaves that backend unset, so the kind raises a clear error only when
+        it is actually used, instead of crashing construction for a
+        locks-only user.
         """
-        component = cls()
-        setattr(component, f"_{keyword}_backend", backend)
-        return component
+        for slot in COORDINATION_BACKENDS:
+            try:
+                backend = getattr(provider, slot.factory)()
+            except NotImplementedError:
+                backend = None
+            setattr(self, f"_{slot.keyword}_backend", backend)
 
     @property
     def name(self) -> str:
@@ -349,7 +394,7 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no lock backend is wired.
         """
-        return Lock(name, backend=self.lock_backend, **kwargs)
+        return self._build(Lock, name, self.lock_backend, "lock", kwargs)
 
     def tasklock(self, name: str, **kwargs: Any) -> TaskLock:  # noqa: ANN401
         """Construct a `TaskLock` bound to this component's lock backend.
@@ -357,7 +402,7 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no lock backend is wired.
         """
-        return TaskLock(name, backend=self.lock_backend, **kwargs)
+        return self._build(TaskLock, name, self.lock_backend, "lock", kwargs)
 
     def readwritelock(self, name: str, **kwargs: Any) -> ReadWriteLock:  # noqa: ANN401
         """Construct a `ReadWriteLock` bound to this component's backend.
@@ -365,7 +410,9 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no read-write lock backend is wired.
         """
-        return ReadWriteLock(name, backend=self.rwlock_backend, **kwargs)
+        return self._build(
+            ReadWriteLock, name, self.rwlock_backend, "rwlock", kwargs
+        )
 
     def leaderelection(
         self,
@@ -377,7 +424,32 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no leader election backend is wired.
         """
-        return LeaderElection(name, backend=self.election_backend, **kwargs)
+        return self._build(
+            LeaderElection, name, self.election_backend, "election", kwargs
+        )
+
+    def _build[P](
+        self,
+        pattern: Callable[..., P],
+        name: str,
+        backend: object,
+        slot: str,
+        kwargs: dict[str, Any],
+    ) -> P:
+        """Build a pattern on `backend`, checked against this `requires`.
+
+        A registered component answers for its backend, so this costs one
+        lookup. An unregistered one still has its declared reach honored.
+        """
+        # Set by hand rather than through `unrecorded()`: this runs on
+        # every `micro.coordination.lock(...)`.
+        token = SUSPENDED.set(True)
+        try:
+            built = pattern(name, backend=backend, **kwargs)
+        finally:
+            SUSPENDED.reset(token)
+        record_coordination(built, backend, slot, self._requires)
+        return built
 
     async def __aenter__(self) -> Self:
         """Open whichever backends are set."""

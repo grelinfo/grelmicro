@@ -90,7 +90,7 @@ def test_lock_ambient_miss_error_names_the_install_scope() -> None:
         _ = unwired.backend
 
     msg = str(exc.value)
-    assert "covers requests and websockets only" in msg
+    assert "not a lifespan of your own" in msg
     assert "async with micro:" in msg
 
 
@@ -104,8 +104,9 @@ def test_lock_ambient_miss_error_names_the_wiring_options() -> None:
         _ = unwired.backend
 
     msg = str(exc.value)
-    assert "MemoryLockAdapter()" in msg
-    assert "register a Coordination component" in msg
+    assert "Register a Coordination component" in msg
+    assert "pass backend=" in msg
+    assert "MemoryLockAdapter" not in msg
 
 
 def test_lock_acquire_error_names_the_fix() -> None:
@@ -124,7 +125,7 @@ def test_lock_not_owned_error_names_the_lease_fix() -> None:
 
     # Assert
     msg = str(error)
-    assert "Raise duration= above how long the body runs." in msg
+    assert "raise lease_duration= above how long the body runs" in msg
     assert "Check the backend is reachable" not in msg
 
 

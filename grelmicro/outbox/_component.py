@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
-from grelmicro._component import instantiate_if_class
+from grelmicro._backend_kinds import resolve_source
 from grelmicro._config import env_prefixes, resolve_config
 from grelmicro._markers import Registered, mark_registered
 from grelmicro.errors import _AMBIENT_SCOPE_NOTE, OutOfContextError
@@ -17,6 +17,7 @@ from grelmicro.outbox._codec import encode_payload
 from grelmicro.outbox._config import OutboxConfig
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._otel import inject_trace_context
+from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox._registry import OutboxRegistry, derive_topic
 from grelmicro.outbox._relay import Relay
 from grelmicro.outbox._uuid import uuid7
@@ -27,7 +28,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.outbox._message import Message
-    from grelmicro.outbox._protocol import OutboxBackend
     from grelmicro.types import BackendScope
 
 
@@ -190,7 +190,12 @@ class Outbox:
         self._config = config
         resolved = cast(
             "Provider | OutboxBackend",
-            instantiate_if_class(source),
+            resolve_source(
+                source,
+                owner="Outbox",
+                expects="an OutboxBackend",
+                protocols=(OutboxBackend,),
+            ),
         )
         if isinstance(resolved, Provider):
             self._backend = resolved.outbox(
@@ -277,18 +282,19 @@ class Outbox:
 
         Raises:
             OutOfContextError: No active app, or no `Outbox` registered under
-                `name`. Run inside `async with micro:`, with an `Outbox` in
-                `uses=[...]`. `micro.install(app)` covers requests and
-                websockets, and not a lifespan of your own.
+                `name`. Run inside `async with micro:` or after
+                `micro.install(app)`, with an `Outbox` in `uses=[...]`.
+                `micro.install(app)` covers request and message handlers,
+                and not a lifespan of your own.
         """
         try:
             return resolve_ambient((cls.kind, name))
         except LookupError:
             msg = (
                 f"Outbox({name!r}) is not available: no active app, or no "
-                f"Outbox registered under {name!r}. {_AMBIENT_SCOPE_NOTE} "
-                f"Run inside `async with micro:`, with an Outbox registered "
-                f"in uses=[...]."
+                f"Outbox registered under {name!r}. Run inside "
+                f"`async with micro:` or after `micro.install(app)`, with an "
+                f"Outbox registered in uses=[...]. {_AMBIENT_SCOPE_NOTE}"
             )
             raise OutOfContextError(msg) from None
 

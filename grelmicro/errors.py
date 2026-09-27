@@ -301,17 +301,14 @@ class OutOfContextError(GrelmicroError, RuntimeError):
 
 
 _AMBIENT_SCOPE_NOTE = (
-    "A lifespan of your own runs outside the app scope, and "
-    "micro.install(app) covers requests and websockets only."
+    "micro.install(app) covers request and message handlers, and not a "
+    "lifespan of your own."
 )
-"""Context line shared by every ambient-miss message.
+"""Closing line of every message raised when a pattern resolves no backend.
 
-A pattern that resolves through the active app is reached from two places
-that look the same and are not. `micro.install(app)` binds the app scope
-around each request and websocket, so a handler resolves. It does not reach
-a lifespan the caller wrote, so a call made at startup resolves nothing even
-though `install` was called. Every ambient miss says so before naming the
-fix.
+`micro.install(app)` binds the app around each handler it serves. A lifespan
+the caller wrote runs outside that scope, so a call made there resolves
+nothing even though `install` was called.
 """
 
 

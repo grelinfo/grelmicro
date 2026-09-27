@@ -22,6 +22,7 @@ from time import monotonic, time
 from typing import TYPE_CHECKING, Any, Final
 
 from grelmicro._asgi import client_address
+from grelmicro._caller import subject_of
 from grelmicro.metrics import _emit
 from grelmicro.trace._otel import get as _otel
 
@@ -74,7 +75,7 @@ SUPPRESSED: Final = "grelmicro.security.suppressed"
 """How many refusals of one kind from one address were not written since the last."""
 
 SCOPE_KEY: Final = "grelmicro.security_events"
-"""Where the middleware leaves itself, to record a refusal a route raises."""
+"""Where the middleware leaves what records a refusal a route raises."""
 
 AUTHENTICATION_REQUIRED: Final = "authentication-required"
 """The refusal of a request that carried no credential."""
@@ -124,21 +125,6 @@ def _set_on_span(key: str, value: str) -> None:
     span = otel.trace.get_current_span()
     if span.is_recording():
         span.set_attribute(key, value)
-
-
-def subject_of(caller: object) -> str | None:
-    """Return the subject of an authenticated caller, or `None`.
-
-    A caller whose attribute raises when read names nobody, so recording a
-    refusal never becomes an error of its own.
-    """
-    try:
-        if getattr(caller, "is_authenticated", False) is not True:
-            return None
-        subject = getattr(caller, "subject", None)
-    except Exception:  # noqa: BLE001
-        return None
-    return subject if isinstance(subject, str) and subject else None
 
 
 class _Repeats:

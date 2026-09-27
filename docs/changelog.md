@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Breaking
+* 💥 `micro.fake()` entered before the app opens fakes the next open, and `async with micro.fake()` no longer raises on a closed app. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
+* 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 A route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 Routes, mounts and a mounted app's middleware changed after startup are read again before a request is served without a credential, and FastAPI then serves the routes read, an included route removed or edited in place included. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 💥 `every` and `cron` take one `gate=` saying which workers run a task: `None`, `"claim"` for one worker per interval or fire, or a `LeaderElection`. `every` also takes a tuned `TaskLock`. `lock=` and `leader=` are gone. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 💥 `cron` runs on every worker by default, as `every` does. Pass `gate="claim"` to keep running each fire once across the fleet. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 💥 A gated task with no schedule or lock backend reports a coordination error and runs nothing, instead of running on every worker. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 💥 A `TaskLock` gate whose `min_hold_duration` is shorter than the interval is refused, at construction and on `reconfigure`, and so is one already gating another task. A leader election passed as `sync=` is refused too. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 🔒 `sub` is always required, as `exp` is, so a token with no subject, a `null` one or one that is not a string is rejected with `missing-claim` and every verified caller has a subject to be keyed by. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 A token whose `jti` is not a string is rejected with `malformed`, one whose `iat` is not a number with `invalid`, and one whose `iat` is still to come with `not-yet-valid`, so a handler never reads a number as a subject. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 💥 A token declaring a `typ` other than `JWT`, `JOSE` or `at+jwt` is rejected with `type`, so a DPoP proof or a logout token signed by the same keys no longer passes as an access token. `token_type="at+jwt"` requires the RFC 9068 type. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
@@ -24,7 +32,16 @@
 * 💥 `JWTClaims.raw` is now `JWTClaims.claims`, the name `Principal` reads the claim set by. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🔒 `JWTClaims.claims` is read-only all the way down: a nested object is a read-only mapping and an array is a tuple, and `JWTClaims.audience` is a tuple when a token names several audiences. A cached claim set is shared by every request presenting the token, so a handler can no longer change what a later one is authorized as. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
+* 🔒 A caller is authenticated only when its `is_authenticated` is `True`. `Authenticated`, `CurrentPrincipal` and `CurrentToken` refuse one whose value is merely truthy, which the security events and the access log already named as nobody. ([#909](https://github.com/grelinfo/grelmicro/pull/909))
+
+* 💥 A `Lock`, `TaskLock`, `ReadWriteLock`, `LeaderElection` or gated `@cron` holding a backend of its own is checked against the backend scope too. The next app to open reports it, and `check_backends()` does as well. Register its backend as `Coordination(lock=backend, requires="process")` to declare a per-process lock. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
+* 💥 `IdempotentRequests` and `Idempotency` require scope `cluster` and are checked against the `Cache` they store through, so a memory `Cache` refuses to start in `production`. Pass `requires="process"` to declare a single-process deployment. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
+* 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
+
 ### Added
+* ✨ `micro.fake()` works on an app that `install` opens: enter it before the test client starts. The Providers only faked components used stay closed, so the suite connects to nothing and `/readyz` does not probe them, and `fake(keep=[provider])` opens one for real. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
+* ✨ The testing guide shows one fixture for the app you ship, and app factories cover two apps or clients at once. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
+* ✨ `Coordination(MemoryLockAdapter())` puts a backend in the slot it serves, as `Coordination(lock=...)` does. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 * ✨ `OAuthClient` gets the tokens a service calls other APIs with: `ClientCredentials` for the service itself and `TokenExchange` for the user it is serving, cached, refreshed before they expire, and sent through `auth()` with `httpx`. The service authenticates with a secret, a private key signed in the compiled core, or a workload identity token read from a file. ([#859](https://github.com/grelinfo/grelmicro/issues/859))
 * ✨ `CurrentToken` hands a FastAPI handler the bearer token that verified, and `current_token(request)` does the same on Starlette and Litestar, so a call made for the user exchanges the token that was checked. ([#859](https://github.com/grelinfo/grelmicro/issues/859))
 * ✨ Authentication writes a security event for every refusal and every ban on `grelmicro.security.events`, with Elastic Common Schema categorization, the route template and the client address, each kind of refusal from one address written once a minute. `grelmicro.authentication.attempts`, `grelmicro.authorization.refusals`, `grelmicro.client_bans.started` and `grelmicro.client_bans.active` count them, and `AuthenticatedRequests(enduser=True)` names the caller on the server span and on a refused token whose signature verified. ([#873](https://github.com/grelinfo/grelmicro/pull/873))
@@ -48,10 +65,17 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
-* 🐛 `NoActiveAppError` arrives with a message instead of none at all. It names `micro.install(app)` and the `async with micro:` block, and its docstring now covers the request handler that reaches it as well as the call made outside any block. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
-* 🐛 Opening a `Grelmicro` app that is already open says so, instead of reporting a call made outside the context manager. Overlapping TestClients, one app installed on two apps, and a second `async with micro:` all land there. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
-* 🐛 Every ambient backend miss says that `micro.install(app)` covers requests and websockets, and not a lifespan of your own, so a caller who did install the app is no longer told to install it. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
-* 🐛 Errors that carried no action now name the fix: `ComponentNotRegisteredError`, `TaskAddOperationError`, the lock backend errors, the precondition and credential refusals, and every `OutOfContextError` that names a method. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 🐛 Opening an app that is already open says so, and names `install(app)` and `micro.fake()`. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
+* 🐛 `install(app)` called twice on one app wires it once. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
+* 🐛 A claimed interval task whose `sync` lock refuses the body reports the fire as `missed`, as a cron task does, instead of `skipped`. The claim holds the interval, so no other worker runs it. ([#910](https://github.com/grelinfo/grelmicro/pull/910))
+* 🐛 `@Authenticated(scopes=[...])` on Starlette reads the scopes Starlette's own authentication grants on `request.auth`, so a caller holding them is no longer refused with `403`. ([#910](https://github.com/grelinfo/grelmicro/pull/910))
+* 🐛 An interval task claimed with a `TaskLock` runs once per interval across the fleet. The claim used to free one second after the body ended, so replicas with offset timers each ran their own tick. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 🐛 A `TaskLock` whose hold ran out on its own clock lets the same instance back in, even when the backend stores lease times in whole seconds (SQLite, Kubernetes). A claimed interval task on those backends no longer skips every other interval. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 🐛 A gated interval task renews its claim while the body runs, so a long body never lets a peer run the same interval. The lease now only bounds how long a crashed worker keeps the claim. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 🐛 The `TaskLock` passed as a gate is the one the task holds, so `reconfigure()` on it reaches the running task. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
+* 🐛 `NoActiveAppError` arrives with a message instead of none at all. It names `micro.install(app)` and the `async with micro:` block, and its docstring covers the request handler that reaches it as well as the call made outside any block. ([#889](https://github.com/grelinfo/grelmicro/pull/889))
+* 🐛 A pattern that resolves no backend adds that `micro.install(app)` covers request and message handlers, and not a lifespan of your own, so a caller who did install the app learns why the call still missed. ([#889](https://github.com/grelinfo/grelmicro/pull/889))
+* 🐛 Errors that carried no action now name the fix: `ComponentNotRegisteredError`, `TaskAddOperationError`, the lock backend errors, the precondition and credential refusals, closing an app that is not open, and every `OutOfContextError` that names a method. ([#889](https://github.com/grelinfo/grelmicro/pull/889))
 * 🐛 `JWTClaims.expires_at` and `issued_at` are whole seconds for a token whose `exp` or `iat` carries a fraction, rounded down, instead of a `float` their `int` type never announced. `claims` keeps the value as it arrived. ([#871](https://github.com/grelinfo/grelmicro/pull/871))
 * 🐛 On Litestar, an `include` or `exclude` pattern matches the path its router serves, with a trailing slash or a doubled slash dropped, whether or not the app has a root path. `exclude=("/livez",)` covers `/livez/` too. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 🔒 On Litestar, middleware added with `Litestar(middleware=[...])` matches `include` and `exclude` against the path the request was routed to. The root path is taken off once, and a mount is matched by its own path, so `exclude` can no longer match a path inside a mount. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
@@ -69,6 +93,9 @@
 ### Docs
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
+
+### Internal
+* 👷 One release ships `grelmicro` and `grelmicro-core`. When PyPI lacks the crate version, the release builds the core and publishes it first, so `grelmicro[jwt]` always resolves. A `jwt` pin that names another version, or a crate changed after its version was published, fails the pull request. ([#875](https://github.com/grelinfo/grelmicro/issues/875))
 
 ## 0.41.1 - 2026-09-12
 

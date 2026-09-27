@@ -76,19 +76,14 @@ class LockBackendError(CoordinationError):
 
 
 _BACKEND_HINT = "Check the backend is reachable and retry."
-"""Fix named by a lock error the backend itself raised.
-
-The backend's own error is chained to it, so the cause is one frame away.
-Nothing about the lock call can be changed to avoid it, which leaves
-reaching the backend as the thing to fix.
-"""
+"""Fix named by a lock error the backend raised, chained as its cause."""
 
 _NOT_OWNED = "lock not owned"
-"""Release reason set when the lease expired or another holder took it."""
+"""Release reason set when the caller does not hold the lock."""
 
 _NOT_OWNED_HINT = (
-    "The lease expired or another holder took it. Raise duration= above how "
-    "long the body runs."
+    "This caller does not hold it, or its lease expired. Release only a lock "
+    "you acquired, and raise lease_duration= above how long the body runs."
 )
 """Fix named by a release that found the lock was no longer ours."""
 

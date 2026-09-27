@@ -31,6 +31,77 @@ jobs:
       contents: read
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+  core-plan:
+    # Decides whether this release publishes grelmicro-core first, and
+    # refuses one whose `jwt` extra would not resolve to the crate the suite
+    # tested: a pin naming another version, a published version whose source
+    # changed since, or a new version not above the latest on PyPI.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || (inputs.dry_run && github.ref || inputs.version) }}
+          persist-credentials: false
+      - name: Plan the core release
+        id: plan
+        # An explicit bash shell runs with pipefail, so a refused plan fails
+        # the step rather than passing on the exit code of `tee`.
+        shell: bash
+        run: python3 tools/core_release.py plan | tee -a "$GITHUB_OUTPUT"
+  core-build:
+    needs: core-plan
+    if: ${{ needs.core-plan.outputs.publish == 'true' }}
+    uses: $/.github/workflows/build-core.yml
+    with:
+      ref: ${{ github.event.release.tag_name || (inputs.dry_run && github.ref || inputs.version) }}
+    permissions:
+      contents: read
+  publish-core:
+    # Publishes in this workflow rather than in `build-core.yml`, because
+    # trusted publishing refuses a reusable workflow. Runs before grelmicro
+    # publishes, so no published grelmicro requires a core PyPI lacks.
+    needs: [full-checks, core-plan, core-build]
+    if: ${{ needs.core-plan.outputs.publish == 'true' && github.event.inputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    environment: pypi
+    steps:
+      - name: Download every artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: Attest Build Provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "dist/*"
+      - name: Verify Build Provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for artifact in dist/*; do
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY"
+          done
+      - name: Publish grelmicro-core to PyPI
+        # A re-run after an interrupted upload skips the files already on
+        # PyPI. The sdist uploads last, so `core-plan` reads a version
+        # without one as unfinished and publishes it again.
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          attestations: true
+          skip-existing: true
   build-dist:
     # Declares no environment, so a dry run never reaches the credentials that
     # publish. Everything that needs them lives in `publish-pypi`, which the
@@ -65,8 +136,13 @@ jobs:
           path: dist
           if-no-files-found: error
   publish-pypi:
-    needs: build-dist
-    if: ${{ github.event.inputs.dry_run != 'true' }}
+    # Waits for the core when this release publishes one. A core that failed
+    # to build or publish stops grelmicro here, and a re-run resumes both.
+    needs: [build-dist, core-plan, publish-core]
+    if: >-
+      ${{ !cancelled() && github.event.inputs.dry_run != 'true'
+      && needs.build-dist.result == 'success'
+      && (needs.core-plan.outputs.publish == 'false' || needs.publish-core.result == 'success') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -102,8 +178,9 @@ jobs:
   publish-docs:
     needs: [build-dist, publish-pypi]
     # `publish-pypi` is skipped on a dry run, and a skipped need would take
-    # this with it, so the result is read rather than assumed.
-    if: ${{ !cancelled() && needs.build-dist.result == 'success' && needs.publish-pypi.result != 'failure' }}
+    # this with it, so the result is read rather than assumed. Outside a dry
+    # run the docs deploy only once the package they describe is on PyPI.
+    if: ${{ !cancelled() && needs.build-dist.result == 'success' && (needs.publish-pypi.result == 'success' || github.event.inputs.dry_run == 'true') }}
     uses: $/.github/workflows/reusable-docs.yml
     with:
       ref: ${{ github.event.release.tag_name || (inputs.dry_run && github.ref || inputs.version) }}

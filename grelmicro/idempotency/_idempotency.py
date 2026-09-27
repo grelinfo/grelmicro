@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Annotated, Any, Generic, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Generic, Self, cast
 
 from typing_extensions import Doc, TypeVar
 
@@ -12,6 +12,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._environment import Binding, falls_short, label, record
 from grelmicro.cache._stampede import (
     AsyncStampedeGuard,
     _has_lock_backend,
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache.serializers import CacheSerializer
+    from grelmicro.types import BackendScope
 
 T = TypeVar("T", default=Any)
 
@@ -132,9 +134,9 @@ class _Block(Generic[T]):
         Raises:
             OutOfContextError: No cache backend resolved in this scope.
                 Pass `cache=`, register a `Cache` Component, or run the
-                call inside `async with micro:`. `micro.install(app)`
-                covers requests and websockets, and not a lifespan of
-                your own.
+                call inside `async with micro:` or after
+                `micro.install(app)`. `micro.install(app)` covers request
+                and message handlers, and not a lifespan of your own.
             IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
                 execution already in flight held the single-flight lock.
         """
@@ -148,9 +150,9 @@ class _Block(Generic[T]):
         except OutOfContextError:
             msg = (
                 f"Idempotency({self._idempotency.name!r}) resolved no "
-                f"cache backend. {_AMBIENT_SCOPE_NOTE} Pass cache=, "
-                f"register a Cache component, or run the call inside "
-                f"`async with micro:`."
+                f"cache backend. Pass cache=, register a Cache component, "
+                f"or run the call inside `async with micro:` or after "
+                f"`micro.install(app)`. {_AMBIENT_SCOPE_NOTE}"
             )
             raise OutOfContextError(msg) from None
         if replay is not _SENTINEL:
@@ -311,6 +313,9 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
 
     _IDEMPOTENCY_PREFIX = "idempotency"
 
+    default_requires: ClassVar[BackendScope] = "cluster"
+    """Default `requires=`: a retry replays on whichever replica it lands."""
+
     def __init__(
         self,
         name: Annotated[
@@ -378,6 +383,20 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """,
             ),
         ] = None,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                """
+                The smallest scope the cache backend must reach:
+                `"process"`, `"host"` or `"cluster"`. Defaults to
+                `"cluster"`, so a retry finds the stored response on
+                whichever replica it lands. Lower it to declare a
+                single-process or single-host deployment. Checked when the
+                app opens, see
+                [the backend check](../deployment.md#the-backend-check).
+                """,
+            ),
+        ] = None,
         env_prefix: Annotated[
             str | None,
             Doc(
@@ -419,7 +438,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
-        self._setup(name, config, fingerprint, cache, serializer)
+        self._setup(name, config, fingerprint, cache, serializer, requires)
         self._track_reconfigure(resolved_env_prefix)
 
     @classmethod
@@ -457,10 +476,16 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 " serialize with `PydanticSerializer`."
             ),
         ] = None,
+        requires: Annotated[
+            BackendScope | None,
+            Doc("The smallest scope the cache backend must reach."),
+        ] = None,
     ) -> Self:
         """Construct an `Idempotency` from a name and a pre-built config."""
         instance = cls.__new__(cls)
-        instance._setup(name, config, fingerprint, cache, serializer)  # noqa: SLF001
+        instance._setup(  # noqa: SLF001
+            name, config, fingerprint, cache, serializer, requires
+        )
         return instance
 
     def _setup(
@@ -470,6 +495,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         fingerprint: str | None,
         cache: TTLCache[T] | None,
         serializer: CacheSerializer[T] | type[T] | None,
+        requires: BackendScope | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         from grelmicro.cache.serializers import (  # noqa: PLC0415
@@ -487,6 +513,36 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             _resolve_serializer(serializer) if serializer is not None else None
         )
         self._cache: TTLCache[T] | None = cache
+        self._requires: BackendScope = requires or self.default_requires
+        binding = self._scope_binding()
+        if binding.backend is None or falls_short(
+            binding.backend, self._requires
+        ):
+            record(self, binding)
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest scope the cache backend must reach."""
+        return self._requires
+
+    def _scope_binding(self) -> Binding:
+        """Describe the backend this stores through, for the scope check.
+
+        A `TTLCache` holding a backend of its own is checked on it. Any
+        other rides the app's `Cache('default')`, which is where it reads.
+        """
+        cache = self._cache
+        backend = cache._backend if cache is not None else None  # noqa: SLF001
+        if backend is not None:
+            return Binding(
+                label(self), self._requires, backend=backend, kind="cache"
+            )
+        return Binding(
+            label(self),
+            self._requires,
+            rides=("cache", "default"),
+            kind="cache",
+        )
 
     def _get_cache(self) -> TTLCache[T]:
         """Return the response store, composing it on first use.

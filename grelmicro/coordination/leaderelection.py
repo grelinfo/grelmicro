@@ -6,7 +6,7 @@ from contextlib import suppress
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
-from typing import Annotated, Any, ClassVar, Self
+from typing import Annotated, Any, ClassVar, Final, Self
 from uuid import UUID
 
 from pydantic import model_validator
@@ -19,6 +19,8 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._environment import record_coordination
+from grelmicro._task import Task
 from grelmicro.coordination._base import (
     BaseLockConfig,
     assert_worker_unchanged,
@@ -36,15 +38,18 @@ from grelmicro.coordination._protocol import (
     Seconds,
 )
 from grelmicro.coordination._tokens import resolve_worker
-from grelmicro.errors import (
-    _AMBIENT_SCOPE_NOTE,
-    OutOfContextError,
-    WouldBlockError,
-)
+from grelmicro.errors import OutOfContextError, WouldBlockError
 from grelmicro.metrics import _emit
-from grelmicro.task._protocol import Task
 
 logger = getLogger("grelmicro.leader_election")
+
+
+_NO_BACKEND: Final = (
+    "LeaderElection({name!r}) resolved no backend. Register a Coordination "
+    "component, pass backend=, or run the call inside `async with micro:` "
+    "or after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class LeaderElectionConfig(BaseLockConfig):
@@ -406,6 +411,8 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         self._backend_name: str | None = (
             backend if isinstance(backend, str) else None
         )
+        if self._backend is not None:
+            record_coordination(self, self._backend, "election")
 
         self._service_running = False
         self._state_change_condition: asyncio.Condition = asyncio.Condition()
@@ -460,29 +467,20 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         backend can point at a different vendor than its lock backend.
 
         Raises:
-            OutOfContextError: No backend resolved in this scope. Pass
-                `backend=` (a `MemoryLeaderElectionAdapter()` for a
-                per-process election), register a `Coordination`
-                Component, or run the call inside `async with micro:`.
-                `micro.install(app)` covers requests and websockets, and
-                not a lifespan of your own.
+            OutOfContextError: No backend resolved in this scope.
+                Register a `Coordination` Component, pass `backend=`,
+                or run the call inside `async with micro:` or after
+                `micro.install(app)`.
+                `micro.install(app)` covers request and message handlers,
+                and not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
-        try:
-            coordination = resolve_ambient(
-                ("coordination", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"LeaderElection({self._name!r}) resolved no backend. "
-                f"{_AMBIENT_SCOPE_NOTE} Pass backend= "
-                f"(MemoryLeaderElectionAdapter() for a per-process "
-                f"election), register a Coordination component, or run the "
-                f"call inside `async with micro:`."
-            )
-            raise OutOfContextError(msg) from None
-        return coordination.election_backend
+        return resolve_ambient(
+            ("coordination", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).election_backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""
@@ -781,11 +779,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
     def guard(self) -> "_LeaderGuard":
         """Return a non-blocking synchronization guard.
 
-        The guard raises ``WouldBlock`` if the current worker is not the leader,
-        making it suitable for use as the ``sync`` parameter of ``IntervalTask``.
+        The guard raises ``WouldBlockError`` if the current worker is not the
+        leader. Unlike using ``LeaderElection`` directly (which blocks until
+        leader), the guard lets the caller skip the work and try again later.
 
-        Unlike using ``LeaderElection`` directly (which blocks until leader),
-        the guard skips the current tick and retries on the next interval.
+        To run a scheduled task on the leader only, pass the election itself
+        as the task ``gate``.
         """
         return _LeaderGuard(self)
 

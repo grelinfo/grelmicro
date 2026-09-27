@@ -144,6 +144,13 @@ Compiled code ships as `grelmicro-core`, a wheel of its own, pulled in by the
 extra that needs it. `grelmicro` stays a pure Python wheel built by hatchling,
 so the release, the provenance and the Python matrix are unchanged.
 
+Both ship from one release. The `jwt` extra requires the crate version in
+`rust/grelmicro-core/Cargo.toml`, and the release publishes that version first
+when PyPI does not have it yet. A crate changed after its version was published
+needs the next version, in `Cargo.toml` and in the extra together, and CI fails
+the pull request until it has one. Several changes can land on one unreleased
+version.
+
 One wheel holds anything crypto-adjacent, because the binary is 2.38 MB and
 almost all of it is AWS-LC. A second wheel would put BoringSSL on disk twice
 for people who call it once. A pattern needing no crypto is the case for a

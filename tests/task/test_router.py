@@ -161,7 +161,9 @@ def test_router_interval_with_lock() -> None:
     # Act
     router.every(
         seconds=60,
-        lock=TaskLock(backend=backend, lease_duration=300),
+        gate=TaskLock(
+            backend=backend, lease_duration=300, min_hold_duration=60
+        ),
     )(test1)
 
     # Assert
@@ -184,7 +186,9 @@ def test_router_interval_with_lock_default_name_restamped() -> None:
     router.every(
         name="cleanup",
         seconds=60,
-        lock=TaskLock(backend=backend, lease_duration=300),
+        gate=TaskLock(
+            backend=backend, lease_duration=300, min_hold_duration=60
+        ),
     )(test1)
 
     # Assert
@@ -205,7 +209,9 @@ def test_router_interval_with_lock_explicit_name_honored() -> None:
     router.every(
         name="cleanup",
         seconds=60,
-        lock=TaskLock("shared", backend=backend, lease_duration=300),
+        gate=TaskLock(
+            "shared", backend=backend, lease_duration=300, min_hold_duration=60
+        ),
     )(test1)
 
     # Assert
@@ -219,14 +225,14 @@ def test_router_interval_with_lock_explicit_name_honored() -> None:
 def test_router_interval_with_lock_and_custom_least() -> None:
     """Test Task Router add interval task with custom min_hold_duration."""
     # Arrange
-    min_hold_duration = 30
+    min_hold_duration = 90
     backend = MemoryLockAdapter()
     router = TaskRouter()
 
     # Act
     router.every(
         seconds=60,
-        lock=TaskLock(
+        gate=TaskLock(
             backend=backend,
             lease_duration=300,
             min_hold_duration=min_hold_duration,
@@ -242,8 +248,8 @@ def test_router_interval_with_lock_and_custom_least() -> None:
     assert task_lock.config.min_hold_duration == min_hold_duration
 
 
-def test_router_interval_lease_less_than_seconds_raises() -> None:
-    """Test a lock lease_duration below seconds raises ValueError."""
+def test_router_interval_min_hold_less_than_seconds_raises() -> None:
+    """Test a lock min_hold_duration below seconds raises ValueError."""
     # Arrange
     backend = MemoryLockAdapter()
     router = TaskRouter()
@@ -251,11 +257,11 @@ def test_router_interval_lease_less_than_seconds_raises() -> None:
     # Act / Assert
     with pytest.raises(
         ValueError,
-        match="lease_duration must be greater than or equal to seconds",
+        match="min_hold_duration must be greater than or equal to seconds",
     ):
         router.every(
             seconds=60,
-            lock=TaskLock(backend=backend, lease_duration=10),
+            gate=TaskLock(backend=backend, lease_duration=10),
         )(test1)
 
 
