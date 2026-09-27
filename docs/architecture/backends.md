@@ -22,7 +22,7 @@ Users construct **Providers**, attach **Components** that share each Provider, a
 
 Not every Pattern needs a backend, and the ones that do behave differently when one is missing. What a Pattern does without a registered backend sorts it into three tiers.
 
-**Backend required.** `Lock`, `TaskLock`, and `LeaderElection` only mean something against a shared store: a lock local to one process is not a lock. They have no safe local fallback, so using one without a registered `Coordination` backend raises. A scheduled task gated with `gate="claim"` or a `LeaderElection` belongs here too: without a backend it reports a coordination error on every fire rather than run on every worker.
+**Backend required.** `Lock`, `TaskLock`, and `LeaderElection` only mean something against a shared store: a lock local to one process is not a lock. They have no safe local fallback, so using one with no backend at all, neither `backend=` nor a registered `Coordination`, raises. A scheduled task gated with `gate="claim"` or a `LeaderElection` belongs here too: without a backend it reports a coordination error on every fire rather than run on every worker.
 
 **Backend optional, degrades safely.** `CircuitBreaker` and `RateLimiter` run without a backend, they just stop coordinating across replicas. A circuit breaker trips per replica and a rate limiter counts per replica. Sharing is a deliberate opt-in, and the safe default differs per Pattern: a circuit breaker is best left local (each replica reacts to what it sees), and a rate limiter is often global. Resilience keeps `CircuitBreakerComponent` and `RateLimiterComponent` as separate Components so opting rate limiting into a shared store does not also distribute your circuit breakers.
 
@@ -40,6 +40,10 @@ class MemoryLockAdapter:
 ```
 
 Three values, ordered: `process` (Memory) is held inside one process, `host` (SQLite) across the processes sharing one file, `cluster` (Redis, Valkey, Postgres, Kubernetes) across every process that connects to the backend. A Component is satisfied when the backend's scope is at least what it requires. `Coordination` and `Outbox` require `cluster`, the resilience Components and `Cache` require `process`, and `requires=` overrides either way.
+
+`IdempotentRequests` and `Idempotency` require `cluster` and hold no backend. They are checked against the backend of the `Cache` they store through: the one their `TTLCache` holds, or else the registered `Cache('default')`.
+
+A Pattern that holds a backend of its own is not registered, so the app cannot walk to it. It records itself when it is built, and only when its backend falls short, so a Pattern on Redis costs one comparison. The next app to open checks every live record, and a Pattern built inside an open app is checked at once. A registered `Coordination` holding the same backend decides for the Pattern, which is how a per-process lock is declared.
 
 The environment decides the severity, not the verdict: `production` and `staging` make an unmet requirement a `BackendScopeError` at startup, an undeclared environment makes it a warning, and `development` and `test` silence it. [Deployment](../deployment.md#the-backend-check) has the user-facing rules.
 

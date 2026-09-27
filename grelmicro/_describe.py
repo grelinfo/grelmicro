@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from typing_extensions import Doc
 
-from grelmicro._environment import unmet_requirements
+from grelmicro._environment import recorded_bindings, unmet_requirements
 from grelmicro._paths import matches, names_route, walk_routes
 from grelmicro._redact import redact_url
 
@@ -309,7 +309,7 @@ def _scope_checks(
         STRICT_ENVIRONMENTS,
     )
 
-    unmet = unmet_requirements(items)
+    unmet = unmet_requirements(items, recorded_bindings())
     if not unmet or environment in QUIET_ENVIRONMENTS:
         return [
             CheckReport(
@@ -329,11 +329,7 @@ def _scope_checks(
         CheckReport(
             name="backend-scope",
             status=status,
-            detail=(
-                f"{entry.component} is bound to {entry.backend}, which "
-                f"{entry.provides} scope {entry.scope!r}, but requires "
-                f"{entry.requires!r}"
-            ),
+            detail=entry.finding,
         )
         for entry in unmet
     ]

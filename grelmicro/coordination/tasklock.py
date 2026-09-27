@@ -28,6 +28,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._environment import record_coordination
 from grelmicro.coordination._base import (
     BaseLockConfig,
     assert_worker_unchanged,
@@ -62,10 +63,9 @@ logger = getLogger("grelmicro.coordination")
 
 
 _NO_BACKEND: Final = (
-    "TaskLock({name!r}) resolved no backend. Pass backend= "
-    "(MemoryLockAdapter() for a per-process lock), register a Coordination "
-    "component, or run the call inside `async with micro:` or after "
-    "`micro.install(app)`."
+    "TaskLock({name!r}) resolved no backend. Register a Coordination "
+    "component, pass backend=, or run the call inside `async with micro:` "
+    "or after `micro.install(app)`."
 )
 """What `backend` raises when no `backend=` was passed and none resolves."""
 
@@ -313,6 +313,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         self._backend_name: str | None = (
             backend if isinstance(backend, str) else None
         )
+        if self._backend is not None:
+            record_coordination(self, self._backend, "lock")
         self._acquired_at: float | None = None
         self._token_nonce = generate_token_nonce()
         # The nonce and local end of the hold this instance last set, so it
@@ -381,10 +383,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         `micro.override(Coordination(...))` blocks take effect.
 
         Raises:
-            OutOfContextError: No backend resolved in this scope. Pass
-                `backend=` (a `MemoryLockAdapter()` for a per-process
-                lock), register a `Coordination` Component, or run the
-                call inside `async with micro:` or after
+            OutOfContextError: No backend resolved in this scope.
+                Register a `Coordination` Component, pass `backend=`,
+                or run the call inside `async with micro:` or after
                 `micro.install(app)`.
         """
         if self._backend is not None:

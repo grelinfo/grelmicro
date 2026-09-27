@@ -74,6 +74,18 @@ distributed cron and an outbox all promise something across replicas. `Cache`,
 per-replica cache and a per-replica circuit breaker are the standard shape,
 not a mistake.
 
+[`IdempotentRequests`](http/idempotency.md) and
+[`Idempotency`](idempotency/index.md) require `cluster` too, because a replay
+has to find the stored response wherever the retry lands. They store through
+a `Cache`, so the check reads the backend of that `Cache`:
+
+```
+BackendScopeError: IdempotentRequests('default') rides Cache('default'), which
+is bound to MemoryCacheAdapter and provides scope 'process', but requires
+scope 'cluster' in environment 'production'. Use a Redis, Valkey, or
+Postgres backend, or pass requires= to say what reach you want.
+```
+
 Say what you want with `requires=` and the default no longer applies:
 
 ```python
@@ -83,14 +95,26 @@ Say what you want with `requires=` and the default no longer applies:
 It reads in both directions. Lower the bar to accept the scope you have, or
 raise it to make the wiring you meant a startup condition: a
 `RateLimiterComponent(redis, requires="cluster")` fails at boot the day
-someone points it at memory. A `Cache` that an
-[`Idempotency`](idempotency/index.md) reads from wants `requires="cluster"` too,
-because a replay has to find the stored response wherever the retry lands.
+someone points it at memory.
 
 Only a bound backend is checked. A component you never registered is the
 [documented way](architecture/backends.md#distribution-model) to say you want
 local behavior: a `@cron` with no gate fires on every replica on purpose. Wiring a memory schedule backend instead says you expected the fleet
 to agree, so that one is reported.
+
+A pattern that holds a backend of its own is checked too, even though no app
+registers it. `Lock("cart", backend=MemoryLockAdapter())` is reported by the
+next app that opens, and by `micro.check_backends()`. Built inside an open app,
+it is reported where it is built. The same goes for `TaskLock`,
+`ReadWriteLock`, `LeaderElection` and a gated `@cron`.
+
+A lock takes no `requires=` of its own. To say a per-process lock is what you
+want, register its backend with the reach you accept, and that component
+answers for every pattern holding the same backend:
+
+```python
+--8<-- "deployment/local_lock.py"
+```
 
 A [`Bulkhead(uses=[...])`](resilience/bulkhead.md) holds components the app
 never registers, so those are checked on first entry to the scope instead of
