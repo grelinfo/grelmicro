@@ -282,10 +282,9 @@ class Outbox:
 
         Raises:
             OutOfContextError: No active app, or no `Outbox` registered under
-                `name`. Run inside `async with micro:` or after
-                `micro.install(app)`, with an `Outbox` in `uses=[...]`.
-                `micro.install(app)` covers request and message handlers,
-                and not a lifespan of your own.
+                `name`. Run inside `async with micro:`, with an `Outbox` in
+                `uses=[...]`. `micro.install(app)` covers request and
+                message handlers, and not a lifespan of your own.
         """
         try:
             return resolve_ambient((cls.kind, name))
@@ -293,7 +292,7 @@ class Outbox:
             msg = (
                 f"Outbox({name!r}) is not available: no active app, or no "
                 f"Outbox registered under {name!r}. Run inside "
-                f"`async with micro:` or after `micro.install(app)`, with an "
+                f"`async with micro:`, with an "
                 f"Outbox registered in uses=[...]. {_AMBIENT_SCOPE_NOTE}"
             )
             raise OutOfContextError(msg) from None

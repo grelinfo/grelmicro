@@ -276,11 +276,12 @@ class InsufficientScopeError(GrelmicroError):
 
 
 class OutOfContextError(GrelmicroError, RuntimeError):
-    """Raised when something is used before it was opened.
+    """Raised when something is used while it is not open.
 
-    The message names the object and the call that reached it, then the
-    change that opens it: registering it on the app, or entering it with
-    `async with`.
+    The message names the object and the call that reached it, whether the
+    object was never opened or already closed. It then names the fixes:
+    registering it on the app so the app opens it, or making the call while
+    it is open.
     """
 
     def __init__(self, cls: object, method_name: str | None = None) -> None:
@@ -294,9 +295,10 @@ class OutOfContextError(GrelmicroError, RuntimeError):
         else:
             name = cls.__class__.__name__
             super().__init__(
-                f"Could not call {name}.{method_name} before the {name} was "
-                f"opened. Register it in Grelmicro(uses=[...]), or open it "
-                f"with `async with`."
+                f"Could not call {name}.{method_name}: the {name} is not "
+                f"open. It was never opened, or it already closed. Register "
+                f"it in Grelmicro(uses=[...]) so the app opens it, or make "
+                f"the call while it is open."
             )
 
 

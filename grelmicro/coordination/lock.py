@@ -83,8 +83,7 @@ def validate_lock_name(name: str) -> None:
 
 _NO_BACKEND: Final = (
     "Lock({name!r}) resolved no backend. Register a Coordination "
-    "component, pass backend=, or run the call inside `async with micro:` "
-    "or after `micro.install(app)`."
+    "component, pass backend=, or run the call inside `async with micro:`."
 )
 """What `backend` raises when no `backend=` was passed and none resolves."""
 
@@ -379,8 +378,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         Raises:
             OutOfContextError: No backend resolved in this scope.
                 Register a `Coordination` Component, pass `backend=`,
-                or run the call inside `async with micro:` or after
-                `micro.install(app)`.
+                or run the call inside `async with micro:`.
                 `micro.install(app)` covers request and message handlers,
                 and not a lifespan of your own.
         """

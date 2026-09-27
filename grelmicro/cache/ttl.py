@@ -41,7 +41,7 @@ T = TypeVar("T", default=Any)
 _NO_BACKEND: Final = (
     "TTLCache resolved no backend. Pass backend= (MemoryCacheAdapter() for "
     "a per-process cache), register a Cache component, or run the call "
-    "inside `async with micro:` or after `micro.install(app)`."
+    "inside `async with micro:`."
 )
 """What `backend` raises when no `backend=` was passed and none resolves."""
 
@@ -293,8 +293,7 @@ class TTLCache(Generic[T]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryCacheAdapter()` for a per-process
                 cache), register a `Cache` Component, or run the call
-                inside `async with micro:` or after
-                `micro.install(app)`.
+                inside `async with micro:`.
                 `micro.install(app)` covers request and message handlers,
                 and not a lifespan of your own.
         """

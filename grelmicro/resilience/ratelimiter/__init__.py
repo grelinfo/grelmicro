@@ -120,8 +120,7 @@ def _union_for_env() -> object:
 _NO_BACKEND: Final = (
     "RateLimiter({name!r}) resolved no backend. Pass backend= "
     "(MemoryRateLimiterAdapter() for a per-process limiter), register a "
-    "RateLimiterComponent component, or run the call inside `async with "
-    "micro:` or after `micro.install(app)`."
+    "RateLimiterComponent component, or run the call inside `async with micro:`."
 )
 """What `backend` raises when no `backend=` was passed and none resolves."""
 
@@ -231,8 +230,7 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryRateLimiterAdapter()` for a
                 per-process limiter), register a `RateLimiterComponent`
-                Component, or run the call inside `async with micro:` or
-                after `micro.install(app)`.
+                Component, or run the call inside `async with micro:`.
                 `micro.install(app)` covers request and message handlers,
                 and not a lifespan of your own.
         """

@@ -134,9 +134,9 @@ class _Block(Generic[T]):
         Raises:
             OutOfContextError: No cache backend resolved in this scope.
                 Pass `cache=`, register a `Cache` Component, or run the
-                call inside `async with micro:` or after
-                `micro.install(app)`. `micro.install(app)` covers request
-                and message handlers, and not a lifespan of your own.
+                call inside `async with micro:`. `micro.install(app)`
+                covers request and message handlers, and not a lifespan of
+                your own.
             IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
                 execution already in flight held the single-flight lock.
         """
@@ -151,8 +151,7 @@ class _Block(Generic[T]):
             msg = (
                 f"Idempotency({self._idempotency.name!r}) resolved no "
                 f"cache backend. Pass cache=, register a Cache component, "
-                f"or run the call inside `async with micro:` or after "
-                f"`micro.install(app)`. {_AMBIENT_SCOPE_NOTE}"
+                f"or run the call inside `async with micro:`. {_AMBIENT_SCOPE_NOTE}"
             )
             raise OutOfContextError(msg) from None
         if replay is not _SENTINEL:

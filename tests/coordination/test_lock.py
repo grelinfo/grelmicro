@@ -119,13 +119,13 @@ def test_lock_acquire_error_names_the_fix() -> None:
 
 
 def test_lock_not_owned_error_names_the_lease_fix() -> None:
-    """A release that lost the lease names the lease duration, not the backend."""
+    """A lock not held names the lease duration, not the backend."""
     # Arrange / Act
     error = LockNotOwnedError(name=LOCK_NAME)
 
     # Assert
     msg = str(error)
-    assert "raise lease_duration= above how long the body runs" in msg
+    assert "raise lease_duration= above how long the work runs" in msg
     assert "Check the backend is reachable" not in msg
 
 

@@ -78,15 +78,6 @@ class LockBackendError(CoordinationError):
 _BACKEND_HINT = "Check the backend is reachable and retry."
 """Fix named by a lock error the backend raised, chained as its cause."""
 
-_NOT_OWNED = "lock not owned"
-"""Release reason set when the caller does not hold the lock."""
-
-_NOT_OWNED_HINT = (
-    "This caller does not hold it, or its lease expired. Release only a lock "
-    "you acquired, and raise lease_duration= above how long the body runs."
-)
-"""Fix named by a release that found the lock was no longer ours."""
-
 
 class LockLockedCheckError(LockBackendError):
     """Lock Locked Check Error.
@@ -135,21 +126,27 @@ class LockReleaseError(LockBackendError):
 
     def __init__(self, *, name: str, reason: str | None = None) -> None:
         """Initialize the error."""
-        hint = _NOT_OWNED_HINT if reason == _NOT_OWNED else _BACKEND_HINT
         super().__init__(
             f"Failed to release lock: name={name}"
             + (f", reason={reason}" if reason else "")
-            + f". {hint}",
+            + f". {_BACKEND_HINT}",
         )
 
 
 class LockNotOwnedError(LockReleaseError):
-    """Lock Not Owned Error during Release.
+    """Raised when a lock is used by a caller that does not hold it.
 
-    This error is raised when an attempt is made to release a lock that is not owned, respectively
-    the token is different or the lock is already expired.
+    Releasing, refreshing, renewing, or checking a guard all raise it when
+    the caller never acquired the lock, already released it, or let its
+    lease run out.
     """
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(name=name, reason=_NOT_OWNED)
+        LockBackendError.__init__(
+            self,
+            f"Lock not held: name={name}. This caller never acquired it, "
+            f"already released it, or its lease ran out because the work "
+            f"outran lease_duration=. Use the lock only while it is held, "
+            f"and raise lease_duration= above how long the work runs.",
+        )

@@ -106,7 +106,7 @@ async def test_owned_provider_is_opened_and_closed(
         )
         assert await strategy.try_acquire() is True
 
-    with pytest.raises(Exception, match="before the SQLiteProvider was opened"):
+    with pytest.raises(Exception, match="SQLiteProvider is not open"):
         _ = backend.provider.client
 
 

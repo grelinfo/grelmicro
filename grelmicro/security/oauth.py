@@ -1934,7 +1934,7 @@ class _TokenPattern:
             msg = (
                 f"{type(self).__name__}({self._name!r}) found no OAuthClient."
                 " Register one in Grelmicro(uses=[...]) and run inside"
-                " `async with micro:` or after `micro.install(app)`, or pass"
+                " `async with micro:`, or pass"
                 f" client=. {_AMBIENT_SCOPE_NOTE}"
             )
             raise OutOfContextError(msg) from None

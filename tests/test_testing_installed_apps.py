@@ -314,7 +314,7 @@ async def test_a_provider_two_faked_apps_skip_stays_closed_until_both_close() ->
         with pytest.raises(OutOfContextError, match=r"fake\(keep="):
             _ = postgres.client
 
-    with pytest.raises(OutOfContextError, match="before the PostgresProvider"):
+    with pytest.raises(OutOfContextError, match="PostgresProvider is not open"):
         _ = postgres.client
 
 
