@@ -1,5 +1,6 @@
 """Tests for testing an app that `install` wires into a framework."""
 
+import logging
 import os
 import subprocess
 import sys
@@ -390,3 +391,31 @@ async def test_a_provider_nothing_faked_used_stays_open() -> None:
     with pytest.raises(OSError, match=r"127\.0\.0\.1"):
         async with micro.fake(), micro:
             pass  # pragma: no cover
+
+
+async def test_a_faked_run_leaves_no_readiness_check_behind(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Each run checks the Providers it opens, faked or real."""
+    health = HealthChecks(auto_health=True)
+    micro = Grelmicro(uses=[Cache(PostgresProvider(_CLOSED_PORT)), health])
+
+    with caplog.at_level(logging.WARNING, logger="grelmicro"):
+        for _ in range(2):
+            async with micro.fake(), micro:
+                assert "provider:memory" in (await health.run())["checks"]
+
+    assert "already registered" not in caplog.text
+    assert "provider:memory" not in (await health.run())["checks"]
+
+
+async def test_a_registration_made_while_faked_outlives_the_run() -> None:
+    """`micro.use(...)` on a faked app is kept, as on a real run."""
+    micro = Grelmicro(uses=[RedisProvider("redis://127.0.0.1:1/0")])
+    sessions = Cache(MemoryCacheAdapter(), name="sessions")
+
+    async with micro.fake(), micro:
+        micro.use(sessions)
+
+    assert micro.get(Cache, "sessions") is sessions
+    assert type(micro.get(Cache).backend).__name__ == "RedisCacheAdapter"

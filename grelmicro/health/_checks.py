@@ -280,6 +280,8 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._auto_health = auto_health
         self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}
+        self._auto_registered: list[str] = []
+        """Checks `auto_health` added on this run, removed when it closes."""
 
     @property
     def name(self) -> str:
@@ -302,7 +304,14 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the health checks."""
+        """Close the health checks.
+
+        Drops the checks `auto_health` registered, so the next run checks the
+        Providers that run opens rather than the ones this run had.
+        """
+        for check_name in self._auto_registered:
+            self._entries.pop(check_name, None)
+        self._auto_registered.clear()
 
     def add(
         self,
@@ -484,6 +493,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 )
                 continue
             self.add(check_name, check, critical=True)
+            self._auto_registered.append(check_name)
 
     async def run(
         self,

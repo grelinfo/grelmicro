@@ -9,7 +9,7 @@ from contextlib import (
     asynccontextmanager,
 )
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from threading import Lock as ThreadLock
 from typing import (
     TYPE_CHECKING,
@@ -826,9 +826,30 @@ class Grelmicro:
         unfaked, self._unfaked = self._unfaked, None
         if unfaked is None:
             return
-        self._items = unfaked.items
-        self._by_key = unfaked.by_key
-        self._by_kind = unfaked.by_kind
+        # A registration made while the faked app was open is kept, as it
+        # would be on a real run.
+        added = {
+            key: component
+            for key, component in self._by_key.items()
+            if unfaked.faked_by_key.get(key) is not component
+        }
+        self._items = [
+            *unfaked.items,
+            *(
+                item
+                for item in self._items
+                if id(item) not in unfaked.faked_items
+            ),
+        ]
+        self._by_key = {**unfaked.by_key, **added}
+        self._by_kind = {
+            **unfaked.by_kind,
+            **{
+                key[0]: component
+                for key, component in added.items()
+                if key[1] == "default"
+            },
+        }
         for provider in unfaked.skipped:
             provider._skips -= 1  # noqa: SLF001
 
@@ -1512,6 +1533,12 @@ class Grelmicro:
                 unmet_requirements(self._items, recorded_bindings()),
                 self._environment,
             )
+        else:
+            self._unfaked = replace(
+                self._unfaked,
+                faked_items=frozenset(id(item) for item in self._items),
+                faked_by_key=dict(self._by_key),
+            )
 
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.
@@ -1771,6 +1798,11 @@ class _Unfaked:
     by_key: dict[tuple[str, str], Component]
     by_kind: dict[str, Component]
     skipped: list[Provider]
+    faked_items: frozenset[int] = frozenset()
+    """Identity of every item the faked open settled on, to tell later
+    registrations apart."""
+    faked_by_key: dict[tuple[str, str], Component] = field(default_factory=dict)
+    """The faked registrations as the open settled them."""
 
 
 class _Fake:
