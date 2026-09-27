@@ -491,13 +491,6 @@ only_mutate = [
     "grelmicro/coordination/tasklock.py",
     "grelmicro/coordination/lock.py",
 ]
-pytest_add_cli_args_test_selection = [
-    "tests/coordination/",
-    "tests/outbox/",
-    "tests/idempotency/",
-    "tests/task/",
-    "tests/cache/",
-    "tests/resilience/",
-]
+pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["-n0", "-m", "not integration and not slow and not stress"]
 also_copy = ["README.md"]
