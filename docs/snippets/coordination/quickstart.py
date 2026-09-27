@@ -10,6 +10,6 @@ leader = micro.coordination.leaderelection("worker")
 tasks.add_task(leader)
 
 
-@tasks.every(seconds=10, leader=leader)
+@tasks.every(seconds=10, gate=leader)
 async def run_once_in_the_cluster() -> None:
     print("only the leader runs this")

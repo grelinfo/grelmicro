@@ -29,18 +29,21 @@ from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
 from grelmicro import Grelmicro
-from grelmicro.errors import InsufficientScopeError
+from grelmicro._caller import subject_of
+from grelmicro.errors import (
+    AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
+)
 from grelmicro.http import (
     AuthenticatedRequests,
     AuthenticatedRequestsConfig,
     AuthenticatedRequestsMiddleware,
     ErrorResponses,
 )
-from grelmicro.http._authentication import (
-    _PublicRoutes,
-    recorded,
-    refusal_of,
-)
+from grelmicro.http._authentication import _PublicRoutes, refusal_of
+from grelmicro.http._kinds import classify
+from grelmicro.http._requirement import recorded
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
 )
@@ -993,8 +996,8 @@ class TestEncoding:
             def is_authenticated(self) -> bool:
                 raise RuntimeError
 
-        assert _events.subject_of(Broken()) is None
-        assert _events.subject_of(object()) is None
+        assert subject_of(Broken()) is None
+        assert subject_of(object()) is None
 
 
 class TestWithoutTracing:
@@ -1048,6 +1051,30 @@ class TestRefusalOf:
     ) -> None:
         """A rejected token by its reason, anything else by its type."""
         assert refusal_of(error) == expected
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            AuthenticationRequiredError(),
+            AmbiguousCredentialsError(),
+            InsufficientScopeError(scopes=("orders:read",)),
+            ClientBannedError(retry_after=1.0),
+            SigningKeysUnavailableError("down"),
+            TokenRejectedError(TokenRejectedReason.EXPIRED),
+        ],
+        ids=type,
+    )
+    def test_each_refusal_answers_the_status_it_renders_with(
+        self, error: BaseException
+    ) -> None:
+        """A refusal is recorded with the status its response carries."""
+        occurrence = classify(error)
+        assert occurrence is not None
+        found = refusal_of(error)
+        assert found is not None
+        assert found[1] == occurrence.kind.status
+        if not isinstance(error, TokenRejectedError):
+            assert found[0] == occurrence.kind.slug
 
 
 def _tracing() -> tuple[InMemorySpanExporter, Any]:
@@ -1164,7 +1191,7 @@ class TestMutationGaps:
         self, caller: object
     ) -> None:
         """A caller not marked authenticated, or naming no string, is nobody."""
-        assert _events.subject_of(caller) is None
+        assert subject_of(caller) is None
 
     def test_each_address_is_held_back_on_its_own(
         self, events: list[logging.LogRecord]

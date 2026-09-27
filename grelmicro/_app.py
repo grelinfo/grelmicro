@@ -3,30 +3,30 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
     asynccontextmanager,
 )
 from contextvars import ContextVar
-from dataclasses import replace
-from functools import partial
+from dataclasses import dataclass, field, replace
 from threading import Lock as ThreadLock
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
+    Final,
     Protocol,
     Self,
     cast,
     overload,
 )
-from weakref import WeakKeyDictionary
+from weakref import WeakKeyDictionary, WeakSet
 
 from typing_extensions import Doc
 
+from grelmicro._backend_kinds import backend_kinds, most_specific_backend
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._diagnostics import (
     AMBIENT_BINDING,
@@ -35,6 +35,8 @@ from grelmicro._diagnostics import (
 )
 from grelmicro._discovery import integration_names, load_integration
 from grelmicro._environment import (
+    answer_for,
+    recorded_bindings,
     report_unmet_requirements,
     resolve_environment,
     strict_message,
@@ -50,10 +52,17 @@ from grelmicro.errors import (
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterable, Mapping
+    from collections.abc import (
+        AsyncIterator,
+        Callable,
+        Iterable,
+        Mapping,
+        Sequence,
+    )
     from types import TracebackType
 
     from grelmicro._describe import AppReport, CheckReport
+    from grelmicro._environment import Binding, Unmet
     from grelmicro.cache._component import Cache
     from grelmicro.coordination._component import Coordination
     from grelmicro.health._checks import HealthChecks
@@ -107,38 +116,48 @@ overlap freely, matching how web frameworks treat multiple app objects.
 """
 
 
-def resolve_ambient(key: tuple[str, str]) -> Any:  # noqa: ANN401
+def resolve_ambient(
+    key: tuple[str, str], refusal: str | None = None, name: str | None = None
+) -> Any:  # noqa: ANN401
     """Return the component `key` names in the active app.
 
     Backs every pattern that resolves without `backend=`, so it runs on each
     operation. An open `Bulkhead` scope wins, and the app answers whatever
-    the scope leaves alone. A pattern that named no backend asks for
-    `"default"`, which falls back to the sole entry of that kind, so naming a
-    component does not strand every pattern in the app. Every miss raises
-    `LookupError`, which the caller turns into the `OutOfContextError` that
-    names its own pattern.
+    the scope leaves alone. A pattern that names no backend asks for
+    `"default"`, which falls back to the sole entry of that kind when none is
+    named `"default"`.
+
+    Without `refusal`, every miss raises `LookupError`. With it, a miss
+    raises `OutOfContextError` carrying `refusal`, with `{name}` standing
+    for the pattern's name. Only a miss formats it.
 
     Raises:
         LookupError: No app is bound in this scope, or it registers no such
-            component.
+            component, and no `refusal` was passed.
+        OutOfContextError: The same miss, when `refusal` was passed.
     """
-    # The app is read first, so a scope that outlives the app it was opened
-    # under raises rather than answering from a closed component. Past that
-    # this resolves the same way `Grelmicro.get` does, so change one and
-    # change the other.
-    micro = _current_micro.get()
-    overrides = _active_bulkhead.get(None)
-    if overrides is not None:
-        override = overrides.get(key)
-        if override is not None:
-            return override
     try:
-        return micro._by_key[key]  # noqa: SLF001
-    except KeyError:
-        # Raised as the error `Grelmicro.get` raises, hint and all, so a
-        # caller that lets it through reports the same miss. Only a miss
-        # pays for building the message.
-        return micro.get(*key)
+        # The app is read first, so a scope that outlives the app it was
+        # opened under raises rather than answering from a closed component.
+        # Past that this resolves the same way `Grelmicro.get` does, so
+        # change one and change the other.
+        micro = _current_micro.get()
+        overrides = _active_bulkhead.get(None)
+        if overrides is not None:
+            override = overrides.get(key)
+            if override is not None:
+                return override
+        try:
+            return micro._by_key[key]  # noqa: SLF001
+        except KeyError:
+            # Raised as the error `Grelmicro.get` raises, hint and all, so a
+            # caller that lets it through reports the same miss. Only a miss
+            # pays for building the message.
+            return micro.get(*key)
+    except LookupError:
+        if refusal is None:
+            raise
+        raise OutOfContextError(refusal.format(name=name)) from None
 
 
 def _item_owns_global_state(item: object) -> bool:
@@ -286,6 +305,8 @@ class Grelmicro:
     ) -> None:
         """Initialize the app and register any items passed at construction."""
         self._items: list[AbstractAsyncContextManager[object]] = []
+        self._installed_on: WeakSet[object] = WeakSet()
+        """Apps with no `state` this app already wired, see `_install_marks`."""
         self._by_key: dict[tuple[str, str], Component] = {}
         self._by_kind: dict[str, Component] = {}
         self._exit_stack: AsyncExitStack | None = None
@@ -295,6 +316,10 @@ class Grelmicro:
         self._opening_items: dict[int, asyncio.Lock] = {}
         self._closing = False
         self._opened = False
+        self._fakes: list[_Fake] = []
+        """Fakes entered before open, applied by the next open."""
+        self._unfaked: _Unfaked | None = None
+        """What a faked open replaced, put back when the app closes."""
         self._token: Any = None
         self._strict = strict
         self._environment = resolve_environment(environment)
@@ -361,9 +386,13 @@ class Grelmicro:
             BackendScopeError: If any bound backend reaches less far than its
                 component requires, naming every one of them.
         """
-        unmet = unmet_requirements(self._items)
+        unmet = unmet_requirements(self._items, recorded_bindings())
         if unmet:
             raise BackendScopeError(strict_message(unmet, environment))
+
+    def _unmet_bindings(self, bindings: Iterable[Binding]) -> list[Unmet]:
+        """Check `bindings` alone against the components this app holds."""
+        return unmet_requirements(self._items, bindings, check_items=False)
 
     @classmethod
     def current(cls) -> Grelmicro:
@@ -545,6 +574,7 @@ class Grelmicro:
         if component.name == "default":
             self._by_kind[component.kind] = component
         self._items.append(component)
+        answer_for(component)
 
     def _register_provider_defaults(self) -> None:
         """Auto-register default Components from Providers passed bare to `uses=`.
@@ -667,62 +697,188 @@ class Grelmicro:
             kind = kind.kind
         # `resolve_ambient` resolves the same way for the pattern hot path.
         # Change one and change the other.
+        key = (kind, name)
         overrides = _active_bulkhead.get(None)
         if overrides is not None:
-            override = overrides.get((kind, name))
+            override = overrides.get(key)
             if override is not None:
                 return override
-        try:
-            return self._by_key[(kind, name)]
-        except KeyError as exc:
-            # A caller that named nothing asked for whatever serves this kind,
-            # so the sole entry answers, the way `micro.<kind>` already does.
-            # A caller that named an entry gets the miss it asked about.
-            if name == "default":
-                matches = [v for (k, _), v in self._by_key.items() if k == kind]
-                if len(matches) == 1:
-                    return matches[0]
-            registered = sorted(self._by_key)
-            if registered:
-                hint = "registered: " + ", ".join(repr(k) for k in registered)
-            else:
-                hint = "no components are registered"
-            msg = f"no component registered for {(kind, name)!r}. {hint}."
-            raise ComponentNotRegisteredError(msg) from exc
+        component = self._by_key.get(key)
+        if component is not None:
+            return component
+        # Only the implicit name falls back, the way `micro.<kind>` does. A
+        # caller that named an entry gets the miss it asked about.
+        sole = self._sole_key(kind) if name == "default" else None
+        if sole is not None:
+            if overrides is not None:
+                override = overrides.get(sole)
+                if override is not None:
+                    return override
+            return self._by_key[sole]
+        registered = sorted(self._by_key)
+        if registered:
+            hint = "registered: " + ", ".join(repr(k) for k in registered)
+        else:
+            hint = "no components are registered"
+        msg = f"no component registered for {key!r}. {hint}."
+        raise ComponentNotRegisteredError(msg)
 
-    @asynccontextmanager
-    async def fake(self) -> AsyncIterator[None]:
-        """Swap every backed component onto an in-process store for a block.
+    def _sole_key(self, kind: str) -> tuple[str, str] | None:
+        """Return the key of the only entry of `kind`, or None."""
+        keys = [
+            key for key in self.__dict__.get("_by_key", {}) if key[0] == kind
+        ]
+        return keys[0] if len(keys) == 1 else None
 
-        Each registered `Coordination`, `Cache`, `RateLimiterComponent`, and
-        `CircuitBreakerComponent` is replaced by one wired to a fresh
-        `MemoryProvider`, under the same name. Everything is restored on exit.
-        A test then runs the real code paths against real primitives, with no
-        Redis and no Postgres:
+    def fake(
+        self,
+        *,
+        keep: Annotated[
+            Sequence[Provider],
+            Doc(
+                """
+                Providers to open for real although every component using
+                them is faked, for a test that reaches one directly. Read
+                when the fake opens the app.
+                """,
+            ),
+        ] = (),
+    ) -> _Fake:
+        """Run the app on in-process stores, for a test.
+
+        Enter it before the app opens and the next open, whoever does it,
+        opens the app faked. That is the shape for an app wired with
+        `install`, whose lifespan opens it:
 
         ```python
-        async with micro:
-            async with micro.fake():
-                await checkout("cart-1")
+        with micro.fake(), TestClient(app) as client:
+            ...
         ```
 
-        Components with no backend to fake (`Log`, `Trace`, `Metrics`,
-        `HealthChecks`) are left alone, and so is `Outbox`, which carries
-        handlers and a relay that a swap would drop. Override those by hand
-        with `micro.override(...)` when a test needs them.
+        Each registered `Coordination`, `Cache`, `RateLimiterComponent`, and
+        `CircuitBreakerComponent` opens on a fresh `MemoryProvider`, under the
+        same name. A Provider only those components use is left closed, so
+        the test connects to nothing and no readiness check probes it. One
+        that a component left as is still borrows, such as the Postgres an
+        `Outbox` stores in, opens as usual. The real components come back
+        when the app closes, and the backend scope check does not run on the
+        faked ones.
+
+        `Log`, `Trace`, `Metrics`, and `HealthChecks` have no backend to fake,
+        and `Outbox` carries handlers and a relay that a swap would drop.
+        Override those by hand with `micro.override(...)`.
+
+        Entered with `async with` on an app that is already open, it swaps
+        the same components for the block instead. Its Providers are already
+        open by then, so they stay open.
 
         Raises:
-            OutOfContextError: If called outside an open `async with micro:`
-                block, which is what `override` scopes to.
+            OutOfContextError: If entered with `with` on an app that is
+                already open, which only `async with` can swap.
         """
-        if self._exit_stack is None:
-            raise OutOfContextError(self, "fake")
+        return _Fake(self, tuple(keep))
+
+    @asynccontextmanager
+    async def _fake_open_app(self) -> AsyncIterator[None]:
+        """Swap every fakeable component of the open app for the block."""
         from grelmicro.providers.memory import MemoryProvider  # noqa: PLC0415
 
         provider = MemoryProvider()
         replacements = _fake_components(self.components, provider)
         async with provider, self.override(*replacements):
             yield
+
+    def _swap_in_fakes(self) -> None:
+        """Replace fakeable components and skip the Providers left unused."""
+        from grelmicro.providers.memory import MemoryProvider  # noqa: PLC0415
+
+        memory = MemoryProvider()
+        originals = [
+            component
+            for component in self._by_key.values()
+            if component.kind in _FAKEABLE_KINDS
+        ]
+        replacements = {
+            id(original): fake
+            for original, fake in zip(
+                originals, _fake_components(originals, memory), strict=True
+            )
+        }
+        keep = {id(p): p for fake in self._fakes for p in fake.keep}
+        items = [replacements.get(id(item), item) for item in self._items]
+        in_use = {id(p) for item in items for p in _borrowed_providers(item)}
+        # Only a Provider a faked component used is the fake's to close. One
+        # the app's own code reaches directly stays open.
+        candidates = [
+            p for original in originals for p in _borrowed_providers(original)
+        ]
+        skipped = list(
+            {
+                id(p): p
+                for p in candidates
+                if id(p) not in in_use and id(p) not in keep
+            }.values()
+        )
+        skipped_ids = {id(p) for p in skipped}
+        listed = {id(item) for item in items}
+        self._unfaked = _Unfaked(
+            items=self._items,
+            by_key=self._by_key,
+            by_kind=self._by_kind,
+            skipped=skipped,
+        )
+        self._items = [
+            memory,
+            *(p for p in keep.values() if id(p) not in listed),
+            *(item for item in items if id(item) not in skipped_ids),
+        ]
+        self._by_key = {
+            key: replacements.get(id(c), c) for key, c in self._by_key.items()
+        }
+        self._by_kind = {
+            kind: replacements.get(id(c), c)
+            for kind, c in self._by_kind.items()
+        }
+        for provider in skipped:
+            provider._skips += 1  # noqa: SLF001
+
+    def _swap_out_fakes(self) -> None:
+        """Put back what a faked open replaced, once the app is closed."""
+        unfaked, self._unfaked = self._unfaked, None
+        if unfaked is None:
+            return
+        for provider in unfaked.skipped:
+            provider._skips -= 1  # noqa: SLF001
+        if not unfaked.settled:
+            # The open failed during setup, before anything could register.
+            self._items = unfaked.items
+            self._by_key = unfaked.by_key
+            self._by_kind = unfaked.by_kind
+            return
+        # A registration made while the faked app was open is kept, as it
+        # would be on a real run.
+        added = {
+            key: component
+            for key, component in self._by_key.items()
+            if unfaked.faked_by_key.get(key) is not component
+        }
+        self._items = [
+            *unfaked.items,
+            *(
+                item
+                for item in self._items
+                if id(item) not in unfaked.faked_items
+            ),
+        ]
+        self._by_key = {**unfaked.by_key, **added}
+        self._by_kind = {
+            **unfaked.by_kind,
+            **{
+                key[0]: component
+                for key, component in added.items()
+                if key[1] == "default"
+            },
+        }
 
     @asynccontextmanager
     async def override(
@@ -960,12 +1116,12 @@ class Grelmicro:
         if name in by_kind:
             return by_kind[name]
         by_key = self.__dict__.get("_by_key", {})
-        matches = [v for (k, _), v in by_key.items() if k == name]
-        if len(matches) == 1:
-            return matches[0]
+        sole = self._sole_key(name)
+        if sole is not None:
+            return by_key[sole]
         cls = type(self).__name__
-        if matches:
-            names = sorted(n for (k, n), _ in by_key.items() if k == name)
+        names = sorted(n for (k, n) in by_key if k == name)
+        if names:
             msg = (
                 f"{cls!r} has multiple {name!r} components ({names}), "
                 f"none named 'default'. Use micro.get({name!r}, <name>)."
@@ -1058,6 +1214,8 @@ class Grelmicro:
             raise TypeError(
                 _unsupported_framework_message("micro.install", app)
             )
+        if self._installed(app):
+            return
         integration.install(app, self, ambient=ambient)
         errors = next(
             (
@@ -1092,6 +1250,31 @@ class Grelmicro:
             wire_middleware = getattr(integration, "install_middleware", None)
             if wire_middleware is not None:
                 wire_middleware(app, middleware)
+        # Marked once the wiring holds, so a retry after a failure wires.
+        marks, key = self._install_marks(app)
+        marks.add(key)
+
+    def _install_marks(self, app: object) -> tuple[WeakSet[object], object]:
+        """Return where `app` records what wired it, and the key to record.
+
+        With a `state`, the app holds the `Grelmicro` apps that wired it,
+        which also covers a Litestar app that cannot be weakly referenced.
+        An app with no `state`, such as FastStream, is held by this
+        `Grelmicro` instead, so each such app is tracked on its own.
+        """
+        state = getattr(app, "state", None)
+        if state is None:
+            return self._installed_on, app
+        marks = getattr(state, _INSTALLED_MARK, None)
+        if marks is None:
+            marks = WeakSet()
+            setattr(state, _INSTALLED_MARK, marks)
+        return marks, self
+
+    def _installed(self, app: object) -> bool:
+        """Return whether this app already wired `app`."""
+        marks, key = self._install_marks(app)
+        return key in marks
 
     def _ambient_component_labels(self) -> list[str]:
         """Return sorted `kind:name` labels of registered ambient components."""
@@ -1274,7 +1457,7 @@ class Grelmicro:
         failure, the token is reset before unwinding.
         """
         if self._exit_stack is not None:
-            raise OutOfContextError(self, "__aenter__")
+            raise OutOfContextError(_ALREADY_OPEN)
         with _active_apps_lock:
             if (
                 not self._allow_multiple
@@ -1292,12 +1475,7 @@ class Grelmicro:
         self._opening_items.clear()
         self._closing = False
         try:
-            self._discover_shared_providers()
-            self._order_providers_before_dependents()
-            self._resolve_provider_sharing()
-            report_unmet_requirements(
-                unmet_requirements(self._items), self._environment
-            )
+            self._prepare_open()
             self._exit_stack = AsyncExitStack()
             await self._exit_stack.__aenter__()
             self._token = _current_micro.set(self)
@@ -1333,6 +1511,7 @@ class Grelmicro:
                 self._scoped_opened.clear()
                 self._app_opened.clear()
                 self._opening_items.clear()
+                self._swap_out_fakes()
             raise
         return self
 
@@ -1363,6 +1542,31 @@ class Grelmicro:
             self._scoped_opened.clear()
             self._app_opened.clear()
             self._opening_items.clear()
+            self._swap_out_fakes()
+
+    def _prepare_open(self) -> None:
+        """Settle what this open enters, and check its backends.
+
+        An armed `fake()` swaps its components in first, and the scope check
+        is skipped on a faked app, whose memory stores are the point.
+        """
+        if self._fakes:
+            self._swap_in_fakes()
+        self._discover_shared_providers()
+        self._order_providers_before_dependents()
+        self._resolve_provider_sharing()
+        if self._unfaked is None:
+            report_unmet_requirements(
+                unmet_requirements(self._items, recorded_bindings()),
+                self._environment,
+            )
+        else:
+            self._unfaked = replace(
+                self._unfaked,
+                settled=True,
+                faked_items=frozenset(id(item) for item in self._items),
+                faked_by_key=dict(self._by_key),
+            )
 
     def _discover_shared_providers(self) -> None:
         """Adopt Providers reachable from components but absent from `uses=`.
@@ -1460,6 +1664,18 @@ def _iter_provider_backends(item: object) -> list[object]:
     return [getattr(item, "backend", item)]
 
 
+_INSTALLED_MARK: Final = "grelmicro_installed_by"
+"""`app.state` attribute holding the `Grelmicro` apps that wired it."""
+
+_ALREADY_OPEN: Final = (
+    "Grelmicro is already open. install(app) opens it in the framework's "
+    "lifespan, so a fixture must not open it again: enter micro.fake() "
+    "before the client starts instead. To run two apps at once, build one "
+    "Grelmicro per app in an app factory."
+)
+"""What opening an open app raises, naming the usual cause."""
+
+
 def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
     """Return current exception triple (or three Nones if not in handler)."""
     import sys  # noqa: PLC0415
@@ -1467,114 +1683,30 @@ def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
     return sys.exc_info()
 
 
-def _protocol_members(protocol: type) -> frozenset[str]:
-    """Return the member names a runtime-checkable Protocol matches on.
-
-    `isinstance` against a `runtime_checkable` Protocol tests exactly these
-    names and never checks signatures, so they are also what decides which of
-    two matching protocols is the more specific.
-    """
-    return frozenset(getattr(protocol, "__protocol_attrs__", ()))
-
-
-type _BackendCandidate = tuple[type, str, Callable[[Any], Component]]
-"""One backend protocol, the component to name in an error, and its factory.
-
-The factory takes `Any` because the protocol match is what proves the item
-fits, and that proof is a runtime `isinstance` a type checker cannot follow.
-"""
-
-
-def _most_specific_backend(
-    matches: list[_BackendCandidate],
-    item: object,
-) -> _BackendCandidate:
-    """Return the match whose protocol subsumes every other match.
-
-    A backend can satisfy more than one protocol, because `runtime_checkable`
-    compares member names only. `CircuitBreakerBackend` declares everything
-    `RateLimiterBackend` does plus `_loop` and `is_shared`, so every circuit
-    breaker backend also matches `RateLimiterBackend`. The more specific
-    protocol wins, which keeps the answer independent of the order the
-    protocols are tested in.
-
-    Raises:
-        AmbiguousBackendError: If no single protocol subsumes the others, so
-            the backend names two unrelated kinds and only the caller knows
-            which was meant.
-    """
-    for candidate in matches:
-        members = _protocol_members(candidate[0])
-        if all(
-            members >= _protocol_members(other[0])
-            for other in matches
-            if other[0] is not candidate[0]
-        ):
-            return candidate
-    names = ", ".join(sorted(protocol.__name__ for protocol, _, _ in matches))
-    kinds = ", ".join(sorted(label for _, label, _ in matches))
-    msg = (
-        f"{type(item).__name__} matches more than one backend protocol "
-        f"({names}), so grelmicro cannot tell which kind it is. Wrap it in "
-        f"the component you mean, one of: {kinds}."
-    )
-    raise AmbiguousBackendError(msg)
-
-
 def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     """Wrap a first-party backend in the matching Component, or return None.
 
     Every protocol is tested, not just the first that matches, so a backend
     satisfying two of them resolves by specificity rather than by the order
-    the checks happen to be written in. See `_most_specific_backend`.
-
-    Imports are lazy so unused submodules stay out of `import grelmicro`.
-    The user importing `RedisCacheAdapter` already loads `grelmicro.cache`,
-    so the lazy import here is a cache hit.
+    the checks happen to be written in. See `most_specific_backend`.
 
     Raises:
         AmbiguousBackendError: If the backend matches two unrelated protocols.
     """
-    from grelmicro.cache._component import Cache  # noqa: PLC0415
-    from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
-    from grelmicro.coordination._component import (  # noqa: PLC0415
-        COORDINATION_BACKENDS,
-        Coordination,
-    )
-    from grelmicro.resilience._components import (  # noqa: PLC0415
-        CircuitBreakerComponent,
-        RateLimiterComponent,
-    )
-    from grelmicro.resilience._protocol import (  # noqa: PLC0415
-        CircuitBreakerBackend,
-        RateLimiterBackend,
-    )
-
-    candidates: list[_BackendCandidate] = [
-        (CacheBackend, "Cache", Cache),
-        (
-            CircuitBreakerBackend,
-            "CircuitBreakerComponent",
-            CircuitBreakerComponent,
-        ),
-        (RateLimiterBackend, "RateLimiterComponent", RateLimiterComponent),
-        *[
-            (
-                slot.protocol,
-                f"Coordination({slot.keyword}=...)",
-                partial(Coordination._holding, slot.keyword),  # noqa: SLF001
-            )
-            for slot in COORDINATION_BACKENDS
-        ],
-    ]
     matches = [
-        candidate for candidate in candidates if isinstance(item, candidate[0])
+        kind
+        for kind in backend_kinds()
+        if kind.factory is not None and isinstance(item, kind.protocol)
     ]
     if not matches:
         return None
-    if len(matches) == 1:
-        return _marked(matches[0][2](item), item)
-    return _marked(_most_specific_backend(matches, item)[2](item), item)
+    kind = (
+        matches[0]
+        if len(matches) == 1
+        else most_specific_backend(matches, item)
+    )
+    factory = cast("Callable[[object], Component]", kind.factory)
+    return _marked(factory(item), item)
 
 
 _wrapped_backends: WeakKeyDictionary[Component, object] = WeakKeyDictionary()
@@ -1674,6 +1806,84 @@ def _fake_components(
         for component in components
         if component.kind in _FAKEABLE_KINDS
     ]
+
+
+def _borrowed_providers(item: object) -> list[Provider]:
+    """Return the Providers `item` borrows and does not own."""
+    return [
+        provider
+        for target in _iter_provider_backends(item)
+        if (provider := getattr(target, "_provider", None)) is not None
+        and not getattr(target, "_owns_provider", True)
+    ]
+
+
+@dataclass(frozen=True)
+class _Unfaked:
+    """What a faked open replaced, to put back on close."""
+
+    items: list[AbstractAsyncContextManager[object]]
+    by_key: dict[tuple[str, str], Component]
+    by_kind: dict[str, Component]
+    skipped: list[Provider]
+    settled: bool = False
+    """Whether the faked open got past its setup, so its lists are final."""
+    faked_items: frozenset[int] = frozenset()
+    """Identity of every item the faked open settled on, to tell later
+    registrations apart."""
+    faked_by_key: dict[tuple[str, str], Component] = field(default_factory=dict)
+    """The faked registrations as the open settled them."""
+
+
+class _Fake:
+    """What `micro.fake()` returns: arm the next open, or swap an open app."""
+
+    def __init__(self, micro: Grelmicro, keep: tuple[Provider, ...]) -> None:
+        self._micro = micro
+        self.keep = keep
+        self._live: AbstractAsyncContextManager[None] | None = None
+
+    def __enter__(self) -> None:
+        """Arm the next open of the app.
+
+        Raises:
+            OutOfContextError: If the app is already open.
+        """
+        if self._micro._exit_stack is not None:  # noqa: SLF001
+            raise OutOfContextError(_FAKE_ON_OPEN)
+        self._micro._fakes.append(self)  # noqa: SLF001
+
+    def __exit__(self, *_: object) -> None:
+        """Disarm, leaving an app opened meanwhile faked until it closes."""
+        self._micro._fakes.remove(self)  # noqa: SLF001
+
+    async def __aenter__(self) -> None:
+        """Arm the next open, or swap the components of an open app."""
+        if self._micro._exit_stack is None:  # noqa: SLF001
+            self.__enter__()
+            return
+        self._live = self._micro._fake_open_app()  # noqa: SLF001
+        await self._live.__aenter__()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
+        """Disarm, or put back the components swapped on the open app."""
+        live, self._live = self._live, None
+        if live is None:
+            self.__exit__()
+            return None
+        return await live.__aexit__(exc_type, exc, tb)
+
+
+_FAKE_ON_OPEN: Final = (
+    "The app is already open, so micro.fake() can only swap its components "
+    "for a block: use `async with micro.fake():`."
+)
+"""What arming an app that is already open raises."""
 
 
 def _opening_lock(micro: Grelmicro, item: object) -> asyncio.Lock:

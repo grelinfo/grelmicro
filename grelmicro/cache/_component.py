@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
-from grelmicro._component import instantiate_if_class
+from grelmicro._backend_kinds import resolve_source
+from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.providers._base import Provider
@@ -14,7 +15,6 @@ from grelmicro.providers._base import Provider
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from grelmicro.cache._protocol import CacheBackend
     from grelmicro.cache.serializers import CacheSerializer
     from grelmicro.types import BackendScope
 
@@ -101,7 +101,12 @@ class Cache:
         self._requires: BackendScope = requires or self.default_requires
         resolved = cast(
             "Provider | CacheBackend",
-            instantiate_if_class(source),
+            resolve_source(
+                source,
+                owner="Cache",
+                expects="a CacheBackend",
+                protocols=(CacheBackend,),
+            ),
         )
         if isinstance(resolved, Provider):
             self._backend = resolved.cache()

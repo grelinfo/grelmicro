@@ -53,6 +53,18 @@ def _declare_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_recorded_patterns() -> None:
+    """Start each test with no pattern waiting for the backend check.
+
+    A pattern holding a memory backend is kept until an app checks it, so
+    one left alive by an earlier test would be reported by the next app
+    that opens in `production`.
+    """
+    _environment._recorded.clear()
+    _environment._reported_constructions.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_leaked_log_backend() -> Generator[None, None, None]:
     """Take out a log sink bound to another test's stream.
 

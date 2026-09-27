@@ -33,6 +33,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._environment import Binding, label, unrecorded
 from grelmicro._guards import is_instance, type_name
 from grelmicro._paths import (
     BARE_METHOD_MESSAGE,
@@ -52,6 +53,7 @@ from grelmicro._paths import (
     _wrapped_app,
     as_patterns,
     compile_route,
+    declared_dependencies,
     route_path,
     selects,
     walk_routes,
@@ -87,6 +89,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from grelmicro.cache import TTLCache
+    from grelmicro.types import BackendScope
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -376,7 +379,11 @@ def _contains_fastapi(app: Any) -> bool:  # noqa: ANN401
 
 
 def _authenticated_scope(scope: Scope) -> bool:
-    """Return whether authentication already established a caller identity."""
+    """Return whether authentication already established a caller identity.
+
+    Any truthy `is_authenticated` counts, so the default key is never shared
+    by two callers when an authentication layer marks its caller loosely.
+    """
     user = scope.get("user")
     if user is not None and getattr(user, "is_authenticated", False):
         return True
@@ -518,16 +525,9 @@ def _has_dependencies(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: A
     `Anonymous()` computes nothing, so a route declaring only that gates no
     replay.
     """
-    dependency_tree = getattr(route, "dependant", None)  # codespell:ignore
-    if any(
-        not is_anonymous_declaration(dependency.call)
-        for dependency in getattr(dependency_tree, "dependencies", ()) or ()
-    ):
-        return True
     return any(
-        not is_anonymous_declaration(getattr(dependency, "dependency", None))
-        for context in contexts
-        for dependency in getattr(context, "dependencies", ()) or ()
+        not is_anonymous_declaration(call)
+        for call in declared_dependencies(route, contexts)
     )
 
 
@@ -1577,6 +1577,9 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
 
     kind: ClassVar[str] = "idempotent_requests"
 
+    default_requires: ClassVar[BackendScope] = "cluster"
+    """Default `requires=`: a retry replays on whichever replica it lands."""
+
     _IMMUTABLE_RECONFIGURE_FIELDS: ClassVar[frozenset[str]] = frozenset(
         IdempotentRequestsConfig.model_fields
     )
@@ -1624,6 +1627,16 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             Doc(
                 "The `TTLCache` responses are stored in. Defaults to the "
                 "registered `Cache` component."
+            ),
+        ] = None,
+        requires: Annotated[
+            BackendScope | None,
+            Doc(
+                "The smallest scope the cache backend must reach: "
+                '`"process"`, `"host"` or `"cluster"`. Defaults to '
+                '`"cluster"`, so a retry finds the stored response on '
+                "whichever replica it lands. Checked when the app opens, "
+                "see [the backend check](../deployment.md#the-backend-check)."
             ),
         ] = None,
         key_header: Annotated[
@@ -1758,11 +1771,17 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             kind_env_prefix=kind_prefix,
             env_load=env_load,
         )
+        # Registered, this component answers for the store at open, under
+        # its own name.
+        with unrecorded():
+            idempotency = Idempotency(
+                namespace, ttl=ttl, cache=cache, requires=requires
+            )
         self._setup(
             config,
             name=name,
             openapi=openapi,
-            idempotency=Idempotency(namespace, ttl=ttl, cache=cache),
+            idempotency=idempotency,
             key_maker=key_maker,
             skip=skip,
         )
@@ -1792,6 +1811,10 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             TTLCache[Any] | None,
             Doc("The `TTLCache` responses are stored in."),
         ] = None,
+        requires: Annotated[
+            BackendScope | None,
+            Doc("The smallest scope the cache backend must reach."),
+        ] = None,
         key_maker: Annotated[
             Callable[[Scope, str], str] | None,
             Doc("Build the stored key from the scope and the client key."),
@@ -1814,11 +1837,15 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         callables rather than values.
         """
         instance = cls.__new__(cls)
+        with unrecorded():
+            idempotency = Idempotency(
+                namespace, ttl=ttl, cache=cache, requires=requires
+            )
         instance._setup(  # noqa: SLF001
             config,
             name=name,
             openapi=openapi,
-            idempotency=Idempotency(namespace, ttl=ttl, cache=cache),
+            idempotency=idempotency,
             key_maker=key_maker,
             skip=skip,
         )
@@ -1867,6 +1894,18 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
     def name(self) -> str:
         """Return the registration name."""
         return self._name
+
+    @property
+    def requires(self) -> BackendScope:
+        """The smallest scope the cache backend must reach."""
+        return self._idempotency.requires
+
+    def _scope_binding(self) -> Binding:
+        """Describe the backend responses are stored through, for the check."""
+        return replace(
+            self._idempotency._scope_binding(),  # noqa: SLF001
+            label=label(self),
+        )
 
     @property
     def idempotency(self) -> Idempotency[Any]:

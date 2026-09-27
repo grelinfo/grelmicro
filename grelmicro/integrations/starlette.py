@@ -15,18 +15,13 @@ from typing_extensions import Doc
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._wrapping import refuse_registered
-from grelmicro.errors import (
-    AuthenticationRequiredError,
-    InsufficientScopeError,
-    _scope_tokens,
-)
 from grelmicro.http import ErrorResponses, merge_headers
-from grelmicro.http._authentication import (
-    AUTHENTICATED_MARKER,
-    TOKEN_SCOPE_KEY,
-    recorded,
-)
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
+from grelmicro.http._requirement import (
+    AUTHENTICATED,
+    Requirement,
+    declared_scopes,
+)
 from grelmicro.security.principal import VerifiedToken
 
 if TYPE_CHECKING:
@@ -686,27 +681,18 @@ def Authenticated(  # noqa: N802
             `request` or `websocket` argument.
         ValueError: If a scope is not an OAuth scope token.
     """
-    own = _scope_tokens(scopes)
+    own = Requirement(scopes).scopes
 
     def decorate(endpoint: "Callable[..., Any]") -> "Callable[..., Any]":
         refuse_registered(endpoint, "@Authenticated")
         name, position = _connection_argument(endpoint)
         # Stacked on another `@Authenticated`, it requires the scopes of both.
-        inner = getattr(endpoint, AUTHENTICATED_MARKER, ())
-        required = tuple(dict.fromkeys((*own, *inner)))
+        inner = declared_scopes(endpoint) or ()
+        requirement = Requirement(tuple(dict.fromkeys((*own, *inner))))
 
         def check(args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
             connection = kwargs[name] if name in kwargs else args[position]
-            caller = connection.scope.get("user")
-            if caller is None or not getattr(caller, "is_authenticated", False):
-                raise recorded(
-                    connection.scope,
-                    AuthenticationRequiredError(scopes=required),
-                )
-            if not set(required) <= set(getattr(caller, "scopes", ())):
-                raise recorded(
-                    connection.scope, InsufficientScopeError(scopes=required)
-                )
+            requirement.caller(connection.scope)
 
         if _is_async(endpoint):
 
@@ -724,8 +710,7 @@ def Authenticated(  # noqa: N802
                 return endpoint(*args, **kwargs)
 
             wrapper = synchronous
-        setattr(wrapper, AUTHENTICATED_MARKER, required)
-        return wrapper
+        return requirement.declare(wrapper)
 
     return decorate
 
@@ -761,10 +746,7 @@ def current_token(
             `AuthenticatedRequests` verified, such as one on an excluded
             path.
     """
-    token = connection.scope.get(TOKEN_SCOPE_KEY)
-    if not isinstance(token, VerifiedToken):
-        raise recorded(connection.scope, AuthenticationRequiredError())
-    return token
+    return AUTHENTICATED.token(connection.scope)
 
 
 def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:

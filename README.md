@@ -175,7 +175,7 @@ from grelmicro.resilience import (
     RateLimitExceededError,
     RateLimiter,
 )
-from grelmicro.coordination import LeaderElection, Lock, TaskLock
+from grelmicro.coordination import LeaderElection, Lock
 from grelmicro.task import Tasks
 
 logger = logging.getLogger(__name__)
@@ -272,13 +272,13 @@ def heartbeat():
 
 
 # --- Distributed Task: run once per interval across all workers ---
-@tasks.every(seconds=60, lock=TaskLock(lease_duration=300))
+@tasks.every(seconds=60, gate="claim")
 def cleanup():
     logger.info("cleanup")
 
 
 # --- Leader-gated Task: only the leader executes ---
-@tasks.every(seconds=10, leader=leader)
+@tasks.every(seconds=10, gate=leader)
 def leader_only_task():
     logger.info("leader task")
 ```

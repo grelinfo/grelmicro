@@ -17,12 +17,17 @@ Snippets are tiered:
 from __future__ import annotations
 
 import importlib.util
+import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 _SNIPPETS_DIR = _DOCS_DIR / "snippets"
@@ -123,6 +128,48 @@ def test_no_orphan_snippets() -> None:
     assert not orphans, (
         f"snippets included by no page: {orphans}. Include them or delete them."
     )
+
+
+def _loggers() -> list[logging.Logger]:
+    """Return the root logger and every named logger created so far."""
+    return [
+        logging.getLogger(),
+        *(
+            logger
+            for logger in logging.Logger.manager.loggerDict.values()
+            if isinstance(logger, logging.Logger)
+        ),
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging() -> Iterator[None]:
+    """Undo the logging a snippet sets up, so it cannot reach later tests.
+
+    A snippet shows setup a real app does once, such as adding a filter to
+    `grelmicro.health`. Left in place, that filter drops lines a later test
+    expects, in whichever test happens to run next.
+    """
+    saved = {
+        id(logger): (
+            logger.level,
+            list(logger.filters),
+            list(logger.handlers),
+            logger.propagate,
+            logger.disabled,
+        )
+        for logger in _loggers()
+    }
+    yield
+    for logger in _loggers():
+        level, filters, handlers, propagate, disabled = saved.get(
+            id(logger), (logging.NOTSET, [], [], True, False)
+        )
+        logger.setLevel(level)
+        logger.filters[:] = filters
+        logger.handlers[:] = handlers
+        logger.propagate = propagate
+        logger.disabled = disabled
 
 
 @pytest.mark.parametrize("rel", _RUNNABLE)

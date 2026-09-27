@@ -9,7 +9,15 @@ import logging
 import math
 from dataclasses import dataclass
 from string import Formatter
-from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never, overload
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Final,
+    Self,
+    assert_never,
+    overload,
+)
 from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
@@ -26,7 +34,6 @@ from grelmicro._guards import is_instance
 from grelmicro._wrapping import named, refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
-from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.resilience._protocol import (
     RateLimiterBackend,
@@ -108,6 +115,15 @@ def _union_for_env() -> object:
     return Annotated[
         TokenBucketConfig | SlidingWindowConfig, Discriminator("kind")
     ]
+
+
+_NO_BACKEND: Final = (
+    "RateLimiter({name!r}) resolved no backend. Pass backend= "
+    "(MemoryRateLimiterAdapter() for a per-process limiter), register a "
+    "RateLimiterComponent component, or run the call inside `async with "
+    "micro:` or after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,19 +236,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         """
         if self._backend is not None:
             return self._backend
-        try:
-            component = resolve_ambient(
-                ("ratelimiter", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"RateLimiter({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryRateLimiterAdapter() for a per-process "
-                f"limiter), register a RateLimiterComponent component, or run the "
-                f"call inside `async with micro:` or after `micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return component.backend
+        return resolve_ambient(
+            ("ratelimiter", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).backend
 
     def _resolve_strategy(self, state: _State) -> RateLimiterStrategy:
         """Bind the algorithm config to the backend and republish the snapshot."""

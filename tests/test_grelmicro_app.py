@@ -1259,15 +1259,6 @@ async def test_fake_supports_a_real_lock() -> None:
             assert await lock.locked()
 
 
-async def test_fake_outside_context_raises() -> None:
-    """`fake()` scopes to an open app, like `override()` does."""
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-
-    with pytest.raises(OutOfContextError):
-        async with micro.fake():
-            pass  # pragma: no cover
-
-
 async def test_typed_properties_resolve_every_first_party_kind() -> None:
     """Each first-party kind has a property, so lookup keeps its type."""
     health = HealthChecks()
@@ -1400,3 +1391,39 @@ async def test_ambient_two_components_without_default_raises() -> None:
     async with micro:
         with pytest.raises(OutOfContextError, match="resolved no backend"):
             _ = Lock("cart").backend
+
+
+async def test_ambient_fallback_honours_a_bulkhead() -> None:
+    """A bulkhead over the sole component answers the fallback too.
+
+    A kind the bulkhead leaves alone still falls back to the app's entry.
+    """
+    dedicated = MemoryLockAdapter()
+    cache = Cache(MemoryCacheAdapter(), name="sessions")
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs"), cache]
+    )
+    bulkhead = Bulkhead(
+        "checkout", uses=[Coordination(lock=dedicated, name="jobs")]
+    )
+
+    async with micro, bulkhead:
+        assert Lock("cart").backend is dedicated
+        assert micro.get("coordination").lock_backend is dedicated
+        assert micro.get(Cache) is cache
+
+
+async def test_ambient_fallback_resolves_the_faked_sole_component() -> None:
+    """An app faked before open serves the fake of its sole named component."""
+    backend = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=backend, name="jobs")])
+
+    with micro.fake():
+        async with micro:
+            faked = micro.get("coordination")
+            assert faked.name == "jobs"
+            assert faked.lock_backend is not backend
+            assert Lock("cart").backend is faked.lock_backend
+
+    async with micro:
+        assert Lock("cart").backend is backend
