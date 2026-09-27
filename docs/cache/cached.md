@@ -114,7 +114,7 @@ Two things differ from a normal miss:
 - **Refreshes do not fold.** A miss folds concurrent callers into one execution, but every refresh runs the function itself. A refresh never returns a value computed before the call started, so writing to the database and then refreshing cannot hand you pre-write data. Under the default `lock`, refreshes for one key also serialize within the process, and with `lock=True` and a lock backend they serialize across replicas. Under `lock=False` they run in parallel and the last write wins.
 - **Errors propagate**, even under `stale_ttl`. Serving the stale value would return the exact entry the caller asked to bypass. Compose it yourself when you want that:
 
-```python
+```python title="fragment"
 try:
     return await get_report.refresh(user_id)
 except UpstreamError:

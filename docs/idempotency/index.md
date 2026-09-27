@@ -140,7 +140,7 @@ With a lock backend, two replicas that receive the same key at the same time run
 
 The wait is unbounded by default. Pass `wait_timeout=` to bound it, on the block or on `run()`. Past it the wait raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`.
 
-```python
+```python title="fragment"
 from grelmicro.idempotency import IdempotencyWaitTimeoutError
 
 try:

@@ -108,4 +108,9 @@ The `MemoryOutboxAdapter` runs the whole outbox in the process with no database.
 --8<-- "outbox/testing.py"
 ```
 
+Output:
+```text title="output"
+welcome alice@example.com
+```
+
 Messages live in the process and are lost on restart, and each process keeps its own, so the memory backend does not share an outbox across nodes.

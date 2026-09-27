@@ -14,9 +14,8 @@ backend extras.
 
 ## Reading the examples
 
-A block labelled `fragment` is a piece of a larger file. It uses `await` or
-`async with`, so put it inside an `async` function of your own, where the
-names around it are already defined.
+A block labelled `fragment` is a piece of a larger file. Put it inside an
+`async` function of your own, where the names around it are already defined.
 
 ## Mental model
 

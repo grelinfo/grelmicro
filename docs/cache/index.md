@@ -206,7 +206,7 @@ await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
 
 `get_or_set` returns the cached value, or computes it once and stores it. Pass a sync or async factory. It runs only on a miss:
 
-```python
+```python title="fragment"
 user = await cache.get_or_set(
     "user:1",
     lambda: fetch_user(1),

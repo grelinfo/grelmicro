@@ -97,7 +97,7 @@ This is the right pattern when locking by business identity (`order_id`,
 Pass `timeout=` to `acquire()` to limit how long the call waits. When the
 deadline passes without winning the lock, `LockTimeoutError` is raised:
 
-```python
+```python title="fragment"
 # Wait up to 5 seconds, then raise LockTimeoutError.
 held = await lock.acquire(timeout=5.0)
 ```

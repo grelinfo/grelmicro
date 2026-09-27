@@ -31,7 +31,7 @@ Pick the call by what you need:
 
 The simplest form is a boolean:
 
-```python
+```python title="fragment"
 if await limiter.allow(key="user-1"):
     ...  # served
 else:
@@ -40,7 +40,7 @@ else:
 
 `acquire` returns the full `RateLimitResult` when you need the metadata. It reads as a boolean too, so you branch on it directly and still keep `retry_after`/`remaining` on the deny side:
 
-```python
+```python title="fragment"
 result = await limiter.acquire(key="user-1")
 if not result:
     # reject with a 429 and a Retry-After of result.retry_after seconds
@@ -224,7 +224,7 @@ RateLimit: "api";r=50;t=30
 
 Use the `cost` parameter to consume multiple tokens per request.
 
-```python
+```python title="fragment"
 # Bulk endpoint costs 10 tokens
 result = await api_limiter.acquire(key=user_id, cost=10)
 ```

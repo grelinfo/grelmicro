@@ -71,9 +71,9 @@ in grelmicro's text format instead.
     ```python
     from loguru import logger
 
-    from grelmicro.log import configure
+    from grelmicro.log import LogBackendType, configure
 
-    configure()
+    configure(backend=LogBackendType.LOGURU)
     logger.info("Hello, World!", user_id=123)
     ```
 
@@ -81,9 +81,9 @@ in grelmicro's text format instead.
     ```python
     import structlog
 
-    from grelmicro.log import configure
+    from grelmicro.log import LogBackendType, configure
 
-    configure()
+    configure(backend=LogBackendType.STRUCTLOG)
     log = structlog.get_logger()
     log.info("Hello, World!", user_id=123)
     ```

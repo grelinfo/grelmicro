@@ -17,8 +17,8 @@ Snippets are tiered:
   import time has global side effects (they call `asyncio.run(...)`).
   These are still covered by `compileall` and the MkDocs build.
 
-The inline blocks on the pages are checked too. A block with a
-top-level `await` says it is a `fragment`, a block that imports
+The inline blocks on the pages are checked too. A block that only runs
+inside a function says it is a `fragment`, a block that imports
 anything imports every grelmicro name it uses, and a block presented as
 a snippet's output has to match what that snippet prints.
 """
@@ -64,10 +64,10 @@ _FENCE_RE = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 
-# A statement that only runs inside an `async` function.
-_TOP_LEVEL_AWAIT_RE = re.compile(
-    r"^(await |async with |async for )", re.MULTILINE
+_OUTSIDE_FUNCTION_RE = re.compile(
+    r"outside (?:async |of an asynchronous )?function"
 )
+"""The `SyntaxError` a statement raises when it only runs inside a function."""
 
 # Snippets whose module body runs an event loop with global side effects
 # (logging / tracing setup). Compiled and built by MkDocs, not run here.
@@ -373,11 +373,41 @@ def test_fastapi_snippet_routes_answer(
             )
 
 
+def _needs_a_function(body: str) -> bool:
+    """Whether a block only compiles inside an `async` function."""
+    try:
+        compile(body, "<block>", "exec", dont_inherit=True)
+    except SyntaxError as error:
+        return bool(_OUTSIDE_FUNCTION_RE.search(error.msg))
+    return False
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "await sleep()",
+        "x = await sleep()",
+        "if await ready():\n    pass",
+        "try:\n    async with lock:\n        pass\nfinally:\n    pass",
+        "return 1",
+        "[x async for x in items()]",
+    ],
+)
+def test_needs_a_function_catches_every_spelling(body: str) -> None:
+    """A top-level `await`, `async with`, `async for` or `return` is caught."""
+    assert _needs_a_function(body)
+
+
+def test_needs_a_function_passes_a_whole_block() -> None:
+    """A block that compiles on its own needs no fragment label."""
+    assert not _needs_a_function("async def main():\n    await sleep()")
+
+
 def test_inline_fragment_blocks_are_marked() -> None:
     """A block that only runs inside an `async` function says so.
 
-    A reader copies a block as written. One with a top-level `await`
-    raises `SyntaxError` in a file of its own, so the page has to say it
+    A reader copies a block as written. One with a top-level `await` or
+    `return` raises `SyntaxError` in a file of its own, so the page has to say it
     is a piece of something bigger.
     """
     unmarked = [
@@ -385,11 +415,12 @@ def test_inline_fragment_blocks_are_marked() -> None:
         for page in _pages()
         for line, info, body in _blocks(page)
         if info.startswith("python")
-        and _TOP_LEVEL_AWAIT_RE.search(body)
         and 'title="fragment"' not in info
+        and _needs_a_function(body)
     ]
     assert not unmarked, (
-        f"python blocks with a top-level await and no fragment label: "
+        f"python blocks that only run inside a function and carry no "
+        f"fragment label: "
         f'{unmarked}. Wrap them in a function or add `title="fragment"`.'
     )
 
@@ -419,12 +450,37 @@ def _missing_imports(body: str) -> list[str]:
             bound.add(node.name)
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             bound.add(node.id)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
     used = {
         node.id
         for node in ast.walk(tree)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
     }
     return sorted((used & _PUBLIC_NAMES) - bound)
+
+
+def test_missing_imports_counts_parameters_and_caught_errors() -> None:
+    """A parameter or an `except ... as` name is defined by the block."""
+    body = textwrap.dedent(
+        """
+        import logging
+
+
+        def emit(record):
+            return record
+
+
+        try:
+            pass
+        except Exception as record:
+            print(record)
+        """
+    )
+    assert "record" in _PUBLIC_NAMES
+    assert _missing_imports(body) == []
 
 
 def test_inline_blocks_import_the_names_they_use() -> None:
