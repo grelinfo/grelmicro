@@ -10,18 +10,10 @@ from __future__ import annotations
 import pathlib
 import re
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 GRELMICRO = ROOT / "grelmicro"
 
-_SINGLE_CHAR = re.compile(r"\bas\s+[a-z]\s*:")
-
-_EXCLUDE = {
-    "mutants",
-    ".claude",
-    ".venv",
-    "site",
-    "snippets",
-}
+_SINGLE_CHAR = re.compile(r"\bexcept\b.*\bas\s+[a-z]\s*:")
 
 
 def _single_char_excepts(path: pathlib.Path) -> list[tuple[int, str]]:
@@ -40,17 +32,17 @@ def test_no_single_char_exception_names() -> None:
     Every handler in the codebase uses ``error``, ``exc``, or ``ex``.
     A single-letter name is not used anywhere else.
     """
-    violations: list[str] = []
-    for path in GRELMICRO.rglob("*.py"):
-        if path.name == "conftest.py":
-            continue
-        # Skip generated, vendored, and shared directories
-        if any(seg in _EXCLUDE for seg in path.parts):
-            continue
-        for lineno, match in _single_char_excepts(path):
-            rel = path.relative_to(ROOT)
-            violations.append(f"    {rel}:{lineno}    {match}")
+    violations = [
+        f"    {path.relative_to(ROOT)}:{lineno}    {match}"
+        for path in sorted(GRELMICRO.rglob("*.py"))
+        for lineno, match in _single_char_excepts(path)
+    ]
     assert not violations, (
-        "Single-char exception variable(s) found; use ``error``, ``exc``, or ``ex``:\n"
-        + "\n".join(violations)
+        "Single-char exception variables found. Use ``error``, ``exc``, or "
+        "``ex``:\n" + "\n".join(violations)
     )
+
+
+def test_the_check_reads_the_package() -> None:
+    """The scan finds the package, so an empty result means something."""
+    assert (GRELMICRO / "__init__.py").is_file()
