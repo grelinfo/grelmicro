@@ -294,15 +294,43 @@ async def test_tasks_refuse_a_leader_gate_no_tasks_runs(kind: str) -> None:
     assert not tasks.started()
 
 
-async def test_tasks_refuse_a_leader_gate_without_an_app() -> None:
-    """The refusal holds for `Tasks` opened on its own, outside an app."""
+async def test_tasks_start_a_standalone_leader_gate_before_its_election() -> (
+    None
+):
+    """Outside an app, a gated Tasks opened before the one running the election starts."""
+    election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
+    gated = Tasks()
+    _gate(gated, election, "cron")
+
+    async with gated, Tasks(tasks=[election]):
+        assert election.is_running()
+
+
+async def test_tasks_start_a_standalone_leader_gate_run_by_hand_after() -> None:
+    """Outside an app, an election driven by hand after the Tasks opens starts."""
     election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
     tasks = Tasks()
-    _gate(tasks, election, "every")
+    _gate(tasks, election, "cron")
 
-    with pytest.raises(LeaderNotRegisteredError):
-        async with tasks:
-            pass  # pragma: no cover
+    async with tasks, asyncio.TaskGroup() as tg:
+        stop = asyncio.Event()
+        ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        tg.create_task(election(ready=ready, stop=stop))
+        await ready
+        assert election.is_running()
+        stop.set()
+
+
+async def test_tasks_skip_the_leader_check_for_tasks_the_app_does_not_hold() -> (
+    None
+):
+    """A Tasks opened inside an app block, but not held by it, is not checked."""
+    election = LeaderElection("svc")
+    tasks = Tasks()
+    _gate(tasks, election, "cron")
+
+    async with _gated_app(), tasks:
+        assert tasks.started()
 
 
 async def test_tasks_start_a_leader_gate_registered_after_the_task() -> None:

@@ -270,18 +270,22 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
 
         A `LeaderElection` renews its lease only while it runs as a task.
         One that runs nowhere never acquires leadership, so every fire of
-        the task it gates is skipped for the life of the process. An
-        election passes when this `Tasks` holds it, when another `Tasks`
-        opened by the same app holds it, or when it already runs.
+        the task it gates is skipped for the life of the process.
+
+        The check runs only when this `Tasks` is one the open app holds,
+        since only then is every `Tasks` that could run the election
+        known. An election passes when one of the app's `Tasks` holds it,
+        or when it already runs.
 
         Raises:
             LeaderNotRegisteredError: If a gated task's election passes
-                none of those.
+                neither.
         """
-        tasks = self.tasks
-        runners = {id(task) for task in tasks}
-        runners.update(id(task) for task in _app_tasks())
-        for task in tasks:
+        app_tasks = _app_tasks(self)
+        if app_tasks is None:
+            return
+        runners = {id(task) for task in app_tasks}
+        for task in self.tasks:
             if not isinstance(task, IntervalTask | CronTask):
                 continue
             leader = task.leader
@@ -328,17 +332,20 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         logger.debug("%s scheduled tasks started", len(self._tasks))
 
 
-def _app_tasks() -> list[Task]:
-    """Return the tasks of every `Tasks` the active app opens.
+def _app_tasks(tasks: Tasks) -> list[Task] | None:
+    """Return the tasks of every `Tasks` the active app holds.
 
-    Empty when no app is open.
+    None when no app is open, or when the open app does not hold `tasks`.
     """
     micro = _current_micro.get(None)
     if micro is None:
-        return []
+        return None
+    items = micro._items  # noqa: SLF001
+    if not any(item is tasks for item in items):
+        return None
     return [
         task
-        for item in micro._items  # noqa: SLF001
+        for item in items
         if isinstance(item, TaskRouter)
         for task in item.tasks
     ]
