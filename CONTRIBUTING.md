@@ -700,9 +700,14 @@ from its docstrings, so a broken cross-reference fails the pull request
 rather than `main`.
 
 An untouched crate is never compiled. When `rust/grelmicro-core` is
-identical to the tree its `core-*` release was built from, CI installs that
+identical to the sdist PyPI holds for its version, CI installs that
 published wheel. Any edit, or a version bump that has no release yet, builds
 it from the checkout instead.
+
+A change to a published crate needs the next version. Bump it in
+`rust/grelmicro-core/Cargo.toml` and in the `jwt` extra in `pyproject.toml`
+together, once: later changes land on the same unreleased version. The next
+release publishes that core before `grelmicro`.
 
 Pushes to `main`, the nightly schedule and every release run every job
 whatever the paths. The nightly and releases also add the Python matrix and

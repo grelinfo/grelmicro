@@ -1,7 +1,7 @@
 name: Sync dependencies
 description: >-
   Run uv sync, taking grelmicro-core from PyPI when rust/grelmicro-core is
-  identical to the tree its release was built from, so an untouched crate is
+  identical to the sdist PyPI holds for its version, so an untouched crate is
   never compiled.
 inputs:
   args:
@@ -18,21 +18,19 @@ runs:
       run: |
         read -ra args <<< "$SYNC_ARGS"
         version="$(sed -n '/^\[package\]/,/^\[/s/^version = "\(.*\)"/\1/p' rust/grelmicro-core/Cargo.toml)"
-        tag="core-${version}"
 
-        # Git tree ids are content hashes, so equal ids mean the crate is
-        # byte-for-byte what the release built. A missing tag, an unreleased
-        # version bump, or any edit under rust/grelmicro-core all fall through
-        # to building from this checkout.
-        if git fetch --quiet --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}" 2>/dev/null \
-          && [ "$(git rev-parse "${tag}:rust/grelmicro-core")" = "$(git rev-parse HEAD:rust/grelmicro-core)" ]; then
-          echo "rust/grelmicro-core matches ${tag}: installing the published wheel"
+        # The published sdist holds the crate files byte for byte, so an
+        # unchanged crate is exactly what the wheels were built from. An edit
+        # under rust/grelmicro-core, an unreleased version, or PyPI being
+        # unreachable all fall through to building from this checkout.
+        if uv run --no-project python tools/core_release.py released; then
+          echo "rust/grelmicro-core matches ${version} on PyPI: installing the published wheel"
           uv sync "${args[@]}" --no-install-package grelmicro-core
           # Wheels only. Falling back to the sdist would compile the crate,
           # which is the one thing this path exists to avoid.
           uv pip install --no-deps --only-binary grelmicro-core "grelmicro-core==${version}"
         else
-          echo "rust/grelmicro-core differs from ${tag} or is unreleased: building it"
+          echo "rust/grelmicro-core differs from PyPI or is unreleased: building it"
           # Install the toolchain rust-toolchain.toml pins before cargo asks
           # for it. rustup still installs a missing pinned toolchain on first
           # use, but has deprecated doing so.
