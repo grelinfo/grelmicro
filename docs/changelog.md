@@ -65,7 +65,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
-* 🐛 A pattern that names no backend uses the only Component of its kind when none is named `"default"`, as [Backends](architecture/backends.md) documents. `micro.get(kind)`, a `Bulkhead`, `micro.fake()` and the backend scope check follow the same rule. Naming a backend that is not registered still fails. ([#877](https://github.com/grelinfo/grelmicro/pull/877))
+* 🐛 The `"default"` backend of a kind is the Component named `"default"`, or the only Component of that kind when none is, as [Backends](architecture/backends.md) documents. A pattern that names no backend, `micro.get(kind)`, `micro.fake()` and the backend scope check all resolve it this way. Inside a `Bulkhead` that holds a Component of that kind, the `Bulkhead` decides. A name that matches no Component still raises. ([#877](https://github.com/grelinfo/grelmicro/pull/877))
 * 🐛 Opening an app that is already open says so, and names `install(app)` and `micro.fake()`. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * 🐛 `install(app)` called twice on one app wires it once. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * 🐛 A claimed interval task whose `sync` lock refuses the body reports the fire as `missed`, as a cron task does, instead of `skipped`. The claim holds the interval, so no other worker runs it. ([#910](https://github.com/grelinfo/grelmicro/pull/910))

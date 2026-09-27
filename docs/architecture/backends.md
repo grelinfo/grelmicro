@@ -163,6 +163,8 @@ Resolution order, in priority:
 3. When the requested name is `"default"` and exactly one Component of that kind is registered: that sole entry.
 4. Otherwise raise `ComponentNotRegisteredError`.
 
+Inside a `Bulkhead`, its Components answer steps 2 and 3 first. When the `Bulkhead` holds any Component of the kind, step 3 picks the sole entry from the `Bulkhead`, not from the app.
+
 ## Request handlers and the ambient scope
 
 Ambient resolution reads `Grelmicro.current()`, which is per asyncio task. A FastAPI request handler runs in its own task, outside the `async with micro:` block, so a bare `Lock("cart")` cannot see the app there and raises `OutOfContextError`. Add the middleware to extend the app scope to every request:
