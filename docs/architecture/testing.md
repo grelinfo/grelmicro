@@ -2,25 +2,46 @@
 
 ## `micro.fake()`
 
-Swaps every backed component onto an in-process store for a block. The test
-runs the real code paths against real primitives, with no Redis and no
-Postgres:
+Runs the app on in-process stores. It takes effect wherever the app opens,
+so it works for an app that `install` opens in the framework lifespan:
 
 ```python
-async def test_checkout(micro: Grelmicro) -> None:
-    async with micro:
-        async with micro.fake():
-            await checkout("cart-1")
+with micro.fake(), TestClient(app) as client:
+    ...
 ```
 
-`Coordination`, `Cache`, `RateLimiterComponent`, and `CircuitBreakerComponent`
-are each replaced by one wired to a fresh `MemoryProvider`, under the same
-name. A `Lock("cart")` inside the block acquires against memory and behaves
-like a lock, rather than like a mock that returns whatever it was told to.
+Entered before the app opens, it arms the next open, whoever does it: the test
+client running the lifespan, or `async with micro:`. Both `with` and
+`async with` arm, so a sync `TestClient` fixture and an async fixture read the
+same. The arm is held on the app, not on the task, so it reaches the thread
+where `TestClient` runs the lifespan.
+
+That open replaces `Coordination`, `Cache`, `RateLimiterComponent`, and
+`CircuitBreakerComponent` with components wired to a fresh `MemoryProvider`,
+under the same names. A `Lock("cart")` then acquires against memory and
+behaves like a lock, rather than like a mock that returns whatever it was
+told to. Everything is put back when the app closes, so the next open without
+a fake is the real app.
+
+A Provider is opened only when something left as is still borrows it. One
+that only the faked components used stays closed: the test connects to
+nothing, and a readiness check on it, from `auto_health` or `add_provider`, is
+left out of the health report. A Provider the test opens itself, or that a
+real app sharing it keeps open, works as usual. The components a `Bulkhead`
+lists in its own `uses=` are not the app's, so a Provider only they borrow is
+left closed too: pass it in `keep=` when the scope runs in the test. Reaching it directly raises `OutOfContextError` naming the fix,
+`micro.fake(keep=[provider])`, which opens the real one. The backend scope
+check does not run on a faked open, since memory stores are its point.
 
 Components with no backend to fake (`Log`, `Trace`, `Metrics`, `HealthChecks`)
 are left alone. So is `Outbox`, which carries handlers and a running relay that
-a swap would drop. Use `micro.override(...)` for those.
+a swap would drop, and the Provider it borrows stays open. Use
+`micro.override(...)` for those.
+
+Entered with `async with` on an app that is already open, `fake()` swaps the
+same components for the block instead, like `override()`. The Providers are
+open by then, so they stay open and checked. `with` on an open app raises,
+because only an async block can open the replacements.
 
 Reach for `fake()` when the test is about your code, and for `override()` when
 the test is about the interaction with a specific backend.
@@ -32,12 +53,13 @@ Swaps components inside an active `async with micro:` block.
 ```python
 from unittest.mock import AsyncMock
 
-from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination
 from grelmicro.coordination import LockBackend
 
+from app import micro
 
-async def test_swap_for_block(micro: Grelmicro) -> None:
+
+async def test_swap_for_block() -> None:
     fake_backend = AsyncMock(spec=LockBackend)
     async with micro:
         async with micro.override(Coordination(lock=fake_backend)):
@@ -111,69 +133,13 @@ async def test_login_takes_the_lock() -> None:
 
 `log.count(method, **kwargs)` counts calls matching a method name and keyword arguments, `log.methods()` lists the call order, and `log.reset()` clears the history. Read `log.calls` for the raw `Call` records.
 
-## Pytest recipe
+## Pytest fixtures
 
-grelmicro ships no pytest plugin. Add a `micro` fixture in `conftest.py`:
+grelmicro ships no pytest plugin. The [testing guide](../testing.md#test-the-app-you-ship)
+has the one fixture to write: enter `micro.fake()`, then let the test client,
+or `async with micro:` for an app with no HTTP, open the app you ship.
 
-```python
-from collections.abc import AsyncIterator
-
-import pytest
-
-from grelmicro import Grelmicro
-from grelmicro.cache import Cache
-from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.coordination import Coordination
-from grelmicro.coordination.memory import MemoryLockAdapter
-
-
-@pytest.fixture
-async def micro() -> AsyncIterator[Grelmicro]:
-    app = Grelmicro(uses=[
-        Coordination(lock=MemoryLockAdapter()),
-        Cache(MemoryCacheAdapter()),
-    ])
-    async with app:
-        yield app
-```
-
-Tests then read `micro` as a fixture and apply per-case overrides:
-
-```python
-from unittest.mock import AsyncMock
-
-from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination
-from grelmicro.coordination import LockBackend
-
-
-async def test_login(micro: Grelmicro) -> None:
-    fake_backend = AsyncMock(spec=LockBackend)
-    async with micro.override(Coordination(lock=fake_backend)):
-        await do_login("u1")
-```
-
-### Test the app you ship
-
-The fixture above builds a second app for tests, so the wiring under test is
-not the wiring that runs in production. `fake()` lets the fixture open the real
-one and swap only the backends:
-
-```python
-from collections.abc import AsyncIterator
-
-import pytest
-
-from app import micro as production_micro
-from grelmicro import Grelmicro
-
-
-@pytest.fixture
-async def micro() -> AsyncIterator[Grelmicro]:
-    async with production_micro, production_micro.fake():
-        yield production_micro
-```
-
-Every component, name, and default the service really registers is exercised,
-against in-process stores. A component added to `app.py` and forgotten in
-`conftest.py` can no longer pass the suite and fail in production.
+A fixture that opens `micro` and then starts a client on an app that
+`install` wired opens it twice, which raises `OutOfContextError` naming this
+cause. To run two apps or two clients at once, build one `Grelmicro` per app,
+see [app factories](multiple-apps.md#app-factories).

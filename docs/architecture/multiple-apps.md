@@ -27,3 +27,23 @@ async with Grelmicro(uses=[Log()]):
 ## Opting out
 
 Pass `Grelmicro(allow_multiple=True)` when you are sure two active apps will not fight over the same global. The guard then steps aside for that app. Run apps sequentially whenever you can: it is the simplest way to keep logging and tracing predictable.
+
+## App factories
+
+One `Grelmicro` is open once at a time. `install(app)` opens it in the
+framework lifespan, and a second lifespan on the same `micro` raises
+`OutOfContextError` while the first is still running. So two test clients open
+at once, or one `micro` installed on two apps that run together, need one
+`Grelmicro` each.
+
+Each test client also runs the lifespan on an event loop of its own, and
+connection pools and locks belong to the loop that opened them. An app factory
+builds everything per app, so nothing crosses loops:
+
+```python
+--8<-- "testing/app_factory.py"
+```
+
+Running apps one after the other needs none of this. A `Grelmicro` closes
+with the client and opens again with the next one, so a module-level `micro`
+serves a whole suite of tests that each start their own client.

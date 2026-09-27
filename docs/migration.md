@@ -43,6 +43,38 @@ that a client library used to accept.
 | `TypeError: ... only decorates async functions` from `@timeout`, `@bulkhead` or `@shield` on a callable object | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `TypeError: @cached(ttl=...) supports async functions only`, or `AttributeError: '...' object has no attribute '__qualname__'` from `@cached` | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
+| `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
+| A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
+| `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to seconds` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
+
+## 0.42
+
+### One `gate=` for which workers run a task {#0-42-task-gate}
+
+`every` and `cron` take `gate=` instead of `lock=` and `leader=`, and both run on
+every worker by default. A cron task used to claim each fire whenever a
+`Coordination` component was wired. Pass `gate="claim"` to keep that:
+
+```python
+# Before
+@tasks.every(seconds=3600, lock=TaskLock(lease_duration=7200))
+@tasks.every(seconds=60, leader=election)
+@tasks.cron("0 3 * * *")
+
+# After
+@tasks.every(seconds=3600, gate="claim")
+@tasks.every(seconds=60, gate=election)
+@tasks.cron("0 3 * * *", gate="claim")
+```
+
+`gate="claim"` holds the claim for the whole interval, which the old
+`lock=TaskLock(...)` did not: its one-second hold let replicas with offset
+timers each run their own tick. A `TaskLock` you still pass as the gate needs a
+`min_hold_duration` of at least `seconds`.
+
+A gated task with no backend reports a coordination error on every fire
+instead of running on every worker. Register a `Coordination` component, or
+drop the gate when every worker should run it.
 
 ## 0.40
 

@@ -186,6 +186,25 @@ jobs:
       - name: Run clippy
         run: cargo clippy --release --all-targets --locked -- -D warnings
 
+  core-plan:
+    name: Core Release Plan
+    needs: changes
+    # The check the Release workflow runs before publishing, run here so a
+    # crate change that needs a version bump, or a jwt pin that drifted from
+    # the crate, fails the pull request rather than the release.
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.rust == 'true' || github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Plan the core release
+        run: python3 tools/core_release.py plan
+
   tests:
     name: Tests
     needs: changes
@@ -219,6 +238,7 @@ jobs:
       - docs
       - workflow-lint
       - rust
+      - core-plan
       - tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -228,4 +248,4 @@ jobs:
         uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: lint, docs, workflow-lint, rust, tests
+          allowed-skips: lint, docs, workflow-lint, rust, core-plan, tests

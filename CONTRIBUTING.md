@@ -298,6 +298,22 @@ advisory lock in the same database.
   in `match` statements over discriminated unions so new variants
   fail type-check immediately.
 
+### Catching broad exceptions
+
+Ruff enforces this, through `BLE001` and `RUF100`.
+
+- An `except Exception:` or `except BaseException:` that re-raises the
+  caught exception (a bare `raise`, `raise error`, or
+  `raise Other(...) from error`), or logs it with the traceback
+  (`logger.exception(...)` or `exc_info=True`), needs nothing more.
+  Raising a new exception `from None` counts as swallowing it.
+- One that swallows the exception on purpose carries
+  `# noqa: BLE001`, so the choice reads as deliberate.
+- A `# noqa: BLE001` on a handler that re-raises it or logs it is
+  refused as unused. Do not add one to make a handler look intentional.
+- Name the exception with a word, `error` or `exc` as the code does,
+  never a single letter. A test checks the package for that.
+
 ### Runtime-cost discipline
 
 - A primitive with a pluggable strategy or algorithm should
@@ -700,9 +716,14 @@ from its docstrings, so a broken cross-reference fails the pull request
 rather than `main`.
 
 An untouched crate is never compiled. When `rust/grelmicro-core` is
-identical to the tree its `core-*` release was built from, CI installs that
+identical to the sdist PyPI holds for its version, CI installs that
 published wheel. Any edit, or a version bump that has no release yet, builds
 it from the checkout instead.
+
+A change to a published crate needs the next version. Bump it in
+`rust/grelmicro-core/Cargo.toml` and in the `jwt` extra in `pyproject.toml`
+together, once: later changes land on the same unreleased version. The next
+release publishes that core before `grelmicro`.
 
 Pushes to `main`, the nightly schedule and every release run every job
 whatever the paths. The nightly and releases also add the Python matrix and

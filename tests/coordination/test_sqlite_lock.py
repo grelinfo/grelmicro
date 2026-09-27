@@ -1,5 +1,6 @@
 """Tests for SQLite Backends."""
 
+import asyncio
 from pathlib import Path
 
 import aiosqlite
@@ -7,6 +8,7 @@ import pytest
 
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
 from grelmicro.coordination.sqlite import SQLiteLockAdapter
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 
@@ -222,3 +224,24 @@ async def test_acquire_rolls_back_on_error(tmp_path: Path) -> None:
                 table_name="locks"
             )
         )
+
+
+async def test_tasklock_holder_takes_back_its_own_hold(tmp_path: Path) -> None:
+    """A hold stored in whole seconds lets its own holder back in on time.
+
+    SQLite keeps a lease up to a second past what was asked. The instance
+    that set the hold still gets through once the hold ran out on its own
+    clock.
+    """
+    hold = 0.3
+    provider = SQLiteProvider(str(tmp_path / "hold.db"))
+    async with provider, SQLiteLockAdapter(provider=provider) as backend:
+        holder = TaskLock(
+            "hold", backend=backend, min_hold_duration=hold, lease_duration=10
+        )
+        async with holder:
+            pass
+        await asyncio.sleep(hold)
+
+        async with holder:
+            pass

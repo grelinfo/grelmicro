@@ -3,8 +3,9 @@
 A simple scheduler that runs tasks periodically. Use it for lightweight recurring jobs without a full task queue.
 
 - **Fast and easy**: simple decorators to define and schedule tasks with minimal boilerplate.
-- **Interval tasks**: run tasks at fixed intervals, locally or across a cluster.
-- **Cron tasks**: run tasks on a cron schedule in the timezone you choose, claimed once across the fleet.
+- **Interval tasks**: run tasks at fixed intervals.
+- **Cron tasks**: run tasks on a cron schedule in the timezone you choose.
+- **One worker or every worker**: every worker runs a task by default. Pass `gate="claim"` or a leader election to run it on one.
 - **Coordination**: control concurrency with distributed primitives (see [Coordination primitives](coordination/index.md)).
 - **Dependency injection**: use [FastDepends](https://lancetnik.github.io/FastDepends/) to inject dependencies into tasks.
 - **Error handling**: errors are caught and logged, so a failing task does not stop the scheduler.
@@ -18,7 +19,7 @@ Register a `Tasks` instance with a `Grelmicro` app, then schedule a task with th
 ```
 
 !!! warning "Per-process by default"
-    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task. To run an interval task at most once across the fleet, gate it with [`TaskLock`](coordination/task-lock.md) or [`LeaderElection`](coordination/leader-election.md). Without one of those, a 3-replica deployment runs the same `@tasks.every(...)` three times per tick. Cron tasks work differently. They claim each fire against the schedule backend, so a wired [`Coordination`](coordination/index.md) component is all they need.
+    `Tasks` runs schedules **in the local process only**. Every process that boots a `Tasks` instance runs its own copy of every registered task, so a 3-replica deployment runs the same task three times. To run it on one worker, pass a [`gate`](#run-on-one-worker): `gate="claim"` or a [`LeaderElection`](coordination/leader-election.md).
 
 !!! note
     This is not a replacement for full task queues such as Celery, taskiq, or APScheduler. It is small, simple, and safe for running tasks in a distributed system.
@@ -37,9 +38,8 @@ Choose the entry point by the job:
 | Group tasks across modules | `TaskRouter` |
 | Run every cron task on one wall clock | `Tasks(timezone=...)` |
 | Add an object that already implements the task protocol | `tasks.add_task(...)` |
-| Run an interval task at most once across replicas | `@tasks.every(..., lock=TaskLock(...))` |
-| Run a cron task at most once across replicas | `@tasks.cron(...)` with a [`Coordination`](coordination/index.md) component |
-| Run only on the leader | `@tasks.every(..., leader=leader_election)` |
+| Run a task on one worker per interval or fire | `@tasks.every(..., gate="claim")` or `@tasks.cron(..., gate="claim")` |
+| Run a task on the leader only | `@tasks.every(..., gate=leader_election)` |
 
 !!! warning "The task decorator goes on top"
 
@@ -104,64 +104,6 @@ Use the `every` decorator to run a task at a fixed interval:
     --8<-- "task/interval_router.py"
     ```
 
-### Distributed Lock
-
-Pass a [`TaskLock`](coordination/task-lock.md) via `lock` to enable distributed locking: the task runs at most once per interval across all workers. The lock keeps its default `"default"` name, so the task name is used and you never repeat it.
-
-```python
---8<-- "task/interval_lock.py"
-```
-
-| Parameter | Description |
-|-----------|-------------|
-| `seconds` | Duration between each scheduling attempt, as a number of seconds or a `timedelta`. Each worker retries every interval, but only one executes per interval. |
-| `lock` | A `TaskLock` for at-most-once scheduling. Its `lease_duration` is the crash-protection TTL and must be >= `seconds`. Its `min_hold_duration` keeps the lock held after completion to prevent re-execution too soon. |
-
-The `lock` is authoritative: its `lease_duration`, `min_hold_duration`, `backend`, and `worker` are used as set.
-
-### Leader Gating
-
-Restrict the task to the leader worker with a [Leader Election](coordination/leader-election.md), so only one worker executes it. Setting `leader` also enables distributed locking. Without a `lock`, one is configured with `lease_duration` of `seconds * 5` and `min_hold_duration` of `seconds`:
-
-```python
---8<-- "task/interval_leader.py"
-```
-
-### Custom Lock Timing
-
-For long-running tasks, customize both `lease_duration` and `min_hold_duration` on the `TaskLock`:
-
-```python
---8<-- "task/interval_lock_custom.py"
-```
-
-### Resource Lock
-
-Combine distributed locking with a [`Lock`](coordination/lock.md) to synchronize access to a shared resource during task execution. Pass the `Lock` via the `sync` parameter:
-
-```python
---8<-- "task/interval_lock_resource.py"
-```
-
-### How It Works
-
-When the lock is already held, the task skips the execution (logged at DEBUG level) and retries on the next interval.
-
-```
-Node A:  [acquire] → [execute] → [hold for seconds] → [TTL expires]
-Node B:  [skip] → ... → [skip] → ... → [acquire] → [execute]
-```
-
-When combining leader gating, distributed locking, and a resource lock, the synchronization primitives are acquired in this order:
-
-| Order | Primitive | Purpose |
-|-------|-----------|---------|
-| 1 | [`LeaderElection`](coordination/leader-election.md) | Rejects non-leader workers immediately without acquiring any lock, which avoids unnecessary contention. |
-| 2 | [`TaskLock`](coordination/task-lock.md) | Guarantees at-most-once execution per interval. It is acquired after leadership is confirmed so the TTL window stays short. |
-| 3 | [`Lock`](coordination/lock.md) | User-provided lock for shared-resource access. It is acquired last so the resource is held only during actual execution. |
-
-Each primitive is only acquired if the previous one succeeded. For example, a non-leader worker is rejected at step 1 and never touches the task lock or resource lock.
-
 ## Cron Task
 
 Use the `cron` decorator to run a task on a cron schedule:
@@ -169,11 +111,6 @@ Use the `cron` decorator to run a task on a cron schedule:
 ```python
 --8<-- "task/cron.py"
 ```
-
-!!! note "Cron has no `lock` parameter"
-    `every` needs a [`TaskLock`](coordination/task-lock.md) to run at most once across replicas. Cron does not. It claims each fire against the schedule backend instead, so at-most-once is automatic once a [`Coordination`](coordination/index.md) component is wired. See [Distributed cron](#distributed-cron).
-
-    Pass `sync=` to hold a [`Lock`](coordination/lock.md) around a shared resource during the run.
 
 The expression has five fields: `minute hour day-of-month month day-of-week`. The example above runs every day at 02:00.
 
@@ -226,35 +163,14 @@ what a naive `datetime.now()` returns inside your task body. Prefer
     hour rather than running through it twice. Use UTC for a task that must
     keep a steady interval across a transition.
 
-### Distributed cron
+### Missed fires
 
-With a [`Coordination`](coordination/index.md) component wired, every fire is claimed against durable state, so the task runs at most once across all workers per fire:
-
-```python
-@task.cron("*/5 * * * *")
-async def sync_data():
-    ...
-```
-
-The schedule backend stores the last fire on the provider (Redis, Postgres, and SQLite all ship today). Because that state is durable, a fire missed while every worker was down replays once when a worker comes back. Only the most recent missed fire runs, never a backlog of skipped ones. Without a backend, the task runs on every worker, every fire. Kubernetes is intentionally not provided: use a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/).
-
-!!! warning "Do not gate a cron body on leadership"
-    Winning the claim advances the durable last-fire state **before** the body runs. A body that returns early still consumes the fire, so the work is skipped and the next attempt is a whole cron period away:
-
-    ```python
-    @task.cron("0 3 * * *")
-    async def nightly():
-        if not leader.is_leader():
-            return  # the fire is already claimed, so it is now lost
-        await do_work()
-    ```
-
-    Nothing needs gating here. The claim already picks exactly one worker per fire.
+A claimed cron task (`gate="claim"` or a `LeaderElection`) stores its last fire on the schedule backend (Redis, Postgres, and SQLite all ship today). Because that state is durable, a fire missed while every worker was down replays once when a worker comes back. Only the most recent missed fire runs, never a backlog of skipped ones. Kubernetes is intentionally not provided: use a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/).
 
 Set `misfire_grace_seconds` to bound how late a missed fire may run:
 
 ```python
-@task.cron("0 * * * *", misfire_grace_seconds=600)
+@task.cron("0 * * * *", gate="claim", misfire_grace_seconds=600)
 async def hourly_rollup():
     ...
 ```
@@ -269,6 +185,91 @@ A fire more than 600 seconds late is dropped instead of replayed. The default is
 On Kubernetes, when the task is a batch job and you can define manifests, prefer a native [Kubernetes CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) that runs a one-shot command. It is the platform's job and the least code. Grelmicro does not create CronJob resources and should not, since that needs cluster-write permissions an application should not hold.
 
 Use grelmicro `@cron` when you want the task to run inside the live service with its warm connections and dependencies, or want one scheduling model across Redis, Postgres, SQLite, and bare metal.
+
+## Run on one worker
+
+Every worker runs a task by default. Pass `gate` to `every` or `cron` to pick which workers run it:
+
+| `gate` | Who runs it |
+|--------|-------------|
+| `None` (default) | Every worker, every interval or fire. |
+| `"claim"` | One worker per interval or fire, whichever claims it first. |
+| A `LeaderElection` | The elected worker. It claims each interval or fire too, so a leader handover never runs one twice. |
+| A `TaskLock` | One worker per interval, with the lock's own timing. `every` only. |
+
+A gated task needs a [`Coordination`](coordination/index.md) component to hold its claims. Without one, every fire reports a `coordination_error` and runs nothing, so a missing backend never turns into a task that silently runs everywhere.
+
+Each task logs its resolved gate once when it starts, for example `Task started (interval: 60s, gate: claim): cleanup`.
+
+### Claim
+
+```python
+--8<-- "task/interval_claim.py"
+```
+
+```python
+--8<-- "task/cron_claim.py"
+```
+
+An interval claim is a [`TaskLock`](coordination/task-lock.md) named after the task. The worker that wins it holds it for the whole interval, so a replica whose timer fires a moment later finds it taken and skips. A cron claim advances the durable last-fire state instead, which also [replays a missed fire](#missed-fires).
+
+From the moment it holds the claim until the body ends, the task renews it every third of the lease, so a body, and a wait for a `sync` lock before it, may take as long as it needs. The lease (two intervals) only bounds how long a worker that crashed keeps the claim. If a renewal cannot reach the backend, it is retried for as long as the lease lasts. A claim lost that way logs a warning and the body finishes, since stopping it mid-write would be worse than a second run. Work that must never overlap takes a [`Lock`](coordination/lock.md) as `sync` too.
+
+### Leader
+
+```python
+--8<-- "task/interval_leader.py"
+```
+
+Add the [`LeaderElection`](coordination/leader-election.md) to the `Tasks` too, so it campaigns. A worker that is not the leader skips each interval or fire without touching the backend. A cron fire missed while no worker led, at startup or during a handover, replays once when a worker becomes the leader.
+
+!!! warning "Gate on leadership with `gate`, not in the body"
+    A cron claim advances the last-fire state **before** the body runs. A body that checks leadership and returns early still consumes the fire, so the work is lost until the next one:
+
+    ```python
+    @task.cron("0 3 * * *", gate="claim")
+    async def nightly():
+        if not leader.is_leader():
+            return  # the fire is already claimed, so it is now lost
+        await do_work()
+    ```
+
+    `gate=leader` checks leadership before the claim, so a follower never consumes a fire.
+
+### Choosing a gate
+
+- Pick `"claim"` for short, idempotent work any replica can do: a cleanup, a sync, a report.
+- Pick a leader when the task keeps something between runs: a warm cache, an open subscription, or an order you must keep.
+
+### Tune the claim
+
+For an interval task, pass a [`TaskLock`](coordination/task-lock.md) to set the timing yourself:
+
+```python
+--8<-- "task/interval_lock_custom.py"
+```
+
+`min_hold_duration` must be at least `seconds`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is how long a crashed worker keeps the claim, since the task renews it while the body runs. A lock still named `"default"` takes the task name, so you never repeat it, and an external config reload tunes it under `GREL_TASKLOCK_{TASK}_`. The task uses the lock you pass, so the handle you keep is the one it holds.
+
+Cron takes no `TaskLock`. Its claim is a compare-and-set on durable state, with nothing held while the body runs.
+
+### Resource lock
+
+`sync` holds a [`Lock`](coordination/lock.md) around the body once the gate lets the worker through. Use it to serialise access to a shared resource. It never decides which workers run the task, that is the gate's job.
+
+```python
+--8<-- "task/interval_lock_resource.py"
+```
+
+A worker is checked in this order, and stops at the first refusal:
+
+| Order | Check | Purpose |
+|-------|-------|---------|
+| 1 | [`LeaderElection`](coordination/leader-election.md) | Rejects a worker that is not the leader without touching any backend. |
+| 2 | Claim | One worker per interval or fire. |
+| 3 | `sync` [`Lock`](coordination/lock.md) | Held only while the body runs. |
+
+A refused interval is skipped (logged at DEBUG) and tried again on the next one.
 
 ## Task Introspection
 

@@ -14,13 +14,9 @@ backend extras.
 
 ## Reading the examples
 
-Every example with a file name on it is a whole file. Copy it, run it with
-`python`, and it works. The ones that need Redis or Postgres say so, and the
-page gives you the command that starts the service.
-
-Some blocks are a piece of a larger file instead. They carry the label
-`fragment`. Put them inside an `async` function of your own, where the names
-around them are already defined.
+A block labelled `fragment` is a piece of a larger file. It uses `await` or
+`async with`, so put it inside an `async` function of your own, where the
+names around it are already defined.
 
 ## Mental model
 

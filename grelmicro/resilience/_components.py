@@ -6,16 +6,16 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
 
 from typing_extensions import Doc
 
-from grelmicro._component import instantiate_if_class
+from grelmicro._backend_kinds import resolve_source
 from grelmicro.providers._base import Provider
+from grelmicro.resilience._protocol import (
+    CircuitBreakerBackend,
+    RateLimiterBackend,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from grelmicro.resilience._protocol import (
-        CircuitBreakerBackend,
-        RateLimiterBackend,
-    )
     from grelmicro.types import BackendScope
 
 
@@ -99,7 +99,12 @@ class RateLimiterComponent:
         self._requires: BackendScope = requires or self.default_requires
         resolved = cast(
             "Provider | RateLimiterBackend",
-            instantiate_if_class(source),
+            resolve_source(
+                source,
+                owner="RateLimiterComponent",
+                expects="a RateLimiterBackend",
+                protocols=(RateLimiterBackend,),
+            ),
         )
         if isinstance(resolved, Provider):
             self._backend = resolved.ratelimiter()
@@ -223,7 +228,12 @@ class CircuitBreakerComponent:
         self._requires: BackendScope = requires or self.default_requires
         resolved = cast(
             "Provider | CircuitBreakerBackend",
-            instantiate_if_class(source),
+            resolve_source(
+                source,
+                owner="CircuitBreakerComponent",
+                expects="a CircuitBreakerBackend",
+                protocols=(CircuitBreakerBackend,),
+            ),
         )
         if isinstance(resolved, Provider):
             self._backend = resolved.circuitbreaker()

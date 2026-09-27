@@ -12,7 +12,7 @@ This is the transactional outbox pattern. It removes the dual-write problem: the
 
 Define a payload, stage it inside your transaction, and register a handler. The relay does the rest:
 
-```python title="fragment"
+```python
 from pydantic import BaseModel, EmailStr
 
 from grelmicro import Grelmicro

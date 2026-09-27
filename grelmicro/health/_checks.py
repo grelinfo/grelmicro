@@ -99,6 +99,18 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     return _async_wrapper
 
 
+def _left_closed_by_fake(func: object) -> bool:
+    """Return whether `func` probes a Provider `micro.fake()` left closed.
+
+    A faked test connects to nothing, so a readiness check on a Provider the
+    fake never opened is left out of the report instead of failing it.
+    """
+    from grelmicro.providers._base import Provider  # noqa: PLC0415
+
+    provider = getattr(func, "__self__", None)
+    return isinstance(provider, Provider) and provider._left_closed()  # noqa: SLF001
+
+
 class HealthChecks(Reconfigurable[HealthChecksConfig]):
     """Manages health checks and runs them concurrently.
 
@@ -268,6 +280,11 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._auto_health = auto_health
         self._reconfigure_lock = asyncio.Lock()
         self._entries: dict[str, _Entry] = {}
+        self._auto_registered: list[str] = []
+        """Checks `auto_health` added on this run, removed when it closes."""
+        self._depth = 0
+        """How many open scopes hold these checks, so only the last one
+        to close drops what `auto_health` added."""
 
     @property
     def name(self) -> str:
@@ -280,6 +297,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         When `auto_health` is on, register one `provider:{short_name}`
         check per Provider active on the app.
         """
+        self._depth += 1
         if self._auto_health:
             self._register_active_providers()
         return self
@@ -290,7 +308,17 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Close the health checks."""
+        """Close the health checks.
+
+        Drops the checks `auto_health` registered, so the next run checks the
+        Providers that run opens rather than the ones this run had.
+        """
+        self._depth -= 1
+        if self._depth > 0:
+            return
+        for check_name in self._auto_registered:
+            self._entries.pop(check_name, None)
+        self._auto_registered.clear()
 
     def add(
         self,
@@ -472,6 +500,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 )
                 continue
             self.add(check_name, check, critical=True)
+            self._auto_registered.append(check_name)
 
     async def run(
         self,
@@ -503,7 +532,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         selected = [
             (name, entry)
             for name, entry in self._entries.items()
-            if name not in excluded and (not critical_only or entry.critical)
+            if name not in excluded
+            and (not critical_only or entry.critical)
+            and not _left_closed_by_fake(entry.func)
         ]
 
         if not selected:

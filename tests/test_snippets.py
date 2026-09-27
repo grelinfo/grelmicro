@@ -29,6 +29,7 @@ import ast
 import contextlib
 import importlib
 import importlib.util
+import logging
 import pkgutil
 import re
 import runpy
@@ -243,6 +244,48 @@ def test_no_orphan_snippets() -> None:
     )
 
 
+def _loggers() -> list[logging.Logger]:
+    """Return the root logger and every named logger created so far."""
+    return [
+        logging.getLogger(),
+        *(
+            logger
+            for logger in logging.Logger.manager.loggerDict.values()
+            if isinstance(logger, logging.Logger)
+        ),
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging() -> Iterator[None]:
+    """Undo the logging a snippet sets up, so it cannot reach later tests.
+
+    A snippet shows setup a real app does once, such as adding a filter to
+    `grelmicro.health`. Left in place, that filter drops lines a later test
+    expects, in whichever test happens to run next.
+    """
+    saved = {
+        id(logger): (
+            logger.level,
+            list(logger.filters),
+            list(logger.handlers),
+            logger.propagate,
+            logger.disabled,
+        )
+        for logger in _loggers()
+    }
+    yield
+    for logger in _loggers():
+        level, filters, handlers, propagate, disabled = saved.get(
+            id(logger), (logging.NOTSET, [], [], True, False)
+        )
+        logger.setLevel(level)
+        logger.filters[:] = filters
+        logger.handlers[:] = handlers
+        logger.propagate = propagate
+        logger.disabled = disabled
+
+
 @pytest.mark.parametrize("rel", _RUNNABLE)
 def test_snippet_imports(rel: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Each runnable snippet imports without error."""
@@ -300,6 +343,7 @@ def test_fastapi_snippet_routes_answer(
     Importing the module proves the app builds. It says nothing about
     what the endpoints answer, which is where a missing `install` shows
     up: the route raises `NoActiveAppError` and the reader gets a `500`.
+    The app runs under `micro.fake()`, the way its tests would run it.
     """
     for key, value in _ENV.get(rel, {}).items():
         monkeypatch.setenv(key, value)
@@ -314,7 +358,13 @@ def test_fastapi_snippet_routes_answer(
         and "GET" in (route.methods or set())
         and "{" not in route.path
     ]
-    with TestClient(app) as client:
+    micro = getattr(module, "micro", None)
+    fake = (
+        micro.fake()
+        if isinstance(micro, grelmicro.Grelmicro)
+        else contextlib.nullcontext()
+    )
+    with fake, TestClient(app) as client:
         for path in paths:
             response = client.get(path)
             assert response.status_code < _SERVER_ERROR, (

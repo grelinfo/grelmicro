@@ -4,9 +4,11 @@ Exposes:
 
 - `resolve_environment`: read the declared tier from an argument or
   `GREL_ENVIRONMENT`.
-- `unmet_requirements`: walk registered items and return every backend whose
-  scope falls short of what its component requires.
+- `unmet_requirements`: walk registered items and recorded bindings, and
+  return every backend whose scope falls short of what is required of it.
 - `report_unmet_requirements`: raise or warn, by declared tier.
+- `record`, `record_coordination`, `forget`, `recorded_bindings`: keep the
+  bindings of patterns no app registers, for the next app to check.
 
 The user-facing rules are in `docs/deployment.md`, the model in
 `docs/architecture/backends.md`.
@@ -17,9 +19,15 @@ from __future__ import annotations
 import logging
 import os
 import warnings
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Final, get_args
+from itertools import chain
+from pathlib import Path
+from threading import Lock
+from typing import TYPE_CHECKING, Final, NamedTuple, cast, get_args
+from weakref import WeakKeyDictionary, WeakSet
 
 from grelmicro._config import defer_report
 from grelmicro._diagnostics import (
@@ -36,7 +44,7 @@ from grelmicro.errors import (
 from grelmicro.types import BackendScope, Environment
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Generator, Iterable, Iterator, Sequence
 
 logger = logging.getLogger("grelmicro")
 
@@ -85,19 +93,72 @@ _UNKNOWN_ENVIRONMENT_MESSAGE: Final = (
 )
 """Report text, shared by the `warnings` and the `logging` channel."""
 
-_UNDECLARED_MESSAGE: Final = (
-    "%s is bound to %s, which %s scope %r, but requires scope %r.%s Set %s to "
-    "declare where this runs, or pass requires=%r to say that is the reach "
-    "you want."
-)
-"""Report text for an unmet requirement with no tier declared.
-
-Names both sides of the match: a backend provides a scope, a component
-requires one.
-"""
-
 _reported_unknown: set[str] = set()
 """Values already reported, so a second read stays quiet."""
+
+_PACKAGE_DIR: Final = f"{Path(__file__).parent}{os.sep}"
+"""Frames under this directory are skipped, so a warning names user code."""
+
+_reported_constructions: set[tuple[object, ...]] = set()
+"""The shapes of findings already warned about at construction.
+
+With no tier declared, a pattern built per request would otherwise warn on
+every request. Keyed by class and backend, not by name, so a lock named per
+request stays one entry. A strict tier still raises every time.
+"""
+
+
+@dataclass(frozen=True)
+class Binding:
+    """The backend something holds, or the component whose backend it rides.
+
+    A pattern that no app registers is kept as one of these until an app
+    checks it. A component whose backend lives on another component
+    describes itself as one through `_scope_binding()`.
+    """
+
+    label: str
+    """How the report names it, `Lock('cart')`."""
+
+    requires: BackendScope
+    """How far it needs what the backend holds shared."""
+
+    backend: object | None = None
+    """The backend it holds, when it holds one of its own."""
+
+    rides: tuple[str, str] | None = None
+    """`(kind, name)` of the component whose backend it reads otherwise."""
+
+    slot: str | None = None
+    """The `Coordination` keyword that takes this backend.
+
+    Set for a coordination pattern, which has no `requires=` of its own. A
+    registered component holding the same backend decides for it, and the
+    report points at `Coordination(slot=..., requires=...)` as the way out.
+    """
+
+    kind: str | None = None
+    """Component kind of the backend, `"coordination"` or `"cache"`."""
+
+
+_recorded: WeakKeyDictionary[object, Binding] = WeakKeyDictionary()
+"""The binding of every live pattern no app registers, by pattern.
+
+Held weakly, so a pattern that is gone is no longer checked.
+"""
+
+_recorded_lock = Lock()
+"""Guards `_recorded`, which a pattern built on any thread writes to."""
+
+_answered: WeakSet[object] = WeakSet()
+"""Backends a registered component holds, and so answers for.
+
+A pattern that `micro.coordination.lock(...)` builds holds the component's
+backend, so it is left to the component, and building one stays one lookup.
+"""
+
+SUSPENDED: ContextVar[bool] = ContextVar("grelmicro_unrecorded", default=False)
+"""Set while a component builds a pattern it answers for itself."""
 
 
 @dataclass(frozen=True)
@@ -121,6 +182,15 @@ class Unmet:
     requires: BackendScope
     """How far the component needs it shared."""
 
+    rides: str | None = None
+    """Label of the component whose backend it reads, `Cache('default')`."""
+
+    slot: str | None = None
+    """The `Coordination` keyword to register the backend under, if any."""
+
+    kind: str | None = None
+    """Component kind of the backends, which decides the backends offered."""
+
     @property
     def backend(self) -> str:
         """The backend names, read as a list."""
@@ -132,6 +202,30 @@ class Unmet:
     def provides(self) -> str:
         """`provides` or `provide`, agreeing with how many are named."""
         return "provides" if len(self.backends) == 1 else "provide"
+
+    @property
+    def finding(self) -> str:
+        """The sentence naming what falls short, with no tier and no stop."""
+        if self.rides is not None:
+            return (
+                f"{self.component} rides {self.rides}, which is bound to "
+                f"{self.backend} and {self.provides} scope {self.scope!r}, "
+                f"but requires scope {self.requires!r}"
+            )
+        return (
+            f"{self.component} is bound to {self.backend}, which "
+            f"{self.provides} scope {self.scope!r}, but requires scope "
+            f"{self.requires!r}"
+        )
+
+    def remedy(self, scope: str | None = None) -> str:
+        """Return how to accept a smaller reach, naming `scope` when given."""
+        if self.slot is None:
+            return f"pass requires={scope or ''}"
+        return (
+            f"register it as Coordination({self.slot}=..., "
+            f"requires={scope or '...'})"
+        )
 
 
 def resolve_environment(explicit: Environment | None) -> Environment | None:
@@ -193,36 +287,258 @@ def scope_of(backend: object) -> BackendScope | None:
     return scope if scope in _SCOPE_RANK else None
 
 
-def unmet_requirements(items: Iterable[object]) -> list[Unmet]:
-    """Return every bound backend that falls short of its component.
+def record(pattern: object, binding: Binding) -> None:
+    """Keep `binding` for `pattern` until an app checks it.
+
+    The next app to open checks it, and so does `check_backends`. Built
+    inside an open app, it is checked against that app at once.
+
+    Raises:
+        BackendScopeError: If an app is open, its tier is `staging` or
+            `production`, and the backend falls short.
+    """
+    from grelmicro._app import _current_micro  # noqa: PLC0415
+
+    if SUSPENDED.get():
+        return
+    with _recorded_lock:
+        _recorded[pattern] = binding
+    micro = _current_micro.get(None)
+    if micro is None or micro.environment in QUIET_ENVIRONMENTS:
+        return
+    unmet = micro._unmet_bindings([binding])  # noqa: SLF001
+    if not unmet:
+        return
+    if micro.environment not in STRICT_ENVIRONMENTS:
+        shape = (
+            type(pattern),
+            *((entry.backends, entry.rides, entry.slot) for entry in unmet),
+        )
+        with _recorded_lock:
+            if shape in _reported_constructions:
+                return
+            _reported_constructions.add(shape)
+    report_unmet_requirements(unmet, micro.environment)
+
+
+def record_coordination(
+    pattern: object,
+    backend: object,
+    slot: str,
+    requires: BackendScope | None = None,
+) -> None:
+    """Record a coordination pattern holding a backend of its own.
+
+    Only a backend that falls short of `requires` is recorded, so a pattern
+    on Redis costs one comparison. `requires` defaults to what
+    `Coordination` requires, and a `Coordination` building the pattern
+    passes its own.
+
+    Raises:
+        BackendScopeError: As `record` does.
+    """
+    if requires is None:
+        from grelmicro.coordination._component import (  # noqa: PLC0415
+            Coordination,
+        )
+
+        requires = Coordination.default_requires
+    if falls_short(backend, requires) is None or _is_answered(backend):
+        return
+    record(
+        pattern,
+        Binding(
+            label(pattern),
+            requires,
+            backend=backend,
+            slot=slot,
+            kind="coordination",
+        ),
+    )
+
+
+def answer_for(component: object) -> None:
+    """Mark every backend a registered `component` holds as answered for."""
+    for backend in _answering_backends(component):
+        with suppress(TypeError):
+            _answered.add(backend)
+
+
+@contextmanager
+def unrecorded() -> Generator[None]:
+    """Build patterns that are not recorded, because the caller answers."""
+    token = SUSPENDED.set(True)
+    try:
+        yield
+    finally:
+        SUSPENDED.reset(token)
+
+
+def _is_answered(backend: object) -> bool:
+    """Return whether a `Coordination` holds `backend`."""
+    try:
+        return backend in _answered
+    except TypeError:
+        return False
+
+
+def recorded_bindings() -> list[Binding]:
+    """Return the binding of every live pattern no app registers."""
+    with _recorded_lock:
+        return list(_recorded.values())
+
+
+def unmet_requirements(
+    items: Iterable[object],
+    bindings: Iterable[Binding] = (),
+    *,
+    check_items: bool = True,
+) -> list[Unmet]:
+    """Return every bound backend that falls short of what it must hold.
 
     Only a bound backend is checked. A component that holds none, or that
-    declares no requirement, is passed over.
+    declares no requirement, is passed over. `bindings` are checked against
+    `items`: a binding that rides a component reads that component's
+    backend, and a coordination pattern whose backend a registered component
+    also holds is left to that component. `check_items=False` checks the
+    bindings alone.
     """
-    attributes = backend_attributes()
-    grouped: dict[tuple[str, BackendScope, BackendScope], list[str]] = {}
-    for item in items:
-        requires = getattr(item, "requires", None)
-        if requires not in _SCOPE_RANK:
-            continue
-        for attribute in attributes:
-            backend = getattr(item, attribute, None)
-            scope = scope_of(backend) if backend is not None else None
-            if scope is None or _SCOPE_RANK[scope] >= _SCOPE_RANK[requires]:
-                continue
-            names = grouped.setdefault((label(item), scope, requires), [])
-            name = type(backend).__name__
-            if name not in names:
-                names.append(name)
+    items = list(items)
+    grouped: dict[_Finding, list[str]] = {}
+    findings = chain(
+        _item_findings(items) if check_items else (),
+        _binding_findings(bindings, items),
+    )
+    for finding, backend in findings:
+        names = grouped.setdefault(finding, [])
+        name = type(backend).__name__
+        if name not in names:
+            names.append(name)
     return [
         Unmet(
-            component=component,
+            component=finding.component,
             backends=tuple(names),
-            scope=scope,
-            requires=requires,
+            scope=finding.scope,
+            requires=finding.requires,
+            rides=finding.rides,
+            slot=finding.slot,
+            kind=finding.kind,
         )
-        for (component, scope, requires), names in grouped.items()
+        for finding, names in grouped.items()
     ]
+
+
+class _Finding(NamedTuple):
+    """What one component or pattern holds short, less the backend names."""
+
+    component: str
+    rides: str | None
+    scope: BackendScope
+    requires: BackendScope
+    slot: str | None
+    kind: str | None
+
+
+def falls_short(backend: object, requires: object) -> BackendScope | None:
+    """Return the backend's scope when it reaches less far than `requires`.
+
+    A requirement that names no scope is passed over, as on a component.
+    """
+    scope = scope_of(backend)
+    needed = _SCOPE_RANK.get(requires) if isinstance(requires, str) else None
+    if scope is None or needed is None or _SCOPE_RANK[scope] >= needed:
+        return None
+    return scope
+
+
+def _held_backends(item: object) -> list[object]:
+    """Return the backends a registered item keeps bound."""
+    return [
+        backend
+        for attribute in backend_attributes()
+        if (backend := getattr(item, attribute, None)) is not None
+    ]
+
+
+def _answering_backends(item: object) -> list[object]:
+    """Return the backends `item` answers for, by declaring a requirement.
+
+    A pattern registered as a plain context manager holds a backend but
+    states no reach for it, so it answers for nothing, not even its own.
+    """
+    if getattr(item, "requires", None) not in _SCOPE_RANK:
+        return []
+    return _held_backends(item)
+
+
+def _item_findings(
+    items: Sequence[object],
+) -> Iterator[tuple[_Finding, object]]:
+    """Yield what every registered item holds short of its requirement."""
+    for item in items:
+        describe = getattr(item, "_scope_binding", None)
+        if describe is not None:
+            yield from _binding_findings([describe()], items)
+            continue
+        requires = getattr(item, "requires", None)
+        kind = getattr(item, "kind", None)
+        for backend in _held_backends(item):
+            scope = falls_short(backend, requires)
+            if scope is not None:
+                finding = _Finding(
+                    label(item),
+                    None,
+                    scope,
+                    cast("BackendScope", requires),
+                    None,
+                    kind if isinstance(kind, str) else None,
+                )
+                yield finding, backend
+
+
+def _binding_findings(
+    bindings: Iterable[Binding], items: Sequence[object]
+) -> Iterator[tuple[_Finding, object]]:
+    """Yield what each binding holds or rides short of its requirement."""
+    held: set[int] | None = None
+    for binding in bindings:
+        ridden: object | None = None
+        backend = binding.backend
+        if backend is None:
+            ridden = _component(items, binding.rides)
+            backend = getattr(ridden, "backend", None)
+            if backend is None:
+                continue
+        elif binding.slot is not None:
+            if held is None:
+                held = {
+                    id(backend)
+                    for item in items
+                    for backend in _answering_backends(item)
+                }
+            if id(backend) in held:
+                continue
+        scope = falls_short(backend, binding.requires)
+        if scope is not None:
+            finding = _Finding(
+                binding.label,
+                None if ridden is None else label(ridden),
+                scope,
+                binding.requires,
+                binding.slot,
+                binding.kind,
+            )
+            yield finding, backend
+
+
+def _component(
+    items: Sequence[object], key: tuple[str, str] | None
+) -> object | None:
+    """Return the registered component under `(kind, name)`, if any."""
+    for item in items:
+        if (getattr(item, "kind", None), getattr(item, "name", None)) == key:
+            return item
+    return None
 
 
 def label(item: object) -> str:
@@ -249,19 +565,13 @@ def report_unmet_requirements(
     entry = unmet[0]
     message = diagnostic(
         BACKEND_SCOPE,
-        _UNDECLARED_MESSAGE
-        % (
-            entry.component,
-            entry.backend,
-            entry.provides,
-            entry.scope,
-            entry.requires,
-            _others(len(unmet)),
-            ENVIRONMENT_VAR,
-            entry.scope,
-        ),
+        f"{entry.finding}.{_others(len(unmet))} Set {ENVIRONMENT_VAR} to "
+        f"declare where this runs, or {entry.remedy(repr(entry.scope))} to "
+        "say that is the reach you want.",
     )
-    warnings.warn(message, BackendScopeWarning, stacklevel=4)
+    warnings.warn(
+        message, BackendScopeWarning, skip_file_prefixes=(_PACKAGE_DIR,)
+    )
     # Rendered before it reaches `logging`, so both channels carry the same
     # sentence and the record holds no positional arguments a formatter
     # could read as something else.
@@ -293,17 +603,14 @@ def strict_message(
 ) -> str:
     """Render the error a strict tier raises, one sentence per finding."""
     lines = [
-        f"{entry.component} is bound to {entry.backend}, which "
-        f"{entry.provides} scope {entry.scope!r}, but requires scope "
-        f"{entry.requires!r} in environment {environment!r}."
-        for entry in unmet
+        f"{entry.finding} in environment {environment!r}." for entry in unmet
     ]
-    backends = (
-        "a SQLite, Redis, Valkey, Postgres, or Kubernetes backend"
-        if all(entry.requires == "host" for entry in unmet)
-        else "a Redis, Valkey, Postgres, or Kubernetes backend"
-    )
-    lines.append(
-        f"Use {backends}, or pass requires= to say what reach you want."
-    )
+    names = ["Redis", "Valkey", "Postgres"]
+    if all(entry.requires == "host" for entry in unmet):
+        names.insert(0, "SQLite")
+    if all(entry.kind == "coordination" for entry in unmet):
+        names.append("Kubernetes")
+    backends = f"a {', '.join(names[:-1])}, or {names[-1]} backend"
+    remedies = " or ".join(dict.fromkeys(entry.remedy() for entry in unmet))
+    lines.append(f"Use {backends}, or {remedies} to say what reach you want.")
     return " ".join(lines)

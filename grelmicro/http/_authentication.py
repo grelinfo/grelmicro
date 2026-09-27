@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import copy
+import functools
 import inspect
 import json
 import re
 import warnings
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
+from itertools import chain, repeat
+from operator import attrgetter, is_
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -25,15 +28,18 @@ from urllib.parse import unquote, urlsplit
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Doc
 
+from grelmicro._caller import is_authenticated, subject_of
 from grelmicro._config import build_config
 from grelmicro._paths import (
     PathPatterns,
+    _has_configured_middleware,
     _is_mount,
     _is_route,
     _route_source,
     as_patterns,
     compile_mount,
     compile_route,
+    declared_dependencies,
     holds_control_character,
     route_path,
     route_template,
@@ -53,9 +59,18 @@ from grelmicro.http._component import (
     raw_headers_of,
     send_error,
 )
+from grelmicro.http._kinds import (
+    AMBIGUOUS_CREDENTIALS,
+    AUTHENTICATION_REQUIRED,
+    CLIENT_BANNED,
+    INSUFFICIENT_SCOPE,
+    SIGNING_KEYS_UNAVAILABLE,
+    TOKEN_REJECTED,
+)
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
-from grelmicro.security._events import SCOPE_KEY, SecurityEvents, subject_of
+from grelmicro.http._requirement import TOKEN_SCOPE_KEY, declared_scopes
+from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
 from grelmicro.security.jwt import (
@@ -66,7 +81,13 @@ from grelmicro.security.jwt import (
 from grelmicro.security.principal import _verified_token
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping, MutableMapping
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Iterable,
+        Mapping,
+        MutableMapping,
+    )
     from contextlib import AbstractAsyncContextManager
     from re import Pattern
     from types import TracebackType
@@ -105,9 +126,6 @@ __all__ = [
 _BEARER = "bearer"
 """The scheme a bearer token travels under, lowercased for the comparison."""
 
-TOKEN_SCOPE_KEY: Final = "grelmicro.verified_token"  # noqa: S105
-"""Where the middleware leaves the bearer token it verified, as a `VerifiedToken`."""
-
 _POLICY_VIOLATION = 1008
 """Close code for a websocket refused on a server that cannot send a `401`."""
 
@@ -129,13 +147,13 @@ _ROUTE_CHALLENGES = (
 """Every bearer refusal a route may raise, which may be rendered above us."""
 
 _REFUSAL_KINDS: Final = (
-    (AuthenticationRequiredError, "authentication-required", 401),
-    (AmbiguousCredentialsError, "ambiguous-credentials", 400),
-    (InsufficientScopeError, "insufficient-scope", 403),
-    (ClientBannedError, "client-banned", 429),
-    (SigningKeysUnavailableError, "signing-keys-unavailable", 503),
+    (AuthenticationRequiredError, AUTHENTICATION_REQUIRED),
+    (AmbiguousCredentialsError, AMBIGUOUS_CREDENTIALS),
+    (InsufficientScopeError, INSUFFICIENT_SCOPE),
+    (ClientBannedError, CLIENT_BANNED),
+    (SigningKeysUnavailableError, SIGNING_KEYS_UNAVAILABLE),
 )
-"""The refusal each kind of error is recorded as, and the status it answers."""
+"""The kind each error is recorded as, whose slug and status it answers with."""
 
 
 def refusal_of(error: BaseException) -> tuple[str, int] | None:
@@ -145,26 +163,11 @@ def refusal_of(error: BaseException) -> tuple[str, int] | None:
     carries. Every other refusal by the anchor of its error type.
     """
     if isinstance(error, TokenRejectedError):
-        return error.reason.value, 401
-    for kind, refusal, status in _REFUSAL_KINDS:
-        if isinstance(error, kind):
-            return refusal, status
+        return error.reason.value, TOKEN_REJECTED.status
+    for error_type, kind in _REFUSAL_KINDS:
+        if isinstance(error, error_type):
+            return kind.slug, kind.status
     return None
-
-
-def recorded[E: BaseException](scope: Scope, error: E) -> E:
-    """Return `error`, recorded as a refusal when authentication handled the request.
-
-    For a refusal a route raises after the middleware authenticated the
-    request, such as a missing scope. A request authentication left alone
-    records nothing.
-    """
-    middleware = scope.get(SCOPE_KEY)
-    if isinstance(middleware, AuthenticatedRequestsMiddleware):
-        middleware._record(  # noqa: SLF001
-            scope, error, caller=scope.get("user"), authenticated=True
-        )
-    return error
 
 
 def _arrived_path(scope: Scope) -> str:
@@ -289,6 +292,116 @@ class _Reach:
         return self.pattern.match(routed) is not None
 
 
+class _Snapshot:
+    """What an app's routes were read off, as it was then.
+
+    Each attribute read is held with its value. A list is also held item by
+    item, so a list changed in place counts as changed, and so does a route
+    swapped for an equal one, since items are compared by identity. Each
+    route is held with the regex it matches with, its methods and how many
+    attributes it carries, so a regex replaced, a method added or a
+    `matches` set on it counts too.
+    """
+
+    __slots__ = (
+        "_holders",
+        "_items",
+        "_lengths",
+        "_list_holders",
+        "_list_names",
+        "_lists",
+        "_names",
+        "_others",
+        "_regexes",
+        "_routes",
+        "_served",
+        "_shapes",
+        "_sizes",
+        "_values",
+    )
+
+    def __init__(
+        self,
+        read: Iterable[tuple[Any, str]] = (),
+        routes: Iterable[Any] = (),
+    ) -> None:
+        """Hold each `(holder, name)` attribute and each route as it is now."""
+        present = [
+            (holder, name, getattr(holder, name))
+            for holder, name in read
+            if hasattr(holder, name)
+        ]
+        lists = [entry for entry in present if isinstance(entry[2], list)]
+        others = [entry for entry in present if not isinstance(entry[2], list)]
+        self._holders = tuple(holder for holder, _, _ in others)
+        self._names = tuple(name for _, name, _ in others)
+        self._values = tuple(value for _, _, value in others)
+        self._list_holders = tuple(holder for holder, _, _ in lists)
+        self._list_names = tuple(name for _, name, _ in lists)
+        self._lists = tuple(value for _, _, value in lists)
+        self._lengths = list(map(len, self._lists))
+        self._items = tuple(chain.from_iterable(self._lists))
+        self._routes = tuple(
+            route for route in routes if hasattr(route, "__dict__")
+        )
+        self._sizes = list(map(len, map(vars, self._routes)))
+        self._served = tuple(
+            route
+            for route in self._routes
+            if getattr(route, "methods", None) is not None
+            and hasattr(route, "path_regex")
+        )
+        self._shapes = [
+            (route.path_regex, frozenset(route.methods))
+            for route in self._served
+        ]
+        served = set(map(id, self._served))
+        self._others = tuple(
+            route for route in self._routes if id(route) not in served
+        )
+        count = len(self._others)
+        self._regexes = tuple(
+            map(
+                getattr,
+                self._others,
+                repeat("path_regex", count),
+                repeat(None, count),
+            )
+        )
+
+    def changed(self) -> bool:
+        """Return whether any attribute holds anything else now."""
+        if not all(
+            map(is_, map(getattr, self._holders, self._names), self._values)
+        ):
+            return True
+        lists = tuple(map(getattr, self._list_holders, self._list_names))
+        count = len(self._others)
+        return (
+            not all(map(is_, lists, self._lists))
+            or list(map(len, lists)) != self._lengths
+            or not all(map(is_, chain.from_iterable(lists), self._items))
+            or list(map(_SHAPE, self._served)) != self._shapes
+            or not all(
+                map(
+                    is_,
+                    map(
+                        getattr,
+                        self._others,
+                        repeat("path_regex", count),
+                        repeat(None, count),
+                    ),
+                    self._regexes,
+                )
+            )
+            or list(map(len, map(vars, self._routes))) != self._sizes
+        )
+
+
+_SHAPE: Final = attrgetter("path_regex", "methods")
+"""What an HTTP route matches a request with: its regex and its methods."""
+
+
 @dataclass(frozen=True, slots=True)
 class _Routes:
     """An app's public routes, and every other route that could answer.
@@ -310,6 +423,10 @@ class _Routes:
     """Every route with its template, in the order the router tries them."""
     router: Any = None
     """A Litestar app, whose own router names the template a request routes to."""
+    snapshot: _Snapshot = field(default_factory=_Snapshot)
+    """What the routes were read off, as it was then."""
+    routers: tuple[Any, ...] = ()
+    """Each router the routes were read off."""
 
     def template_of(
         self,
@@ -441,43 +558,47 @@ class _PublicRoutes:
         return tuple(self._apps)
 
     def read(self, app: Any) -> None:  # noqa: ANN401
-        """Read every route `app` declares, public or not."""
-        self._apps[app] = routes_of(app)
+        """Read every route `app` declares, public or not.
+
+        FastAPI serves an included router's routes from a copy it refreshes
+        only when told its routes changed, which a route removed or edited
+        in place does not tell it. Each router read is told, so the app
+        serves the routes read here.
+        """
+        routes = routes_of(app)
+        for router in routes.routers:
+            changed = getattr(router, "_mark_routes_changed", None)
+            if changed is not None:
+                changed()
+        self._apps[app] = routes
 
     def reread(self) -> None:
         """Read every app again, for the routes declared since install."""
-        for app in self._apps:
-            self._apps[app] = routes_of(app)
+        for app in tuple(self._apps):
+            self.read(app)
 
     def matches(self, scope: Scope) -> bool:
         """Return whether the request is served by a route declared public.
 
         Held against the routes of the app serving it, which the framework
         names in `scope["app"]`, so one registration installed on two apps
-        serves each by its own routes.
+        serves each by its own routes. Before a request is served without a
+        credential, the routes are read again if any changed since, so a
+        route added once the app started is held against it too.
         """
-        routes = self._apps.get(scope.get("app"))
+        app = scope.get("app")
+        routes = self._apps.get(app)
         # Never served without a credential: see `holds_control_character`.
         if routes is None or holds_control_character(scope["path"]):
             return False
         if routes.litestar is not None:
             return _litestar_serves_publicly(routes.litestar, scope)
-        if not routes.public:
+        if not _serves_publicly(routes, scope):
             return False
-        kind = scope["type"]
-        path = scope["path"]
-        root_path = scope.get("root_path", "")
-        if routes.serves(kind, scope.get("method"), path, root_path):
+        if not routes.snapshot.changed():
             return True
-        routed = starlette_route_path(path, root_path)
-        if kind != "http" or routed == "/" or not routes.redirects:
-            return False
-        # Starlette redirects a path no route matches to the same path with
-        # its trailing slash added or removed, when a route matches that one.
-        toggled = path.rstrip("/") if routed.endswith("/") else f"{path}/"
-        return routes.serves(
-            kind, scope["method"], toggled, root_path
-        ) and not routes.routed(path, root_path)
+        self.read(app)
+        return _serves_publicly(self._apps[app], scope)
 
     def template(self, scope: Scope) -> str | None:
         """Return the template of the route a request is served by, before routing.
@@ -505,6 +626,26 @@ class _PublicRoutes:
         if template is None or not root or not path.startswith(root):
             return template
         return f"{root}{template}"
+
+
+def _serves_publicly(routes: _Routes, scope: Scope) -> bool:
+    """Return whether a public route of a Starlette or FastAPI app serves the request."""
+    if not routes.public:
+        return False
+    kind = scope["type"]
+    path = scope["path"]
+    root_path = scope.get("root_path", "")
+    if routes.serves(kind, scope.get("method"), path, root_path):
+        return True
+    routed = starlette_route_path(path, root_path)
+    if kind != "http" or routed == "/" or not routes.redirects:
+        return False
+    # Starlette redirects a path no route matches to the same path with
+    # its trailing slash added or removed, when a route matches that one.
+    toggled = path.rstrip("/") if routed.endswith("/") else f"{path}/"
+    return routes.serves(
+        kind, scope["method"], toggled, root_path
+    ) and not routes.routed(path, root_path)
 
 
 def routes_of(app: Any) -> _Routes:  # noqa: ANN401
@@ -542,44 +683,43 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     counts as a route that could answer each of them, except for the
     public routes it holds.
     """
-    from starlette.routing import WebSocketRoute  # noqa: PLC0415
-
     tree = _Tree()
     _read_tree(app, tree)
-    public: list[_Reach] = []
-    declared: dict[tuple[int, str], tuple[_Reach, str]] = {}
+    candidates: list[tuple[tuple[int, str], _Reach, str]] = []
     rivals: list[tuple[str, _Reach]] = []
+    anywhere: list[_Reach] = []
     ordered: list[tuple[str, _Reach]] = []
+    # A node holding a route that is not public may route a public path to
+    # it, once its middleware changed the path.
+    rewriting = set(tree.opaque)
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
         template = f"{prefix}{route.path}"
-        if isinstance(route, WebSocketRoute):
-            reach = _Reach(_WEBSOCKET, None, compile_route(template))
-        else:
-            methods = getattr(route, "methods", None)
-            reach = _Reach(
-                _HTTP,
-                frozenset(methods) if methods else None,
-                compile_route(template),
-            )
         key = (id(route), prefix)
         chain = tree.chains.get(key)
-        if chain is not None:
-            # Matched through each mount above it, as Starlette matches it.
-            mounts, relative = chain
-            reach = replace(
-                reach,
-                pattern=compile_route(f"{relative}{route.path}"),
-                within=tree.within[key],
-                mounts=tuple(compile_mount(mount) for mount in mounts),
-            )
+        reach = _reach_of(route, template, key, tree)
         ordered.append(
             (f"{prefix}{getattr(route, 'path_format', route.path)}", reach)
         )
+        if _matches_its_own_way(route):
+            # It may answer any path beneath its mounts, whatever it names.
+            anywhere.append(
+                _Reach(_EITHER, None, _ANY_PATH, mounts=reach.mounts)
+            )
+            rewriting.update(tree.rewritten.get(key, ()))
+            continue
         if (
             chain is not None
             and _declares_anonymous(route, contexts)
             and key not in tree.closed
         ):
+            candidates.append((key, reach, template))
+        else:
+            rivals.append((template, reach))
+            rewriting.update(tree.rewritten.get(key, ()))
+    public: list[_Reach] = []
+    declared: dict[tuple[int, str], tuple[_Reach, str]] = {}
+    for key, reach, template in candidates:
+        if rewriting.isdisjoint(tree.rewritten.get(key, ())):
             public.append(reach)
             declared[key] = (reach, template)
         else:
@@ -587,7 +727,6 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
     if not public:
         return _Routes(templates=tuple(ordered))
     by_depth: dict[int, list[_Reach]] = {}
-    anywhere: list[_Reach] = []
     for template, reach in rivals:
         # A route beneath a mount is matched against a path the root path may
         # leave whole, so its depth says nothing about the URLs it answers.
@@ -604,6 +743,8 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
         declared=MappingProxyType(declared),
         redirects=_redirects_slashes(app),
         templates=tuple(ordered),
+        snapshot=_Snapshot(tree.watched, tree.routes),
+        routers=tuple(tree.routers),
         nodes=tuple(
             (
                 node,
@@ -616,6 +757,34 @@ def _starlette_routes(app: Any) -> _Routes:  # noqa: ANN401
             )
             for node, mounts, own in tree.nodes
         ),
+    )
+
+
+def _reach_of(
+    route: Any,  # noqa: ANN401
+    template: str,
+    key: tuple[int, str],
+    tree: _Tree,
+) -> _Reach:
+    """Return where a Starlette or FastAPI route answers, as its path says.
+
+    Beneath a mount it is matched through each mount above it, as Starlette
+    matches it.
+    """
+    from starlette.routing import WebSocketRoute  # noqa: PLC0415
+
+    chain = tree.chains.get(key)
+    mounts, relative = ((), "") if chain is None else chain
+    compiled = tuple(compile_mount(mount) for mount in mounts)
+    methods = getattr(route, "methods", None)
+    return _Reach(
+        _WEBSOCKET if isinstance(route, WebSocketRoute) else _HTTP,
+        None
+        if isinstance(route, WebSocketRoute) or not methods
+        else frozenset(methods),
+        compile_route(template if chain is None else f"{relative}{route.path}"),
+        within=tree.within.get(key, frozenset()),
+        mounts=compiled,
     )
 
 
@@ -636,6 +805,47 @@ _ANY_PATH: Final = re.compile(r"(?s).*")
 """What a host, or a node of another kind, answers: any path at all."""
 
 
+def _matches_its_own_way(route: Any) -> bool:  # noqa: ANN401
+    """Return whether a route or a mount matches requests other than by its path.
+
+    True when its `matches` is not the one its framework wrote, on its class
+    or on the route itself, or when the regex it matches with is not the one
+    its path compiles to.
+    """
+    if "matches" in getattr(route, "__dict__", ()):
+        return True
+    if getattr(type(route), "matches", None) not in _framework_matches():
+        return True
+    regex = getattr(route, "path_regex", None)
+    if regex is None:
+        return False
+    from starlette.routing import compile_path  # noqa: PLC0415
+
+    path = f"{route.path}/{{path:path}}" if _is_mount(route) else route.path
+    expected, _, _ = compile_path(path)
+    return (regex.pattern, regex.flags) != (expected.pattern, expected.flags)
+
+
+@functools.cache
+def _framework_matches() -> frozenset[Any]:
+    """Return the `matches` Starlette and FastAPI give their routes and mounts."""
+    from starlette import routing  # noqa: PLC0415
+
+    classes: list[Any] = [
+        routing.Route,
+        routing.WebSocketRoute,
+        routing.Mount,
+        routing.Host,
+    ]
+    try:
+        from fastapi import routing as fastapi_routing  # noqa: PLC0415
+    except ImportError:  # pragma: no cover - FastAPI is optional
+        pass
+    else:
+        classes += [fastapi_routing.APIRoute, fastapi_routing.APIWebSocketRoute]
+    return frozenset(klass.matches for klass in classes)
+
+
 @dataclass(slots=True)
 class _Tree:
     """Where each routing node of an app sits, and what each route sits in."""
@@ -648,6 +858,18 @@ class _Tree:
     chains: dict[tuple[int, str], tuple[tuple[str, ...], str]] = field(
         default_factory=dict
     )
+    rewritten: dict[tuple[int, str], frozenset[int]] = field(
+        default_factory=dict
+    )
+    """The nodes above each route whose app has middleware of its own."""
+    opaque: set[int] = field(default_factory=set)
+    """The nodes with middleware of their own that hold what no route declares."""
+    watched: list[tuple[Any, str]] = field(default_factory=list)
+    """Each object read, with the attribute read off it."""
+    routes: list[Any] = field(default_factory=list)
+    """Each route, mount and host read."""
+    routers: list[Any] = field(default_factory=list)
+    """Each router read."""
 
 
 def _read_tree(
@@ -659,6 +881,7 @@ def _read_tree(
     mounts: tuple[str, ...] = (),
     relative: str = "",
     closed: bool = False,
+    rewritten: frozenset[int] = frozenset(),
     seen: frozenset[int] = frozenset(),
 ) -> None:
     """Record every mount and host, and where each route sits under them.
@@ -668,18 +891,34 @@ def _read_tree(
     is recorded with the mounts above it and the path it sits under within
     the innermost one, because Starlette matches each mount on its own. A
     route under a node that turns a request away to anything but a `404` is
-    closed, because what answers instead is not the route.
+    closed, because what answers instead is not the route, and so is one
+    under a node whose class matches requests its own way.
+
+    A route is also recorded with the nodes above it whose app has
+    middleware of its own. That middleware may change the path before the
+    app routes it, so any route beneath the node may answer any URL the
+    node takes.
     """
     routed = _route_source(app, unwrap_middleware=True)
     if routed is None or id(routed) in seen:
         return
     seen |= {id(routed)}
+    if rewritten and _answers_unrouted(routed):
+        tree.opaque.update(rewritten)
     # A mount or a route mounted as an app is matched itself, as a route is.
-    held = (
-        (routed,)
-        if _is_mount(routed) or _is_route(routed)
-        else getattr(routed, "routes", None) or ()
-    )
+    if _is_mount(routed) or _is_route(routed):
+        held: Any = (routed,)
+    else:
+        held = getattr(routed, "routes", None) or ()
+        router = getattr(routed, "router", routed)
+        tree.routers.append(router)
+        tree.watched.extend(
+            (
+                (routed, "routes"),
+                (router, "redirect_slashes"),
+                (router, "_low_priority_routes"),
+            )
+        )
     for route in held:
         included = getattr(route, "original_router", None)
         if included is not None:
@@ -694,31 +933,47 @@ def _read_tree(
                 mounts=mounts,
                 relative=f"{relative}{added}",
                 closed=closed,
+                rewritten=rewritten,
                 seen=seen,
             )
             continue
+        tree.routes.append(route)
         if _is_route(route):
             key = (id(route), prefix)
             tree.within[key] = within
             tree.chains[key] = (mounts, relative)
+            tree.rewritten[key] = rewritten
             if closed:
                 tree.closed.add(key)
             continue
-        mount = _is_mount(route)
-        under = f"{prefix}{route.path}" if mount else prefix
+        tree.opaque.update(rewritten)
         # A mount matches by its own path beneath the mounts above it. A
-        # host, or a node of another kind, matches by something else.
+        # host, a node of another kind, or one matching its own way, matches
+        # by something else.
+        own = _is_mount(route) and not _matches_its_own_way(route)
+        under = f"{prefix}{route.path}" if _is_mount(route) else prefix
         tree.nodes.append(
-            (id(route), mounts, f"{relative}{route.path}" if mount else None)
+            (id(route), mounts, f"{relative}{route.path}" if own else None)
         )
+        nested = getattr(route, "app", None)
+        tree.watched.append((route, "app"))
+        if hasattr(nested, "user_middleware"):
+            tree.watched.append((nested, "user_middleware"))
         _read_tree(
-            getattr(route, "app", None),
+            nested,
             tree,
             prefix=under,
             within=within | {id(route)},
-            mounts=(*mounts, route.path) if mount else mounts,
-            relative="" if mount else relative,
-            closed=closed or _turns_away_elsewhere(route, routed),
+            mounts=(*mounts, route.path) if own else mounts,
+            relative="" if own else relative,
+            closed=closed
+            or _turns_away_elsewhere(route, routed)
+            or _matches_its_own_way(route),
+            rewritten=(
+                rewritten | {id(route)}
+                if _has_configured_middleware(nested)
+                else rewritten
+            ),
             seen=seen,
         )
 
@@ -730,12 +985,40 @@ def _turns_away_elsewhere(route: Any, holder: Any) -> bool:  # noqa: ANN401
     turn a request for its paths away, and its router then answers with its
     default.
     """
-    if _is_mount(route):
-        return False
+    return not _is_mount(route) and _answers_unrouted(holder)
+
+
+def _answers_unrouted(holder: Any) -> bool:  # noqa: ANN401
+    """Return whether an app answers a request no route takes with more than a `404`.
+
+    A default of its own does, and so do the routes FastAPI tries once no
+    other matched, such as a frontend, its own or an included router's.
+    """
     from starlette.routing import Router  # noqa: PLC0415
 
-    default = getattr(getattr(holder, "router", holder), "default", None)
-    return getattr(default, "__func__", None) is not Router.not_found
+    router = getattr(holder, "router", holder)
+    default = getattr(router, "default", None)
+    return getattr(
+        default, "__func__", None
+    ) is not Router.not_found or _serves_last(router)
+
+
+def _serves_last(router: Any, seen: set[int] | None = None) -> bool:  # noqa: ANN401
+    """Return whether a router, or one it includes, holds routes tried last.
+
+    A router included more than once is read once.
+    """
+    seen = set() if seen is None else seen
+    if id(router) in seen:
+        return False
+    seen.add(id(router))
+    if getattr(router, "_low_priority_routes", None):
+        return True
+    return any(
+        _serves_last(included, seen)
+        for route in getattr(router, "routes", ()) or ()
+        if (included := getattr(route, "original_router", None)) is not None
+    )
 
 
 def _litestar_routes(app: Any) -> _Routes:  # noqa: ANN401
@@ -926,27 +1209,10 @@ def _declares_anonymous(
     On the route, on the router that holds it, or where that router was
     included.
     """
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    if any(
-        is_anonymous_declaration(dependency.call)
-        for dependency in getattr(declared, "dependencies", ())
-    ):
-        return True
     return any(
-        is_anonymous_declaration(getattr(dependency, "dependency", None))
-        for context in contexts
-        for dependency in getattr(context, "dependencies", ()) or ()
+        is_anonymous_declaration(call)
+        for call in declared_dependencies(route, contexts)
     )
-
-
-AUTHENTICATED_MARKER = "__grelmicro_authenticated__"
-"""Set on what a route declares `Authenticated` with, so a reader finds it.
-
-Read by attribute rather than by identity, so a declaration made before its
-module was imported again is still recognised as one. The FastAPI
-dependency carries `True`, and its scopes come from the dependency tree. A
-Litestar guard carries the scopes it requires.
-"""
 
 
 def is_anonymous_declaration(call: object) -> bool:
@@ -1006,11 +1272,11 @@ def _declarations(
     handlers = _litestar_handlers(route)
     if handlers is not None:
         return [
-            tuple(getattr(guard, AUTHENTICATED_MARKER))
+            declared
             for handler in handlers
             if _handles(handler, method)
             for guard in handler.resolve_guards()
-            if hasattr(guard, AUTHENTICATED_MARKER)
+            if (declared := declared_scopes(guard)) is not None
         ]
     found: list[tuple[str, ...]] = []
     endpoint = getattr(route, "endpoint", None)
@@ -1020,8 +1286,9 @@ def _declarations(
         if isinstance(endpoint, type)
         else endpoint
     )
-    if hasattr(target, AUTHENTICATED_MARKER):
-        found.append(tuple(getattr(target, AUTHENTICATED_MARKER)))
+    declared_here = declared_scopes(target)
+    if declared_here is not None:
+        found.append(declared_here)
     declared = getattr(route, "dependant", None)  # codespell:ignore
     pending = [
         *getattr(declared, "dependencies", ()),
@@ -1029,7 +1296,7 @@ def _declarations(
     ]
     while pending:
         dependency = pending.pop(0)
-        if getattr(dependency.call, AUTHENTICATED_MARKER, False):
+        if declared_scopes(dependency.call) is not None:
             # What `SecurityScopes` hands it: the scopes of every `Security`
             # around it as well as its own, under either spelling FastAPI
             # has used for them.
@@ -1670,6 +1937,9 @@ class AuthenticatedRequestsMiddleware:
             enduser=enduser,
         )
         self._events = SecurityEvents(enduser=described.enduser)
+        # Bound once, so a request leaves it on the scope without building
+        # a new bound method each time.
+        self._record_route_refusal = self._record_raised
         self._metadata = _resource_metadata(
             described.resource,
             described.authorization_servers,
@@ -1687,7 +1957,7 @@ class AuthenticatedRequestsMiddleware:
         metadata = self._metadata
         if metadata is not None:
             if scope["type"] == "http" and route_path(scope) in metadata.paths:
-                await _serve_metadata(scope, send, metadata)
+                await metadata.serve(scope, send)
                 return
             if (
                 not self._routing_checked
@@ -1724,10 +1994,14 @@ class AuthenticatedRequestsMiddleware:
                 return
         scope["user"] = caller
         scope["auth"] = caller
-        scope[SCOPE_KEY] = self
+        scope[SCOPE_KEY] = self._record_route_refusal
         scope[TOKEN_SCOPE_KEY] = verified
         self._events.authenticated(caller)
         await self._forward(scope, receive, send)
+
+    def _record_raised(self, scope: Scope, error: BaseException) -> None:
+        """Record a refusal a route raised after this middleware authenticated it."""
+        self._record(scope, error, caller=scope.get("user"), authenticated=True)
 
     def _record(
         self,
@@ -1954,7 +2228,7 @@ async def _checked(check: _Check, caller: Principal, scope: Scope) -> Principal:
         raise TokenRejectedError(
             TokenRejectedReason.REVOKED, subject=subject_of(caller)
         )
-    if getattr(checked, "is_authenticated", False) is not True:
+    if not is_authenticated(checked):
         msg = (
             f"check= answered with a {type(checked).__name__}, which is not "
             f"an authenticated caller. Return the caller, or None to refuse "
@@ -2465,6 +2739,75 @@ class _ResourceMetadata:
     body: bytes
     """The document itself."""
 
+    async def serve(self, scope: Scope, send: Send) -> None:
+        """Answer a request for the document, whoever asks.
+
+        It is public by definition, so no credential is read, and a browser
+        client on any origin may read it, with whatever headers its
+        preflight asks to send.
+        """
+        method = scope.get("method")
+        headers = [(b"access-control-allow-origin", b"*")]
+        if method in ("GET", "HEAD"):
+            status, body = 200, self.body
+            headers += [
+                (b"content-type", b"application/json"),
+                (
+                    b"cache-control",
+                    f"public, max-age={_METADATA_MAX_AGE}".encode(),
+                ),
+                (b"content-length", str(len(body)).encode()),
+            ]
+        elif method == "OPTIONS":
+            status, body = 204, b""
+            headers += [
+                (b"access-control-allow-methods", _METADATA_METHODS),
+                (b"allow", _METADATA_METHODS),
+                *(
+                    (b"access-control-allow-headers", value)
+                    for name, value in scope["headers"]
+                    if name == b"access-control-request-headers"
+                ),
+            ]
+        else:
+            status, body = 405, b""
+            headers += [
+                (b"allow", _METADATA_METHODS),
+                (b"content-length", b"0"),
+            ]
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"" if method == "HEAD" else body,
+            }
+        )
+
+    def document(self) -> Callable[[Scope, Receive, Send], Awaitable[None]]:
+        """Return an ASGI app serving the document, for a router to route to it.
+
+        A websocket is closed, since the document is not served over one.
+        """
+
+        async def protected_resource_metadata(
+            scope: Scope,
+            receive: Receive,  # noqa: ARG001
+            send: Send,
+        ) -> None:
+            if scope["type"] != "http":
+                await send({"type": "websocket.close"})
+                return
+            await self.serve(scope, send)
+
+        setattr(protected_resource_metadata, METADATA_MARKER, True)
+        return protected_resource_metadata
+
 
 def metadata_path_of(options: Mapping[str, Any]) -> str | None:
     """Return where a middleware built with `options` serves its metadata."""
@@ -2581,52 +2924,6 @@ def _names(value: tuple[str, ...] | list[str], *, name: str) -> tuple[str, ...]:
         )
         raise TypeError(msg)
     return tuple(value)
-
-
-async def _serve_metadata(
-    scope: Scope, send: Send, metadata: _ResourceMetadata
-) -> None:
-    """Answer a request for the metadata document, whoever asks.
-
-    It is public by definition, so no credential is read, and a browser
-    client on any origin may read it, with whatever headers its preflight
-    asks to send.
-    """
-    method = scope.get("method")
-    headers = [(b"access-control-allow-origin", b"*")]
-    if method in ("GET", "HEAD"):
-        status, body = 200, metadata.body
-        headers += [
-            (b"content-type", b"application/json"),
-            (
-                b"cache-control",
-                f"public, max-age={_METADATA_MAX_AGE}".encode(),
-            ),
-            (b"content-length", str(len(body)).encode()),
-        ]
-    elif method == "OPTIONS":
-        status, body = 204, b""
-        headers += [
-            (b"access-control-allow-methods", _METADATA_METHODS),
-            (b"allow", _METADATA_METHODS),
-            *(
-                (b"access-control-allow-headers", value)
-                for name, value in scope["headers"]
-                if name == b"access-control-request-headers"
-            ),
-        ]
-    else:
-        status, body = 405, b""
-        headers += [(b"allow", _METADATA_METHODS), (b"content-length", b"0")]
-    await send(
-        {"type": "http.response.start", "status": status, "headers": headers}
-    )
-    await send(
-        {
-            "type": "http.response.body",
-            "body": b"" if method == "HEAD" else body,
-        }
-    )
 
 
 def _warn_if_unrouted(scope: Scope, metadata: _ResourceMetadata) -> None:

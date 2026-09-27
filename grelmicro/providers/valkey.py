@@ -378,6 +378,7 @@ class ValkeyProvider(RedisProvider):
 
     async def __aenter__(self) -> Self:
         """Open the provider. The client is already constructed eagerly."""
+        self._entered += 1
         return self
 
     async def __aexit__(
@@ -387,5 +388,6 @@ class ValkeyProvider(RedisProvider):
         traceback: TracebackType | None,
     ) -> None:
         """Close the client when the provider owns it."""
+        self._entered -= 1
         if self._own:
             await self._client.aclose()
