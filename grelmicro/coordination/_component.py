@@ -21,6 +21,7 @@ from grelmicro._backend_kinds import (
     resolve_source,
 )
 from grelmicro._component import instantiate_if_class
+from grelmicro._environment import SUSPENDED, record_coordination
 from grelmicro.coordination._protocol import (
     LeaderElectionBackend,
     LockBackend,
@@ -35,6 +36,7 @@ from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import TracebackType
 
     from grelmicro.types import BackendScope
@@ -392,7 +394,7 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no lock backend is wired.
         """
-        return Lock(name, backend=self.lock_backend, **kwargs)
+        return self._build(Lock, name, self.lock_backend, "lock", kwargs)
 
     def tasklock(self, name: str, **kwargs: Any) -> TaskLock:  # noqa: ANN401
         """Construct a `TaskLock` bound to this component's lock backend.
@@ -400,7 +402,7 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no lock backend is wired.
         """
-        return TaskLock(name, backend=self.lock_backend, **kwargs)
+        return self._build(TaskLock, name, self.lock_backend, "lock", kwargs)
 
     def readwritelock(self, name: str, **kwargs: Any) -> ReadWriteLock:  # noqa: ANN401
         """Construct a `ReadWriteLock` bound to this component's backend.
@@ -408,7 +410,9 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no read-write lock backend is wired.
         """
-        return ReadWriteLock(name, backend=self.rwlock_backend, **kwargs)
+        return self._build(
+            ReadWriteLock, name, self.rwlock_backend, "rwlock", kwargs
+        )
 
     def leaderelection(
         self,
@@ -420,7 +424,32 @@ class Coordination:
         Raises:
             CoordinationBackendError: If no leader election backend is wired.
         """
-        return LeaderElection(name, backend=self.election_backend, **kwargs)
+        return self._build(
+            LeaderElection, name, self.election_backend, "election", kwargs
+        )
+
+    def _build[P](
+        self,
+        pattern: Callable[..., P],
+        name: str,
+        backend: object,
+        slot: str,
+        kwargs: dict[str, Any],
+    ) -> P:
+        """Build a pattern on `backend`, checked against this `requires`.
+
+        A registered component answers for its backend, so this costs one
+        lookup. An unregistered one still has its declared reach honored.
+        """
+        # Set by hand rather than through `unrecorded()`: this runs on
+        # every `micro.coordination.lock(...)`.
+        token = SUSPENDED.set(True)
+        try:
+            built = pattern(name, backend=backend, **kwargs)
+        finally:
+            SUSPENDED.reset(token)
+        record_coordination(built, backend, slot, self._requires)
+        return built
 
     async def __aenter__(self) -> Self:
         """Open whichever backends are set."""

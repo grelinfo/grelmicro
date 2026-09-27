@@ -157,7 +157,7 @@ A pattern that `micro.coordination.lock(...)` builds holds the component's
 backend, so it is left to the component, and building one stays one lookup.
 """
 
-_suspended: ContextVar[bool] = ContextVar("grelmicro_unrecorded", default=False)
+SUSPENDED: ContextVar[bool] = ContextVar("grelmicro_unrecorded", default=False)
 """Set while a component builds a pattern it answers for itself."""
 
 
@@ -299,7 +299,7 @@ def record(pattern: object, binding: Binding) -> None:
     """
     from grelmicro._app import _current_micro  # noqa: PLC0415
 
-    if _suspended.get():
+    if SUSPENDED.get():
         return
     with _recorded_lock:
         _recorded[pattern] = binding
@@ -321,20 +321,28 @@ def record(pattern: object, binding: Binding) -> None:
     report_unmet_requirements(unmet, micro.environment)
 
 
-def record_coordination(pattern: object, backend: object, slot: str) -> None:
+def record_coordination(
+    pattern: object,
+    backend: object,
+    slot: str,
+    requires: BackendScope | None = None,
+) -> None:
     """Record a coordination pattern holding a backend of its own.
 
-    Only a backend that falls short of what `Coordination` requires is
-    recorded, so a pattern on Redis costs one comparison.
+    Only a backend that falls short of `requires` is recorded, so a pattern
+    on Redis costs one comparison. `requires` defaults to what
+    `Coordination` requires, and a `Coordination` building the pattern
+    passes its own.
 
     Raises:
         BackendScopeError: As `record` does.
     """
-    from grelmicro.coordination._component import (  # noqa: PLC0415
-        Coordination,
-    )
+    if requires is None:
+        from grelmicro.coordination._component import (  # noqa: PLC0415
+            Coordination,
+        )
 
-    requires = Coordination.default_requires
+        requires = Coordination.default_requires
     if falls_short(backend, requires) is None or _is_answered(backend):
         return
     record(
@@ -351,7 +359,7 @@ def record_coordination(pattern: object, backend: object, slot: str) -> None:
 
 def answer_for(component: object) -> None:
     """Mark every backend a registered `component` holds as answered for."""
-    for backend in _held_backends(component):
+    for backend in _answering_backends(component):
         with suppress(TypeError):
             _answered.add(backend)
 
@@ -359,11 +367,11 @@ def answer_for(component: object) -> None:
 @contextmanager
 def unrecorded() -> Generator[None]:
     """Build patterns that are not recorded, because the caller answers."""
-    token = _suspended.set(True)
+    token = SUSPENDED.set(True)
     try:
         yield
     finally:
-        _suspended.reset(token)
+        SUSPENDED.reset(token)
 
 
 def _is_answered(backend: object) -> bool:
@@ -452,6 +460,17 @@ def _held_backends(item: object) -> list[object]:
     ]
 
 
+def _answering_backends(item: object) -> list[object]:
+    """Return the backends `item` answers for, by declaring a requirement.
+
+    A pattern registered as a plain context manager holds a backend but
+    states no reach for it, so it answers for nothing, not even its own.
+    """
+    if getattr(item, "requires", None) not in _SCOPE_RANK:
+        return []
+    return _held_backends(item)
+
+
 def _item_findings(
     items: Sequence[object],
 ) -> Iterator[tuple[_Finding, object]]:
@@ -495,7 +514,7 @@ def _binding_findings(
                 held = {
                     id(backend)
                     for item in items
-                    for backend in _held_backends(item)
+                    for backend in _answering_backends(item)
                 }
             if id(backend) in held:
                 continue

@@ -817,3 +817,32 @@ def test_an_idempotency_on_a_cache_that_reaches_far_enough_holds() -> None:
     assert recorded_bindings() == []
 
     del idem
+
+
+def test_a_registered_pattern_does_not_answer_for_its_own_backend() -> None:
+    """A pattern in `uses=[...]` states no reach, so it is still checked."""
+    election = LeaderElection("worker", backend=MemoryLeaderElectionAdapter())
+
+    with pytest.raises(BackendScopeError, match=r"LeaderElection\('worker'\)"):
+        Grelmicro(uses=[election]).check_backends()
+
+
+async def test_an_unregistered_coordination_builds_on_its_own_reach() -> None:
+    """The `requires=` a component declares holds for the locks it builds."""
+    coordination = Coordination(lock=MemoryLockAdapter(), requires="process")
+
+    async with Grelmicro(environment="production"):
+        lock = coordination.lock("cart")
+
+    Grelmicro().check_backends()
+    del lock
+
+
+def test_an_unregistered_coordination_on_its_default_reach_is_checked() -> None:
+    """With no `requires=`, the lock it builds still needs the fleet."""
+    lock = Coordination(lock=MemoryLockAdapter()).lock("cart")
+
+    with pytest.raises(BackendScopeError, match=r"Lock\('cart'\)"):
+        Grelmicro().check_backends()
+
+    del lock
