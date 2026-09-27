@@ -14,9 +14,9 @@ from grelmicro._config import (
     default_env_prefix,
     resolve_config,
 )
+from grelmicro._task import Task
 from grelmicro._timezone import SHARED_TIMEZONE_ENV, UTC_NAME
 from grelmicro.errors import OutOfContextError
-from grelmicro.task._protocol import Task
 from grelmicro.task.errors import (
     TaskStartOperationError,
 )

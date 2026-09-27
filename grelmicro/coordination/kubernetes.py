@@ -213,8 +213,8 @@ class KubernetesLockAdapter(LockBackend):
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code != HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code != HTTPStatus.NOT_FOUND:
                 raise
             return await self._create_lease(lease_name, token, duration)
 
@@ -247,8 +247,8 @@ class KubernetesLockAdapter(LockBackend):
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.NOT_FOUND:
                 return False
             raise
 
@@ -275,8 +275,8 @@ class KubernetesLockAdapter(LockBackend):
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.NOT_FOUND:
                 return False
             raise
 
@@ -294,8 +294,8 @@ class KubernetesLockAdapter(LockBackend):
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.NOT_FOUND:
                 return False
             raise
 
@@ -337,8 +337,8 @@ class KubernetesLockAdapter(LockBackend):
 
         try:
             await self._client.create(lease)
-        except ApiError as e:
-            if e.status.code == HTTPStatus.CONFLICT:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.CONFLICT:
                 return None
             raise
 
@@ -394,8 +394,8 @@ class KubernetesLockAdapter(LockBackend):
 
         try:
             await self._client.replace(updated_lease)
-        except ApiError as e:
-            if e.status.code == HTTPStatus.CONFLICT:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.CONFLICT:
                 return None
             raise
 
@@ -436,8 +436,8 @@ class KubernetesLockAdapter(LockBackend):
 
         try:
             await self._client.replace(vacated)
-        except ApiError as e:
-            if e.status.code in (HTTPStatus.NOT_FOUND, HTTPStatus.CONFLICT):
+        except ApiError as error:
+            if error.status.code in (HTTPStatus.NOT_FOUND, HTTPStatus.CONFLICT):
                 return False
             raise
 
@@ -558,8 +558,8 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             return await client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.NOT_FOUND:
                 return None
             raise
 
@@ -624,8 +624,8 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
                 assert lease.metadata  # noqa: S101
                 metadata.resourceVersion = lease.metadata.resourceVersion
                 await client.replace(Lease(metadata=metadata, spec=spec))
-        except ApiError as e:
-            if e.status.code in (HTTPStatus.CONFLICT, HTTPStatus.NOT_FOUND):
+        except ApiError as error:
+            if error.status.code in (HTTPStatus.CONFLICT, HTTPStatus.NOT_FOUND):
                 return False
             raise
         return True
@@ -1025,8 +1025,8 @@ class KubernetesLeaderElectionAdapter:
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code != HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code != HTTPStatus.NOT_FOUND:
                 raise
             return await self._create(lease_name, token, duration, meta)
 
@@ -1044,8 +1044,8 @@ class KubernetesLeaderElectionAdapter:
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.NOT_FOUND:
                 return False
             raise
 
@@ -1061,8 +1061,8 @@ class KubernetesLeaderElectionAdapter:
             await self._client.delete(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.NOT_FOUND:
                 return False
             raise
 
@@ -1079,8 +1079,8 @@ class KubernetesLeaderElectionAdapter:
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code == HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.NOT_FOUND:
                 return None
             raise
 
@@ -1130,8 +1130,8 @@ class KubernetesLeaderElectionAdapter:
 
         try:
             await self._client.create(lease)
-        except ApiError as e:
-            if e.status.code == HTTPStatus.CONFLICT:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.CONFLICT:
                 return await self._reread(lease_name)
             raise
 
@@ -1197,8 +1197,8 @@ class KubernetesLeaderElectionAdapter:
 
         try:
             await self._client.replace(updated)
-        except ApiError as e:
-            if e.status.code == HTTPStatus.CONFLICT:
+        except ApiError as error:
+            if error.status.code == HTTPStatus.CONFLICT:
                 return await self._reread(lease.metadata.name or "")
             raise
 
@@ -1217,8 +1217,8 @@ class KubernetesLeaderElectionAdapter:
             lease = await self._client.get(
                 Lease, name=lease_name, namespace=self._namespace
             )
-        except ApiError as e:
-            if e.status.code != HTTPStatus.NOT_FOUND:
+        except ApiError as error:
+            if error.status.code != HTTPStatus.NOT_FOUND:
                 raise
             return _empty_record()
 

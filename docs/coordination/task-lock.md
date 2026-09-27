@@ -4,8 +4,10 @@ The Task Lock is a distributed lock for scheduled tasks. Unlike a regular
 [`Lock`](lock.md), it does not release immediately. It keeps the lock held for a
 configurable minimum duration to stop re-execution on other nodes.
 
-No background task keeps the lock active during execution. The lock relies on the
-TTL (`lease_duration`) set at acquire time. If the task runs longer than
+As the `gate` of an interval task, the task renews the lease from the moment it
+holds the lock until the body ends, so `lease_duration` only bounds how long a
+crashed worker keeps it. Entered directly with `async with`, the lock relies on
+the TTL (`lease_duration`) set at acquire time. If the body runs longer than
 `lease_duration`, the lock expires and another node may acquire it.
 
 - **`min_hold_duration`**: minimum duration to hold the lock after the task
@@ -24,11 +26,13 @@ async with task_lock:
 ```
 
 !!! tip
-    For interval tasks, prefer the
-    [`every()` decorator with `lock=TaskLock(...)`](../task.md#distributed-lock),
-    which re-stamps the lock with the task name automatically. Cron tasks need
-    no lock at all. They claim each fire against the
-    [schedule backend](../task.md#distributed-cron) instead.
+    For interval tasks, pass the lock as the
+    [`gate` of `every()`](../task.md#tune-the-claim). A lock still named
+    `"default"` takes the task name, and the task renews it while the body
+    runs, so you never call `refresh()` yourself. Most tasks need no
+    `TaskLock` at all: [`gate="claim"`](../task.md#claim) builds one sized
+    to the interval. Cron tasks never take a lock. They claim each fire
+    against the schedule backend instead.
 
 !!! warning
     When the lock expires before the task completes (`lease_duration`

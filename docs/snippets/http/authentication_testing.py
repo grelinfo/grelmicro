@@ -56,9 +56,8 @@ micro.install(app)
 
 
 def test_orders_needs_a_token() -> None:
-    client = TestClient(app)
-
-    assert client.get("/orders").status_code == HTTPStatus.UNAUTHORIZED
-    assert client.get(
-        "/orders", headers={"Authorization": "Bearer alice"}
-    ).json() == {"subject": "alice"}
+    with TestClient(app) as client:
+        assert client.get("/orders").status_code == HTTPStatus.UNAUTHORIZED
+        assert client.get(
+            "/orders", headers={"Authorization": "Bearer alice"}
+        ).json() == {"subject": "alice"}

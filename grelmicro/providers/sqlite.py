@@ -32,13 +32,7 @@ if TYPE_CHECKING:
 
 
 _BUSY_TIMEOUT_MS = 5000
-"""Milliseconds a write waits for another process holding the file.
-
-SQLite refuses a write while another connection is writing. With a busy
-timeout the write retries until the deadline instead of failing at once, so
-two processes sharing one file wait for each other. The provider sets it on
-every connection it opens rather than relying on the driver default.
-"""
+"""Milliseconds a write waits for another connection holding the file."""
 
 _WAL_SWITCH_TIMEOUT = 5.0
 """Seconds the provider keeps trying to switch the file to WAL."""
@@ -46,25 +40,29 @@ _WAL_SWITCH_TIMEOUT = 5.0
 _WAL_RETRY_INTERVAL = 0.05
 """Seconds between two attempts at the WAL switch."""
 
+_BUSY_CODES = frozenset({sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED})
+"""Primary result codes that mean another connection holds the file."""
+
 
 async def _enable_wal(connection: aiosqlite.Connection) -> None:
-    """Switch the file to WAL, waiting for another process to let go.
+    """Switch the file to WAL, retrying while another connection holds it.
 
-    Changing the journal mode needs the file to itself, and SQLite reports it
-    as locked right away instead of waiting, whatever the busy timeout says.
-    Two processes opening the same new file at the same time would make one of
-    them fail, so the switch is retried until the other one is done.
+    SQLite refuses the journal mode switch at once when the file is busy,
+    whatever the busy timeout says. The switch is retried every
+    `_WAL_RETRY_INTERVAL` until `_WAL_SWITCH_TIMEOUT`. Any other error is
+    raised at once.
 
     Raises:
-        sqlite3.OperationalError: When the file stays locked for longer than
-            `_WAL_SWITCH_TIMEOUT`.
+        sqlite3.OperationalError: When the file stays busy past
+            `_WAL_SWITCH_TIMEOUT`, or the switch fails for another reason.
     """
     deadline = monotonic() + _WAL_SWITCH_TIMEOUT
     while True:
         try:
             await connection.execute("PRAGMA journal_mode=WAL;")
-        except sqlite3.OperationalError:
-            if monotonic() >= deadline:
+        except sqlite3.OperationalError as error:
+            code = getattr(error, "sqlite_errorcode", 0) & 0xFF
+            if code not in _BUSY_CODES or monotonic() >= deadline:
                 raise
             await asyncio.sleep(_WAL_RETRY_INTERVAL)
         else:
@@ -234,9 +232,11 @@ class SQLiteProvider(Provider):
         """The underlying `aiosqlite.Connection`.
 
         Raises:
-            OutOfContextError: When accessed before `__aenter__`.
+            OutOfContextError: When accessed before `__aenter__`, or while
+                `micro.fake()` leaves this Provider closed.
         """
         if self._conn is None:
+            self._refuse_if_left_closed()
             raise OutOfContextError(self, "client")
         return self._conn
 
@@ -295,6 +295,10 @@ class SQLiteProvider(Provider):
         )
 
         return SQLiteCircuitBreakerAdapter(provider=self, **kwargs)
+
+    def _is_open(self) -> bool:
+        """Return whether the provider holds an open connection."""
+        return self._conn is not None
 
     async def check(self) -> None:
         """Run `SELECT 1` to prove the connection is open."""

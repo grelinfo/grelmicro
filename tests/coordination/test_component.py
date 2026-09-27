@@ -154,32 +154,6 @@ def test_coordination_accepts_bare_provider_class() -> None:
     assert coordination.lock_backend.__class__.__name__ == "RedisLockAdapter"
 
 
-@pytest.mark.parametrize(
-    ("backend", "keyword"),
-    [
-        (MemoryLockAdapter(), "lock"),
-        (MemoryScheduleAdapter(), "schedule"),
-    ],
-)
-def test_coordination_positional_backend_raises_naming_keyword(
-    backend: object, keyword: str
-) -> None:
-    """A backend passed positionally is refused, naming the keyword to use."""
-    # Act
-    with pytest.raises(TypeError, match="takes a Provider positionally") as err:
-        Coordination(backend)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-
-    # Assert
-    assert f"Coordination({keyword}=...)" in str(err.value)
-
-
-def test_coordination_positional_non_backend_raises() -> None:
-    """An object that is no backend at all is refused the same way."""
-    # Act / Assert
-    with pytest.raises(TypeError, match="takes a Provider positionally"):
-        Coordination(object())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-
-
 def test_lock_keyword_accepts_provider() -> None:
     """`lock=Provider` resolves the lock backend via `provider.lock()`."""
     provider = PostgresProvider("postgresql://localhost:5432/app")

@@ -1,6 +1,7 @@
 """Tests for the SQLite Provider."""
 
 import asyncio
+import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -40,7 +41,16 @@ WAL_ATTEMPTS_WHEN_LOCKED = 2
 _tasks = Tasks()
 
 
-@_tasks.every(seconds=0.05, lock=TaskLock(lease_duration=2))
+def _busy_error() -> sqlite3.OperationalError:
+    """Build the error SQLite raises when another connection holds the file."""
+    error = sqlite3.OperationalError("database is locked")
+    error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+    return error
+
+
+@_tasks.every(
+    seconds=0.05, gate=TaskLock(lease_duration=2, min_hold_duration=0.05)
+)
 async def _locked_job() -> None:
     """Interval task gated by a distributed lock on the shared file."""
 
@@ -184,10 +194,7 @@ async def test_enable_wal_retries_while_the_file_is_locked() -> None:
     """The WAL switch is retried while another process holds the file."""
     # Arrange: the first attempt finds the file locked, the second succeeds.
     conn = AsyncMock()
-    conn.execute.side_effect = [
-        aiosqlite.OperationalError("database is locked"),
-        AsyncMock(),
-    ]
+    conn.execute.side_effect = [_busy_error(), AsyncMock()]
 
     # Act
     await _enable_wal(conn)
@@ -203,11 +210,25 @@ async def test_enable_wal_raises_when_the_file_stays_locked(
     # Arrange: no time left, so the first failure is the last.
     monkeypatch.setattr("grelmicro.providers.sqlite._WAL_SWITCH_TIMEOUT", 0.0)
     conn = AsyncMock()
-    conn.execute.side_effect = aiosqlite.OperationalError("database is locked")
+    conn.execute.side_effect = _busy_error()
 
     # Act / Assert
     with pytest.raises(aiosqlite.OperationalError, match="database is locked"):
         await _enable_wal(conn)
+
+
+async def test_enable_wal_raises_other_errors_at_once() -> None:
+    """An error other than a busy file is raised on the first attempt."""
+    # Arrange
+    conn = AsyncMock()
+    error = sqlite3.OperationalError("attempt to write a readonly database")
+    error.sqlite_errorcode = sqlite3.SQLITE_READONLY
+    conn.execute.side_effect = error
+
+    # Act / Assert
+    with pytest.raises(aiosqlite.OperationalError, match="readonly"):
+        await _enable_wal(conn)
+    assert conn.execute.await_count == 1
 
 
 @pytest.mark.parametrize(
