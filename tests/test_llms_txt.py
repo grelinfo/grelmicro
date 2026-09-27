@@ -81,11 +81,11 @@ def _index_text() -> str:
 def test_llms_index_links_every_nav_page(page: str) -> None:
     """Every page in the MkDocs nav is linked from an llms index."""
     # Arrange
-    url = _page_url(page)
+    target = f"]({_page_url(page)})"
     # Act
     text = _index_text()
     # Assert
-    assert url in text, f"{page} is in the nav but in no llms index"
+    assert target in text, f"{page} is in the nav but in no llms index"
 
 
 def test_llms_txt_stays_within_its_token_budget() -> None:

@@ -93,7 +93,7 @@
 * 📝 `llms.txt` is a curated index again, and the new `llms-full.txt` lists every page of the site. A test asserts that each page in the nav appears in one of them, so a new page cannot go missing. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 📝 The Bulkhead, Fallback and Timeout pages name `RateLimiter` in the composition order, matching Composing patterns and `Stack`. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 📝 Backends and adapters says a Pattern resolved outside the app raises `OutOfContextError`, and teaches `micro.install(app)` instead of adding the middleware by hand. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
-* 📝 Graceful shutdown says what a force-cancelled lock holder really releases: the release runs while the task unwinds and completes on an in-process backend, and only a remote lease falls back to TTL expiry. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 Graceful shutdown says what a force-cancelled lock holder releases. The one cancel `Tasks` sends at the deadline lets the release finish on any backend, and only a second cancel leaves the lease to expire by TTL. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 📝 Declarative configuration says the resolution rule covers the programmatic and environmental paths, and that `from_config` skips the env layer. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 📝 Configuration internals describes live reconfiguration as shipped, not as future work. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 📝 The `@cached` page and docstring say the `ttl=` form takes async functions only, and that a sync function needs a `TTLCache`. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
