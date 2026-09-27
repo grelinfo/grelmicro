@@ -150,9 +150,12 @@ class SQLiteRateLimiterAdapter(RateLimiterBackend):
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
         if self._auto_migrate:  # pragma: no branch
-            await self._provider.client.execute(
-                self._SQL_CREATE_TABLE.format(table_name=self._table_name)
-            )
+            # Another component sharing the connection may have a transaction
+            # open, so the schema init waits for the provider's lock.
+            async with self._provider.connection_lock:
+                await self._provider.client.execute(
+                    self._SQL_CREATE_TABLE.format(table_name=self._table_name)
+                )
         return self
 
     async def __aexit__(
