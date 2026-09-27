@@ -380,9 +380,12 @@ class PostgresProvider(Provider):
         """The underlying `asyncpg.Pool`.
 
         Raises:
-            OutOfContextError: When accessed before `__aenter__`.
+            OutOfContextError: When accessed before `__aenter__`, or while
+                `micro.fake()` leaves this Provider closed.
         """
         if self._pool is None:
+            if self._skipped_by is not None:
+                raise OutOfContextError(self._skipped_by)
             raise OutOfContextError(self, "client")
         return self._pool
 

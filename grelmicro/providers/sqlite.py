@@ -192,9 +192,12 @@ class SQLiteProvider(Provider):
         """The underlying `aiosqlite.Connection`.
 
         Raises:
-            OutOfContextError: When accessed before `__aenter__`.
+            OutOfContextError: When accessed before `__aenter__`, or while
+                `micro.fake()` leaves this Provider closed.
         """
         if self._conn is None:
+            if self._skipped_by is not None:
+                raise OutOfContextError(self._skipped_by)
             raise OutOfContextError(self, "client")
         return self._conn
 

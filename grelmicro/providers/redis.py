@@ -18,6 +18,7 @@ from typing_extensions import Doc
 from grelmicro._diagnostics import SENTINEL_PASSWORD, diagnostic
 from grelmicro._redact import redact_url
 from grelmicro.errors import (
+    OutOfContextError,
     SentinelPasswordWarning,
     SettingsValidationError,
 )
@@ -461,7 +462,13 @@ class RedisProvider(Provider):
         A `redis.asyncio.Redis` for standalone and Sentinel URLs (the
         Sentinel form returns the master proxy), or a
         `redis.asyncio.cluster.RedisCluster` for cluster URLs.
+
+        Raises:
+            OutOfContextError: While `micro.fake()` leaves this Provider
+                closed.
         """
+        if self._skipped_by is not None:
+            raise OutOfContextError(self._skipped_by)
         return self._client
 
     def lock(self, **kwargs: Any) -> RedisLockAdapter:  # noqa: ANN401

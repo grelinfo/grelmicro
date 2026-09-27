@@ -40,6 +40,13 @@ class Provider(AbstractAsyncContextManager["Provider"]):
 
     short_name: ClassVar[str]
 
+    _skipped_by: str | None = None
+    """Why this Provider was left closed, set while `micro.fake()` skips it.
+
+    Read by `client`, so a test that reaches a Provider the fake never
+    opened is told why and how to keep it, instead of connecting for real.
+    """
+
     def lock(self, **kwargs: Any) -> LockBackend:  # noqa: ANN401
         """Return the matching `LockBackend` adapter for this Provider.
 
