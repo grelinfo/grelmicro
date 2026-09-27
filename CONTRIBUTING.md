@@ -302,15 +302,17 @@ advisory lock in the same database.
 
 Ruff enforces this, through `BLE001` and `RUF100`.
 
-- An `except Exception:` or `except BaseException:` that re-raises, or
-  logs with the traceback (`logger.exception(...)` or
-  `exc_info=True`), needs nothing more.
+- An `except Exception:` or `except BaseException:` that re-raises the
+  caught exception (a bare `raise`, `raise error`, or
+  `raise Other(...) from error`), or logs it with the traceback
+  (`logger.exception(...)` or `exc_info=True`), needs nothing more.
+  Raising a new exception `from None` counts as swallowing it.
 - One that swallows the exception on purpose carries
   `# noqa: BLE001`, so the choice reads as deliberate.
-- A `# noqa: BLE001` on a handler that re-raises or logs is refused as
-  unused. Do not add one to make a handler look intentional.
-- Name the exception for what it holds, `error` by default, never a
-  single letter. A test checks the package for that.
+- A `# noqa: BLE001` on a handler that re-raises it or logs it is
+  refused as unused. Do not add one to make a handler look intentional.
+- Name the exception with a word, `error` or `exc` as the code does,
+  never a single letter. A test checks the package for that.
 
 ### Runtime-cost discipline
 
