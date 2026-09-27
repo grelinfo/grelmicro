@@ -240,14 +240,19 @@ class SQLiteCacheAdapter(CacheBackend):
         if self._owns_provider:
             await self._provider.__aenter__()
         self._loop = asyncio.get_running_loop()
-        # `foreign_keys` is a per-connection setting, so it must be on whether
-        # or not we own the schema. Otherwise the tag rows' `ON DELETE CASCADE`
-        # is silently inert when `auto_migrate=False`.
-        await self._provider.client.execute("PRAGMA foreign_keys=ON;")
-        if self._auto_migrate:
-            await self._provider.client.executescript(
-                self._SQL_CREATE_TABLE.format(table_name=self._table_name)
-            )
+        # The provider's lock is held for the whole schema init, because
+        # another component sharing the connection may have a transaction
+        # open. `executescript` commits before it runs, which fails while
+        # statements from that transaction are still in progress.
+        async with self._provider.connection_lock:
+            # `foreign_keys` is a per-connection setting, so it must be on
+            # whether or not we own the schema. Otherwise the tag rows'
+            # `ON DELETE CASCADE` is silently inert when `auto_migrate=False`.
+            await self._provider.client.execute("PRAGMA foreign_keys=ON;")
+            if self._auto_migrate:
+                await self._provider.client.executescript(
+                    self._SQL_CREATE_TABLE.format(table_name=self._table_name)
+                )
         if self._cleanup_interval is not None:
             self._janitor_task = asyncio.create_task(self._janitor_loop())
         return self

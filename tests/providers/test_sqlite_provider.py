@@ -1,23 +1,58 @@
 """Tests for the SQLite Provider."""
 
+import asyncio
+import sqlite3
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 
 import aiosqlite
+import anyio
 import pytest
 from pytest_mock import MockerFixture
 
+from grelmicro import Grelmicro
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
+from grelmicro.coordination import Coordination
 from grelmicro.coordination.sqlite import (
     SQLiteLockAdapter,
     SQLiteScheduleAdapter,
 )
+from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import OutOfContextError, SettingsValidationError
-from grelmicro.providers.sqlite import SQLiteConfig, SQLiteProvider
+from grelmicro.providers.sqlite import (
+    SQLiteConfig,
+    SQLiteProvider,
+    _enable_wal,
+)
 from grelmicro.resilience.circuitbreaker.sqlite import (
     SQLiteCircuitBreakerAdapter,
 )
 from grelmicro.resilience.ratelimiter.sqlite import SQLiteRateLimiterAdapter
+from grelmicro.task import Tasks
+
+BUSY_TIMEOUT_MS = 5000
+"""Milliseconds a write waits for a file another process is writing."""
+
+WAL_ATTEMPTS_WHEN_LOCKED = 2
+"""Attempts the WAL switch takes when the first one finds the file locked."""
+
+_tasks = Tasks()
+
+
+def _busy_error() -> sqlite3.OperationalError:
+    """Build the error SQLite raises when another connection holds the file."""
+    error = sqlite3.OperationalError("database is locked")
+    error.sqlite_errorcode = sqlite3.SQLITE_BUSY
+    return error
+
+
+@_tasks.every(
+    seconds=0.05, gate=TaskLock(lease_duration=2, min_hold_duration=0.05)
+)
+async def _locked_job() -> None:
+    """Interval task gated by a distributed lock on the shared file."""
 
 
 def test_positional_path() -> None:
@@ -137,6 +172,118 @@ async def test_check_runs_select_one(tmp_path: Path) -> None:
     provider = SQLiteProvider(tmp_path / "check.db")
     async with provider:
         assert await provider.check() is None
+
+
+async def test_open_sets_busy_timeout_and_wal(tmp_path: Path) -> None:
+    """An opened connection waits on a busy file and journals with WAL."""
+    # Arrange / Act
+    async with SQLiteProvider(tmp_path / "pragmas.db") as provider:
+        async with provider.client.execute("PRAGMA busy_timeout;") as cursor:
+            busy_timeout = await cursor.fetchone()
+        async with provider.client.execute("PRAGMA journal_mode;") as cursor:
+            journal_mode = await cursor.fetchone()
+
+    # Assert
+    assert busy_timeout is not None
+    assert busy_timeout[0] == BUSY_TIMEOUT_MS
+    assert journal_mode is not None
+    assert journal_mode[0] == "wal"
+
+
+async def test_enable_wal_retries_while_the_file_is_locked() -> None:
+    """The WAL switch is retried while another process holds the file."""
+    # Arrange: the first attempt finds the file locked, the second succeeds.
+    conn = AsyncMock()
+    conn.execute.side_effect = [_busy_error(), AsyncMock()]
+
+    # Act
+    await _enable_wal(conn)
+
+    # Assert
+    assert conn.execute.await_count == WAL_ATTEMPTS_WHEN_LOCKED
+
+
+async def test_enable_wal_raises_when_the_file_stays_locked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file locked past the deadline surfaces the error instead of hanging."""
+    # Arrange: no time left, so the first failure is the last.
+    monkeypatch.setattr("grelmicro.providers.sqlite._WAL_SWITCH_TIMEOUT", 0.0)
+    conn = AsyncMock()
+    conn.execute.side_effect = _busy_error()
+
+    # Act / Assert
+    with pytest.raises(aiosqlite.OperationalError, match="database is locked"):
+        await _enable_wal(conn)
+
+
+async def test_enable_wal_raises_other_errors_at_once() -> None:
+    """An error other than a busy file is raised on the first attempt."""
+    # Arrange
+    conn = AsyncMock()
+    error = sqlite3.OperationalError("attempt to write a readonly database")
+    error.sqlite_errorcode = sqlite3.SQLITE_READONLY
+    conn.execute.side_effect = error
+
+    # Act / Assert
+    with pytest.raises(aiosqlite.OperationalError, match="readonly"):
+        await _enable_wal(conn)
+    assert conn.execute.await_count == 1
+
+
+@pytest.mark.parametrize(
+    "build_adapter",
+    [
+        pytest.param(lambda provider: provider.cache(), id="cache"),
+        pytest.param(lambda provider: provider.ratelimiter(), id="ratelimiter"),
+        pytest.param(
+            lambda provider: provider.circuitbreaker(), id="circuitbreaker"
+        ),
+    ],
+)
+async def test_schema_init_waits_for_the_shared_connection(
+    tmp_path: Path,
+    build_adapter: Callable[[SQLiteProvider], Any],
+) -> None:
+    """Creating tables waits for whoever holds the shared connection.
+
+    Another component may have a transaction open on it, and a schema init
+    that ran anyway would end that transaction and fail.
+    """
+    # Arrange: hold the connection the way a transaction in progress does.
+    async with SQLiteProvider(tmp_path / "shared.db") as provider:
+        adapter = build_adapter(provider)
+        await provider.connection_lock.acquire()
+        task = asyncio.create_task(adapter.__aenter__())
+        await asyncio.sleep(0.05)
+
+        # Assert: the schema init is still waiting for the lock.
+        assert not task.done()
+
+        # Act: let the holder go.
+        provider.connection_lock.release()
+        await asyncio.wait_for(task, timeout=5)
+
+        # Assert
+        assert task.done()
+        await adapter.__aexit__(None, None, None)
+
+
+async def test_cache_and_coordination_share_one_file(tmp_path: Path) -> None:
+    """An app wiring a bare provider and a `Coordination` on one file starts.
+
+    The bare provider registers a default `Cache`, so the cache schema init
+    and the coordination schema init run against the same connection while a
+    task acquires its lock.
+    """
+    # Arrange
+    sqlite = SQLiteProvider(tmp_path / "shared.db")
+
+    # Act / Assert: the app opens and closes without raising.
+    async with Grelmicro(
+        uses=[sqlite, Coordination(sqlite, requires="host"), _tasks]
+    ):
+        await anyio.sleep(0.2)
 
 
 async def test_check_propagates_failure(tmp_path: Path) -> None:
