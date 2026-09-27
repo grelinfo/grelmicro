@@ -18,7 +18,6 @@ from typing_extensions import Doc
 from grelmicro._diagnostics import SENTINEL_PASSWORD, diagnostic
 from grelmicro._redact import redact_url
 from grelmicro.errors import (
-    OutOfContextError,
     SentinelPasswordWarning,
     SettingsValidationError,
 )
@@ -128,6 +127,9 @@ class RedisProvider(Provider):
     """
 
     short_name: ClassVar[str] = "redis"
+
+    _entered: int = 0
+    """How many open scopes hold this provider, read by `_is_open`."""
 
     _redis_class: ClassVar[type[Any]] = Redis
     _cluster_class: ClassVar[type[Any]] = RedisCluster
@@ -467,8 +469,8 @@ class RedisProvider(Provider):
             OutOfContextError: While `micro.fake()` leaves this Provider
                 closed.
         """
-        if self._skipped_by is not None:
-            raise OutOfContextError(self._skipped_by)
+        if self._skips:
+            self._refuse_if_left_closed()
         return self._client
 
     def lock(self, **kwargs: Any) -> RedisLockAdapter:  # noqa: ANN401
@@ -533,7 +535,7 @@ class RedisProvider(Provider):
 
     async def check(self) -> None:
         """`PING` Redis to prove the connection is reachable."""
-        await self._client.ping()
+        await self.client.ping()
 
     def instrument(self, tracer_provider: Any) -> bool:  # noqa: ANN401
         """Attach the Redis OpenTelemetry instrumentor to this client.
@@ -560,8 +562,13 @@ class RedisProvider(Provider):
             self._instrumentor.uninstrument_client(self._client)
             self._instrumentor = None
 
+    def _is_open(self) -> bool:
+        """Return whether something entered this provider."""
+        return self._entered > 0
+
     async def __aenter__(self) -> Self:
         """Open the provider. The client is already constructed eagerly."""
+        self._entered += 1
         return self
 
     async def __aexit__(
@@ -571,6 +578,7 @@ class RedisProvider(Provider):
         traceback: TracebackType | None,
     ) -> None:
         """Close the client when the provider owns it."""
+        self._entered -= 1
         if self._own:
             await self._client.aclose()
             if self._sentinel is not None:

@@ -20,8 +20,10 @@ from grelmicro.coordination import Coordination, Lock
 from grelmicro.errors import OutOfContextError
 from grelmicro.health import HealthChecks
 from grelmicro.http import IdempotentRequests
+from grelmicro.integrations import fastapi as fastapi_integration
 from grelmicro.integrations.litestar import install_middleware
 from grelmicro.outbox import Outbox
+from grelmicro.providers import Provider
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
@@ -261,3 +263,90 @@ async def test_a_sqlite_provider_the_fake_skipped_says_how_to_keep_it(
     async with micro.fake(), micro:
         with pytest.raises(OutOfContextError, match=r"fake\(keep="):
             _ = sqlite.client
+
+
+async def test_readiness_left_from_a_real_open_skips_a_faked_provider(
+    tmp_path: Path,
+) -> None:
+    """A check registered on an earlier real open does not probe under fake."""
+    redis = RedisProvider("redis://127.0.0.1:1/0")
+    sqlite = SQLiteProvider(path=str(tmp_path / "app.db"))
+    health = HealthChecks(auto_health=True)
+    health.add_provider(sqlite)
+    micro = Grelmicro(uses=[redis, Cache(sqlite), health])
+
+    async with micro:
+        assert "provider:redis" in (await health.run())["checks"]
+
+    async with micro.fake(), micro:
+        report = await health.run()
+
+    assert report["status"] == "ok"
+    assert "provider:redis" not in report["checks"]
+    assert "provider:sqlite" not in report["checks"]
+
+
+async def test_a_provider_the_test_opens_itself_works_under_fake() -> None:
+    """Only a Provider nothing opened refuses, so a test can open its own."""
+    redis = RedisProvider("redis://127.0.0.1:1/0")
+    micro = Grelmicro(uses=[redis])
+
+    async with micro.fake(), micro:
+        async with redis:
+            assert redis.client is not None
+        with pytest.raises(OutOfContextError, match=r"fake\(keep="):
+            _ = redis.client
+
+
+async def test_a_provider_two_faked_apps_skip_stays_closed_until_both_close() -> (
+    None
+):
+    """One faked app closing leaves the other's mark in place."""
+    postgres = PostgresProvider(_CLOSED_PORT)
+    first = Grelmicro(uses=[Cache(postgres)])
+    second = Grelmicro(uses=[Cache(postgres)])
+
+    async with first.fake(), first:
+        async with second.fake(), second:
+            pass
+        with pytest.raises(OutOfContextError, match=r"fake\(keep="):
+            _ = postgres.client
+
+    with pytest.raises(OutOfContextError, match="outside of the context"):
+        _ = postgres.client
+
+
+def test_a_failed_install_can_be_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The app is marked only once the wiring holds."""
+    micro = Grelmicro(uses=[MemoryProvider()])
+    app = FastAPI()
+
+    def refuse(*_: object, **__: object) -> None:
+        msg = "wiring refused"
+        raise RuntimeError(msg)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(fastapi_integration, "install", refuse)
+        with pytest.raises(RuntimeError, match="wiring refused"):
+            micro.install(app)
+    micro.install(app)
+
+    with TestClient(app):
+        assert micro.opened
+
+
+def test_a_provider_that_cannot_tell_it_is_open_counts_as_closed() -> None:
+    """The default answer, for a third-party Provider with no open state."""
+
+    class Opaque(Provider):
+        short_name = "opaque"
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+    provider = Opaque()
+    assert not provider._left_closed()
+    provider._skips = 1
+    assert provider._left_closed()

@@ -196,8 +196,7 @@ class SQLiteProvider(Provider):
                 `micro.fake()` leaves this Provider closed.
         """
         if self._conn is None:
-            if self._skipped_by is not None:
-                raise OutOfContextError(self._skipped_by)
+            self._refuse_if_left_closed()
             raise OutOfContextError(self, "client")
         return self._conn
 
@@ -256,6 +255,10 @@ class SQLiteProvider(Provider):
         )
 
         return SQLiteCircuitBreakerAdapter(provider=self, **kwargs)
+
+    def _is_open(self) -> bool:
+        """Return whether the provider holds an open connection."""
+        return self._conn is not None
 
     async def check(self) -> None:
         """Run `SELECT 1` to prove the connection is open."""

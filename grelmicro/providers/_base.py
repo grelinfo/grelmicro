@@ -40,12 +40,48 @@ class Provider(AbstractAsyncContextManager["Provider"]):
 
     short_name: ClassVar[str]
 
-    _skipped_by: str | None = None
-    """Why this Provider was left closed, set while `micro.fake()` skips it.
+    _skips: int = 0
+    """How many open apps `micro.fake()` left this Provider closed in.
 
-    Read by `client`, so a test that reaches a Provider the fake never
-    opened is told why and how to keep it, instead of connecting for real.
+    A count rather than a flag, so one faked app closing does not clear the
+    mark another still holds.
     """
+
+    def _is_open(self) -> bool:
+        """Return whether something opened this Provider.
+
+        Overridden by each Provider that can tell. The default answers
+        `False`, so a Provider that cannot tell counts as closed.
+        """
+        return False
+
+    def _left_closed(self) -> bool:
+        """Return whether `micro.fake()` left this Provider closed.
+
+        Only while nothing else opened it: a test that opens it itself, or a
+        real app sharing it, gets a working client.
+        """
+        return self._skips > 0 and not self._is_open()
+
+    def _refuse_if_left_closed(self) -> None:
+        """Say why this Provider is closed and how to keep it, if it was faked.
+
+        Read by `client`, so a test that reaches a Provider the fake never
+        opened is told so, instead of connecting for real.
+
+        Raises:
+            OutOfContextError: If `micro.fake()` left this Provider closed.
+        """
+        if self._left_closed():
+            from grelmicro.errors import OutOfContextError  # noqa: PLC0415
+
+            name = type(self).__name__
+            msg = (
+                f"{name} was left closed, because micro.fake() replaced every "
+                f"component that uses it. Pass it as micro.fake(keep=[...]) "
+                f"to open the real one in this test."
+            )
+            raise OutOfContextError(msg)
 
     def lock(self, **kwargs: Any) -> LockBackend:  # noqa: ANN401
         """Return the matching `LockBackend` adapter for this Provider.

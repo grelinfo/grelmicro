@@ -304,7 +304,7 @@ class Grelmicro:
         """Initialize the app and register any items passed at construction."""
         self._items: list[AbstractAsyncContextManager[object]] = []
         self._installed_on: WeakSet[object] = WeakSet()
-        """Apps with no `state` this app already wired, see `_first_install`."""
+        """Apps with no `state` this app already wired, see `_install_marks`."""
         self._by_key: dict[tuple[str, str], Component] = {}
         self._by_kind: dict[str, Component] = {}
         self._exit_stack: AsyncExitStack | None = None
@@ -822,7 +822,7 @@ class Grelmicro:
             for kind, c in self._by_kind.items()
         }
         for provider in skipped:
-            provider._skipped_by = _skipped_message(provider)  # noqa: SLF001
+            provider._skips += 1  # noqa: SLF001
 
     def _swap_out_fakes(self) -> None:
         """Put back what a faked open replaced, once the app is closed."""
@@ -833,7 +833,7 @@ class Grelmicro:
         self._by_key = unfaked.by_key
         self._by_kind = unfaked.by_kind
         for provider in unfaked.skipped:
-            provider._skipped_by = None  # noqa: SLF001
+            provider._skips -= 1  # noqa: SLF001
 
     @asynccontextmanager
     async def override(
@@ -1169,7 +1169,7 @@ class Grelmicro:
             raise TypeError(
                 _unsupported_framework_message("micro.install", app)
             )
-        if not self._first_install(app):
+        if self._installed(app):
             return
         integration.install(app, self, ambient=ambient)
         errors = next(
@@ -1205,26 +1205,28 @@ class Grelmicro:
             wire_middleware = getattr(integration, "install_middleware", None)
             if wire_middleware is not None:
                 wire_middleware(app, middleware)
+        # Marked once the wiring holds, so a retry after a failure wires.
+        self._install_marks(app).add(self)
 
-    def _first_install(self, app: object) -> bool:
-        """Mark `app` as wired by this app, and say whether it was not yet.
+    def _install_marks(self, app: object) -> WeakSet[object]:
+        """Return where `app` records the `Grelmicro` apps that wired it.
 
         The mark sits on `app.state` when the framework has one, which also
         covers a Litestar app that cannot be weakly referenced. An app with no
         `state`, such as FastStream, is remembered here instead.
         """
         state = getattr(app, "state", None)
-        if state is not None:
-            installed = getattr(state, _INSTALLED_MARK, None)
-            if installed is None:
-                installed = WeakSet()
-                setattr(state, _INSTALLED_MARK, installed)
-        else:
-            installed = self._installed_on
-        if self in installed:
-            return False
-        installed.add(self)
-        return True
+        if state is None:
+            return self._installed_on
+        marks = getattr(state, _INSTALLED_MARK, None)
+        if marks is None:
+            marks = WeakSet()
+            setattr(state, _INSTALLED_MARK, marks)
+        return marks
+
+    def _installed(self, app: object) -> bool:
+        """Return whether this app already wired `app`."""
+        return self in self._install_marks(app)
 
     def _ambient_component_labels(self) -> list[str]:
         """Return sorted `kind:name` labels of registered ambient components."""
@@ -1759,16 +1761,6 @@ def _borrowed_providers(item: object) -> list[Provider]:
         if (provider := getattr(target, "_provider", None)) is not None
         and not getattr(target, "_owns_provider", True)
     ]
-
-
-def _skipped_message(provider: Provider) -> str:
-    """Return what a Provider the fake left closed says when reached."""
-    name = type(provider).__name__
-    return (
-        f"{name} was left closed, because micro.fake() replaced every "
-        f"component that uses it. Pass it as micro.fake(keep=[...]) to open "
-        f"the real one in this test."
-    )
 
 
 @dataclass(frozen=True)

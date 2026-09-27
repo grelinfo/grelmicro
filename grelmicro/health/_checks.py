@@ -99,6 +99,18 @@ def _normalize(func: HealthCheckFunc) -> AsyncHealthCheckFunc:
     return _async_wrapper
 
 
+def _left_closed_by_fake(func: object) -> bool:
+    """Return whether `func` probes a Provider `micro.fake()` left closed.
+
+    A faked test connects to nothing, so a readiness check on a Provider the
+    fake never opened is left out of the report instead of failing it.
+    """
+    from grelmicro.providers._base import Provider  # noqa: PLC0415
+
+    provider = getattr(func, "__self__", None)
+    return isinstance(provider, Provider) and provider._left_closed()  # noqa: SLF001
+
+
 class HealthChecks(Reconfigurable[HealthChecksConfig]):
     """Manages health checks and runs them concurrently.
 
@@ -503,7 +515,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         selected = [
             (name, entry)
             for name, entry in self._entries.items()
-            if name not in excluded and (not critical_only or entry.critical)
+            if name not in excluded
+            and (not critical_only or entry.critical)
+            and not _left_closed_by_fake(entry.func)
         ]
 
         if not selected:

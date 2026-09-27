@@ -384,8 +384,7 @@ class PostgresProvider(Provider):
                 `micro.fake()` leaves this Provider closed.
         """
         if self._pool is None:
-            if self._skipped_by is not None:
-                raise OutOfContextError(self._skipped_by)
+            self._refuse_if_left_closed()
             raise OutOfContextError(self, "client")
         return self._pool
 
@@ -458,6 +457,10 @@ class PostgresProvider(Provider):
         )
 
         return PostgresCircuitBreakerAdapter(provider=self, **kwargs)
+
+    def _is_open(self) -> bool:
+        """Return whether the provider holds an open connection."""
+        return self._pool is not None
 
     async def check(self) -> None:
         """Run `SELECT 1` to prove the pool can serve a connection."""
