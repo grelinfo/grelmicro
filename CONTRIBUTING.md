@@ -298,6 +298,20 @@ advisory lock in the same database.
   in `match` statements over discriminated unions so new variants
   fail type-check immediately.
 
+### Catching broad exceptions
+
+Ruff enforces this, through `BLE001` and `RUF100`.
+
+- An `except Exception:` or `except BaseException:` that re-raises, or
+  logs with the traceback (`logger.exception(...)` or
+  `exc_info=True`), needs nothing more.
+- One that swallows the exception on purpose carries
+  `# noqa: BLE001`, so the choice reads as deliberate.
+- A `# noqa: BLE001` on a handler that re-raises or logs is refused as
+  unused. Do not add one to make a handler look intentional.
+- Name the exception for what it holds, `error` by default, never a
+  single letter. A test checks the package for that.
+
 ### Runtime-cost discipline
 
 - A primitive with a pluggable strategy or algorithm should
