@@ -19,6 +19,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._environment import record_coordination
 from grelmicro._task import Task
 from grelmicro.coordination._base import (
     BaseLockConfig,
@@ -44,10 +45,9 @@ logger = getLogger("grelmicro.leader_election")
 
 
 _NO_BACKEND: Final = (
-    "LeaderElection({name!r}) resolved no backend. Pass backend= "
-    "(MemoryLeaderElectionAdapter() for a per-process election), register a"
-    " Coordination component, or run the call inside `async with micro:` or"
-    " after `micro.install(app)`."
+    "LeaderElection({name!r}) resolved no backend. Register a Coordination "
+    "component, pass backend=, or run the call inside `async with micro:` "
+    "or after `micro.install(app)`."
 )
 """What `backend` raises when no `backend=` was passed and none resolves."""
 
@@ -411,6 +411,8 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         self._backend_name: str | None = (
             backend if isinstance(backend, str) else None
         )
+        if self._backend is not None:
+            record_coordination(self, self._backend, "election")
 
         self._service_running = False
         self._state_change_condition: asyncio.Condition = asyncio.Condition()
@@ -465,11 +467,10 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         backend can point at a different vendor than its lock backend.
 
         Raises:
-            OutOfContextError: No backend resolved in this scope. Pass
-                `backend=` (a `MemoryLeaderElectionAdapter()` for a
-                per-process election), register a `Coordination`
-                Component, or run the call inside `async with micro:` or
-                after `micro.install(app)`.
+            OutOfContextError: No backend resolved in this scope.
+                Register a `Coordination` Component, pass `backend=`,
+                or run the call inside `async with micro:` or after
+                `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend

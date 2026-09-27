@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 from grelmicro._app import resolve_ambient
 from grelmicro._async import sleep_or_stop
+from grelmicro._environment import record_coordination
 from grelmicro._task import Task
 from grelmicro._timezone import UTC_NAME
 from grelmicro.coordination.leaderelection import LeaderElection
@@ -31,9 +32,8 @@ logger = getLogger("grelmicro.task")
 
 
 _NO_BACKEND: Final = (
-    "CronTask({name!r}) resolved no backend. Pass backend= "
-    "(MemoryScheduleAdapter() for a per-process schedule), register a "
-    "Coordination component, or run the call inside `async with micro:` "
+    "CronTask({name!r}) resolved no backend. Register a Coordination "
+    "component, pass backend=, or run the call inside `async with micro:` "
     "or after `micro.install(app)`."
 )
 """What `backend` raises when no `backend=` was passed and none resolves."""
@@ -375,6 +375,8 @@ class CronTask(Task):
 
         self._misfire_grace_seconds = misfire_grace_seconds
         self._backend = backend
+        if backend is not None:
+            record_coordination(self, backend, "schedule")
         self._gate = gate
         self._leader = gate if isinstance(gate, LeaderElection) else None
         # Set when a leader-gated tick skipped a fire as a follower.
@@ -450,10 +452,9 @@ class CronTask(Task):
         `Bulkhead` scope take effect.
 
         Raises:
-            OutOfContextError: No backend resolved in this scope. Pass
-                `backend=` (a `MemoryScheduleAdapter()` for a per-process
-                schedule), register a `Coordination` Component, or run the
-                call inside `async with micro:` or after
+            OutOfContextError: No backend resolved in this scope.
+                Register a `Coordination` Component, pass `backend=`,
+                or run the call inside `async with micro:` or after
                 `micro.install(app)`.
         """
         if self._backend is not None:

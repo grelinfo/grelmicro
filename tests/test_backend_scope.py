@@ -1,20 +1,40 @@
 """Tests for the deployment environment and the backend scope check."""
 
+import gc
 import logging
 import warnings
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
-from grelmicro import BackendScopeError, Grelmicro, GrelmicroConfigWarning
+from grelmicro import (
+    BackendScopeError,
+    Grelmicro,
+    GrelmicroConfigWarning,
+)
 from grelmicro._config import flush_ignored_env_reports
-from grelmicro._environment import unmet_requirements
-from grelmicro.cache import Cache
+from grelmicro._environment import recorded_bindings, unmet_requirements
+from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
-from grelmicro.coordination import Coordination
-from grelmicro.coordination.memory import MemoryLockAdapter
+from grelmicro.coordination import (
+    Coordination,
+    LeaderElection,
+    Lock,
+    ReadWriteLock,
+    TaskLock,
+)
+from grelmicro.coordination.memory import (
+    MemoryLeaderElectionAdapter,
+    MemoryLockAdapter,
+    MemoryReadWriteLockAdapter,
+    MemoryScheduleAdapter,
+)
 from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.coordination.sqlite import SQLiteLockAdapter
+from grelmicro.http import IdempotentRequests
+from grelmicro.idempotency import Idempotency, IdempotencyConfig
 from grelmicro.outbox import Outbox
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 from grelmicro.providers.memory import MemoryProvider
@@ -28,6 +48,7 @@ from grelmicro.resilience.circuitbreaker.memory import (
     MemoryCircuitBreakerAdapter,
 )
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.task._cron import CronTask
 from grelmicro.types import Environment
 
 STRICT_ENVIRONMENTS: list[Environment] = ["staging", "production"]
@@ -403,3 +424,396 @@ def test_a_host_requirement_names_sqlite_as_a_fix() -> None:
         micro.check_backends()
 
     assert "provides scope 'process'" in str(error.value)
+
+
+def _claim() -> None:
+    """Fire nothing, a cron body the tests never run."""
+
+
+def _patterns_on_memory() -> list[tuple[str, Callable[[], object]]]:
+    """Every coordination pattern, each holding a memory backend of its own."""
+    return [
+        ("Lock('cart')", lambda: Lock("cart", backend=MemoryLockAdapter())),
+        (
+            "TaskLock('sweep')",
+            lambda: TaskLock(
+                "sweep", backend=MemoryLockAdapter(), lease_duration=60
+            ),
+        ),
+        (
+            "ReadWriteLock('stock')",
+            lambda: ReadWriteLock(
+                "stock", backend=MemoryReadWriteLockAdapter()
+            ),
+        ),
+        (
+            "LeaderElection('worker')",
+            lambda: LeaderElection(
+                "worker", backend=MemoryLeaderElectionAdapter()
+            ),
+        ),
+        (
+            "CronTask('claim')",
+            lambda: CronTask(
+                function=_claim,
+                expr="* * * * *",
+                name="claim",
+                gate="claim",
+                backend=MemoryScheduleAdapter(),
+            ),
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("label", "build"),
+    _patterns_on_memory(),
+    ids=[label for label, _ in _patterns_on_memory()],
+)
+async def test_a_pattern_on_its_own_memory_backend_is_refused_at_open(
+    label: str, build: Callable[[], object]
+) -> None:
+    """A pattern never registered with the app is still checked."""
+    pattern = build()
+    micro = Grelmicro(environment="production")
+
+    with pytest.raises(BackendScopeError) as error:
+        await micro.__aenter__()
+
+    assert f"{label} is bound to Memory" in str(error.value)
+    assert "requires scope 'cluster'" in str(error.value)
+    del pattern
+
+
+async def test_a_pattern_built_inside_an_open_app_is_checked_at_once() -> None:
+    """A lock built in a handler fails where it is built, not later."""
+    async with Grelmicro(environment="production"):
+        with pytest.raises(BackendScopeError, match=r"Lock\('cart'\)"):
+            Lock("cart", backend=MemoryLockAdapter())
+
+
+async def test_the_coordination_holding_the_same_backend_decides() -> None:
+    """`Coordination(requires=...)` is where a lock accepts local reach."""
+    shared = MemoryLockAdapter()
+    lock = Lock("cart", backend=shared)
+    micro = Grelmicro(
+        uses=[Coordination(lock=shared, requires="process")],
+        environment="production",
+    )
+
+    async with micro, lock:
+        pass
+
+
+def test_check_backends_reads_the_recorded_patterns() -> None:
+    """A unit test catches the lock the pod would refuse to boot with."""
+    lock = Lock("cart", backend=MemoryLockAdapter())
+
+    with pytest.raises(BackendScopeError, match=r"Lock\('cart'\)"):
+        Grelmicro().check_backends()
+
+    del lock
+
+
+def test_a_pattern_on_a_backend_that_reaches_far_enough_is_not_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Redis lock costs one comparison at construction and nothing more."""
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    Lock("cart", backend=RedisLockAdapter())
+
+    assert recorded_bindings() == []
+
+
+def test_a_pattern_that_is_gone_is_not_reported() -> None:
+    """The record lives only as long as the pattern does."""
+    Lock("cart", backend=MemoryLockAdapter())
+    gc.collect()
+
+    Grelmicro().check_backends()
+
+
+@pytest.mark.usefixtures("_undeclared")
+async def test_the_warning_for_a_pattern_names_the_component_to_register() -> (
+    None
+):
+    """A lock has no `requires=` of its own, so the way out names one."""
+    lock = Lock("cart", backend=MemoryLockAdapter())
+    micro = Grelmicro()
+
+    with pytest.warns(GrelmicroConfigWarning) as warned:
+        await micro.__aenter__()
+    await micro.__aexit__(None, None, None)
+
+    assert "Coordination(lock=..., requires='process')" in str(
+        warned[0].message
+    )
+    del lock
+
+
+def test_the_error_for_a_pattern_names_the_component_to_register() -> None:
+    """The strict message closes with the same way out."""
+    lock = LeaderElection("worker", backend=MemoryLeaderElectionAdapter())
+
+    with pytest.raises(BackendScopeError) as error:
+        Grelmicro().check_backends()
+
+    assert "Coordination(election=..., requires=...)" in str(error.value)
+    del lock
+
+
+def test_idempotency_requires_the_fleet() -> None:
+    """A replay has to find the stored response wherever the retry lands."""
+    assert IdempotentRequests.default_requires == "cluster"
+    assert Idempotency.default_requires == "cluster"
+    assert IdempotentRequests().requires == "cluster"
+    assert Idempotency("orders", requires="host").requires == "host"
+
+
+async def test_idempotent_requests_on_a_memory_cache_is_refused() -> None:
+    """The check follows the `Cache` the component rides."""
+    micro = Grelmicro(
+        uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()],
+        environment="production",
+    )
+
+    with pytest.raises(BackendScopeError) as error:
+        await micro.__aenter__()
+
+    message = str(error.value)
+    assert (
+        "IdempotentRequests('default') rides Cache('default'), which is "
+        "bound to MemoryCacheAdapter and provides scope 'process', but "
+        "requires scope 'cluster'"
+    ) in message
+    assert message.count("IdempotentRequests") == 1
+    assert "Idempotency(" not in message
+
+
+async def test_idempotent_requests_accepts_a_declared_local_reach() -> None:
+    """`requires=` lowers the bar, as on every other component."""
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(requires="process"),
+        ],
+        environment="production",
+    )
+
+    async with micro:
+        pass
+
+
+def test_idempotent_requests_follows_an_explicit_cache() -> None:
+    """A `TTLCache` holding its own backend is checked on that backend."""
+    micro = Grelmicro(
+        uses=[IdempotentRequests(cache=TTLCache(backend=MemoryCacheAdapter()))]
+    )
+
+    with pytest.raises(
+        BackendScopeError,
+        match=r"IdempotentRequests\('default'\) is bound to MemoryCacheAdapter",
+    ):
+        micro.check_backends()
+
+
+def test_a_rider_with_no_cache_to_ride_is_not_reported() -> None:
+    """Nothing is bound, so there is nothing to check yet."""
+    Grelmicro(uses=[IdempotentRequests()]).check_backends()
+
+
+def test_an_idempotency_riding_a_memory_cache_is_refused() -> None:
+    """The pattern is recorded and checked against the app's `Cache`."""
+    idem = Idempotency("orders")
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+
+    with pytest.raises(
+        BackendScopeError, match=r"Idempotency\('orders'\) rides Cache"
+    ):
+        micro.check_backends()
+
+    del idem
+
+
+def test_an_idempotency_on_a_cache_that_holds_its_backend_is_refused() -> None:
+    """A registered `Cache` holding the same backend does not decide."""
+    backend = MemoryCacheAdapter()
+    idem = Idempotency("orders", cache=TTLCache(backend=backend))
+    micro = Grelmicro(uses=[Cache(backend)])
+
+    with pytest.raises(
+        BackendScopeError, match=r"Idempotency\('orders'\) is bound to"
+    ):
+        micro.check_backends()
+
+    del idem
+
+
+def test_an_idempotency_accepts_a_declared_local_reach() -> None:
+    """`requires=` on the pattern is its own way out."""
+    idem = Idempotency("orders", requires="process")
+    from_config = Idempotency.from_config(
+        "refunds", IdempotencyConfig(), requires="process"
+    )
+
+    Grelmicro(uses=[Cache(MemoryCacheAdapter())]).check_backends()
+
+    del idem, from_config
+
+
+class _UnhashableLockAdapter(MemoryLockAdapter):
+    """A backend that cannot be held in a set, as a third party may write."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+def test_a_backend_that_cannot_be_hashed_is_still_left_to_its_component() -> (
+    None
+):
+    """The component decides at open, by identity, instead of a set."""
+    backend = _UnhashableLockAdapter()
+    coordination = Coordination(lock=backend, requires="process")
+    lock = Lock("cart", backend=backend)
+
+    Grelmicro(uses=[coordination]).check_backends()
+
+    assert [binding.label for binding in recorded_bindings()] == [
+        "Lock('cart')"
+    ]
+    del lock
+
+
+class _SharedCacheAdapter(MemoryCacheAdapter):
+    """A cache backend that says it reaches every replica."""
+
+    scope = "cluster"
+
+
+@pytest.mark.usefixtures("_undeclared")
+async def test_patterns_built_inside_an_open_app_warn_once_per_shape() -> None:
+    """A lock named per request warns once, and another mistake still warns."""
+    async with Grelmicro():
+        with pytest.warns(GrelmicroConfigWarning, match=r"Lock\('first'\)"):
+            first = Lock("first", backend=MemoryLockAdapter())
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            second = Lock("second", backend=MemoryLockAdapter())
+        with pytest.warns(GrelmicroConfigWarning, match="LeaderElection"):
+            leader = LeaderElection(
+                "worker", backend=MemoryLeaderElectionAdapter()
+            )
+
+    del first, second, leader
+
+
+@pytest.mark.usefixtures("_undeclared")
+async def test_the_warning_for_a_pattern_names_the_line_that_built_it() -> None:
+    """The warning points at user code, not inside grelmicro."""
+    async with Grelmicro():
+        with pytest.warns(GrelmicroConfigWarning) as warned:
+            lock = Lock("cart", backend=MemoryLockAdapter())
+
+    assert warned[0].filename == __file__
+    del lock
+
+
+def test_a_coordination_only_built_does_not_answer_for_a_lock() -> None:
+    """Only a registered component decides, whatever the build order."""
+    backend = MemoryLockAdapter()
+    Coordination(lock=backend, requires="process")
+    lock = Lock("cart", backend=backend)
+
+    with pytest.raises(BackendScopeError, match=r"Lock\('cart'\)"):
+        Grelmicro().check_backends()
+
+    del lock
+
+
+def test_a_requirement_naming_no_scope_is_passed_over() -> None:
+    """A typo in `requires=` does not crash startup, as on a component."""
+    idem = Idempotency("orders", requires=cast("Any", "clustr"))
+
+    Grelmicro(uses=[Cache(MemoryCacheAdapter())]).check_backends()
+
+    del idem
+
+
+async def test_idempotent_requests_built_in_an_open_app_is_not_recorded() -> (
+    None
+):
+    """The component answers for the store it builds, under its own name."""
+    async with Grelmicro(
+        uses=[Cache(MemoryCacheAdapter())], environment="production"
+    ):
+        component = IdempotentRequests(requires="cluster")
+
+    assert recorded_bindings() == []
+    del component
+
+
+def test_the_error_for_a_cache_offers_no_kubernetes_backend() -> None:
+    """Kubernetes stores coordination state, not cached responses."""
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), IdempotentRequests()])
+
+    with pytest.raises(
+        BackendScopeError, match="Use a Redis, Valkey, or Postgres backend"
+    ):
+        micro.check_backends()
+
+
+async def test_a_pattern_built_inside_an_open_app_that_holds_is_quiet() -> None:
+    """Built where it is checked, a binding that holds raises nothing."""
+    async with Grelmicro(
+        uses=[Cache(_SharedCacheAdapter())], environment="production"
+    ):
+        idem = Idempotency("orders")
+
+    del idem
+
+
+async def test_a_lock_built_by_its_coordination_is_left_to_it() -> None:
+    """`micro.coordination.lock(...)` holds the component's own backend."""
+    micro = Grelmicro(
+        uses=[Coordination(MemoryProvider(), requires="process")],
+        environment="production",
+    )
+
+    async with micro:
+        lock = micro.coordination.lock("cart")
+
+    assert recorded_bindings() == []
+    del lock
+
+
+def test_a_pattern_on_a_backend_with_no_scope_is_not_recorded() -> None:
+    """A third-party backend that declares no reach is never reported."""
+    adapter = MemoryLockAdapter()
+    del type(adapter).scope
+    try:
+        Lock("cart", backend=adapter)
+    finally:
+        MemoryLockAdapter.scope = "process"
+
+    assert recorded_bindings() == []
+
+
+def test_every_recorded_pattern_is_reported() -> None:
+    """Two locks on memory are two findings."""
+    first = Lock("first", backend=MemoryLockAdapter())
+    second = Lock("second", backend=MemoryLockAdapter())
+
+    with pytest.raises(BackendScopeError) as error:
+        Grelmicro().check_backends()
+
+    assert "Lock('first')" in str(error.value)
+    assert "Lock('second')" in str(error.value)
+    del first, second
+
+
+def test_an_idempotency_on_a_cache_that_reaches_far_enough_holds() -> None:
+    """An explicit shared backend meets the requirement, and is not kept."""
+    idem = Idempotency("orders", cache=TTLCache(backend=_SharedCacheAdapter()))
+
+    assert recorded_bindings() == []
+
+    del idem

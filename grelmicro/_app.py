@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
@@ -11,7 +10,6 @@ from contextlib import (
 )
 from contextvars import ContextVar
 from dataclasses import replace
-from functools import partial
 from threading import Lock as ThreadLock
 from typing import (
     TYPE_CHECKING,
@@ -27,6 +25,7 @@ from weakref import WeakKeyDictionary
 
 from typing_extensions import Doc
 
+from grelmicro._backend_kinds import backend_kinds, most_specific_backend
 from grelmicro._component import Component, Usable, instantiate_if_class
 from grelmicro._diagnostics import (
     AMBIENT_BINDING,
@@ -35,6 +34,8 @@ from grelmicro._diagnostics import (
 )
 from grelmicro._discovery import integration_names, load_integration
 from grelmicro._environment import (
+    answer_for,
+    recorded_bindings,
     report_unmet_requirements,
     resolve_environment,
     strict_message,
@@ -50,10 +51,11 @@ from grelmicro.errors import (
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterable, Mapping
+    from collections.abc import AsyncIterator, Callable, Iterable, Mapping
     from types import TracebackType
 
     from grelmicro._describe import AppReport, CheckReport
+    from grelmicro._environment import Binding, Unmet
     from grelmicro.cache._component import Cache
     from grelmicro.coordination._component import Coordination
     from grelmicro.health._checks import HealthChecks
@@ -369,9 +371,13 @@ class Grelmicro:
             BackendScopeError: If any bound backend reaches less far than its
                 component requires, naming every one of them.
         """
-        unmet = unmet_requirements(self._items)
+        unmet = unmet_requirements(self._items, recorded_bindings())
         if unmet:
             raise BackendScopeError(strict_message(unmet, environment))
+
+    def _unmet_bindings(self, bindings: Iterable[Binding]) -> list[Unmet]:
+        """Check `bindings` alone against the components this app holds."""
+        return unmet_requirements(self._items, bindings, check_items=False)
 
     @classmethod
     def current(cls) -> Grelmicro:
@@ -553,6 +559,7 @@ class Grelmicro:
         if component.name == "default":
             self._by_kind[component.kind] = component
         self._items.append(component)
+        answer_for(component)
 
     def _register_provider_defaults(self) -> None:
         """Auto-register default Components from Providers passed bare to `uses=`.
@@ -1295,7 +1302,8 @@ class Grelmicro:
             self._order_providers_before_dependents()
             self._resolve_provider_sharing()
             report_unmet_requirements(
-                unmet_requirements(self._items), self._environment
+                unmet_requirements(self._items, recorded_bindings()),
+                self._environment,
             )
             self._exit_stack = AsyncExitStack()
             await self._exit_stack.__aenter__()
@@ -1466,114 +1474,30 @@ def _sys_exc_info_or_none() -> tuple[Any, Any, Any]:
     return sys.exc_info()
 
 
-def _protocol_members(protocol: type) -> frozenset[str]:
-    """Return the member names a runtime-checkable Protocol matches on.
-
-    `isinstance` against a `runtime_checkable` Protocol tests exactly these
-    names and never checks signatures, so they are also what decides which of
-    two matching protocols is the more specific.
-    """
-    return frozenset(getattr(protocol, "__protocol_attrs__", ()))
-
-
-type _BackendCandidate = tuple[type, str, Callable[[Any], Component]]
-"""One backend protocol, the component to name in an error, and its factory.
-
-The factory takes `Any` because the protocol match is what proves the item
-fits, and that proof is a runtime `isinstance` a type checker cannot follow.
-"""
-
-
-def _most_specific_backend(
-    matches: list[_BackendCandidate],
-    item: object,
-) -> _BackendCandidate:
-    """Return the match whose protocol subsumes every other match.
-
-    A backend can satisfy more than one protocol, because `runtime_checkable`
-    compares member names only. `CircuitBreakerBackend` declares everything
-    `RateLimiterBackend` does plus `_loop` and `is_shared`, so every circuit
-    breaker backend also matches `RateLimiterBackend`. The more specific
-    protocol wins, which keeps the answer independent of the order the
-    protocols are tested in.
-
-    Raises:
-        AmbiguousBackendError: If no single protocol subsumes the others, so
-            the backend names two unrelated kinds and only the caller knows
-            which was meant.
-    """
-    for candidate in matches:
-        members = _protocol_members(candidate[0])
-        if all(
-            members >= _protocol_members(other[0])
-            for other in matches
-            if other[0] is not candidate[0]
-        ):
-            return candidate
-    names = ", ".join(sorted(protocol.__name__ for protocol, _, _ in matches))
-    kinds = ", ".join(sorted(label for _, label, _ in matches))
-    msg = (
-        f"{type(item).__name__} matches more than one backend protocol "
-        f"({names}), so grelmicro cannot tell which kind it is. Wrap it in "
-        f"the component you mean, one of: {kinds}."
-    )
-    raise AmbiguousBackendError(msg)
-
-
 def _maybe_wrap_first_party_backend(item: object) -> Component | None:
     """Wrap a first-party backend in the matching Component, or return None.
 
     Every protocol is tested, not just the first that matches, so a backend
     satisfying two of them resolves by specificity rather than by the order
-    the checks happen to be written in. See `_most_specific_backend`.
-
-    Imports are lazy so unused submodules stay out of `import grelmicro`.
-    The user importing `RedisCacheAdapter` already loads `grelmicro.cache`,
-    so the lazy import here is a cache hit.
+    the checks happen to be written in. See `most_specific_backend`.
 
     Raises:
         AmbiguousBackendError: If the backend matches two unrelated protocols.
     """
-    from grelmicro.cache._component import Cache  # noqa: PLC0415
-    from grelmicro.cache._protocol import CacheBackend  # noqa: PLC0415
-    from grelmicro.coordination._component import (  # noqa: PLC0415
-        COORDINATION_BACKENDS,
-        Coordination,
-    )
-    from grelmicro.resilience._components import (  # noqa: PLC0415
-        CircuitBreakerComponent,
-        RateLimiterComponent,
-    )
-    from grelmicro.resilience._protocol import (  # noqa: PLC0415
-        CircuitBreakerBackend,
-        RateLimiterBackend,
-    )
-
-    candidates: list[_BackendCandidate] = [
-        (CacheBackend, "Cache", Cache),
-        (
-            CircuitBreakerBackend,
-            "CircuitBreakerComponent",
-            CircuitBreakerComponent,
-        ),
-        (RateLimiterBackend, "RateLimiterComponent", RateLimiterComponent),
-        *[
-            (
-                slot.protocol,
-                f"Coordination({slot.keyword}=...)",
-                partial(Coordination._holding, slot.keyword),  # noqa: SLF001
-            )
-            for slot in COORDINATION_BACKENDS
-        ],
-    ]
     matches = [
-        candidate for candidate in candidates if isinstance(item, candidate[0])
+        kind
+        for kind in backend_kinds()
+        if kind.factory is not None and isinstance(item, kind.protocol)
     ]
     if not matches:
         return None
-    if len(matches) == 1:
-        return _marked(matches[0][2](item), item)
-    return _marked(_most_specific_backend(matches, item)[2](item), item)
+    kind = (
+        matches[0]
+        if len(matches) == 1
+        else most_specific_backend(matches, item)
+    )
+    factory = cast("Callable[[object], Component]", kind.factory)
+    return _marked(factory(item), item)
 
 
 _wrapped_backends: WeakKeyDictionary[Component, object] = WeakKeyDictionary()
