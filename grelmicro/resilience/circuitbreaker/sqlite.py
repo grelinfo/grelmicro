@@ -238,23 +238,29 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
         self._loop = asyncio.get_running_loop()
         if self._auto_migrate:  # pragma: no branch
             client = self._provider.client
-            await client.execute(
-                self._SQL_CREATE_TABLE.format(table_name=self._table_name)
-            )
-            # SQLite has no ADD COLUMN IF NOT EXISTS, so an existing
-            # table is widened only when the column is really missing.
-            async with client.execute(
-                self._SQL_HAS_UPDATED_AT.format(table_name=self._table_name)
-            ) as cursor:
-                present = await cursor.fetchone()
-            if not present or not present[0]:
+            # Another component sharing the connection may have a transaction
+            # open, and `commit` below would end it. The provider's lock is
+            # held for the whole schema init so the two never interleave.
+            async with self._provider.connection_lock:
                 await client.execute(
-                    self._SQL_ADD_UPDATED_AT.format(table_name=self._table_name)
+                    self._SQL_CREATE_TABLE.format(table_name=self._table_name)
                 )
-            await client.execute(
-                self._SQL_CREATE_INDEX.format(table_name=self._table_name)
-            )
-            await client.commit()
+                # SQLite has no ADD COLUMN IF NOT EXISTS, so an existing
+                # table is widened only when the column is really missing.
+                async with client.execute(
+                    self._SQL_HAS_UPDATED_AT.format(table_name=self._table_name)
+                ) as cursor:
+                    present = await cursor.fetchone()
+                if not present or not present[0]:
+                    await client.execute(
+                        self._SQL_ADD_UPDATED_AT.format(
+                            table_name=self._table_name
+                        )
+                    )
+                await client.execute(
+                    self._SQL_CREATE_INDEX.format(table_name=self._table_name)
+                )
+                await client.commit()
         if self._cleanup_interval is not None:
             self._janitor_task = asyncio.create_task(self._janitor_loop())
         return self
