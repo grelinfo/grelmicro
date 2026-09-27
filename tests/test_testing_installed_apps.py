@@ -350,3 +350,17 @@ def test_a_provider_that_cannot_tell_it_is_open_counts_as_closed() -> None:
     assert not provider._left_closed()
     provider._skips = 1
     assert provider._left_closed()
+
+
+async def test_one_micro_installs_on_two_faststream_apps() -> None:
+    """An app factory building a new FastStream app per test wires each."""
+    micro = Grelmicro(uses=[MemoryProvider()])
+    micro.install(FastStream(RedisBroker()))
+    broker = RedisBroker()
+    second = FastStream(broker)
+    micro.install(second)
+
+    async with TestRedisBroker(broker):
+        await second.start()
+        assert micro.opened
+        await second.stop()

@@ -1206,27 +1206,30 @@ class Grelmicro:
             if wire_middleware is not None:
                 wire_middleware(app, middleware)
         # Marked once the wiring holds, so a retry after a failure wires.
-        self._install_marks(app).add(self)
+        marks, key = self._install_marks(app)
+        marks.add(key)
 
-    def _install_marks(self, app: object) -> WeakSet[object]:
-        """Return where `app` records the `Grelmicro` apps that wired it.
+    def _install_marks(self, app: object) -> tuple[WeakSet[object], object]:
+        """Return where `app` records what wired it, and the key to record.
 
-        The mark sits on `app.state` when the framework has one, which also
-        covers a Litestar app that cannot be weakly referenced. An app with no
-        `state`, such as FastStream, is remembered here instead.
+        With a `state`, the app holds the `Grelmicro` apps that wired it,
+        which also covers a Litestar app that cannot be weakly referenced.
+        An app with no `state`, such as FastStream, is held by this
+        `Grelmicro` instead, so each such app is tracked on its own.
         """
         state = getattr(app, "state", None)
         if state is None:
-            return self._installed_on
+            return self._installed_on, app
         marks = getattr(state, _INSTALLED_MARK, None)
         if marks is None:
             marks = WeakSet()
             setattr(state, _INSTALLED_MARK, marks)
-        return marks
+        return marks, self
 
     def _installed(self, app: object) -> bool:
         """Return whether this app already wired `app`."""
-        return self in self._install_marks(app)
+        marks, key = self._install_marks(app)
+        return key in marks
 
     def _ambient_component_labels(self) -> list[str]:
         """Return sorted `kind:name` labels of registered ambient components."""
