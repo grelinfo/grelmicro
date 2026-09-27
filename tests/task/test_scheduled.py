@@ -6,6 +6,8 @@ from asyncio import sleep
 import pytest
 from pytest_mock import MockFixture
 
+from grelmicro import Grelmicro
+from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LeaderElectionBackend, LockBackend
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.lock import Lock
@@ -43,7 +45,7 @@ def test_interval_task_with_lock_init() -> None:
     task = IntervalTask(
         seconds=1,
         function=test1,
-        lock=TaskLock(backend=backend, lease_duration=5),
+        gate=TaskLock(backend=backend, lease_duration=5),
     )
     # Assert
     assert task.name == "tests.task.samples:test1"
@@ -58,7 +60,7 @@ def test_interval_task_with_lock_init_with_name() -> None:
         seconds=1,
         function=test1,
         name="my-task",
-        lock=TaskLock(backend=backend, lease_duration=5),
+        gate=TaskLock(backend=backend, lease_duration=5),
     )
     # Assert
     assert task.name == "my-task"
@@ -73,7 +75,7 @@ def test_interval_task_with_lock_init_invalid_seconds() -> None:
         IntervalTask(
             seconds=0,
             function=test1,
-            lock=TaskLock(backend=backend, lease_duration=5),
+            gate=TaskLock(backend=backend, lease_duration=5),
         )
 
 
@@ -83,8 +85,8 @@ def test_interval_task_with_lock_default_lease_duration() -> None:
     leader = LeaderElection(
         "test-leader", backend=MemoryLeaderElectionAdapter()
     )
-    # Act - leader implies lock, lease_duration defaults to interval * 5
-    task = IntervalTask(seconds=10, function=test1, leader=leader)
+    # Act - leader implies a claim, lease_duration defaults to interval * 2
+    task = IntervalTask(seconds=10, function=test1, gate=leader)
     # Assert
     assert task.name == "tests.task.samples:test1"
 
@@ -97,25 +99,27 @@ def test_interval_task_with_lock_custom_lease_duration() -> None:
     task = IntervalTask(
         seconds=10,
         function=test1,
-        lock=TaskLock(backend=backend, lease_duration=100),
+        gate=TaskLock(
+            backend=backend, lease_duration=100, min_hold_duration=10
+        ),
     )
     # Assert
     assert task.name == "tests.task.samples:test1"
 
 
-def test_interval_task_with_lease_duration_validation() -> None:
-    """Test IntervalTask lease_duration validation."""
+def test_interval_task_with_min_hold_duration_validation() -> None:
+    """A gate lock holding a claim for less than the interval is refused."""
     # Arrange
     backend = MemoryLockAdapter()
     # Act / Assert
     with pytest.raises(
         ValueError,
-        match="lease_duration must be greater than or equal to seconds",
+        match="min_hold_duration must be greater than or equal to seconds",
     ):
         IntervalTask(
             seconds=10,
             function=test1,
-            lock=TaskLock(backend=backend, lease_duration=5),
+            gate=TaskLock(backend=backend, lease_duration=5),
         )
 
 
@@ -137,7 +141,7 @@ async def test_interval_task_with_lock_and_resource_lock(
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        lock=TaskLock(
+        gate=TaskLock(
             backend=backend,
             lease_duration=SECONDS * 5,
             min_hold_duration=SECONDS,
@@ -152,13 +156,15 @@ async def test_interval_task_with_lock_and_resource_lock(
 
 
 def test_interval_task_custom_min_hold_duration() -> None:
-    """Test IntervalTask with custom min_hold_duration."""
+    """Test IntervalTask with a min_hold_duration longer than the interval."""
     backend = MemoryLockAdapter()
     # Act - should not raise
     task = IntervalTask(
         seconds=10,
         function=test1,
-        lock=TaskLock(backend=backend, lease_duration=100, min_hold_duration=5),
+        gate=TaskLock(
+            backend=backend, lease_duration=100, min_hold_duration=30
+        ),
     )
     assert task.name == "tests.task.samples:test1"
 
@@ -169,7 +175,7 @@ async def test_interval_task_with_lock_start(backend: LockBackend) -> None:
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        lock=TaskLock(
+        gate=TaskLock(
             backend=backend,
             lease_duration=SECONDS * 5,
             min_hold_duration=SECONDS,
@@ -192,7 +198,7 @@ async def test_interval_task_with_lock_execution_error(
     task = IntervalTask(
         seconds=SECONDS,
         function=always_fail,
-        lock=TaskLock(
+        gate=TaskLock(
             backend=backend,
             lease_duration=SECONDS * 5,
             min_hold_duration=SECONDS,
@@ -222,7 +228,7 @@ async def test_interval_task_with_lock_synchronization_error(
     task = IntervalTask(
         seconds=SECONDS,
         function=notify,
-        lock=TaskLock(
+        gate=TaskLock(
             backend=backend,
             lease_duration=SECONDS * 5,
             min_hold_duration=SECONDS,
@@ -265,7 +271,7 @@ async def test_interval_task_with_lock_stop(
     task = IntervalTask(
         seconds=1,
         function=test1,
-        lock=TaskLock(backend=backend, lease_duration=5),
+        gate=TaskLock(backend=backend, lease_duration=5),
     )
 
     async def task_during_runtime_error() -> None:
@@ -301,17 +307,14 @@ async def test_interval_task_with_leader_executes(
         seconds=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
-        leader=leader,
-        lock=TaskLock(
-            backend=backend,
-            worker="worker_1",
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
-        ),
+        gate=leader,
     )
 
     # Act
-    async with asyncio.TaskGroup() as tg:
+    async with (
+        Grelmicro(uses=[Coordination(lock=backend)]),
+        asyncio.TaskGroup() as tg,
+    ):
         await start_task(tg, leader)
         await start_task(tg, task)
         await samples.e2e_event_1.wait()
@@ -336,17 +339,14 @@ async def test_interval_task_with_leader_skips_when_not_leader(
         seconds=SECONDS,
         function=samples.set_event_1,
         name="e2e_task",
-        leader=leader_2,
-        lock=TaskLock(
-            backend=backend,
-            worker="worker_2",
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
-        ),
+        gate=leader_2,
     )
 
     # Act
-    async with asyncio.TaskGroup() as tg:
+    async with (
+        Grelmicro(uses=[Coordination(lock=backend)]),
+        asyncio.TaskGroup() as tg,
+    ):
         await start_task(tg, leader_1)
         await start_task(tg, leader_2)
         await start_task(tg, task)

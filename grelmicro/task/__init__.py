@@ -1,11 +1,12 @@
 """Task."""
 
-from grelmicro.task._cron import FireInfo, FireOutcome
-from grelmicro.task._protocol import Task
+from grelmicro._task import Task
+from grelmicro.task._fire import FireInfo, FireOutcome
 from grelmicro.task._tasks import Tasks, TasksConfig
 from grelmicro.task.errors import (
     CronError,
     FunctionTypeError,
+    LeaderNotRegisteredError,
     TaskAddOperationError,
     TaskError,
     TaskStartOperationError,
@@ -18,6 +19,7 @@ __all__ = [
     "FireInfo",
     "FireOutcome",
     "FunctionTypeError",
+    "LeaderNotRegisteredError",
     "Task",
     "TaskAddOperationError",
     "TaskError",

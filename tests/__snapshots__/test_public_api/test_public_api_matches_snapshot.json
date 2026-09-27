@@ -297,8 +297,8 @@
       "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
     },
     "IdempotentRequests": {
-      "()": "(*, ttl=None, namespace='http', cache=None, key_header=None, replay_header=None, methods=None, key_maker=None, skip=None, require_key=None, fingerprint_body=None, max_body_size=None, wait_timeout=None, include=None, exclude=None, reused_status=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
-      ".from_config": "(config, *, name='default', namespace='http', ttl=None, cache=None, key_maker=None, skip=None, openapi=True) -> 'IdempotentRequests'"
+      "()": "(*, ttl=None, namespace='http', cache=None, requires=None, key_header=None, replay_header=None, methods=None, key_maker=None, skip=None, require_key=None, fingerprint_body=None, max_body_size=None, wait_timeout=None, include=None, exclude=None, reused_status=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', namespace='http', ttl=None, cache=None, requires=None, key_maker=None, skip=None, openapi=True) -> 'IdempotentRequests'"
     },
     "IdempotentRequestsConfig": {
       "()": "(*, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422) -> None"
@@ -357,8 +357,8 @@
   },
   "grelmicro.idempotency": {
     "Idempotency": {
-      "()": "(name, *, ttl=None, fingerprint=None, cache=None, serializer=None, env_prefix=None, env_load=None) -> 'None'",
-      ".from_config": "(name, config, *, fingerprint=None, cache=None, serializer=None) -> 'Self'"
+      "()": "(name, *, ttl=None, fingerprint=None, cache=None, serializer=None, requires=None, env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(name, config, *, fingerprint=None, cache=None, serializer=None, requires=None) -> 'Self'"
     },
     "IdempotencyConfig": {
       "()": "(*, ttl=86400) -> None"
@@ -1078,6 +1078,9 @@
     },
     "FunctionTypeError": {
       "()": "(reference) -> None"
+    },
+    "LeaderNotRegisteredError": {
+      "()": "(election, task) -> None"
     },
     "Task": {
       "()": "(*args, **kwargs)"

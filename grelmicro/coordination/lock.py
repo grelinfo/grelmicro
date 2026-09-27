@@ -3,7 +3,7 @@
 import asyncio
 import re
 from types import TracebackType
-from typing import Annotated, ClassVar, Self
+from typing import Annotated, ClassVar, Final, Self
 from uuid import UUID
 from weakref import WeakSet
 
@@ -21,6 +21,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._environment import record_coordination
 from grelmicro.coordination._base import (
     BaseLock,
     BaseLockConfig,
@@ -53,7 +54,6 @@ from grelmicro.coordination.errors import (
 )
 from grelmicro.errors import (
     LockTimeoutError,
-    OutOfContextError,
     SettingsValidationError,
     WouldBlockError,
 )
@@ -79,6 +79,14 @@ def validate_lock_name(name: str) -> None:
             f"Valid examples: 'cart', 'users:42', 'payments/eu'."
         )
         raise SettingsValidationError(msg)
+
+
+_NO_BACKEND: Final = (
+    "Lock({name!r}) resolved no backend. Register a Coordination "
+    "component, pass backend=, or run the call inside `async with micro:` "
+    "or after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class LockConfig(BaseLockConfig):
@@ -343,6 +351,8 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         self._backend_name: str | None = (
             backend if isinstance(backend, str) else None
         )
+        if self._backend is not None:
+            record_coordination(self, self._backend, "lock")
         # WeakSet so a holder that exits without releasing does not pin
         # its object in memory and does not risk colliding with a future
         # holder that lands on the same id(). Threads need it as much as
@@ -367,27 +377,18 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         `micro.override(Coordination(...))` blocks take effect.
 
         Raises:
-            OutOfContextError: No backend resolved in this scope. Pass
-                `backend=` (a `MemoryLockAdapter()` for a per-process
-                lock), register a `Coordination` Component, or run the
-                call inside `async with micro:` or after
+            OutOfContextError: No backend resolved in this scope.
+                Register a `Coordination` Component, pass `backend=`,
+                or run the call inside `async with micro:` or after
                 `micro.install(app)`.
         """
         if self._backend is not None:
             return self._backend
-        try:
-            coordination = resolve_ambient(
-                ("coordination", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"Lock({self._name!r}) resolved no backend. Pass backend= "
-                f"(MemoryLockAdapter() for a per-process lock), register a "
-                f"Coordination component, or run the call inside "
-                f"`async with micro:` or after `micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return coordination.lock_backend
+        return resolve_ambient(
+            ("coordination", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).lock_backend
 
     async def __aenter__(self) -> LockHandle:
         """Acquire the lock with the async context manager.

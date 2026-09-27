@@ -30,6 +30,13 @@ Two things say otherwise:
   not written on. A mount or a `Host` answers every path under it, except the
   public routes it holds. A route under a `Host` is served without one only
   where a request the host turns away is answered `404`.
+  A mounted app with middleware of its own may change the path before it
+  routes it, so its public routes are served without a credential only when
+  every route it holds is public. A route or a mount that matches requests
+  other than by its path, with a `matches` or a regex of its own, may answer
+  any path. It is never public, and the public routes it could shadow stay
+  authenticated. Routes changed once the app started are read again before a
+  request is served without a credential.
 
 On an `Anonymous()` route, a request sending no token is served with a caller
 that is not authenticated. A bearer token that is sent is verified as on any

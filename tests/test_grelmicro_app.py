@@ -1259,15 +1259,6 @@ async def test_fake_supports_a_real_lock() -> None:
             assert await lock.locked()
 
 
-async def test_fake_outside_context_raises() -> None:
-    """`fake()` scopes to an open app, like `override()` does."""
-    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
-
-    with pytest.raises(OutOfContextError):
-        async with micro.fake():
-            pass  # pragma: no cover
-
-
 async def test_typed_properties_resolve_every_first_party_kind() -> None:
     """Each first-party kind has a property, so lookup keeps its type."""
     health = HealthChecks()

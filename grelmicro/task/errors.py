@@ -73,16 +73,17 @@ class TaskStartOperationError(TaskError, RuntimeError):
 class LeaderNotRegisteredError(TaskError, RuntimeError):
     """Leader Not Registered Error.
 
-    Raised when a task is gated on a `LeaderElection` that is not registered
-    with the same `Tasks`. An election renews its lease only while it runs as
-    a task, so an unregistered one never becomes leader and every fire of the
-    task it gates is skipped for the life of the process.
+    Raised when `Tasks` starts a task gated on a `LeaderElection` that no
+    `Tasks` of the app holds and that does not already run. An election
+    renews its lease only while it runs as a task, so one that runs
+    nowhere never becomes leader and every fire of the task it gates is
+    skipped for the life of the process.
     """
 
     def __init__(self, election: str, task: str) -> None:
         """Initialize the error."""
         super().__init__(
             f"Task {task!r} is gated on the leader election {election!r}, "
-            f"which is not registered and would never acquire leadership. "
-            f"Add tasks.add_task(election) beside the task"
+            f"which no Tasks runs, so it never acquires leadership. "
+            f"Register it with tasks.add_task(election)"
         )

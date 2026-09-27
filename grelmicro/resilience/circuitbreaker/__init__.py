@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from logging import getLogger
-from typing import TYPE_CHECKING, Annotated, Any, Self, overload
+from typing import TYPE_CHECKING, Annotated, Any, Final, Self, overload
 
 from typing_extensions import Doc
 
@@ -31,7 +31,6 @@ from grelmicro._config import (
 )
 from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic
-from grelmicro.errors import OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.resilience.errors import CircuitBreakerError
 
@@ -133,6 +132,15 @@ def __getattr__(name: str) -> object:
         return Annotated[ConsecutiveCountConfig, Discriminator("kind")]
     msg = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(msg)
+
+
+_NO_BACKEND: Final = (
+    "CircuitBreaker({name!r}) resolved no backend. Pass backend= "
+    "(MemoryCircuitBreakerAdapter() for a per-replica breaker), register a "
+    "CircuitBreakerComponent component, or run the call inside `async with "
+    "micro:` or after `micro.install(app)`."
+)
+"""What `backend` raises when no `backend=` was passed and none resolves."""
 
 
 class _TransitionCause(StrEnum):
@@ -654,20 +662,11 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         """
         if self._backend is not None:
             return self._backend
-        try:
-            component = resolve_ambient(
-                ("circuitbreaker", self._backend_name or "default")
-            )
-        except LookupError:
-            msg = (
-                f"CircuitBreaker({self._name!r}) resolved no backend. Pass "
-                f"backend= (MemoryCircuitBreakerAdapter() for a per-replica "
-                f"breaker), register a CircuitBreakerComponent component, or run "
-                f"the call inside `async with micro:` or after "
-                f"`micro.install(app)`."
-            )
-            raise OutOfContextError(msg) from None
-        return component.backend
+        return resolve_ambient(
+            ("circuitbreaker", self._backend_name or "default"),
+            _NO_BACKEND,
+            self._name,
+        ).backend
 
     @property
     def from_thread(self) -> _ThreadAdapter:

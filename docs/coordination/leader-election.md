@@ -20,9 +20,13 @@ Register a provider, build a `LeaderElection`, and gate a task on it:
 Only the leader runs `run_once_in_the_cluster`. Every other worker skips it until
 it becomes the leader.
 
+The election renews its lease only while it runs, so register it with
+`tasks.add_task(leader)`. `Tasks` refuses to start a task gated on an election
+that no `Tasks` of the app runs, and raises `LeaderNotRegisteredError`.
+
 ## Run only while leader
 
-`@tasks.every(..., leader=leader)` gates each tick. When you have one long-lived
+`@tasks.every(..., gate=leader)` gates each tick. When you have one long-lived
 piece of work that should run for as long as you lead and stop the instant you do
 not, use `lead`:
 

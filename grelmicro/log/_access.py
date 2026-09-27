@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from typing_extensions import Doc
 
 from grelmicro._asgi import client_address
+from grelmicro._caller import subject_of
 from grelmicro._config import (
     Live,
     Reconfigurable,
@@ -380,7 +381,7 @@ class AccessLogMiddleware:
             if agent is not None:
                 fields["user_agent.original"] = agent
         if state.config.enduser:
-            subject = _enduser_of(scope)
+            subject = subject_of(scope.get("user"))
             if subject is not None:
                 fields["enduser.id"] = subject
         if error is not None:
@@ -629,24 +630,6 @@ def _level_of(
     if status >= _CLIENT_ERROR:
         return logging.WARNING
     return logging.DEBUG if quiet else logging.INFO
-
-
-def _enduser_of(scope: Scope) -> str | None:
-    """Return the subject of the authenticated caller, or `None` for none.
-
-    A caller that is not authenticated names nobody, whatever it carries,
-    and a subject that is not a non-empty string is not written. A user
-    object whose attribute raises when read is written as nobody, so the
-    record is still written and a handler's own error still propagates.
-    """
-    caller = scope.get("user")
-    try:
-        if getattr(caller, "is_authenticated", False) is not True:
-            return None
-        subject = getattr(caller, "subject", None)
-    except Exception:  # noqa: BLE001
-        return None
-    return subject if isinstance(subject, str) and subject else None
 
 
 def _query(scope: Scope) -> str | None:

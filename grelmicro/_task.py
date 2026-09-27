@@ -1,4 +1,4 @@
-"""Task Abstract Base Classes and Protocols."""
+"""The protocol every background task satisfies, whichever package runs it."""
 
 import asyncio
 from typing import Protocol, runtime_checkable

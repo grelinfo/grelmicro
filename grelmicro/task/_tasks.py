@@ -9,14 +9,17 @@ from typing import Annotated, ClassVar, Self
 from pydantic import BaseModel, NonNegativeFloat
 from typing_extensions import Doc
 
+from grelmicro._app import _current_micro
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
     resolve_config,
 )
+from grelmicro._task import Task
 from grelmicro._timezone import SHARED_TIMEZONE_ENV, UTC_NAME
 from grelmicro.errors import OutOfContextError
-from grelmicro.task._protocol import Task
+from grelmicro.task._cron import CronTask
+from grelmicro.task._interval import IntervalTask
 from grelmicro.task.errors import (
     LeaderNotRegisteredError,
     TaskStartOperationError,
@@ -263,21 +266,31 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         self._task_handles.clear()
 
     def _check_leader_gates(self) -> None:
-        """Refuse a task gated on an election registered nowhere.
+        """Refuse a task gated on an election that nothing runs.
 
-        A `LeaderElection` renews its lease only while it runs as a task, so
-        one that is not registered never acquires leadership and every fire of
-        the task it gates is skipped for the life of the process. Read through
-        `getattr` so the task package never imports the coordination package,
-        which imports `Task` from here.
+        A `LeaderElection` renews its lease only while it runs as a task.
+        One that runs nowhere never acquires leadership, so every fire of
+        the task it gates is skipped for the life of the process. An
+        election passes when this `Tasks` holds it, when another `Tasks`
+        opened by the same app holds it, or when it already runs.
+
+        Raises:
+            LeaderNotRegisteredError: If a gated task's election passes
+                none of those.
         """
         tasks = self.tasks
-        registered = {id(task) for task in tasks}
+        runners = {id(task) for task in tasks}
+        runners.update(id(task) for task in _app_tasks())
         for task in tasks:
-            for primitive in getattr(task, "_sync_primitives", ()):
-                election = getattr(primitive, "_election", None)
-                if election is not None and id(election) not in registered:
-                    raise LeaderNotRegisteredError(election.name, task.name)
+            if not isinstance(task, IntervalTask | CronTask):
+                continue
+            leader = task.leader
+            if (
+                leader is not None
+                and id(leader) not in runners
+                and not leader.is_running()
+            ):
+                raise LeaderNotRegisteredError(leader.name, task.name)
 
     async def start(self) -> None:
         """Start all tasks manually."""
@@ -313,3 +326,19 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
                 msg = f"Task {task.name!r} exited before signaling readiness"
                 raise RuntimeError(msg)
         logger.debug("%s scheduled tasks started", len(self._tasks))
+
+
+def _app_tasks() -> list[Task]:
+    """Return the tasks of every `Tasks` the active app opens.
+
+    Empty when no app is open.
+    """
+    micro = _current_micro.get(None)
+    if micro is None:
+        return []
+    return [
+        task
+        for item in micro._items  # noqa: SLF001
+        if isinstance(item, TaskRouter)
+        for task in item.tasks
+    ]

@@ -138,6 +138,7 @@ release-check-fast version:
         exit 1
     fi
     uv run python tools/changelog.py check "{{version}}"
+    uv run --no-project python tools/core_release.py plan
     just test-full
     uv run mkdocs build --strict
     echo "release-check-fast passed for {{version}}"
