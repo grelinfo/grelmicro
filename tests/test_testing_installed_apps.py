@@ -15,13 +15,13 @@ from litestar import Litestar
 from litestar.testing import TestClient as LitestarTestClient
 
 from grelmicro import Grelmicro
+from grelmicro import _app as grelmicro_app
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.errors import OutOfContextError
 from grelmicro.health import HealthChecks
 from grelmicro.http import IdempotentRequests
-from grelmicro.integrations import fastapi as fastapi_integration
 from grelmicro.integrations.litestar import install_middleware
 from grelmicro.outbox import Outbox
 from grelmicro.providers import Provider
@@ -325,12 +325,14 @@ def test_a_failed_install_can_be_retried(
     micro = Grelmicro(uses=[MemoryProvider()])
     app = FastAPI()
 
-    def refuse(*_: object, **__: object) -> None:
-        msg = "wiring refused"
-        raise RuntimeError(msg)
+    class Refusing:
+        @staticmethod
+        def install(*_: object, **__: object) -> None:
+            msg = "wiring refused"
+            raise RuntimeError(msg)
 
     with monkeypatch.context() as patched:
-        patched.setattr(fastapi_integration, "install", refuse)
+        patched.setattr(grelmicro_app, "load_integration", lambda _: Refusing)
         with pytest.raises(RuntimeError, match="wiring refused"):
             micro.install(app)
     micro.install(app)
