@@ -523,7 +523,7 @@ VALID = SIGNER.token(claims())
 
 
 _INTERPRETED_CLAIMS: Final = frozenset(
-    {"exp", "nbf", "iat", "iss", "aud", "sub", "jti", "cnf", "scope", "scp"}
+    {"exp", "nbf", "iat", "iss", "aud", "sub", "jti", "cnf"}
 )
 """Claims the verifier reads, so a value of the wrong type is refused.
 
