@@ -27,7 +27,9 @@ A Provider is opened only when something left as is still borrows it. One
 that only the faked components used stays closed: the test connects to
 nothing, and a readiness check on it, from `auto_health` or `add_provider`, is
 left out of the health report. A Provider the test opens itself, or that a
-real app sharing it keeps open, works as usual. Reaching it directly raises `OutOfContextError` naming the fix,
+real app sharing it keeps open, works as usual. The components a `Bulkhead`
+lists in its own `uses=` are not the app's, so a Provider only they borrow is
+left closed too: pass it in `keep=` when the scope runs in the test. Reaching it directly raises `OutOfContextError` naming the fix,
 `micro.fake(keep=[provider])`, which opens the real one. The backend scope
 check does not run on a faked open, since memory stores are its point.
 

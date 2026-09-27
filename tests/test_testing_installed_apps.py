@@ -28,6 +28,7 @@ from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
+from grelmicro.providers.valkey import ValkeyProvider
 
 
 async def test_opening_an_open_app_says_it_is_already_open() -> None:
@@ -364,3 +365,17 @@ async def test_one_micro_installs_on_two_faststream_apps() -> None:
         await second.start()
         assert micro.opened
         await second.stop()
+
+
+async def test_a_valkey_provider_the_test_opens_itself_works_under_fake() -> (
+    None
+):
+    """Valkey tracks its own open scope, like Redis."""
+    valkey = ValkeyProvider("valkey://127.0.0.1:1/0")
+    micro = Grelmicro(uses=[valkey])
+
+    async with micro.fake(), micro:
+        async with valkey:
+            assert valkey.client is not None
+        with pytest.raises(OutOfContextError, match=r"fake\(keep="):
+            _ = valkey.client
