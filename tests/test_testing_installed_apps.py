@@ -379,3 +379,14 @@ async def test_a_valkey_provider_the_test_opens_itself_works_under_fake() -> (
             assert valkey.client is not None
         with pytest.raises(OutOfContextError, match=r"fake\(keep="):
             _ = valkey.client
+
+
+async def test_a_provider_nothing_faked_used_stays_open() -> None:
+    """A Provider the handlers query directly is not the fake's to close."""
+    postgres = PostgresProvider(_CLOSED_PORT)
+    redis = RedisProvider("redis://127.0.0.1:1/0")
+    micro = Grelmicro(uses=[postgres, redis, Cache(redis)])
+
+    with pytest.raises(OSError, match=r"127\.0\.0\.1"):
+        async with micro.fake(), micro:
+            pass  # pragma: no cover

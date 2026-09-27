@@ -786,13 +786,10 @@ class Grelmicro:
         keep = {id(p): p for fake in self._fakes for p in fake.keep}
         items = [replacements.get(id(item), item) for item in self._items]
         in_use = {id(p) for item in items for p in _borrowed_providers(item)}
+        # Only a Provider a faked component used is the fake's to close. One
+        # the app's own code reaches directly stays open.
         candidates = [
-            *(item for item in self._items if isinstance(item, Provider)),
-            *(
-                p
-                for original in originals
-                for p in _borrowed_providers(original)
-            ),
+            p for original in originals for p in _borrowed_providers(original)
         ]
         skipped = list(
             {
