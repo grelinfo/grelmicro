@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 💥 `micro.fake()` entered before the app opens fakes the next open, and `async with micro.fake()` no longer raises on a closed app. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
 * 🔒 A route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
 * 🔒 Routes, mounts and a mounted app's middleware changed after startup are read again before a request is served without a credential, and FastAPI then serves the routes read, an included route removed or edited in place included. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
@@ -38,6 +39,8 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `micro.fake()` works on an app that `install` opens: enter it before the test client starts. The Providers only faked components used stay closed, so the suite connects to nothing and `/readyz` does not probe them, and `fake(keep=[provider])` opens one for real. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
+* ✨ The testing guide shows one fixture for the app you ship, and app factories cover two apps or clients at once. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * ✨ `Coordination(MemoryLockAdapter())` puts a backend in the slot it serves, as `Coordination(lock=...)` does. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 * ✨ `OAuthClient` gets the tokens a service calls other APIs with: `ClientCredentials` for the service itself and `TokenExchange` for the user it is serving, cached, refreshed before they expire, and sent through `auth()` with `httpx`. The service authenticates with a secret, a private key signed in the compiled core, or a workload identity token read from a file. ([#859](https://github.com/grelinfo/grelmicro/issues/859))
 * ✨ `CurrentToken` hands a FastAPI handler the bearer token that verified, and `current_token(request)` does the same on Starlette and Litestar, so a call made for the user exchanges the token that was checked. ([#859](https://github.com/grelinfo/grelmicro/issues/859))
@@ -62,6 +65,8 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 Opening an app that is already open says so, and names `install(app)` and `micro.fake()`. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
+* 🐛 `install(app)` called twice on one app wires it once. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * 🐛 A claimed interval task whose `sync` lock refuses the body reports the fire as `missed`, as a cron task does, instead of `skipped`. The claim holds the interval, so no other worker runs it. ([#910](https://github.com/grelinfo/grelmicro/pull/910))
 * 🐛 `@Authenticated(scopes=[...])` on Starlette reads the scopes Starlette's own authentication grants on `request.auth`, so a caller holding them is no longer refused with `403`. ([#910](https://github.com/grelinfo/grelmicro/pull/910))
 * 🐛 An interval task claimed with a `TaskLock` runs once per interval across the fleet. The claim used to free one second after the body ended, so replicas with offset timers each ran their own tick. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
