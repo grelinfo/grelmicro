@@ -81,6 +81,9 @@
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
 
+### Internal
+* 👷 One release ships `grelmicro` and `grelmicro-core`. When PyPI lacks the crate version, the release builds the core and publishes it first, so `grelmicro[jwt]` always resolves. A `jwt` pin that names another version, or a crate changed after its version was published, fails the pull request. ([#875](https://github.com/grelinfo/grelmicro/issues/875))
+
 ## 0.41.1 - 2026-09-12
 
 ### Added
