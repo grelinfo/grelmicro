@@ -411,8 +411,7 @@ class TestDistributedComputePath:
         async with micro:
             async with Lock(_stampede_lock_name(key)):
                 waiter = asyncio.create_task(asyncio.to_thread(fetch, 5))
-                # The attempt lands on a worker thread, so it cannot signal an
-                # event on this loop.
+                # A call log has nothing to await, so the test polls it.
                 while attempts.count("acquire") < 2:  # noqa: ASYNC110, PLR2004
                     await asyncio.sleep(0.001)
                 await cache.set(key, 99)
