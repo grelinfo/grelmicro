@@ -282,6 +282,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._entries: dict[str, _Entry] = {}
         self._auto_registered: list[str] = []
         """Checks `auto_health` added on this run, removed when it closes."""
+        self._depth = 0
+        """How many open scopes hold these checks, so only the last one
+        to close drops what `auto_health` added."""
 
     @property
     def name(self) -> str:
@@ -294,6 +297,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         When `auto_health` is on, register one `provider:{short_name}`
         check per Provider active on the app.
         """
+        self._depth += 1
         if self._auto_health:
             self._register_active_providers()
         return self
@@ -309,6 +313,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         Drops the checks `auto_health` registered, so the next run checks the
         Providers that run opens rather than the ones this run had.
         """
+        self._depth -= 1
+        if self._depth > 0:
+            return
         for check_name in self._auto_registered:
             self._entries.pop(check_name, None)
         self._auto_registered.clear()

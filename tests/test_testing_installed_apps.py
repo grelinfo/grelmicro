@@ -419,3 +419,39 @@ async def test_a_registration_made_while_faked_outlives_the_run() -> None:
 
     assert micro.get(Cache, "sessions") is sessions
     assert type(micro.get(Cache).backend).__name__ == "RedisCacheAdapter"
+
+
+async def test_a_faked_open_that_fails_in_setup_puts_the_real_app_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An open that fails before it settles leaves nothing faked behind."""
+    original = Cache(MemoryCacheAdapter())
+    micro = Grelmicro(uses=[original])
+
+    def refuse() -> None:
+        msg = "ordering refused"
+        raise RuntimeError(msg)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(micro, "_order_providers_before_dependents", refuse)
+        with pytest.raises(RuntimeError, match="ordering refused"):
+            async with micro.fake(), micro:
+                pass  # pragma: no cover
+
+    assert micro.get(Cache) is original
+    assert micro.components == (original,)
+
+
+async def test_shared_health_checks_keep_their_checks_while_one_app_runs() -> (
+    None
+):
+    """Only the last scope to close drops what `auto_health` added."""
+    health = HealthChecks(auto_health=True)
+    first = Grelmicro(uses=[RedisProvider("redis://127.0.0.1:1/0"), health])
+    second = Grelmicro(uses=[health])
+
+    async with first:
+        async with second:
+            pass
+        assert "provider:redis" in health._entries
+    assert "provider:redis" not in health._entries

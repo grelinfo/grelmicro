@@ -826,6 +826,14 @@ class Grelmicro:
         unfaked, self._unfaked = self._unfaked, None
         if unfaked is None:
             return
+        for provider in unfaked.skipped:
+            provider._skips -= 1  # noqa: SLF001
+        if not unfaked.settled:
+            # The open failed during setup, before anything could register.
+            self._items = unfaked.items
+            self._by_key = unfaked.by_key
+            self._by_kind = unfaked.by_kind
+            return
         # A registration made while the faked app was open is kept, as it
         # would be on a real run.
         added = {
@@ -850,8 +858,6 @@ class Grelmicro:
                 if key[1] == "default"
             },
         }
-        for provider in unfaked.skipped:
-            provider._skips -= 1  # noqa: SLF001
 
     @asynccontextmanager
     async def override(
@@ -1536,6 +1542,7 @@ class Grelmicro:
         else:
             self._unfaked = replace(
                 self._unfaked,
+                settled=True,
                 faked_items=frozenset(id(item) for item in self._items),
                 faked_by_key=dict(self._by_key),
             )
@@ -1798,6 +1805,8 @@ class _Unfaked:
     by_key: dict[tuple[str, str], Component]
     by_kind: dict[str, Component]
     skipped: list[Provider]
+    settled: bool = False
+    """Whether the faked open got past its setup, so its lists are final."""
     faked_items: frozenset[int] = frozenset()
     """Identity of every item the faked open settled on, to tell later
     registrations apart."""
