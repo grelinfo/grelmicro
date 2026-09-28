@@ -42,7 +42,9 @@ fighting.
 
 [Authentication](authentication.md) takes `exclude` alone. A mistyped `include`
 there would leave an endpoint public without a word, so every path is
-authenticated unless it is excluded or its route declares `Anonymous()`.
+authenticated unless it is excluded or its route declares `Anonymous()`. It refuses
+a prefix that ends inside a segment, such as `/public*`, which would also
+serve `/publicity`.
 
 A pattern is an exact path, unless it ends with `*`, which matches as a
 prefix. `"/payments/*"` covers everything under `/payments`, and `/payments`
