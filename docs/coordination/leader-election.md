@@ -21,9 +21,9 @@ Only the leader runs `run_once_in_the_cluster`. Every other worker skips it unti
 it becomes the leader.
 
 The election renews its lease only while it runs, so register it with
-`tasks.add_task(leader)`. Inside an app, `Tasks` refuses to start a task gated
-on an election that no `Tasks` of the app runs, and raises
-`LeaderNotRegisteredError`.
+`tasks.add_task(leader)`. A task gated on an election that has not run for a
+lease duration after the task started warns once with
+[`leader-not-running`](../diagnostics.md#leader-not-running).
 
 ## Run only while leader
 

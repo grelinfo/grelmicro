@@ -379,6 +379,11 @@ class CronTask(Task):
             record_coordination(self, backend, "schedule")
         self._gate = gate
         self._leader = gate if isinstance(gate, LeaderElection) else None
+        self._watch = (
+            _gate.LeaderWatch(gate, self._name)
+            if isinstance(gate, LeaderElection)
+            else None
+        )
         # Set when a leader-gated tick skipped a fire as a follower.
         self._owes_catchup = False
         self._gate_label = gate_label
@@ -399,15 +404,6 @@ class CronTask(Task):
         rather than silently absent from every run.
         """
         return self._function
-
-    @property
-    def leader(self) -> LeaderElection | None:
-        """The election that gates the task, or None when none does.
-
-        `Tasks` reads it when it starts, to refuse an election that no
-        `Tasks` runs.
-        """
-        return self._leader
 
     @property
     def name(self) -> str:
@@ -479,16 +475,7 @@ class CronTask(Task):
         stop: asyncio.Event | None = None,
     ) -> None:
         """Run the cron task loop."""
-        self._running = True
-        logger.info(
-            "Task started (cron: %s, timezone: %s, gate: %s): %s",
-            self._expr_source,
-            self._timezone or UTC_NAME,
-            self._gate_label,
-            self.name,
-        )
-        if ready is not None and not ready.done():  # pragma: no branch
-            ready.set_result(None)
+        self._begin(ready)
         try:
             # Replay a fire missed while this worker was down before sleeping
             # to the next one. Only meaningful with a gate: without one there
@@ -536,6 +523,21 @@ class CronTask(Task):
         finally:
             self._running = False
             logger.info("Task stopped: %s", self.name)
+
+    def _begin(self, ready: asyncio.Future[None] | None) -> None:
+        """Mark the task running, start the leader watch and signal ready."""
+        self._running = True
+        logger.info(
+            "Task started (cron: %s, timezone: %s, gate: %s): %s",
+            self._expr_source,
+            self._timezone or UTC_NAME,
+            self._gate_label,
+            self.name,
+        )
+        if self._watch is not None:
+            self._watch.start()
+        if ready is not None and not ready.done():  # pragma: no branch
+            ready.set_result(None)
 
     @staticmethod
     async def _wait_for_leadership(
@@ -639,6 +641,8 @@ class CronTask(Task):
         self._owes_catchup = True
         if not catchup:
             self._fire.unrun(now, FireOutcome.SKIPPED)
+            if self._watch is not None:  # pragma: no branch
+                self._watch.check()
         return True
 
     async def _drop_late_fire(

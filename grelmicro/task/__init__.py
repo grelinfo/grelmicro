@@ -6,7 +6,6 @@ from grelmicro.task._tasks import Tasks, TasksConfig
 from grelmicro.task.errors import (
     CronError,
     FunctionTypeError,
-    LeaderNotRegisteredError,
     TaskAddOperationError,
     TaskError,
     TaskStartOperationError,
@@ -19,7 +18,6 @@ __all__ = [
     "FireInfo",
     "FireOutcome",
     "FunctionTypeError",
-    "LeaderNotRegisteredError",
     "Task",
     "TaskAddOperationError",
     "TaskError",

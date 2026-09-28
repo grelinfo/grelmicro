@@ -1,18 +1,11 @@
 """Test Tasks."""
 
-import asyncio
 from asyncio import Event
 
 import pytest
 
-from grelmicro import Grelmicro
-from grelmicro.coordination import Coordination, LeaderElection
-from grelmicro.coordination.memory import (
-    MemoryLeaderElectionAdapter,
-    MemoryLockAdapter,
-)
 from grelmicro.errors import OutOfContextError
-from grelmicro.task import LeaderNotRegisteredError, TaskRouter, Tasks
+from grelmicro.task import Tasks
 from grelmicro.task.errors import (
     TaskStartOperationError,
 )
@@ -245,138 +238,3 @@ async def test_tasks_interval_wakes_promptly_on_stop() -> None:
         async with tasks:
             await tasks.start()
             await asyncio.sleep(0.02)
-
-
-async def _gated_work() -> None:
-    """Do nothing, gated on a leader election."""
-
-
-def _gated_app(*uses: Tasks) -> Grelmicro:
-    """Build an app with memory coordination and the given task managers."""
-    return Grelmicro(
-        uses=[
-            Coordination(
-                lock=MemoryLockAdapter(),
-                election=MemoryLeaderElectionAdapter(),
-            ),
-            *uses,
-        ]
-    )
-
-
-def _gate(tasks: TaskRouter, election: LeaderElection, kind: str) -> None:
-    """Register `_gated_work` on `tasks`, gated on `election`."""
-    if kind == "every":
-        tasks.every(seconds=60, gate=election)(_gated_work)
-    else:
-        tasks.cron("0 0 1 1 *", gate=election)(_gated_work)
-
-
-@pytest.mark.parametrize("kind", ["every", "cron"])
-async def test_tasks_refuse_a_leader_gate_no_tasks_runs(kind: str) -> None:
-    """A task gated on an election that no Tasks runs is refused at start.
-
-    The election renews its lease only while it runs as a task. Run
-    nowhere, it never acquires, so every fire would be skipped silently.
-    """
-    election = LeaderElection("svc")
-    tasks = Tasks()
-    _gate(tasks, election, kind)
-
-    with pytest.raises(LeaderNotRegisteredError) as info:
-        async with _gated_app(tasks):
-            pass  # pragma: no cover
-
-    message = str(info.value)
-    assert "'tests.task.test_tasks:_gated_work'" in message
-    assert "'svc'" in message
-    assert "tasks.add_task(election)" in message
-    assert not tasks.started()
-
-
-async def test_tasks_start_a_standalone_leader_gate_before_its_election() -> (
-    None
-):
-    """Outside an app, a gated Tasks opened before the one running the election starts."""
-    election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
-    gated = Tasks()
-    _gate(gated, election, "cron")
-
-    async with gated, Tasks(tasks=[election]):
-        assert election.is_running()
-
-
-async def test_tasks_start_a_standalone_leader_gate_run_by_hand_after() -> None:
-    """Outside an app, an election driven by hand after the Tasks opens starts."""
-    election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
-    tasks = Tasks()
-    _gate(tasks, election, "cron")
-
-    async with tasks, asyncio.TaskGroup() as tg:
-        stop = asyncio.Event()
-        ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        tg.create_task(election(ready=ready, stop=stop))
-        await ready
-        assert election.is_running()
-        stop.set()
-
-
-async def test_tasks_skip_the_leader_check_for_tasks_the_app_does_not_hold() -> (
-    None
-):
-    """A Tasks opened inside an app block, but not held by it, is not checked."""
-    election = LeaderElection("svc")
-    tasks = Tasks()
-    _gate(tasks, election, "cron")
-
-    async with _gated_app(), tasks:
-        assert tasks.started()
-
-
-async def test_tasks_start_a_leader_gate_registered_after_the_task() -> None:
-    """An election added to the same Tasks after the task it gates runs."""
-    election = LeaderElection("svc")
-    tasks = Tasks()
-    _gate(tasks, election, "every")
-    tasks.add_task(election)
-
-    async with _gated_app(tasks):
-        assert election.is_running()
-
-
-async def test_tasks_start_a_leader_gate_from_an_included_router() -> None:
-    """A router's gated task passes when the Tasks holding it runs the election."""
-    election = LeaderElection("svc")
-    router = TaskRouter()
-    _gate(router, election, "cron")
-    tasks = Tasks(tasks=[election])
-    tasks.include_router(router)
-
-    async with _gated_app(tasks):
-        assert election.is_running()
-
-
-async def test_tasks_start_a_leader_gate_run_by_another_tasks() -> None:
-    """An election another Tasks of the app runs passes, whichever opens first."""
-    election = LeaderElection("svc")
-    gated = Tasks()
-    _gate(gated, election, "every")
-
-    async with _gated_app(gated, Tasks(tasks=[election])):
-        assert election.is_running()
-
-
-async def test_tasks_start_a_leader_gate_already_running() -> None:
-    """An election driven by hand before the Tasks opens passes."""
-    election = LeaderElection("svc")
-    tasks = Tasks()
-    _gate(tasks, election, "every")
-
-    async with _gated_app(), asyncio.TaskGroup() as tg:
-        stop = asyncio.Event()
-        ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        tg.create_task(election(ready=ready, stop=stop))
-        await ready
-        async with tasks:
-            assert tasks.started()
-        stop.set()

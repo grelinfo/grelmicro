@@ -9,7 +9,6 @@ from typing import Annotated, ClassVar, Self
 from pydantic import BaseModel, NonNegativeFloat
 from typing_extensions import Doc
 
-from grelmicro._app import _current_micro
 from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
@@ -18,10 +17,7 @@ from grelmicro._config import (
 from grelmicro._task import Task
 from grelmicro._timezone import SHARED_TIMEZONE_ENV, UTC_NAME
 from grelmicro.errors import OutOfContextError
-from grelmicro.task._cron import CronTask
-from grelmicro.task._interval import IntervalTask
 from grelmicro.task.errors import (
-    LeaderNotRegisteredError,
     TaskStartOperationError,
 )
 from grelmicro.task.router import TaskRouter
@@ -265,37 +261,6 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
             handle.cancel()
         self._task_handles.clear()
 
-    def _check_leader_gates(self) -> None:
-        """Refuse a task gated on an election that nothing runs.
-
-        A `LeaderElection` renews its lease only while it runs as a task.
-        One that runs nowhere never acquires leadership, so every fire of
-        the task it gates is skipped for the life of the process.
-
-        The check runs only when this `Tasks` is one the open app holds,
-        since only then is every `Tasks` that could run the election
-        known. An election passes when one of the app's `Tasks` holds it,
-        or when it already runs.
-
-        Raises:
-            LeaderNotRegisteredError: If a gated task's election passes
-                neither.
-        """
-        app_tasks = _app_tasks(self)
-        if app_tasks is None:
-            return
-        runners = {id(task) for task in app_tasks}
-        for task in self.tasks:
-            if not isinstance(task, IntervalTask | CronTask):
-                continue
-            leader = task.leader
-            if (
-                leader is not None
-                and id(leader) not in runners
-                and not leader.is_running()
-            ):
-                raise LeaderNotRegisteredError(leader.name, task.name)
-
     async def start(self) -> None:
         """Start all tasks manually."""
         if not self._task_group:
@@ -307,7 +272,6 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
         # Resolve before marking as started: `_set_default_timezone`
         # refuses to move a task that is already running.
         self._resolve_timezones(self._config.timezone)
-        self._check_leader_gates()
         self.do_mark_as_started()
 
         loop = asyncio.get_running_loop()
@@ -330,22 +294,3 @@ class Tasks(TaskRouter, Reconfigurable[TasksConfig]):
                 msg = f"Task {task.name!r} exited before signaling readiness"
                 raise RuntimeError(msg)
         logger.debug("%s scheduled tasks started", len(self._tasks))
-
-
-def _app_tasks(tasks: Tasks) -> list[Task] | None:
-    """Return the tasks of every `Tasks` the active app holds.
-
-    None when no app is open, or when the open app does not hold `tasks`.
-    """
-    micro = _current_micro.get(None)
-    if micro is None:
-        return None
-    items = micro._items  # noqa: SLF001
-    if not any(item is tasks for item in items):
-        return None
-    return [
-        task
-        for item in items
-        if isinstance(item, TaskRouter)
-        for task in item.tasks
-    ]
