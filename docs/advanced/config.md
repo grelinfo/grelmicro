@@ -13,8 +13,10 @@ path that matches how your application is wired:
 | **Environmental** | `Lock("cart")` | Zero-boilerplate 12-factor deployments. Fields resolve from env, fall back to defaults. |
 | **Declarative** | `Lock.from_config("cart", cfg)` or `RateLimiter.from_config("api", cfg)` | Production where a settings tree is assembled at startup from YAML, Vault, or any central source. |
 
-The three paths share one resolution rule: caller `**kwargs` win, then env, then
-defaults. `None` kwargs are treated as unset and fall through to the next layer.
+The programmatic and environmental paths share one resolution rule: caller
+`**kwargs` win, then env, then defaults. `None` kwargs are treated as unset and
+fall through to the next layer. The declarative path is the exception:
+`from_config` takes the config whole and skips the env layer.
 
 ## Programmatic
 

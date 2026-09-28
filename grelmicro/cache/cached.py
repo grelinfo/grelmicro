@@ -507,10 +507,13 @@ def cached(  # noqa: PLR0913, C901
         ),
     ] = (),
 ) -> _CachedDecorator:
-    """Cache decorator for sync and async functions.
+    """Cache decorator for async functions, and for sync functions with a cache.
 
     Automatically detects whether the decorated function is sync or
-    async and wraps it accordingly.
+    async and wraps it accordingly. The ``ttl=`` form supports async
+    functions only and raises ``TypeError`` on a ``def``, because the
+    private cache it builds has no event loop for a sync wrapper. Pass a
+    ``TTLCache`` to cache a sync function.
 
     An async generator producer is wrapped as a
     [`CachedStream`][grelmicro.cache.CachedStream]: iterating it streams
@@ -533,8 +536,9 @@ def cached(  # noqa: PLR0913, C901
 
     Raises:
         TypeError: If both ``cache`` and ``ttl`` are given, if neither is
-            given, if both ``key`` and ``key_maker`` are given, or if the
-            decorated function is a sync generator.
+            given, if both ``key`` and ``key_maker`` are given, if the
+            decorated function is a sync generator, or if the ``ttl=``
+            form decorates a sync function.
         SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
             ``"local"``, if ``early`` is outside ``[0, 1)``, or if
             ``stale_ttl`` is not positive.

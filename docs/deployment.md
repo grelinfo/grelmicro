@@ -255,8 +255,9 @@ a request in flight can arrive after the server has started to stop. A short
 
 Draining matters for the locks. A task that finishes its iteration releases
 its lock through `async with`, and `LeaderElection` releases the leadership
-lock so a standby takes over at once. A task force-cancelled at the end of
-the window leaves its lease to expire on the backend instead.
+lock so a standby takes over at once. A task cancelled in its body at the
+end of the window still runs its release. A cancel that lands during the
+release itself leaves the lease to expire on the backend.
 [Graceful shutdown](architecture/graceful-shutdown.md) has the full contract.
 
 ## Replicas
