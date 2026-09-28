@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager, contextmanager
 
 import pytest
 from fastapi import FastAPI
+from pytest_mock import MockFixture
 
 from grelmicro import Grelmicro, LeaderNotRunningWarning
 from grelmicro.clock import VirtualClock
@@ -17,8 +18,10 @@ from grelmicro.coordination.memory import (
     MemoryLockAdapter,
     MemoryScheduleAdapter,
 )
-from grelmicro.task import Tasks
+from grelmicro.task import FireOutcome, Tasks
 from grelmicro.task._cron import CronTask
+from grelmicro.task._fire import FireRecorder
+from tests.task import samples
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -199,3 +202,63 @@ async def test_election_run_by_a_later_lifespan_does_not_warn() -> None:
             await asyncio.sleep(FIRES)
 
     assert not caught
+
+
+async def test_interval_report_as_error_keeps_every_task_running(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A warnings filter set to error ends neither the gated task nor others."""
+    clock = VirtualClock()
+    election = LeaderElection("svc")
+    tasks = _gated(election)
+    tasks.every(seconds=0.01)(samples.count_execution)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        async with _app(clock, tasks):
+            await clock.advance(LEASE)
+            await asyncio.sleep(FIRES)
+            counted = samples.execution_count
+            await asyncio.sleep(FIRES)
+            assert not any(handle.done() for handle in tasks._task_handles)
+            assert samples.execution_count > counted
+
+    reports = [
+        r
+        for r in caplog.records
+        if getattr(r, "diagnostic", None) == "leader-not-running"
+    ]
+    assert len(reports) == 1
+
+
+async def test_cron_report_as_error_records_the_skip_once(
+    mocker: MockFixture,
+) -> None:
+    """A warnings filter set to error leaves one skipped fire, not an error."""
+    clock = VirtualClock()
+    election = LeaderElection("svc")
+    tasks = Tasks()
+    tasks.cron("* * * * *", gate=election)(_gated_work)
+    tasks.every(seconds=0.01)(samples.count_execution)
+    watched = tasks.tasks[0]
+    assert isinstance(watched, CronTask)
+    unrun = mocker.spy(FireRecorder, "unrun")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        async with _app(clock, tasks):
+            await clock.advance(LEASE)
+            unrun.reset_mock()
+            await watched._tick_guarded(catchup=False)
+            outcomes = [
+                call.args[2]
+                for call in unrun.call_args_list
+                if call.args[0] is watched._fire
+            ]
+            counted = samples.execution_count
+            await asyncio.sleep(FIRES)
+            assert samples.execution_count > counted
+
+    assert outcomes == [FireOutcome.SKIPPED]
+    assert watched.last_fire is not None
+    assert watched.last_fire.outcome == FireOutcome.SKIPPED

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from contextlib import suppress
 from logging import getLogger
 from typing import TYPE_CHECKING
 
@@ -79,9 +80,10 @@ class LeaderWatch:
     def check(self) -> None:
         """Report the election once when it has not run for a lease duration.
 
-        The report is a `LeaderNotRunningWarning` and a log record on the
-        `grelmicro.task` logger, both carrying the `leader-not-running`
-        code.
+        The report is a log record on the `grelmicro.task` logger and a
+        `LeaderNotRunningWarning`, both carrying the `leader-not-running`
+        code. A warnings filter set to `error` never raises it into the
+        task.
         """
         since = self._since
         if self._settled or since is None:
@@ -101,4 +103,7 @@ class LeaderWatch:
             f"tasks.add_task(election), or start it.",
         )
         logger.warning(msg, extra={"diagnostic": LEADER_NOT_RUNNING})
-        warnings.warn(msg, LeaderNotRunningWarning, stacklevel=2)
+        # A filter that turns the warning into an error must not end the
+        # task loop. The log record above still carries the report.
+        with suppress(LeaderNotRunningWarning):
+            warnings.warn(msg, LeaderNotRunningWarning, stacklevel=2)
