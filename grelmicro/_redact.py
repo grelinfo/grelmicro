@@ -73,6 +73,20 @@ _NESTED_URL = re.compile(
     r"[\x00-\x20]*(?:[A-Za-z][A-Za-z0-9+.-]*:|//)",
 )
 _MAX_NESTED_URL_DECODE_DEPTH = 2
+_REDACTION_CANDIDATE = re.compile(
+    r"@|auth|code|pass|pwd|token|secret|sig|key|credential"
+)
+"""Every lower-case credential key name, and userinfo, contains one of these.
+
+A query or fragment that shows none of them, raw or decoded, holds nothing
+to mask.
+"""
+_UNICODE_REDACTION_CANDIDATE = re.compile(
+    _REDACTION_CANDIDATE.pattern, re.IGNORECASE
+)
+"""The same names under Unicode case folding, where the Kelvin sign reads as `k`."""
+_QUERY_OR_FRAGMENT_START = re.compile(r"[?#]")
+_URL_STRIPPED_CHARACTERS = frozenset("\t\n\r")
 _MAX_PORT = 65535
 _MAX_PORT_DIGITS = len(str(_MAX_PORT))
 
@@ -393,10 +407,46 @@ def redact_url(url: str, *, multi_host: bool = False) -> str:
     Tries structured parsing first, then sweeps with a conservative regex
     so a malformed URL, or one whose credential hides in a scheme-less
     `user:password@host:port` form, still cannot leak the password. A URL
-    with nothing to redact is returned exactly as it came in. Set
-    `multi_host` for URLs that carry several `host:port` pairs, such as a
-    Postgres or MongoDB DSN.
+    with nothing to redact is returned exactly as it came in, without being
+    parsed. Set `multi_host` for URLs that carry several `host:port` pairs,
+    such as a Postgres or MongoDB DSN.
     """
+    if _has_nothing_to_redact(url):
+        return url
+    return _redact_url_fully(url, multi_host=multi_host)
+
+
+def _has_nothing_to_redact(url: str) -> bool:
+    """Return whether `url` plainly carries no userinfo and no credential key.
+
+    Answers `False` whenever it cannot tell, so the full redaction decides.
+    """
+    if "@" in url:
+        return False
+    start = _QUERY_OR_FRAGMENT_START.search(url)
+    if start is None:
+        return True
+    tail = url[start.start() :]
+    if not _URL_STRIPPED_CHARACTERS.isdisjoint(tail):
+        return False
+    for _depth in range(_MAX_NESTED_URL_DECODE_DEPTH + 1):
+        if _may_name_a_credential(tail):
+            return False
+        if "%" not in tail:
+            return True
+        tail = unquote_plus(tail)
+    return not _may_name_a_credential(tail)
+
+
+def _may_name_a_credential(text: str) -> bool:
+    """Return whether `text` contains `@` or part of a credential key name."""
+    if text.isascii():
+        return _REDACTION_CANDIDATE.search(text.lower()) is not None
+    return _UNICODE_REDACTION_CANDIDATE.search(text) is not None
+
+
+def _redact_url_fully(url: str, *, multi_host: bool = False) -> str:
+    """Redact `url` by parsing it, without the clean-URL shortcut."""
     if not url:
         return url
     pattern = _userinfo_pattern(multi_host=multi_host)

@@ -66,6 +66,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 * 🐛 A `Cache` and a `Coordination` sharing one SQLite file start together. The cache created its tables while another component held a transaction open on the shared connection, which failed with `cannot commit transaction - SQL statements in progress`. The rate limiter and the circuit breaker created theirs the same way. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 🐛 Two processes opening the same SQLite file at the same time no longer fail with `database is locked`. Switching a new file to WAL needs the file to itself and SQLite refuses instead of waiting, so the provider retries until the other process is done. It also sets a busy timeout, so every later write waits for its turn. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 🐛 Opening an app that is already open says so, and names `install(app)` and `micro.fake()`. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
