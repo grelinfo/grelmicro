@@ -167,15 +167,13 @@ Inside open `Bulkhead` scopes, step 2 looks in the innermost scope first, then t
 
 ## Request handlers and the ambient scope
 
-Ambient resolution reads `Grelmicro.current()`, which is per asyncio task. A FastAPI request handler runs in its own task, outside the `async with micro:` block, so a bare `Lock("cart")` cannot see the app there and raises `OutOfContextError`. Add the middleware to extend the app scope to every request:
+Ambient resolution reads `Grelmicro.current()`, which is per asyncio task. A FastAPI request handler runs in its own task, outside the `async with micro:` block, so a bare `Lock("cart")` cannot see the app there and raises `OutOfContextError`. Call `install` to extend the app scope to every request:
 
 ```python
-from grelmicro import GrelmicroMiddleware
-
-app.add_middleware(GrelmicroMiddleware, micro=micro)
+micro.install(app)
 ```
 
-The middleware is pure ASGI, binds on `http` and `websocket` scopes, and works with any ASGI framework. Background `Tasks` already run inside the app scope and need nothing.
+`install` binds the app to each request, or to each consumed message on FastStream, and wires everything else the app registered. On Starlette, FastAPI, Litestar and FastStream, always call it and never add the middleware by hand, as [Wiring an App](../wiring.md) explains. Any other ASGI framework wraps its app in `GrelmicroMiddleware` itself, as [Frameworks](../frameworks.md#any-other-asgi-framework) shows. Background `Tasks` already run inside the app scope and need nothing.
 
 ## Test-time overrides
 
@@ -230,4 +228,4 @@ A Provider is shared by identity: every Component that uses the same Provider at
 
 ## Error handling
 
-Accessing a Component that has not been registered raises `ComponentNotRegisteredError` with a descriptive message. Resolving a Pattern outside any `async with micro:` block raises `NoActiveAppError`.
+Accessing a Component that has not been registered raises `ComponentNotRegisteredError` with a descriptive message. Resolving a Pattern outside any `async with micro:` block raises `OutOfContextError`, naming the wiring step to take. A `Bulkhead` holding its own components in `uses=` raises `NoActiveAppError` when entered outside the app. `Grelmicro.current()` raises `NoActiveAppError` too.

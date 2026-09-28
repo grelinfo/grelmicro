@@ -315,7 +315,7 @@ The config model is a frozen `BaseModel` with `extra="forbid"`. The hot path hol
 - Env reads happen at construction, never on a request.
 - Resolution (kwargs > env > default) materialises into `self._config` and is never re-evaluated.
 
-Runtime reconfiguration, when added, will atomically swap the `self._config` pointer without touching the resolution machinery.
+Runtime reconfiguration atomically swaps the `self._config` pointer without touching the resolution machinery. See [Live reconfiguration](reconfigure.md).
 
 ### Why we don't copy fields to plain instance attrs
 

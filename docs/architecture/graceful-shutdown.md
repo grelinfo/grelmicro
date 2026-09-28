@@ -35,7 +35,7 @@ The stop signal only bounds shutdown for tasks that are stuck mid-iteration. Coo
 | Primitive | On graceful stop |
 |---|---|
 | `LeaderElection` | Breaks its loop after the current renew and releases the lock on the backend, so a standby replica takes over without waiting for the lease to expire. |
-| `Lock`, `TaskLock` | Released when the holder leaves `async with`. A task force-cancelled while holding the lease does not release it explicitly: the lease expires on the backend after its TTL. Keep `lease_duration` short enough that the worst-case takeover delay is acceptable. |
+| `Lock`, `TaskLock` | Released when the holder leaves `async with`. At the deadline, `Tasks` cancels each task still running once. A task cancelled in its body still runs the release in `__aexit__` to completion. A task cancelled while it already awaits the release, on a slow backend for example, stops the release, and the lease expires on the backend after its TTL. A second cancel, or an anyio cancel scope, stops the release the same way. Keep `lease_duration` short enough that the worst-case takeover delay is acceptable. A `TaskLock` that exits before `min_hold_duration` keeps its claim until then, on purpose. |
 | `RateLimiter`, `CircuitBreaker`, `HealthChecks` | Stateless across requests, so they have no shutdown obligation. |
 
-The lease-on-cancel contract is the reason to prefer cooperative draining: a task that finishes its iteration releases its locks through `async with`, while a force-cancel falls back to TTL expiry.
+That is the reason to prefer cooperative draining. A task that finishes its iteration releases its locks through `async with`, while a cancel that lands during the release leaves the lease to expire by TTL.

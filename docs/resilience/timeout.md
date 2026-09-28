@@ -51,7 +51,7 @@ Prefix: `GREL_TIMEOUT_{NAME_UPPER}_`. The default instance drops the name segmen
 
 ## Composition
 
-The recommended outside-in order is **Fallback → Retry → CircuitBreaker → Bulkhead → Timeout → call**. Read more in [Composing patterns](composition.md).
+The recommended outside-in order is **Fallback → Retry → CircuitBreaker → RateLimiter → Bulkhead → Timeout → call**. Read more in [Composing patterns](composition.md).
 
 ```python
 --8<-- "resilience/timeout_composition.py"
