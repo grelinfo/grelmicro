@@ -146,8 +146,7 @@ def resolve_ambient(
         scope = _active_bulkhead.get(None)
         # A miss goes through `Grelmicro.get`, which raises its error, hint
         # and all, so a caller that lets it through reports the same miss.
-        # Only a miss pays for building the message. A `Bulkhead` fallback
-        # resolves there too.
+        # Only a miss pays for building the message.
         if scope is None:
             try:
                 return micro._resolved[key]  # noqa: SLF001
@@ -156,6 +155,12 @@ def resolve_ambient(
         component = scope.overrides.get(key)
         if component is None:
             component = micro._by_key.get(key)  # noqa: SLF001
+            if component is None and key[1] == "default":
+                sole = scope.sole
+                kind = key[0]
+                component = (
+                    sole[kind] if kind in sole else micro._resolved.get(key)  # noqa: SLF001
+                )
         if component is not None:
             return component
         return micro.get(*key)
@@ -204,20 +209,27 @@ class _BulkheadScope:
     or None when that scope holds several."""
 
 
-def enter_bulkhead_scope(
-    current: _BulkheadScope | None,
-    layer: Mapping[tuple[str, str], Component],
+def bulkhead_layer(
+    overrides: Mapping[tuple[str, str], Component],
 ) -> _BulkheadScope:
-    """Return the scope that `layer` opens inside `current`."""
-    counts = Counter(kind for kind, _ in layer)
+    """Return the scope one `Bulkhead` opens on its own."""
+    counts = Counter(kind for kind, _ in overrides)
     sole = {
         kind: component if counts[kind] == 1 else None
-        for (kind, _), component in layer.items()
+        for (kind, _), component in overrides.items()
     }
+    return _BulkheadScope(dict(overrides), sole)
+
+
+def enter_bulkhead_scope(
+    current: _BulkheadScope | None, layer: _BulkheadScope
+) -> _BulkheadScope:
+    """Return the scope that `layer` opens inside `current`."""
     if current is None:
-        return _BulkheadScope(dict(layer), sole)
+        return layer
     return _BulkheadScope(
-        {**current.overrides, **layer}, {**current.sole, **sole}
+        {**current.overrides, **layer.overrides},
+        {**current.sole, **layer.sole},
     )
 
 

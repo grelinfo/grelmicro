@@ -1411,6 +1411,7 @@ async def test_ambient_fallback_honours_a_bulkhead() -> None:
         assert Lock("cart").backend is dedicated
         assert micro.get("coordination").lock_backend is dedicated
         assert micro.get(Cache) is cache
+        assert resolve_ambient(("cache", "default")) is cache
 
 
 async def test_ambient_fallback_prefers_the_bulkhead_sole_component() -> None:
