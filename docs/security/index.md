@@ -12,7 +12,7 @@ The `security` module holds the checks a service runs on an inbound request, and
 
 Point a verifier at your identity provider's JWKS, open it with `async with`, and verify on every request.
 
-```python
+```python title="fragment"
 from grelmicro.security import JWTVerifier
 
 verifier = JWTVerifier.jwks(

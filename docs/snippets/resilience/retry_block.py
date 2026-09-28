@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 from pydantic import BaseModel
 
@@ -12,6 +14,11 @@ class Receipt(BaseModel):
     id: str
 
 
+def payments_api(request: httpx.Request) -> httpx.Response:
+    """Stand in for the payment API, so the example runs offline."""
+    return httpx.Response(200, json={"id": "pay_1"})
+
+
 async def submit(
     client: httpx.AsyncClient, url: str, payment: Payment
 ) -> Receipt:
@@ -24,6 +31,14 @@ async def submit(
     raise AssertionError(msg)
 
 
-async def main() -> Receipt:
-    async with httpx.AsyncClient() as client:
-        return await submit(client, "https://example.com", Payment(amount=100))
+async def main() -> None:
+    transport = httpx.MockTransport(payments_api)
+    async with httpx.AsyncClient(transport=transport) as client:
+        receipt = await submit(
+            client, "https://payments.example/charges", Payment(amount=100)
+        )
+        print(receipt)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

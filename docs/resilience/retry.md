@@ -137,7 +137,7 @@ A bad argument is a different case: `Match` raises `ValueError` when you build i
 
 When `attempts` is exhausted, the underlying exception is re-raised with a [PEP 678](https://peps.python.org/pep-0678/) note attached:
 
-```python
+```python title="fragment"
 try:
     await fetch(url)
 except httpx.ConnectError as exc:

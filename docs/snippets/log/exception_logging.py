@@ -2,12 +2,9 @@
 
 from loguru import logger
 
-from grelmicro.log import configure
+from grelmicro.log import LogBackendType, LogFormatType, configure
 
-# Ensure clean state
-logger.remove()
-
-configure()
+configure(backend=LogBackendType.LOGURU, format=LogFormatType.JSON)
 
 try:
     1 / 0  # noqa: B018

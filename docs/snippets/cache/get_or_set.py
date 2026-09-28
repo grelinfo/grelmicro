@@ -1,3 +1,5 @@
+import asyncio
+
 from grelmicro import Grelmicro
 from grelmicro.cache import JsonSerializer
 from grelmicro.providers.redis import RedisProvider
@@ -17,3 +19,7 @@ async def main() -> None:
             tags=["users"],
         )
         print(user)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

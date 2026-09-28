@@ -1,3 +1,5 @@
+import asyncio
+
 from pydantic import BaseModel
 
 from grelmicro import Grelmicro
@@ -24,5 +26,9 @@ async def get_user(user_id: int) -> User:
 async def main() -> None:
     async with micro:
         # Keyed under "user:1" instead of the default argument-repr key.
-        await get_user(1)
+        print(await get_user(1))
         await ttl_cache.delete("user:1")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

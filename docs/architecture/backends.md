@@ -57,7 +57,7 @@ An Adapter that declares no `scope` is not reported. A third-party Adapter is th
 
 Construction and registration are two distinct steps. `__init__` validates configuration and binds locals. It performs no registry writes and no I/O. Registration happens when the Component is attached to a `Grelmicro` app.
 
-```python
+```python title="fragment"
 from grelmicro import Grelmicro
 from grelmicro.cache import Cache
 from grelmicro.coordination import Coordination
@@ -179,7 +179,7 @@ micro.install(app)
 
 `micro.override(...)` installs scoped Component swaps for the duration of a block:
 
-```python
+```python title="fragment"
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.coordination.memory import MemoryLockAdapter
@@ -201,7 +201,7 @@ The override propagates downward through `await`, `asyncio.create_task`, and `as
 
 Skip the app entirely for one-off usage:
 
-```python
+```python title="fragment"
 async with RedisProvider() as redis:
     lock = Lock(name="my-lock", backend=redis.lock())
     async with lock:

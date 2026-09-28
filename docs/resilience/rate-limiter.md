@@ -31,7 +31,7 @@ Pick the call by what you need:
 
 The simplest form is a boolean:
 
-```python
+```python title="fragment"
 if await limiter.allow(key="user-1"):
     ...  # served
 else:
@@ -40,7 +40,7 @@ else:
 
 `acquire` returns the full `RateLimitResult` when you need the metadata. It reads as a boolean too, so you branch on it directly and still keep `retry_after`/`remaining` on the deny side:
 
-```python
+```python title="fragment"
 result = await limiter.acquire(key="user-1")
 if not result:
     # reject with a 429 and a Retry-After of result.retry_after seconds
@@ -79,7 +79,7 @@ Calling `limiter(...)` returns a `RateLimiterBinding`, which decorates and which
 
 When the limiter protects a service with one shared budget (no per-user or per-IP split), omit `key`. It defaults to `"default"`, and the limiter's own `name` already namespaces the bucket on the backend:
 
-```python
+```python title="fragment"
 api_limiter = RateLimiter.token_bucket("api", capacity=5, refill_rate=1)
 
 await api_limiter.acquire()             # one fleet-wide bucket
@@ -224,7 +224,7 @@ RateLimit: "api";r=50;t=30
 
 Use the `cost` parameter to consume multiple tokens per request.
 
-```python
+```python title="fragment"
 # Bulk endpoint costs 10 tokens
 result = await api_limiter.acquire(key=user_id, cost=10)
 ```

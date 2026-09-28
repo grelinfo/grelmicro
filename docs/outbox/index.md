@@ -12,34 +12,21 @@ This is the transactional outbox pattern. It removes the dual-write problem: the
 
 Define a payload, stage it inside your transaction, and register a handler. The relay does the rest:
 
-```python
-from pydantic import BaseModel, EmailStr
+```python title="quickstart.py"
+--8<-- "outbox/quickstart.py"
+```
 
-from grelmicro import Grelmicro
-from grelmicro.outbox import Message, Outbox
-from grelmicro.providers.postgres import PostgresProvider
+Start a Postgres and run it:
 
-postgres = PostgresProvider("postgresql://localhost:5432/app")
-outbox = Outbox(postgres)
+```bash
+docker run -d --name outbox-pg -p 5432:5432 -e POSTGRES_PASSWORD=secret postgres
+until docker exec outbox-pg pg_isready -h localhost -U postgres; do sleep 1; done
+POSTGRES_URL=postgresql://postgres:secret@localhost:5432/postgres python quickstart.py
+```
 
-micro = Grelmicro(uses=[outbox])
-
-
-class WelcomeEmail(BaseModel):
-    to: EmailStr
-    user_id: int
-
-
-@outbox.handler(WelcomeEmail)
-async def send_welcome(message: Message[WelcomeEmail]) -> None:
-    await mailer.send(to=message.data.to, idempotency_key=message.id)
-
-
-async with postgres.client.acquire() as conn, conn.transaction():
-    user_id = await conn.fetchval(
-        "INSERT INTO users (email) VALUES ($1) RETURNING id", email
-    )
-    await outbox.publish(conn, WelcomeEmail(to=email, user_id=user_id))
+Output:
+```text title="output"
+welcome email to alice@example.com
 ```
 
 One `COMMIT` makes the user row and the message durable together. `async with micro:` starts the relay, which picks up the message and calls `send_welcome`. If the email API is down, the relay retries with backoff. If it stays down, the message lands in the dead-letter state where you can inspect and redrive it.
@@ -81,6 +68,7 @@ To make the side effect itself exactly-once, pass `message.id` as the idempotenc
 
 ```python
 from grelmicro.idempotency import Idempotency, idempotent
+from grelmicro.outbox import Message
 
 charges = Idempotency("charges")
 
@@ -100,6 +88,11 @@ The `MemoryOutboxAdapter` runs the whole outbox in the process with no database.
 
 ```python title="testing.py"
 --8<-- "outbox/testing.py"
+```
+
+Output:
+```text title="output"
+welcome alice@example.com
 ```
 
 Messages live in the process and are lost on restart, and each process keeps its own, so the memory backend does not share an outbox across nodes.

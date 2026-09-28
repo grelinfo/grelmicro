@@ -1,3 +1,5 @@
+import asyncio
+
 from grelmicro import Grelmicro
 from grelmicro.coordination import Lock
 from grelmicro.providers.redis import RedisProvider
@@ -10,10 +12,14 @@ lock = Lock("cart")
 
 async def checkout() -> None:
     async with lock:
-        ...
+        print("Protected resource accessed")
 
 
 async def main() -> None:
     # The lock resolves its backend inside the app scope.
     async with micro:
         await checkout()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

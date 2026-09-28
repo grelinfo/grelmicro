@@ -57,7 +57,7 @@ rides along. A handler can then hold a per-key `Lock` and consume rate-limit
 tokens before the actual work runs.
 
 ```python
---8<-- "resilience/faststream.py"
+--8<-- "resilience/faststream_app.py"
 ```
 
 The lock and limiter are fleet-wide: every consumer replica sees the

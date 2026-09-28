@@ -69,7 +69,7 @@ with `name="partner"`, or the `OAuthClient` itself.
 `auth()` is how a token should reach a request. It sets the right scheme and
 handles a refused token. To read the token for another client, await `token()`:
 
-```python
+```python title="fragment"
 token = await payments_token.token()
 headers = {"Authorization": f"{token.token_type} {token.value}"}
 ```
@@ -340,7 +340,7 @@ too, or `audience="token_endpoint"`.
 
 Open the client yourself and pass it to the pattern:
 
-```python
+```python title="fragment"
 oauth = OAuthClient.discover(...)
 payments_token = ClientCredentials("payments-api", client=oauth, audience="payments-api")
 

@@ -18,7 +18,7 @@ the TTL (`lease_duration`) set at acquire time. If the body runs longer than
 Call `refresh()` on a `TaskLock` to renew the lease while the task body is
 still running. Raises `LockNotOwnedError` when the lease was lost:
 
-```python
+```python title="fragment"
 async with task_lock:
     await long_operation_part1()
     await task_lock.refresh()  # extend before lease_duration elapses

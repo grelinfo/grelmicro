@@ -79,7 +79,7 @@ Every metric is a no-op when no `Metrics` component is active, so a decorated fu
 
 The component builds OpenTelemetry instruments for you. Each accessor takes a `unit` and a `description`.
 
-```python
+```python title="fragment"
 async with micro:
     orders = micro.metrics.counter("orders.placed", unit="1")
     orders.add(1, {"channel": "web"})

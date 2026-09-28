@@ -2,10 +2,8 @@
 
 from loguru import logger
 
-from grelmicro.log import configure
+from grelmicro.log import LogBackendType, LogFormatType, configure
 
-logger.remove()
-
-configure()
+configure(backend=LogBackendType.LOGURU, format=LogFormatType.PRETTY)
 
 logger.info("Request handled", method="GET", path="/health", status=200)

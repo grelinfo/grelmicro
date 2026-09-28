@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 from grelmicro import Grelmicro
@@ -27,3 +28,7 @@ async def main() -> None:
         # The same entry, read whole.
         tokens = await answer.collect(1)
         print("".join(tokens))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

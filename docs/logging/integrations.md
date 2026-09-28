@@ -9,16 +9,10 @@ When [OpenTelemetry](https://opentelemetry.io/) is installed, `trace_id` and `sp
 ```
 
 Output:
-```json
-{
-  "time": "2026-01-27T16:00:00.000Z",
-  "level": "INFO",
-  "msg": "Processing request",
-  "logger": "myapp.service",
-  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
-  "span_id": "00f067aa0ba902b7",
-  "user_id": 123
-}
+```json title="output"
+{"user_id":123,"endpoint":"/api/users","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","time":"2026-01-27T16:00:00.000000+00:00","level":"INFO","msg":"Processing request","logger":"__main__"}
+{"query":"SELECT * FROM users","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"1f3e9a7c5b2d8e04","time":"2026-01-27T16:00:00.000100+00:00","level":"INFO","msg":"Executing query","logger":"__main__"}
+{"status":"success","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","time":"2026-01-27T16:00:00.000200+00:00","level":"INFO","msg":"Request completed","logger":"__main__"}
 ```
 
 Trace fields follow the OpenTelemetry standard and are placed at the JSON root level for compatibility with observability platforms (Jaeger, Zipkin, DataDog, Grafana Tempo).
@@ -28,7 +22,7 @@ To disable: `GREL_LOG_OTEL_ENABLED=false`
 ## FastAPI
 
 ```python
---8<-- "log/fastapi.py"
+--8<-- "log/fastapi_app.py"
 ```
 
 !!! warning

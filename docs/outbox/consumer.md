@@ -39,6 +39,8 @@ grelmicro has no publish/subscribe primitive and talks to no broker. Reach for [
 ```python
 from faststream.kafka import KafkaBroker
 
+from grelmicro.outbox import Message
+
 broker = KafkaBroker("localhost:9092")
 
 
@@ -56,7 +58,7 @@ Both sides deliver at least once, so consumers downstream stay idempotent. `mess
 Any exception retries the message with backoff. Raise `Retry` to reschedule on your own terms, or `Cancel` to dead-letter it now without burning the remaining attempts:
 
 ```python
-from grelmicro.outbox import Cancel, Retry
+from grelmicro.outbox import Cancel, Message, Retry
 
 
 @outbox.handler(ChargeCard)
@@ -72,7 +74,7 @@ async def charge(message: Message[ChargeCard]) -> None:
 
 A failed delivery is retried with capped exponential backoff and full jitter. After `max_attempts` the message moves to the `dead` state with its last error recorded. It stops blocking the queue and is left for you to inspect. Redrive dead messages back to pending once the cause is fixed:
 
-```python
+```python title="fragment"
 await outbox.redrive(topic="email.welcome")
 ```
 

@@ -1,3 +1,5 @@
+import asyncio
+
 from pydantic import BaseModel
 
 from grelmicro import Grelmicro
@@ -26,3 +28,7 @@ async def main() -> None:
     async with micro:
         user = await get_user(1)
         print(user)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

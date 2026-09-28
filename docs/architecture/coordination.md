@@ -116,7 +116,7 @@ resumed after a partition cannot overwrite a newer holder's data.
 
 Python side:
 
-```python
+```python title="fragment"
 async with Lock("order:{order_id}") as held:
     rows = await db.execute(
         "UPDATE orders SET data=:data, lock_fence=:token "

@@ -86,7 +86,7 @@ Anything that treats the address as an identity is different. An
 allowlist, a private network gate, or any check that has to keep callers
 apart needs the address a proxy vouched for:
 
-```python
+```python title="fragment"
 if client is None or not client.forwarded:
     return False  # nobody vouched for this address
 ```

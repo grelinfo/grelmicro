@@ -14,7 +14,7 @@ Five providers ship today: [`RedisProvider`](redis.md), [`ValkeyProvider`](redis
 
 List the Provider and nothing else:
 
-```python
+```python title="fragment"
 from grelmicro import Grelmicro
 from grelmicro.providers.redis import RedisProvider
 

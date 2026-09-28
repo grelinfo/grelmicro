@@ -216,7 +216,7 @@ Litestar, byte for byte.
 `If-None-Match: *` asks for the write to happen only if nothing is there. Pass
 `None` when the resource does not exist, and one guard covers the create:
 
-```python
+```python title="fragment"
 cart = await find(cart_id)
 check_precondition(cart.version if cart else None)
 ```
@@ -389,7 +389,7 @@ the same `412`.
 Put the version in the `WHERE` clause. The write either matches the version the
 client held or changes nothing, in one statement, with no lock held anywhere:
 
-```python
+```python title="fragment"
 result = await session.execute(
     update(Cart)
     .where(Cart.id == cart_id, Cart.version == expected)
@@ -406,8 +406,10 @@ SQLAlchemy's ORM writes that statement for you from a
 [version_id_col](https://docs.sqlalchemy.org/en/20/orm/versioning.html)
 mapping, and raises `StaleDataError` where the raw form returns zero rows:
 
-```python
+```python title="fragment"
 from sqlalchemy.orm.exc import StaleDataError
+
+from grelmicro.http import PreconditionFailedError
 
 
 class Cart(Base):
@@ -429,7 +431,7 @@ write before the handler does any work, and it is what turns a missing
 When the write is a read-modify-write over more than one row, take the row lock
 inside the transaction and compare there:
 
-```python
+```python title="fragment"
 async with session.begin():
     cart = await session.get(Cart, cart_id, with_for_update=True)
     check_precondition(cart.version)
@@ -451,7 +453,7 @@ When the state is not a row, there is no `WHERE` clause to make conditional.
 Take a distributed [`ReadWriteLock`](../coordination/read-write-lock.md) around
 the read-modify-write, and keep the check inside it:
 
-```python
+```python title="fragment"
 async with ReadWriteLock(f"cart:{cart_id}").write:
     cart = await store.load(cart_id)
     check_precondition(cart.version)
@@ -490,7 +492,7 @@ The exception is what does not travel. A task group raises an `ExceptionGroup`,
 and a framework matches its handlers by type, so a rejection left inside one
 reaches the client as `500`. Unwrap it before it leaves the handler:
 
-```python
+```python title="fragment"
 try:
     async with anyio.create_task_group() as tasks:
         tasks.start_soon(work)

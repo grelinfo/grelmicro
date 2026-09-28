@@ -12,6 +12,11 @@ pip install "grelmicro[redis]"
 See the [installation guide](installation.md) for `uv`, `poetry`, and the other
 backend extras.
 
+## Reading the examples
+
+A block labelled `fragment` is a piece of a larger file. Put it inside an
+`async` function of your own, where the names around it are already defined.
+
 ## Mental model
 
 - **Pattern**: the object your app calls, such as `Lock("cart")` or `RateLimiter.sliding_window("api", ...)`.

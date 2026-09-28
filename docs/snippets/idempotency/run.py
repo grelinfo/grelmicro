@@ -1,3 +1,5 @@
+import asyncio
+
 from pydantic import BaseModel
 
 from grelmicro import Grelmicro
@@ -24,3 +26,7 @@ async def main() -> None:
         # The factory runs only on a first call, then the response replays.
         response = await idem.run("key-1", lambda: do_charge(100))
         print(response)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

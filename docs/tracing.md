@@ -8,30 +8,21 @@ Unified instrumentation. Use it to enrich logs with structured context and creat
 
 ## Quick Start
 
-```python
-from grelmicro.log import configure
-from grelmicro.trace import instrument, span, add_context
-import logging
-
-configure()
-logger = logging.getLogger(__name__)
-
-@instrument
-async def process_order(order_id: str, user_id: str):
-    logger.info("started")
-    # {"time":...,"level":"INFO","msg":"started","logger":...,"order_id":"ORD-1","user_id":"USR-1"}
-
-    add_context(payment_status="pending")
-    logger.info("payment initiated")
-    # {"time":...,"level":"INFO","msg":"payment initiated","logger":...,"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending"}
-
-    with span("db_query", table="orders"):
-        logger.info("querying")
-        # {"time":...,"level":"INFO","msg":"querying","logger":...,"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending","table":"orders"}
-
-    logger.info("done")
-    # table removed (span exited), payment_status still present
+```python title="quickstart.py"
+--8<-- "trace/quickstart.py"
 ```
+
+Output:
+```json title="output"
+{"order_id":"ORD-1","user_id":"USR-1","time":"2026-04-01T10:30:00.123456+00:00","level":"INFO","msg":"started","logger":"__main__"}
+{"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending","time":"2026-04-01T10:30:00.123556+00:00","level":"INFO","msg":"payment initiated","logger":"__main__"}
+{"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending","table":"orders","time":"2026-04-01T10:30:00.123656+00:00","level":"INFO","msg":"querying","logger":"__main__"}
+{"order_id":"ORD-1","user_id":"USR-1","payment_status":"pending","time":"2026-04-01T10:30:00.123756+00:00","level":"INFO","msg":"done","logger":"__main__"}
+```
+
+Each argument of `process_order` becomes a field on every record the call
+writes. `add_context` adds one for the rest of the call, and a `span` adds one
+for its block alone.
 
 ## API
 
