@@ -183,7 +183,7 @@ content-type: application/problem+json
   "type": "https://grelmicro.grel.info/http/errors/#precondition-failed",
   "title": "Precondition failed",
   "status": 412,
-  "detail": "The resource changed since the entity tag in If-Match was issued. Read it again and retry with the new one.",
+  "detail": "The resource is not in the state the If-Match or If-None-Match header of this request asked for. Read it again before retrying.",
   "instance": "/carts/1"
 }
 ```

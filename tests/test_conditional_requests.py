@@ -50,6 +50,11 @@ VERSION = 3
 """The version the cart carries before any write."""
 NEXT_VERSION = 4
 """The version a write moves it to."""
+_PRECONDITION_FAILED_DETAIL = (
+    "The resource is not in the state the If-Match or If-None-Match header "
+    "of this request asked for. Read it again before retrying."
+)
+"""The fixed detail every `412` answers with, whichever precondition failed."""
 
 
 _JSON_A = b'{"a":1}'
@@ -206,6 +211,7 @@ def test_a_stale_precondition_is_refused(client: TestClient) -> None:
     # Assert
     assert response.status_code == HTTP_412_PRECONDITION_FAILED
     assert response.json()["type"].endswith("#precondition-failed")
+    assert response.json()["detail"] == _PRECONDITION_FAILED_DETAIL
     assert response.headers["content-type"] == "application/problem+json"
 
 
@@ -261,6 +267,7 @@ def test_create_if_absent_is_refused_when_it_exists(
 
     # Assert
     assert response.status_code == HTTP_412_PRECONDITION_FAILED
+    assert response.json()["detail"] == _PRECONDITION_FAILED_DETAIL
 
 
 def test_the_middleware_can_refuse_before_the_handler_runs() -> None:
@@ -1832,9 +1839,10 @@ def test_if_match_on_a_missing_resource_says_it_does_not_exist() -> None:
         preconditions.check(None, require=False)
 
     # Assert
-    msg = str(error.value)
-    assert "The resource does not exist" in msg
-    assert "Fetch the resource again" not in msg
+    assert str(error.value) == (
+        "The resource does not exist, so there is no entity tag to match. "
+        "Create it without If-Match, or check the URL."
+    )
 
 
 def test_create_only_on_an_existing_resource_says_it_exists() -> None:
@@ -1847,9 +1855,10 @@ def test_create_only_on_an_existing_resource_says_it_exists() -> None:
         preconditions.check('"v1"', require=False)
 
     # Assert
-    msg = str(error.value)
-    assert "a create-only write is refused" in msg
-    assert "Fetch the resource again" not in msg
+    assert str(error.value) == (
+        "The resource already exists, so a create-only write is refused. Drop "
+        "If-None-Match: * to replace it on purpose, or pick another URL."
+    )
 
 
 def test_if_none_match_naming_the_current_tag_is_not_told_to_refetch() -> None:
@@ -1862,6 +1871,8 @@ def test_if_none_match_naming_the_current_tag_is_not_told_to_refetch() -> None:
         preconditions.check('"v1"', require=False)
 
     # Assert
-    msg = str(error.value)
-    assert "still has an entity tag the request named" in msg
-    assert "Fetch the resource again" not in msg
+    assert str(error.value) == (
+        "The resource still has an entity tag the request named in "
+        "If-None-Match, so the write is refused. Send it only once the "
+        "resource has changed, or drop If-None-Match to write regardless."
+    )

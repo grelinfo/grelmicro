@@ -254,8 +254,8 @@ PRECONDITION_FAILED = Kind(
     status=412,
     title="Precondition failed",
     detail=(
-        "The resource changed since the entity tag in If-Match was issued. "
-        "Read it again and retry with the new one."
+        "The resource is not in the state the If-Match or If-None-Match "
+        "header of this request asked for. Read it again before retrying."
     ),
 )
 
