@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self, cast
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self, cast
 
 from typing_extensions import Doc
 
@@ -11,7 +11,6 @@ from grelmicro._app import resolve_ambient
 from grelmicro._backend_kinds import resolve_source
 from grelmicro._config import env_prefixes, resolve_config
 from grelmicro._markers import Registered, mark_registered
-from grelmicro.errors import _AMBIENT_SCOPE_NOTE, OutOfContextError
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
 from grelmicro.outbox._config import OutboxConfig
@@ -29,6 +28,19 @@ if TYPE_CHECKING:
 
     from grelmicro.outbox._message import Message
     from grelmicro.types import BackendScope
+
+
+_NOT_AVAILABLE: Final = (
+    "Outbox({name!r}) is not available.",
+    (
+        "Run inside `async with micro:`, with an Outbox registered in "
+        "uses=[...]."
+    ),
+)
+"""What `current` raises when no `Outbox` resolves under the name.
+
+The lead names the miss, and the fix is given when no app is bound.
+"""
 
 
 class Outbox:
@@ -282,20 +294,12 @@ class Outbox:
 
         Raises:
             OutOfContextError: No active app, or no `Outbox` registered under
-                `name`. Run inside `async with micro:`, with an `Outbox` in
-                `uses=[...]`. `micro.install(app)` covers request and
-                message handlers, and not a lifespan of your own.
+                `name`. With no app, run inside `async with micro:`, with an
+                `Outbox` in `uses=[...]`. `micro.install(app)` covers request
+                and message handlers, and not a lifespan of your own. In an
+                open app, register the `Outbox`.
         """
-        try:
-            return resolve_ambient((cls.kind, name))
-        except LookupError:
-            msg = (
-                f"Outbox({name!r}) is not available: no active app, or no "
-                f"Outbox registered under {name!r}. Run inside "
-                f"`async with micro:`, with an "
-                f"Outbox registered in uses=[...]. {_AMBIENT_SCOPE_NOTE}"
-            )
-            raise OutOfContextError(msg) from None
+        return resolve_ambient((cls.kind, name), _NOT_AVAILABLE, name)
 
     def handler(
         self,

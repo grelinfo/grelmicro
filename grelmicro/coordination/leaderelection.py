@@ -45,10 +45,16 @@ logger = getLogger("grelmicro.leader_election")
 
 
 _NO_BACKEND: Final = (
-    "LeaderElection({name!r}) resolved no backend. Register a Coordination "
-    "component, pass backend=, or run the call inside `async with micro:`."
+    "LeaderElection({name!r}) resolved no backend.",
+    (
+        "Register a Coordination component, pass backend=, or run the call "
+        "inside `async with micro:`."
+    ),
 )
-"""What `backend` raises when no `backend=` was passed and none resolves."""
+"""What `backend` raises when no `backend=` was passed and none resolves.
+
+The lead names the miss, and the fix is given when no app is bound.
+"""
 
 
 class LeaderElectionConfig(BaseLockConfig):

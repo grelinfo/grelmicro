@@ -49,6 +49,7 @@ from grelmicro.errors import (
     GrelmicroError,
     MultipleActiveAppsError,
     OutOfContextError,
+    _AmbientMissError,
 )
 from grelmicro.providers._base import Provider
 
@@ -118,7 +119,9 @@ overlap freely, matching how web frameworks treat multiple app objects.
 
 
 def resolve_ambient(
-    key: tuple[str, str], refusal: str | None = None, name: str | None = None
+    key: tuple[str, str],
+    refusal: tuple[str, str] | None = None,
+    name: str | None = None,
 ) -> Any:  # noqa: ANN401
     """Return the component `key` names in the active app.
 
@@ -127,9 +130,12 @@ def resolve_ambient(
     the scope leaves alone.
 
     Without `refusal`, every miss raises `LookupError`. With it, a miss
-    raises `OutOfContextError` carrying `refusal`, with `{name}` standing
-    for the pattern's name, followed by what `micro.install(app)` covers.
-    Only a miss formats it.
+    raises `OutOfContextError`. `refusal` is a lead naming the miss, with
+    `{name}` standing for the pattern's name, and the fix to give when no
+    app is bound. With no app bound, the message is the lead, the fix, and
+    what `micro.install(app)` covers. With an app bound, it is the lead and
+    the `ComponentNotRegisteredError` message, which names registering the
+    component. Only a miss formats it.
 
     Raises:
         LookupError: No app is bound in this scope, or it registers no such
@@ -139,26 +145,34 @@ def resolve_ambient(
     try:
         # The app is read first, so a scope that outlives the app it was
         # opened under raises rather than answering from a closed component.
-        # Past that this resolves the same way `Grelmicro.get` does, so
-        # change one and change the other.
         micro = _current_micro.get()
-        overrides = _active_bulkhead.get(None)
-        if overrides is not None:
-            override = overrides.get(key)
-            if override is not None:
-                return override
-        try:
-            return micro._by_key[key]  # noqa: SLF001
-        except KeyError:
-            # Raised as the error `Grelmicro.get` raises, hint and all, so a
-            # caller that lets it through reports the same miss. Only a miss
-            # pays for building the message.
-            return micro.get(*key)
     except LookupError:
         if refusal is None:
             raise
-        msg = f"{refusal.format(name=name)} {_AMBIENT_SCOPE_NOTE}"
-        raise OutOfContextError(msg) from None
+        lead, fix = refusal
+        msg = f"{lead.format(name=name)} {fix} {_AMBIENT_SCOPE_NOTE}"
+        raise _AmbientMissError(msg, key=key, bound=False) from None
+    overrides = _active_bulkhead.get(None)
+    if overrides is not None:
+        override = overrides.get(key)
+        if override is not None:
+            return override
+    # Past the app read, this resolves the same way `Grelmicro.get` does, so
+    # change one and change the other.
+    try:
+        return micro._by_key[key]  # noqa: SLF001
+    except KeyError:
+        pass
+    try:
+        # Raised as the error `Grelmicro.get` raises, hint and all, so a
+        # caller that lets it through reports the same miss. Only a miss
+        # pays for building the message.
+        return micro.get(*key)
+    except ComponentNotRegisteredError as error:
+        if refusal is None:
+            raise
+        msg = f"{refusal[0].format(name=name)} {error}"
+        raise _AmbientMissError(msg, key=key, bound=True) from None
 
 
 def _item_owns_global_state(item: object) -> bool:

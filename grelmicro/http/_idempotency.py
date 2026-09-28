@@ -58,7 +58,12 @@ from grelmicro._paths import (
     selects,
     walk_routes,
 )
-from grelmicro.errors import OutOfContextError, SettingsValidationError
+from grelmicro.cache.ttl import _CACHE_KEY
+from grelmicro.errors import (
+    OutOfContextError,
+    SettingsValidationError,
+    _AmbientMissError,
+)
 from grelmicro.http._authentication import is_anonymous_declaration
 from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.http._kinds import (
@@ -1136,8 +1141,13 @@ class IdempotencyMiddleware:
                 retry_after=_IN_FLIGHT_RETRY_AFTER,
             )
             return
-        except OutOfContextError as exc:
-            raise OutOfContextError(_OUT_OF_CONTEXT_HINT) from exc
+        # Only a miss resolving the cache is reworded. A backend that is not
+        # open raises its own error, which names its own fix.
+        except _AmbientMissError as exc:
+            if exc.key != _CACHE_KEY:
+                raise
+            hint = _NOT_REGISTERED_HINT if exc.bound else _OUT_OF_CONTEXT_HINT
+            raise OutOfContextError(hint) from exc
 
         try:
             if operation.replayed:
@@ -1293,6 +1303,14 @@ _OUT_OF_CONTEXT_HINT = (
     "so the grelmicro request scope wraps it, register a Cache component, or "
     "pass an explicit cache= to Idempotency."
 )
+"""What a cache miss raises when no app is bound around the request."""
+
+_NOT_REGISTERED_HINT = (
+    "IdempotencyMiddleware resolved no cache backend. Register a Cache "
+    "component in Grelmicro(uses=[...]), or pass an explicit cache= to "
+    "Idempotency."
+)
+"""What a cache miss raises when the app is bound but has no `Cache`."""
 
 
 class _ResponseCapture:

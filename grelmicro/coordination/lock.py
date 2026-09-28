@@ -82,10 +82,16 @@ def validate_lock_name(name: str) -> None:
 
 
 _NO_BACKEND: Final = (
-    "Lock({name!r}) resolved no backend. Register a Coordination "
-    "component, pass backend=, or run the call inside `async with micro:`."
+    "Lock({name!r}) resolved no backend.",
+    (
+        "Register a Coordination component, pass backend=, or run the call "
+        "inside `async with micro:`."
+    ),
 )
-"""What `backend` raises when no `backend=` was passed and none resolves."""
+"""What `backend` raises when no `backend=` was passed and none resolves.
+
+The lead names the miss, and the fix is given when no app is bound.
+"""
 
 
 class LockConfig(BaseLockConfig):

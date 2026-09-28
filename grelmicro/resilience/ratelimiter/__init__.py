@@ -118,11 +118,17 @@ def _union_for_env() -> object:
 
 
 _NO_BACKEND: Final = (
-    "RateLimiter({name!r}) resolved no backend. Pass backend= "
-    "(MemoryRateLimiterAdapter() for a per-process limiter), register a "
-    "RateLimiterComponent component, or run the call inside `async with micro:`."
+    "RateLimiter({name!r}) resolved no backend.",
+    (
+        "Pass backend= (MemoryRateLimiterAdapter() for a per-process limiter), "
+        "register a RateLimiterComponent component, or run the call inside "
+        "`async with micro:`."
+    ),
 )
-"""What `backend` raises when no `backend=` was passed and none resolves."""
+"""What `backend` raises when no `backend=` was passed and none resolves.
+
+The lead names the miss, and the fix is given when no app is bound.
+"""
 
 
 @dataclass(frozen=True, slots=True)

@@ -302,6 +302,23 @@ class OutOfContextError(GrelmicroError, RuntimeError):
             )
 
 
+class _AmbientMissError(OutOfContextError):
+    """Raised when a pattern resolved no component through the active app.
+
+    `key` is the `(kind, name)` looked up. `bound` is whether an app was bound
+    in the scope, so the component was not registered, rather than no app
+    being open at all.
+    """
+
+    def __init__(
+        self, message: str, *, key: tuple[str, str], bound: bool
+    ) -> None:
+        """Initialize the error with the lookup that missed."""
+        super().__init__(message)
+        self.key = key
+        self.bound = bound
+
+
 _AMBIENT_SCOPE_NOTE = (
     "micro.install(app) covers request and message handlers, and not a "
     "lifespan of your own."

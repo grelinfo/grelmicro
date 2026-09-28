@@ -20,7 +20,7 @@ from grelmicro.cache._stampede import (
 )
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination.lock import Lock
-from grelmicro.errors import _AMBIENT_SCOPE_NOTE, OutOfContextError
+from grelmicro.errors import _AMBIENT_SCOPE_NOTE, _AmbientMissError
 from grelmicro.idempotency.config import IdempotencyConfig
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
@@ -128,6 +128,22 @@ class _Block(Generic[T]):
         self._local_lock: Any = None
         self._distributed_lock: Lock | None = None
 
+    def _cache_miss(self, error: _AmbientMissError) -> _AmbientMissError:
+        """Return the cache resolution miss, reworded for this idempotency."""
+        name = self._idempotency.name
+        if error.bound:
+            msg = (
+                f"Idempotency({name!r}) resolved no cache backend. Register "
+                f"a Cache component in Grelmicro(uses=[...]), or pass cache=."
+            )
+        else:
+            msg = (
+                f"Idempotency({name!r}) resolved no cache backend. Pass "
+                f"cache=, register a Cache component, or run the call inside "
+                f"`async with micro:`. {_AMBIENT_SCOPE_NOTE}"
+            )
+        return _AmbientMissError(msg, key=error.key, bound=error.bound)
+
     async def __aenter__(self) -> Operation[T]:
         """Return an `Operation`, replaying or starting a first execution.
 
@@ -136,7 +152,8 @@ class _Block(Generic[T]):
                 Pass `cache=`, register a `Cache` Component, or run the
                 call inside `async with micro:`. `micro.install(app)`
                 covers request and message handlers, and not a lifespan of
-                your own.
+                your own. Also raised, with its own fix, when the cache
+                backend is not open.
             IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
                 execution already in flight held the single-flight lock.
         """
@@ -144,16 +161,11 @@ class _Block(Generic[T]):
             replay = await self._idempotency._replay(  # noqa: SLF001
                 self._key, self._fingerprint
             )
-        # Only this: `_replay` resolves through `TTLCache._get_backend`,
-        # which already converts a miss. A `LookupError` reaching here comes
-        # from the backend read or the deserializer, not from the wiring.
-        except OutOfContextError:
-            msg = (
-                f"Idempotency({self._idempotency.name!r}) resolved no "
-                f"cache backend. Pass cache=, register a Cache component, "
-                f"or run the call inside `async with micro:`. {_AMBIENT_SCOPE_NOTE}"
-            )
-            raise OutOfContextError(msg) from None
+        # `_replay` resolves nothing but the cache, so a resolution miss here
+        # is the cache's. Any other `OutOfContextError`, such as a backend
+        # that is not open, already names its own fix and goes through.
+        except _AmbientMissError as error:
+            raise self._cache_miss(error) from None
         if replay is not _SENTINEL:
             _emit.incr(
                 "grelmicro.idempotency.operations",

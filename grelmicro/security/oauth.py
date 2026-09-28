@@ -62,7 +62,6 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro.errors import (
-    _AMBIENT_SCOPE_NOTE,
     DependencyNotFoundError,
     GrelmicroError,
     OutOfContextError,
@@ -1928,16 +1927,16 @@ class _TokenPattern:
             return client
         from grelmicro._app import resolve_ambient  # noqa: PLC0415
 
-        try:
-            return resolve_ambient((OAuthClient.kind, self._client_name))
-        except LookupError:
-            msg = (
-                f"{type(self).__name__}({self._name!r}) found no OAuthClient."
-                " Register one in Grelmicro(uses=[...]) and run inside"
-                " `async with micro:`, or pass"
-                f" client=. {_AMBIENT_SCOPE_NOTE}"
-            )
-            raise OutOfContextError(msg) from None
+        refusal = (
+            f"{type(self).__name__}({{name!r}}) found no OAuthClient.",
+            (
+                "Register one in Grelmicro(uses=[...]) and run inside "
+                "`async with micro:`, or pass client=."
+            ),
+        )
+        return resolve_ambient(
+            (OAuthClient.kind, self._client_name), refusal, self._name
+        )
 
     def _target(self) -> dict[str, str]:
         """Return the form fields that name the API."""

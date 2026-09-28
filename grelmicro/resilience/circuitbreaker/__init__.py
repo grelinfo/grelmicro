@@ -135,11 +135,17 @@ def __getattr__(name: str) -> object:
 
 
 _NO_BACKEND: Final = (
-    "CircuitBreaker({name!r}) resolved no backend. Pass backend= "
-    "(MemoryCircuitBreakerAdapter() for a per-replica breaker), register a "
-    "CircuitBreakerComponent component, or run the call inside `async with micro:`."
+    "CircuitBreaker({name!r}) resolved no backend.",
+    (
+        "Pass backend= (MemoryCircuitBreakerAdapter() for a per-replica "
+        "breaker), register a CircuitBreakerComponent component, or run the "
+        "call inside `async with micro:`."
+    ),
 )
-"""What `backend` raises when no `backend=` was passed and none resolves."""
+"""What `backend` raises when no `backend=` was passed and none resolves.
+
+The lead names the miss, and the fix is given when no app is bound.
+"""
 
 
 class _TransitionCause(StrEnum):

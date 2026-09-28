@@ -12,6 +12,7 @@ from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 
 import grelmicro.coordination._base as base_module
 import grelmicro.coordination.lock as lock_module
+from grelmicro import Grelmicro
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination._tokens import current_thread_identity
@@ -107,6 +108,24 @@ def test_lock_ambient_miss_error_names_the_wiring_options() -> None:
     assert "Register a Coordination component" in msg
     assert "pass backend=" in msg
     assert "MemoryLockAdapter" not in msg
+
+
+async def test_lock_miss_in_an_open_app_names_registering_only() -> None:
+    """Inside an open app, the miss names registering, not opening the app."""
+    # Arrange
+    unwired = Lock("report")
+
+    # Act
+    async with Grelmicro():
+        with pytest.raises(OutOfContextError) as exc:
+            _ = unwired.backend
+
+    # Assert
+    msg = str(exc.value)
+    assert "No component registered for ('coordination', 'default')" in msg
+    assert "Register one in Grelmicro(uses=[...])" in msg
+    assert "async with micro:" not in msg
+    assert "micro.install" not in msg
 
 
 def test_lock_acquire_error_names_the_fix() -> None:

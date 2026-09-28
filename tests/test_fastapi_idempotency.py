@@ -58,7 +58,12 @@ from grelmicro._paths import _RouteTopologyState
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer
-from grelmicro.errors import DependencyNotFoundError, OutOfContextError
+from grelmicro.cache.sqlite import SQLiteCacheAdapter
+from grelmicro.errors import (
+    DependencyNotFoundError,
+    OutOfContextError,
+    _AmbientMissError,
+)
 from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
 from grelmicro.http._idempotency import (
     _default_storage_key,
@@ -67,6 +72,7 @@ from grelmicro.http._idempotency import (
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.fastapi import document_idempotency
+from grelmicro.providers.sqlite import SQLiteProvider
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -3453,3 +3459,71 @@ def test_a_trailing_newline_never_replays_past_a_route_dependency() -> None:
     assert authorized.status_code == HTTP_200_OK
     assert unauthenticated.status_code == HTTP_401_UNAUTHORIZED
     assert "idempotent-replayed" not in unauthenticated.headers
+
+
+async def _ok_app(_scope: Scope, _receive: Receive, send: Send) -> None:
+    """Answer every request with an empty JSON body."""
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b"{}"})
+
+
+async def test_middleware_in_an_app_without_a_cache_names_registering_it() -> (
+    None
+):
+    """An open app with no Cache is told to register one, not to open it."""
+    # Arrange
+    middleware = IdempotencyMiddleware(
+        _ok_app, idempotency=Idempotency("http", ttl=60)
+    )
+
+    # Act
+    async with Grelmicro():
+        with pytest.raises(OutOfContextError) as error:
+            await _drive(middleware, [{"type": "http.request", "body": b""}])
+
+    # Assert
+    msg = str(error.value)
+    assert "Register a Cache component" in msg
+    assert "micro.install" not in msg
+
+
+async def test_middleware_on_a_closed_cache_backend_keeps_its_error() -> None:
+    """A cache backend that is not open reports itself, not a wiring miss."""
+    # Arrange
+    provider = SQLiteProvider(":memory:")
+    cache = TTLCache(backend=SQLiteCacheAdapter(provider=provider))
+    middleware = IdempotencyMiddleware(
+        _ok_app, idempotency=Idempotency("http", ttl=60, cache=cache)
+    )
+
+    # Act
+    with pytest.raises(OutOfContextError) as error:
+        await _drive(middleware, [{"type": "http.request", "body": b""}])
+
+    # Assert
+    assert "SQLiteProvider is not open" in str(error.value)
+    assert "resolved no cache backend" not in str(error.value)
+
+
+async def test_middleware_passes_through_a_miss_on_another_component() -> None:
+    """Only a miss on the cache is reworded as a cache miss."""
+    # Arrange
+    miss = _AmbientMissError(
+        "Lock('x') resolved no backend.",
+        key=("coordination", "default"),
+        bound=True,
+    )
+    idempotency = Idempotency("http", ttl=60)
+    middleware = IdempotencyMiddleware(_ok_app, idempotency=idempotency)
+
+    # Act
+    with (
+        patch.object(
+            type(idempotency("key-1")), "__aenter__", side_effect=miss
+        ),
+        pytest.raises(OutOfContextError) as error,
+    ):
+        await _drive(middleware, [{"type": "http.request", "body": b""}])
+
+    # Assert
+    assert error.value is miss
