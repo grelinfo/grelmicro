@@ -4,7 +4,8 @@ from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination, Lock
 from grelmicro.providers.memory import MemoryProvider
 
-# Memory keeps this example in one process. Every backend behaves the same.
+# Memory keeps this example in one process.
+# The calls are the same on every backend.
 micro = Grelmicro(uses=[Coordination(MemoryProvider(), requires="process")])
 
 lock = Lock("cart", lease_duration=60, retry_interval=0.1)

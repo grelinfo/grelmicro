@@ -12,7 +12,7 @@ Snippets are tiered:
 - `SCRIPT`: also executed as `__main__`, so the `main()` a reader runs
   is covered too.
 - `NEEDS_SERVICE`: imported, never executed as a script, because
-  running it needs Redis, Postgres, the network, or a long wait.
+  running it needs Redis, Postgres, or a long wait.
 - `COMPILE_ONLY`: parsed but not executed, because running them at
   import time has global side effects (they call `asyncio.run(...)`).
   These are still covered by `compileall` and the MkDocs build.
@@ -95,8 +95,6 @@ _NEEDS_SERVICE = {
     "idempotency/run.py": "Redis",
     "log/dict_config.py": "a server it would keep running",
     "outbox/quickstart.py": "Postgres",
-    "resilience/retry.py": "the network",
-    "resilience/shield_giveup.py": "a full retry budget, which takes seconds",
     "wiring/simple_fastapi_app.py": "Redis",
     "task/graceful_shutdown.py": "a signal, and it waits for one",
     "task/quickstart.py": "twelve seconds of schedule",

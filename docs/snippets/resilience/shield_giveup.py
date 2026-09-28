@@ -15,7 +15,6 @@ async def main() -> None:
         await fetch("https://example.com/recs")
     except httpx.TimeoutException as exc:
         print(exc.__notes__)
-        # ['shield: budget exhausted after 4/4 attempts in 18.30s (api profile)']
 
 
 if __name__ == "__main__":

@@ -3,13 +3,14 @@ import asyncio
 import httpx
 from pydantic import BaseModel
 
-from grelmicro.resilience import (
-    CircuitBreaker,
-    MemoryCircuitBreakerAdapter,
-    retry,
-)
+from grelmicro import Grelmicro
+from grelmicro.providers.memory import MemoryProvider
+from grelmicro.resilience import CircuitBreaker, CircuitBreakerComponent, retry
 
-cb = CircuitBreaker("payments", backend=MemoryCircuitBreakerAdapter())
+# Memory keeps the breaker state in this process.
+micro = Grelmicro(uses=[CircuitBreakerComponent(MemoryProvider())])
+
+cb = CircuitBreaker("payments")
 
 
 class Payment(BaseModel):
@@ -40,7 +41,7 @@ async def call_payments(
 
 async def main() -> None:
     transport = httpx.MockTransport(payments_api)
-    async with httpx.AsyncClient(transport=transport) as client:
+    async with micro, httpx.AsyncClient(transport=transport) as client:
         receipt = await call_payments(
             client, "https://payments.example/charges", Payment(amount=100)
         )

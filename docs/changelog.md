@@ -92,8 +92,8 @@
 * 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Docs
-* 📝 Every example a reader copies runs: the FastAPI snippets wire `micro.install(app)`, a snippet that defines `main()` calls it, the logging examples print what the page shows, and a block that only runs inside an `async` function is labelled `fragment`. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
-* ✅ The snippet tests exercise each FastAPI snippet's routes, run every snippet as a reader runs it, and compare a page's output block with what the snippet prints. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 The snippet files run and show something: a FastAPI app answers requests, a snippet that defines `main()` calls it, and the logging examples print what the page shows. A block that only runs inside an `async` function is labelled `fragment`. ([#888](https://github.com/grelinfo/grelmicro/pull/888))
+* ✅ The snippet tests exercise each FastAPI snippet's routes, run every snippet that needs no outside service, and compare a page's output block with what the snippet prints. ([#888](https://github.com/grelinfo/grelmicro/pull/888))
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
 * 📝 `llms.txt` is a curated index again, and the new `llms-full.txt` lists every page of the site. A test asserts that each page in the nav appears in one of them, so a new page cannot go missing. ([#752](https://github.com/grelinfo/grelmicro/issues/752))

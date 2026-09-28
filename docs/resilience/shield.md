@@ -136,6 +136,10 @@ When Shield gives up and no recovery path returns a value, the original exceptio
 --8<-- "resilience/shield_giveup.py"
 ```
 
+```text title="output"
+['shield: attempts exhausted after 4/4 attempts in 3.82s (api profile)']
+```
+
 The note records the give-up reason (`budget exhausted`, `attempts exhausted`, `non-retryable exception`), the attempt count, the elapsed time, and the profile name. Callers catch the original exception type, unchanged. There is no `ShieldError` wrapper.
 
 ## Composing with client-side retries
