@@ -22,7 +22,7 @@ To disable: `GREL_LOG_OTEL_ENABLED=false`
 ## FastAPI
 
 ```python
---8<-- "log/fastapi.py"
+--8<-- "log/fastapi_app.py"
 ```
 
 !!! warning

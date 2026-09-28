@@ -65,7 +65,7 @@ Start it standalone using the application lifespan:
 === "FastAPI"
 
     ```python
-    --8<-- "task/fastapi.py"
+    --8<-- "task/fastapi_app.py"
     ```
 
 === "FastStream"

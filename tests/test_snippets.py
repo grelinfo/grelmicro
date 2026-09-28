@@ -47,6 +47,7 @@ from fastapi.testclient import TestClient
 
 import grelmicro
 from grelmicro._paths import walk_routes
+from tests._containers import CONTAINER_LOG_TIMEOUT
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -93,6 +94,7 @@ _NEEDS_SERVICE = {
     "coordination/quickstart_lock.py": "Redis",
     "idempotency/run.py": "Redis",
     "log/dict_config.py": "a server it would keep running",
+    "outbox/quickstart.py": "Postgres",
     "resilience/retry.py": "the network",
     "resilience/retry_block.py": "the network",
     "resilience/retry_composition.py": "the network",
@@ -114,6 +116,9 @@ _ENV = {
         "GREL_TIMEOUT_DB_SECONDS": "2.0",
     },
     "coordination/postgres.py": {
+        "POSTGRES_URL": "postgresql://user:password@localhost:5432/db",
+    },
+    "outbox/quickstart.py": {
         "POSTGRES_URL": "postgresql://user:password@localhost:5432/db",
     },
     "deployment/composition_root.py": {
@@ -548,12 +553,13 @@ _COLOR_VARIABLES = frozenset(
 """Variables that turn terminal colors on or off, left out of a snippet run."""
 
 
-def _run_snippet(rel: str) -> str:
+def _run_snippet(rel: str, extra: dict[str, str] | None = None) -> str:
     env = {
         key: value
         for key, value in os.environ.items()
         if key not in _COLOR_VARIABLES
     }
+    env.update(extra or {})
     completed = subprocess.run(  # noqa: S603
         [sys.executable, str(_SNIPPETS_DIR / rel)],
         capture_output=True,
@@ -569,22 +575,67 @@ def _run_snippet(rel: str) -> str:
     return completed.stdout
 
 
-@pytest.mark.parametrize(
-    ("where", "rel", "expected"),
-    _output_pairs(),
-    ids=[where for where, _, _ in _output_pairs()],
-)
-def test_documented_output_matches(where: str, rel: str, expected: str) -> None:
-    """A page that shows output shows what the snippet really prints.
+_LOCAL_OUTPUT = [
+    pair for pair in _output_pairs() if pair[1] not in _NEEDS_SERVICE
+]
+_POSTGRES_OUTPUT = [
+    pair
+    for pair in _output_pairs()
+    if _NEEDS_SERVICE.get(pair[1]) == "Postgres"
+]
+
+
+def _assert_prints(where: str, rel: str, expected: str, printed: str) -> None:
+    """Match what a snippet printed against the block a page shows.
 
     Times, identifiers and durations change on every run, so they are
     normalised on both sides, and `...` in the page matches anything.
     """
-    actual = _normalise(_run_snippet(rel))
+    actual = _normalise(printed)
     pattern = re.escape(_normalise(expected)).replace(r"\.\.\.", ".*?")
     assert re.fullmatch(pattern, actual, re.DOTALL), (
         f"{where}: {rel} prints\n{actual}\n\nthe page shows\n{expected}"
     )
+
+
+def test_every_output_block_is_run() -> None:
+    """An output block needs a service the tests start, or none."""
+    unrun = [
+        where
+        for where, rel, _ in _output_pairs()
+        if rel in _NEEDS_SERVICE and _NEEDS_SERVICE[rel] != "Postgres"
+    ]
+    assert not unrun, f"output blocks no test runs: {unrun}"
+
+
+@pytest.mark.parametrize(
+    ("where", "rel", "expected"),
+    _LOCAL_OUTPUT,
+    ids=[where for where, _, _ in _LOCAL_OUTPUT],
+)
+def test_documented_output_matches(where: str, rel: str, expected: str) -> None:
+    """A page that shows output shows what the snippet really prints."""
+    _assert_prints(where, rel, expected, _run_snippet(rel))
+
+
+@pytest.mark.integration
+@pytest.mark.timeout(CONTAINER_LOG_TIMEOUT + 120)
+@pytest.mark.parametrize(
+    ("where", "rel", "expected"),
+    _POSTGRES_OUTPUT,
+    ids=[where for where, _, _ in _POSTGRES_OUTPUT],
+)
+def test_documented_output_matches_on_postgres(
+    where: str, rel: str, expected: str
+) -> None:
+    """A snippet that needs Postgres prints what its page shows."""
+    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+
+    with PostgresContainer() as container:
+        port = container.get_exposed_port(5432)
+        url = f"postgresql://test:test@localhost:{port}/test"
+        printed = _run_snippet(rel, {"POSTGRES_URL": url})
+    _assert_prints(where, rel, expected, printed)
 
 
 def test_output_blocks_are_marked() -> None:

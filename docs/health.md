@@ -156,7 +156,7 @@ On startup this discovers every active provider, including ones a Component borr
 Add health endpoints to your FastAPI app:
 
 ```python
---8<-- "health/fastapi.py"
+--8<-- "health/fastapi_app.py"
 ```
 
 This creates three endpoints:
