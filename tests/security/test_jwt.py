@@ -98,8 +98,9 @@ def build(
 def frozen(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """Pin the clock the cache reads, so TTL tests never sleep.
 
-    Only the cache reads this clock. The core keeps its own view of the time,
-    so a test that moves this one is testing the cache and nothing else.
+    The `iat` check reads this clock too, so a token issued under it takes
+    `iat=int(frozen[0])`. The core keeps its own view of the time for `exp`
+    and `nbf`.
     """
     clock = [time.time()]
     monkeypatch.setattr("grelmicro.security.jwt.time", lambda: clock[0])
@@ -697,7 +698,7 @@ class TestCache:
     ) -> None:
         """Past its deadline the entry goes, and the core answers instead."""
         verifier = build(cache_ttl=TTL)
-        token = issue(exp=int(time.time()) + DAY)
+        token = issue(iat=int(frozen[0]), exp=int(time.time()) + DAY)
         first = verifier.verify(token)
 
         frozen[0] += TTL + 1
@@ -729,7 +730,7 @@ class TestCache:
     def test_sha256_keys_still_expire(self, frozen: list[float]) -> None:
         """The deadline applies whichever key strategy is in use."""
         verifier = build(cache_key="sha256", cache_ttl=TTL)
-        token = issue(exp=int(time.time()) + DAY)
+        token = issue(iat=int(frozen[0]), exp=int(time.time()) + DAY)
         first = verifier.verify(token)
 
         frozen[0] += TTL + 1
@@ -786,12 +787,18 @@ class TestCache:
         verifier = build(cache_size=CACHE_SIZE, cache_ttl=TTL)
         for index in range(CACHE_SIZE):
             verifier.verify(
-                issue(sub=f"user-{index}", exp=int(time.time()) + DAY)
+                issue(
+                    sub=f"user-{index}",
+                    iat=int(frozen[0]),
+                    exp=int(time.time()) + DAY,
+                )
             )
         assert len(loaded(verifier).cache) == CACHE_SIZE
 
         frozen[0] += TTL + 1
-        verifier.verify(issue(sub="fresh", exp=int(time.time()) + DAY))
+        verifier.verify(
+            issue(sub="fresh", iat=int(frozen[0]), exp=int(time.time()) + DAY)
+        )
 
         assert len(loaded(verifier).cache) == 1
 
