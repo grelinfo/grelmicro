@@ -3,6 +3,7 @@
 from grelmicro.errors import (
     GrelmicroError,
     LockTimeoutError,
+    OutOfContextError,
     WouldBlockError,
 )
 
@@ -75,11 +76,33 @@ class LockBackendError(CoordinationError):
     """Lock Backend Error."""
 
 
-_BACKEND_HINT = "Check the backend is reachable and retry."
-"""Fix named by a lock error the backend raised, chained as its cause."""
+_BACKEND_HINT = "Check the backend is open and reachable, then retry."
+"""Fix named by a lock error whose backend call failed."""
+
+_BACKEND_CLOSED_HINT = (
+    "The backend is not open. Register it in Grelmicro(uses=[...]) so the "
+    "app opens it, and use the lock while the app is open."
+)
+"""Fix named when the failed backend call found the backend not open."""
 
 
-class LockLockedCheckError(LockBackendError):
+class _BackendCallError(LockBackendError):
+    """A lock error raised when a call to the backend failed.
+
+    The message ends with the fix. When the chained cause is an
+    `OutOfContextError`, the backend was never opened or already closed, so
+    the fix is opening it. Any other cause names checking the backend and
+    retrying.
+    """
+
+    def __str__(self) -> str:
+        """Return the failed action followed by the fix its cause calls for."""
+        closed = isinstance(self.__cause__, OutOfContextError)
+        hint = _BACKEND_CLOSED_HINT if closed else _BACKEND_HINT
+        return f"{self.args[0]} {hint}"
+
+
+class LockLockedCheckError(_BackendCallError):
     """Lock Locked Check Error.
 
     This error is raised when an error on backend side occurs while checking if a lock is acquired.
@@ -87,12 +110,10 @@ class LockLockedCheckError(LockBackendError):
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(
-            f"Failed to check if lock is acquired: name={name}. {_BACKEND_HINT}"
-        )
+        super().__init__(f"Failed to check if lock is acquired: name={name}.")
 
 
-class LockOwnedCheckError(LockBackendError):
+class LockOwnedCheckError(_BackendCallError):
     """Lock Owned Check Error.
 
     This error is raised when an error on backend side occurs while checking if a lock is owned.
@@ -100,12 +121,10 @@ class LockOwnedCheckError(LockBackendError):
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(
-            f"Failed to check if lock is owned: name={name}. {_BACKEND_HINT}"
-        )
+        super().__init__(f"Failed to check if lock is owned: name={name}.")
 
 
-class LockAcquireError(LockBackendError):
+class LockAcquireError(_BackendCallError):
     """Acquire Lock Error.
 
     This error is raised when an error on backend side occurs during lock acquisition.
@@ -113,12 +132,10 @@ class LockAcquireError(LockBackendError):
 
     def __init__(self, *, name: str) -> None:
         """Initialize the error."""
-        super().__init__(
-            f"Failed to acquire lock: name={name}. {_BACKEND_HINT}"
-        )
+        super().__init__(f"Failed to acquire lock: name={name}.")
 
 
-class LockReleaseError(LockBackendError):
+class LockReleaseError(_BackendCallError):
     """Lock Release Error.
 
     This error is raised when an error on backend side occurs during lock release.
@@ -129,7 +146,7 @@ class LockReleaseError(LockBackendError):
         super().__init__(
             f"Failed to release lock: name={name}"
             + (f", reason={reason}" if reason else "")
-            + f". {_BACKEND_HINT}",
+            + ".",
         )
 
 
@@ -150,3 +167,7 @@ class LockNotOwnedError(LockReleaseError):
             f"outran lease_duration=. Use the lock only while it is held, "
             f"and raise lease_duration= above how long the work runs.",
         )
+
+    def __str__(self) -> str:
+        """Return the message, which names its own fix."""
+        return str(self.args[0])

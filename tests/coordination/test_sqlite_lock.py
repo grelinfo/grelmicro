@@ -7,6 +7,8 @@ import aiosqlite
 import pytest
 
 from grelmicro.cache.sqlite import SQLiteCacheAdapter
+from grelmicro.coordination.errors import LockAcquireError
+from grelmicro.coordination.lock import Lock
 from grelmicro.coordination.sqlite import SQLiteLockAdapter
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.errors import OutOfContextError, SettingsValidationError
@@ -245,3 +247,20 @@ async def test_tasklock_holder_takes_back_its_own_hold(tmp_path: Path) -> None:
 
         async with holder:
             pass
+
+
+async def test_lock_on_a_closed_provider_names_opening_it() -> None:
+    """A lock on a Provider that is not open says so instead of retrying."""
+    # Arrange
+    provider = SQLiteProvider(":memory:")
+    lock = Lock("closed", backend=SQLiteLockAdapter(provider=provider))
+
+    # Act
+    with pytest.raises(LockAcquireError) as error:
+        await lock.acquire()
+
+    # Assert
+    msg = str(error.value)
+    assert isinstance(error.value.__cause__, OutOfContextError)
+    assert "The backend is not open." in msg
+    assert "retry" not in msg

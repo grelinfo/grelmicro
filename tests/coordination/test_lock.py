@@ -110,12 +110,38 @@ def test_lock_ambient_miss_error_names_the_wiring_options() -> None:
 
 
 def test_lock_acquire_error_names_the_fix() -> None:
-    """A backend failure names reaching the backend."""
+    """A backend failure names checking the backend and retrying."""
     # Arrange / Act
     error = LockAcquireError(name=LOCK_NAME)
 
     # Assert
-    assert "Check the backend is reachable and retry." in str(error)
+    assert "Check the backend is open and reachable, then retry." in str(error)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        LockAcquireError(name=LOCK_NAME),
+        LockReleaseError(name=LOCK_NAME),
+        LockLockedCheckError(name=LOCK_NAME),
+        LockOwnedCheckError(name=LOCK_NAME),
+    ],
+    ids=lambda error: type(error).__name__,
+)
+def test_lock_backend_error_on_a_closed_backend_names_opening_it(
+    error: LockAcquireError,
+) -> None:
+    """A backend that is not open names registering it, not retrying."""
+    # Arrange / Act
+    try:
+        raise error from OutOfContextError(object(), "client")
+    except type(error) as raised:
+        msg = str(raised)
+
+    # Assert
+    assert "The backend is not open." in msg
+    assert "Register it in Grelmicro(uses=[...])" in msg
+    assert "retry" not in msg
 
 
 def test_lock_not_owned_error_names_the_lease_fix() -> None:
@@ -126,7 +152,7 @@ def test_lock_not_owned_error_names_the_lease_fix() -> None:
     # Assert
     msg = str(error)
     assert "raise lease_duration= above how long the work runs" in msg
-    assert "Check the backend is reachable" not in msg
+    assert "Check the backend" not in msg
 
 
 # A lease long enough that it never expires mid-test, even under heavy
