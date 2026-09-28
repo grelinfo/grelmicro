@@ -60,6 +60,9 @@ AMBIENT_BINDING: Final = "ambient-binding"
 PROVIDER_ORDER: Final = "provider-order"
 """A Provider is listed after the Component that borrows it."""
 
+LEADER_NOT_RUNNING: Final = "leader-not-running"
+"""A task is gated on a leader election that does not run, so it never fires."""
+
 SENTINEL_PASSWORD: Final = "sentinel-password"  # noqa: S105
 """A Sentinel password is set but the URL scheme cannot apply it.
 

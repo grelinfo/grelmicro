@@ -15,6 +15,7 @@ from grelmicro.errors import (
     BackendScopeWarning,
     EnvLoadOffWarning,
     GrelmicroConfigWarning,
+    LeaderNotRunningWarning,
     SentinelPasswordWarning,
     UnknownEnvironmentWarning,
 )
@@ -25,6 +26,7 @@ _CATEGORIES: list[type[GrelmicroConfigWarning]] = [
     BackendScopeWarning,
     AmbientBindingWarning,
     SentinelPasswordWarning,
+    LeaderNotRunningWarning,
 ]
 
 _DOCS = Path(__file__).parent.parent / "docs" / "diagnostics.md"
