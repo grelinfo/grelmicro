@@ -1410,3 +1410,200 @@ async def test_resolve_ambient_matches_get() -> None:
         resolve_ambient(key)
     with pytest.raises(NoActiveAppError):
         Grelmicro.current()
+
+
+# --- named components resolve ambiently (#752) ---
+
+
+async def test_ambient_falls_back_to_the_sole_named_component() -> None:
+    """A pattern resolves the only component of its kind, whatever its name.
+
+    `micro.<kind>` already prefers `"default"` then falls back to the sole
+    entry. A pattern asking ambiently must resolve the same way, otherwise
+    naming a component breaks every pattern in the app.
+    """
+    backend = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=backend, name="jobs")])
+
+    async with micro:
+        assert Lock("cart").backend is backend
+        assert micro.get("coordination").lock_backend is backend
+
+
+async def test_ambient_explicit_name_still_raises() -> None:
+    """Naming a backend that is not registered stays a loud failure."""
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs")]
+    )
+
+    async with micro:
+        with pytest.raises(OutOfContextError, match="resolved no backend"):
+            _ = Lock("cart", backend="analytics").backend
+
+
+async def test_ambient_two_components_without_default_raises() -> None:
+    """Two components of one kind and no default keeps the miss loud."""
+    micro = Grelmicro(
+        uses=[
+            Coordination(lock=MemoryLockAdapter(), name="jobs"),
+            Coordination(lock=MemoryLockAdapter(), name="analytics"),
+        ]
+    )
+
+    async with micro:
+        with pytest.raises(OutOfContextError, match="resolved no backend"):
+            _ = Lock("cart").backend
+
+
+async def test_ambient_fallback_honours_a_bulkhead() -> None:
+    """A bulkhead over the sole component answers the fallback too.
+
+    A kind the bulkhead leaves alone still falls back to the app's entry.
+    """
+    dedicated = MemoryLockAdapter()
+    cache = Cache(MemoryCacheAdapter(), name="sessions")
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs"), cache]
+    )
+    bulkhead = Bulkhead(
+        "checkout", uses=[Coordination(lock=dedicated, name="jobs")]
+    )
+
+    async with micro, bulkhead:
+        assert Lock("cart").backend is dedicated
+        assert micro.get("coordination").lock_backend is dedicated
+        assert micro.get(Cache) is cache
+        assert resolve_ambient(("cache", "default")) is cache
+
+
+async def test_ambient_fallback_prefers_the_bulkhead_sole_component() -> None:
+    """A bulkhead holding the kind under another name decides the fallback."""
+    scoped = MemoryLockAdapter()
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs")]
+    )
+    bulkhead = Bulkhead(
+        "checkout", uses=[Coordination(lock=scoped, name="isolated")]
+    )
+
+    async with micro, bulkhead:
+        assert Lock("cart").backend is scoped
+        assert micro.get("coordination").lock_backend is scoped
+
+
+async def test_ambient_fallback_takes_the_bulkhead_when_the_app_has_none() -> (
+    None
+):
+    """With no component of the kind in the app, the bulkhead's sole one serves."""
+    scoped = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    bulkhead = Bulkhead(
+        "checkout", uses=[Coordination(lock=scoped, name="isolated")]
+    )
+
+    async with micro, bulkhead:
+        assert Lock("cart").backend is scoped
+
+
+async def test_ambient_fallback_misses_on_two_bulkhead_components() -> None:
+    """Two components of the kind in the bulkhead and no default stay a miss."""
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs")]
+    )
+    bulkhead = Bulkhead(
+        "checkout",
+        uses=[
+            Coordination(lock=MemoryLockAdapter(), name="left"),
+            Coordination(lock=MemoryLockAdapter(), name="right"),
+        ],
+    )
+
+    async with micro, bulkhead:
+        with pytest.raises(OutOfContextError, match="resolved no backend"):
+            _ = Lock("cart").backend
+        with pytest.raises(ComponentNotRegisteredError):
+            micro.get("coordination")
+
+
+async def test_ambient_fallback_follows_registration_changes() -> None:
+    """The fallback goes when a second component or a default arrives."""
+    jobs = MemoryLockAdapter()
+    default = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=jobs, name="jobs")])
+
+    async with micro:
+        assert Lock("cart").backend is jobs
+        async with micro.override(Coordination(lock=default)):
+            assert Lock("cart").backend is default
+            assert micro.coordination.lock_backend is default
+        assert Lock("cart").backend is jobs
+
+    micro.use(Coordination(lock=MemoryLockAdapter(), name="analytics"))
+    async with micro:
+        with pytest.raises(OutOfContextError, match="resolved no backend"):
+            _ = Lock("cart").backend
+        with pytest.raises(AttributeError, match="none named 'default'"):
+            _ = micro.coordination
+
+
+async def test_ambient_fallback_lets_the_innermost_bulkhead_decide() -> None:
+    """Nested bulkheads: the innermost one holding the kind serves."""
+    outer_lock = MemoryLockAdapter()
+    inner_lock = MemoryLockAdapter()
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs")]
+    )
+    outer = Bulkhead("outer", uses=[Coordination(lock=outer_lock, name="a")])
+    inner = Bulkhead("inner", uses=[Coordination(lock=inner_lock, name="b")])
+
+    async with micro, outer:
+        async with inner:
+            assert Lock("cart").backend is inner_lock
+            assert micro.get("coordination").lock_backend is inner_lock
+            assert micro.get("coordination", "a").lock_backend is outer_lock
+        assert Lock("cart").backend is outer_lock
+
+
+async def test_exact_default_in_the_app_wins_over_a_bulkhead_fallback() -> None:
+    """An app `default` is an exact match, so it beats a bulkhead's sole one."""
+    default = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead(
+        "checkout",
+        uses=[Coordination(lock=MemoryLockAdapter(), name="isolated")],
+    )
+
+    async with micro, bulkhead:
+        assert Lock("cart").backend is default
+        assert micro.get("coordination").lock_backend is default
+
+
+async def test_exact_default_in_an_outer_bulkhead_wins_over_the_inner() -> None:
+    """An exact name wins wherever it is, before any fallback."""
+    default = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    outer = Bulkhead("outer", uses=[Coordination(lock=default)])
+    inner = Bulkhead(
+        "inner", uses=[Coordination(lock=MemoryLockAdapter(), name="b")]
+    )
+
+    async with micro, outer, inner:
+        assert Lock("cart").backend is default
+        with pytest.raises(ComponentNotRegisteredError):
+            micro.get("coordination", "missing")
+
+
+async def test_ambient_fallback_resolves_the_faked_sole_component() -> None:
+    """An app faked before open serves the fake of its sole named component."""
+    backend = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=backend, name="jobs")])
+
+    with micro.fake():
+        async with micro:
+            faked = micro.get("coordination")
+            assert faked.name == "jobs"
+            assert faked.lock_backend is not backend
+            assert Lock("cart").backend is faked.lock_backend
+
+    async with micro:
+        assert Lock("cart").backend is backend

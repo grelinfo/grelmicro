@@ -540,7 +540,8 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         """Describe the backend this stores through, for the scope check.
 
         A `TTLCache` holding a backend of its own is checked on it. Any
-        other rides the app's `Cache('default')`, which is where it reads.
+        other rides the app's `Cache('default')`, or its sole `Cache` when
+        none is named `"default"`, which is where it reads.
         """
         cache = self._cache
         backend = cache._backend if cache is not None else None  # noqa: SLF001
