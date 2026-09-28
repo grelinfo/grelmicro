@@ -663,6 +663,25 @@ def test_an_idempotency_rides_the_sole_cache_when_none_is_default() -> None:
     del idem
 
 
+async def test_a_rider_reads_the_override_of_the_sole_cache() -> None:
+    """An open override replaces the sole `Cache`, so the rider reads it."""
+    idem = Idempotency("orders")
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter(), name="x")])
+    replacement = Cache(MemoryCacheAdapter(), name="x")
+    rider = Binding("Rider", "cluster", rides=("cache", "default"))
+
+    async with micro, micro.override(replacement):
+        with pytest.raises(
+            BackendScopeError,
+            match=r"Idempotency\('orders'\) rides Cache\('x'\)",
+        ):
+            micro.check_backends()
+        unmet = micro._unmet_bindings([rider])
+        assert [entry.rides for entry in unmet] == ["Cache('x')"]
+
+    del idem
+
+
 def test_an_idempotency_on_a_cache_that_holds_its_backend_is_refused() -> None:
     """A registered `Cache` holding the same backend does not decide."""
     backend = MemoryCacheAdapter()

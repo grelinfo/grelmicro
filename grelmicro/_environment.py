@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import warnings
+from collections import Counter
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -44,7 +45,13 @@ from grelmicro.errors import (
 from grelmicro.types import BackendScope, Environment
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator, Sequence
+    from collections.abc import (
+        Generator,
+        Iterable,
+        Iterator,
+        Mapping,
+        Sequence,
+    )
 
 logger = logging.getLogger("grelmicro")
 
@@ -393,6 +400,7 @@ def unmet_requirements(
     bindings: Iterable[Binding] = (),
     *,
     check_items: bool = True,
+    components: Mapping[tuple[str, str], object] | None = None,
 ) -> list[Unmet]:
     """Return every bound backend that falls short of what it must hold.
 
@@ -401,13 +409,24 @@ def unmet_requirements(
     `items`: a binding that rides a component reads that component's
     backend, and a coordination pattern whose backend a registered component
     also holds is left to that component. `check_items=False` checks the
-    bindings alone.
+    bindings alone. `components` is the app's resolution index, which a
+    binding riding `(kind, name)` reads. Without it, the index is built from
+    `items` by the same rule.
     """
     items = list(items)
+    if components is None:
+        components = with_sole_defaults(
+            {
+                (kind, name): item
+                for item in items
+                if isinstance(kind := getattr(item, "kind", None), str)
+                and isinstance(name := getattr(item, "name", None), str)
+            }
+        )
     grouped: dict[_Finding, list[str]] = {}
     findings = chain(
-        _item_findings(items) if check_items else (),
-        _binding_findings(bindings, items),
+        _item_findings(items, components) if check_items else (),
+        _binding_findings(bindings, items, components),
     )
     for finding, backend in findings:
         names = grouped.setdefault(finding, [])
@@ -473,12 +492,13 @@ def _answering_backends(item: object) -> list[object]:
 
 def _item_findings(
     items: Sequence[object],
+    components: Mapping[tuple[str, str], object],
 ) -> Iterator[tuple[_Finding, object]]:
     """Yield what every registered item holds short of its requirement."""
     for item in items:
         describe = getattr(item, "_scope_binding", None)
         if describe is not None:
-            yield from _binding_findings([describe()], items)
+            yield from _binding_findings([describe()], items, components)
             continue
         requires = getattr(item, "requires", None)
         kind = getattr(item, "kind", None)
@@ -497,7 +517,9 @@ def _item_findings(
 
 
 def _binding_findings(
-    bindings: Iterable[Binding], items: Sequence[object]
+    bindings: Iterable[Binding],
+    items: Sequence[object],
+    components: Mapping[tuple[str, str], object],
 ) -> Iterator[tuple[_Finding, object]]:
     """Yield what each binding holds or rides short of its requirement."""
     held: set[int] | None = None
@@ -505,7 +527,9 @@ def _binding_findings(
         ridden: object | None = None
         backend = binding.backend
         if backend is None:
-            ridden = _component(items, binding.rides)
+            ridden = (
+                None if binding.rides is None else components.get(binding.rides)
+            )
             backend = getattr(ridden, "backend", None)
             if backend is None:
                 continue
@@ -531,29 +555,20 @@ def _binding_findings(
             yield finding, backend
 
 
-def _component(
-    items: Sequence[object], key: tuple[str, str] | None
-) -> object | None:
-    """Return the registered component under `(kind, name)`, if any.
+def with_sole_defaults[T](
+    by_key: Mapping[tuple[str, str], T],
+) -> dict[tuple[str, str], T]:
+    """Return `by_key` plus `(kind, "default")` for the sole entry of a kind.
 
-    Resolves as `Grelmicro.get` does: `"default"` falls back to the sole
-    component of that kind when none is named `"default"`.
+    A kind with exactly one entry and none named `"default"` answers
+    `"default"` with that entry. This is how `Grelmicro.get` resolves.
     """
-    if key is None:
-        return None
-    kind, name = key
-    of_kind = [
-        item
-        for item in items
-        if getattr(item, "kind", None) == kind
-        and isinstance(getattr(item, "name", None), str)
-    ]
-    for item in of_kind:
-        if getattr(item, "name", None) == name:
-            return item
-    if name == "default" and len(of_kind) == 1:
-        return of_kind[0]
-    return None
+    counts = Counter(kind for kind, _ in by_key)
+    resolved = dict(by_key)
+    for (kind, _), entry in by_key.items():
+        if counts[kind] == 1:
+            resolved.setdefault((kind, "default"), entry)
+    return resolved
 
 
 def label(item: object) -> str:

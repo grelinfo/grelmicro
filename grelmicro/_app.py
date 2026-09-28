@@ -42,6 +42,7 @@ from grelmicro._environment import (
     resolve_environment,
     strict_message,
     unmet_requirements,
+    with_sole_defaults,
 )
 from grelmicro.errors import (
     AmbientBindingWarning,
@@ -426,13 +427,20 @@ class Grelmicro:
             BackendScopeError: If any bound backend reaches less far than its
                 component requires, naming every one of them.
         """
-        unmet = unmet_requirements(self._items, recorded_bindings())
+        unmet = unmet_requirements(
+            self._items, recorded_bindings(), components=self._resolved
+        )
         if unmet:
             raise BackendScopeError(strict_message(unmet, environment))
 
     def _unmet_bindings(self, bindings: Iterable[Binding]) -> list[Unmet]:
         """Check `bindings` alone against the components this app holds."""
-        return unmet_requirements(self._items, bindings, check_items=False)
+        return unmet_requirements(
+            self._items,
+            bindings,
+            check_items=False,
+            components=self._resolved,
+        )
 
     @classmethod
     def current(cls) -> Grelmicro:
@@ -769,12 +777,7 @@ class Grelmicro:
 
     def _reindex(self) -> None:
         """Rebuild `_resolved` after the registrations change."""
-        counts = Counter(kind for kind, _ in self._by_key)
-        resolved = dict(self._by_key)
-        for (kind, _), component in self._by_key.items():
-            if counts[kind] == 1:
-                resolved.setdefault((kind, "default"), component)
-        self._resolved = resolved
+        self._resolved = with_sole_defaults(self._by_key)
 
     def fake(
         self,
@@ -1587,7 +1590,11 @@ class Grelmicro:
         self._resolve_provider_sharing()
         if self._unfaked is None:
             report_unmet_requirements(
-                unmet_requirements(self._items, recorded_bindings()),
+                unmet_requirements(
+                    self._items,
+                    recorded_bindings(),
+                    components=self._resolved,
+                ),
                 self._environment,
             )
         else:
