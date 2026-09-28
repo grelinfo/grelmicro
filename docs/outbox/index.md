@@ -19,7 +19,8 @@ Define a payload, stage it inside your transaction, and register a handler. The 
 Start a Postgres and run it:
 
 ```bash
-docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=secret postgres
+docker run -d --name outbox-pg -p 5432:5432 -e POSTGRES_PASSWORD=secret postgres
+until docker exec outbox-pg pg_isready -h localhost -U postgres; do sleep 1; done
 POSTGRES_URL=postgresql://postgres:secret@localhost:5432/postgres python quickstart.py
 ```
 

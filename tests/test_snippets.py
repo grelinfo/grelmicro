@@ -100,7 +100,7 @@ _NEEDS_SERVICE = {
     "resilience/retry_composition.py": "the network",
     "resilience/shield_giveup.py": "a full retry budget, which takes seconds",
     "resilience/stack_run.py": "the network",
-    "simple_fastapi_app.py": "Redis",
+    "wiring/simple_fastapi_app.py": "Redis",
     "task/graceful_shutdown.py": "a signal, and it waits for one",
     "task/quickstart.py": "twelve seconds of schedule",
 }
@@ -115,7 +115,7 @@ _ENV = {
     "resilience/timeout_environmental.py": {
         "GREL_TIMEOUT_DB_SECONDS": "2.0",
     },
-    "coordination/postgres.py": {
+    "coordination/postgres_backend.py": {
         "POSTGRES_URL": "postgresql://user:password@localhost:5432/db",
     },
     "outbox/quickstart.py": {
@@ -247,6 +247,41 @@ def test_no_orphan_snippets() -> None:
     orphans = sorted(snippets - included)
     assert not orphans, (
         f"snippets included by no page: {orphans}. Include them or delete them."
+    )
+
+
+def _importable(name: str) -> bool:
+    """Whether `import name` finds a module outside the snippets."""
+    if name in sys.stdlib_module_names:
+        return True
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def test_no_snippet_shadows_a_module() -> None:
+    """No file or folder next to a snippet hides a module it could import.
+
+    `python path/to/snippet.py` puts the snippet's folder first on
+    `sys.path`. A `redis.py` or an `http/` beside it then answers
+    `import redis` or `import http`, and the snippet fails before it runs.
+    """
+    folders = {
+        (_SNIPPETS_DIR / rel).parent
+        for rel in _ALL
+        if not rel.endswith("__init__.py")
+    }
+    shadows = sorted(
+        (entry.relative_to(_SNIPPETS_DIR)).as_posix()
+        for folder in folders
+        for entry in folder.iterdir()
+        if not entry.name.startswith(("_", "."))
+        and (entry.is_dir() or entry.suffix == ".py")
+        and _importable(entry.stem)
+    )
+    assert not shadows, (
+        f"snippet files or folders named like a module: {shadows}. Rename them."
     )
 
 

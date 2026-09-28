@@ -60,27 +60,27 @@ Wire a `Coordination` component like this:
 
 === "Redis"
     ```python
-    --8<-- "coordination/redis.py"
+    --8<-- "coordination/redis_backend.py"
     ```
 
 === "Postgres"
     ```python
-    --8<-- "coordination/postgres.py"
+    --8<-- "coordination/postgres_backend.py"
     ```
 
 === "Kubernetes"
     ```python
-    --8<-- "coordination/kubernetes.py"
+    --8<-- "coordination/kubernetes_backend.py"
     ```
 
 === "SQLite"
     ```python
-    --8<-- "coordination/sqlite.py"
+    --8<-- "coordination/sqlite_backend.py"
     ```
 
 === "Memory"
     ```python
-    --8<-- "coordination/memory.py"
+    --8<-- "coordination/memory_backend.py"
     ```
 
 !!! warning

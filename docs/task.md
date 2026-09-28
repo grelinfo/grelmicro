@@ -72,7 +72,7 @@ Start it standalone using the application lifespan:
 
     ```python
 
-    --8<-- "task/faststream.py"
+    --8<-- "task/faststream_app.py"
     ```
 
 ## Interval Task

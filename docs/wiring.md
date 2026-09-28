@@ -95,7 +95,7 @@ if os.getenv("STORE_BACKEND") == "redis":
 Call `micro.install(app)`. One call wires both pieces:
 
 ```python
---8<-- "simple_fastapi_app.py"
+--8<-- "wiring/simple_fastapi_app.py"
 ```
 
 The lifecycle is always required. `install` always wires it: it opens `micro`
