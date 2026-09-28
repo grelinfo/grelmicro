@@ -76,12 +76,11 @@ request. Your integration tells it what each route requires with a
 | Field | What it says | Default |
 |---|---|---|
 | `path` | The path template, as the router matches it, such as `/orders/{order_id}` | required |
-| `methods` | The methods the router answers on this route. A router that answers `HEAD` for a `GET` lists both. `None` is every method, as a mount or a websocket route answers | `None` |
+| `methods` | The methods the router answers on this route, in capitals. A router that answers `HEAD` for a `GET` lists both. `None` is every method, as a mount or a websocket route answers | `None` |
 | `anonymous` | The route serves a caller with no credential | `False` |
 | `scopes` | The scopes the caller must hold, every one of them | empty |
-| `runs_checks` | The route runs something of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route or on a mount around it | `False` |
-| `cached` | `CachedResponses` may store the route's response | `False` |
-| `cache_ttl` | Seconds a cached response is kept. `None` is the TTL `CachedResponses` is configured with | `None` |
+| `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route or on a mount around it. A response is never cached or replayed across callers | `False` |
+| `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, and a number for that many seconds | `False` |
 
 A declaration is frozen. Pass `path` first and every other field by keyword.
 A route whose methods declare differently, such as a public `GET` beside a
@@ -92,9 +91,12 @@ protected `POST`, lists one declaration per method set.
 Before the handler runs, call the check that matches the request, with the
 request's ASGI scope. It answers `None` to let the request through, or an ASGI
 app that refuses it: a `401` with its challenge, a `403` for a missing scope,
-or a websocket denial. Send the refusal in place of the handler. The check does
-no I/O, because the credential was verified before routing. `gate` itself
-raises for a declaration that cannot hold, so a wrong route fails at install.
+or a websocket denial. Send the refusal in place of the handler. Its `status`
+says which, for a framework that records refusals. The check does no I/O,
+because the credential was verified before routing. A rule that needs I/O,
+such as a lookup by the caller, belongs in the handler or in the framework's
+own guard. `gate` itself raises for a declaration that cannot hold, so a wrong
+route fails at install.
 
 A mount whose routes you cannot read is one route. Declare its path with
 `methods=None` and nothing else, and everything under it stays authenticated.
@@ -104,7 +106,9 @@ A router included more than once is gated at every path it is included under.
 refuses to start an app with a listed route that carries no gate, so a route
 added after install never serves ungated. `grelmicro check`,
 `micro.describe(app)` and the OpenAPI document read the list too. Build both
-from one function, so they cannot disagree.
+from one function, so they cannot disagree. Test them against real routes:
+an included router, a mount and a class-based endpoint are where a missed
+`scopes` hides, and it lets any authenticated caller in.
 
 For Starlette, where your own decorators set `anonymous` and `scopes` on the
 endpoint:
@@ -162,20 +166,26 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
   leave `exclude=`.
 - **A URL no route answers is `401`.** A request with no credential that
   reaches no gate gets the same `401` and body as a protected route, in place
-  of the `404`, `405` or slash redirect. So a caller without a credential
-  cannot tell which routes exist.
+  of the `404`, `405` or slash redirect. The challenge names no scopes, on any
+  route, so a caller without a credential cannot tell which routes exist.
 - **Some answers come before routing.** A CORS preflight, and a response your
   app's own middleware writes before routing, are answered as today.
 - **A credential is verified before routing.** Outside `exclude=`, a token
   that does not verify, or a caller `bans` refuses, is answered before the
-  framework sees the request.
+  framework sees the request. That holds on an `anonymous=True` route too: a
+  token that is sent must verify.
 - **No hooks, no declarations.** An integration without the two functions
   declares nothing. Every route stays authenticated, and `CachedResponses`
   caches only the paths `include=` names.
-- **Some declarations are refused.** `anonymous=True` with `scopes`, and
-  `cached=True` on a method other than `GET`, fail at install, naming the
-  route. A `CachedResponse` declared on a router covers the `GET` routes under
-  it, so its writes declare `cached=False`.
+- **Some declarations are refused.** These fail at install, naming the
+  route: `anonymous=True` with `scopes`, `cache` with `own_checks`, `cache` on
+  a route answering a method other than `GET` or `HEAD`, an empty `methods`,
+  and a method in lower case. A `CachedResponse` declared on a router covers
+  the reads under it that run no checks of their own, so its writes and those
+  reads declare no `cache`.
+- **A cached protected route is shared.** Its response is served to every
+  caller the route admits, so declare `cache` only where each of them gets the
+  same answer.
 
 ## Publish a third-party adapter
 
