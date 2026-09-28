@@ -334,11 +334,16 @@ class _Gating:
         )
 
     def app(self, app: Starlette, prefix: str) -> None:
-        """Hold a mounted Starlette app, gating the router it builds its stack with."""
+        """Hold a mounted Starlette app, gating the router it builds its stack with.
+
+        A stack the app built before it was held is dropped, so its next
+        request builds one with the router this walk gated.
+        """
         held, new = self._hold(app, prefix)
         held.router = app.router
         if not new:
             return
+        app.middleware_stack = None
         build = app.build_middleware_stack
 
         def build_middleware_stack() -> ASGIApp:

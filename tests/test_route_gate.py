@@ -1563,6 +1563,31 @@ class TestRoutesAddedLater:
         assert rewritten == UNAUTHORIZED
         assert excluded == OK
 
+    async def test_a_mounted_app_that_served_before_install_serves_its_gated_router(
+        self, probe: Probe
+    ) -> None:
+        """A stack it built before install never serves the router it replaced."""
+        sub = Starlette(
+            routes=[
+                Route("/files/{name}", served),
+                Route("/admin", probe.endpoint),
+            ],
+            middleware=[Middleware(NormalizedPath)],
+        )
+        await status_of(sub, "/files/readme")
+        sub.router = Router([Route("/files/{name}", served)])
+        app = installed(
+            Starlette(routes=[Mount("/sub", app=sub)]),
+            exclude=("/sub/files/*",),
+        )
+
+        rewritten = await status_of(app, "/sub/files/../admin")
+        excluded = await status_of(app, "/sub/files/readme")
+
+        assert rewritten != OK
+        assert probe.calls == 0
+        assert excluded == OK
+
     def test_a_route_list_given_to_the_router_before_startup_is_gated(
         self, probe: Probe
     ) -> None:
