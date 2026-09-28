@@ -142,15 +142,15 @@ JSON output:
 ```
 
 ??? note "LOGFMT and PRETTY output"
-    LOGFMT output:
-    ```
-    time=... level=ERROR msg="Operation failed" logger=... error.type=ZeroDivisionError error.message="division by zero" error.stack="Traceback..."
+    The same record in LOGFMT:
+    ```text
+    time=... level=ERROR msg="Operation failed" logger=__main__ error.type=ZeroDivisionError error.message="division by zero" error.stack="Traceback..." operation=divide
     ```
 
-    PRETTY output:
-    ```
+    And in PRETTY:
+    ```text
       ... ERROR Operation failed
-        at ...
+        at __main__
         operation: divide
         error.type: ZeroDivisionError
         error.message: division by zero

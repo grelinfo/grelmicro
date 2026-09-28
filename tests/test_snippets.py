@@ -589,11 +589,13 @@ _COLOR_VARIABLES = frozenset(
 
 
 def _run_snippet(rel: str, extra: dict[str, str] | None = None) -> str:
+    """Run a snippet as a reader does, with its documented environment."""
     env = {
         key: value
         for key, value in os.environ.items()
         if key not in _COLOR_VARIABLES
     }
+    env.update(_ENV.get(rel, {}))
     env.update(extra or {})
     completed = subprocess.run(  # noqa: S603
         [sys.executable, str(_SNIPPETS_DIR / rel)],
@@ -673,6 +675,36 @@ def test_documented_output_matches_on_postgres(
     _assert_prints(where, rel, expected, printed)
 
 
+@pytest.mark.parametrize(
+    "rel", sorted(rel for rel in _ENV if rel not in _NEEDS_SERVICE)
+)
+def test_run_snippet_sets_the_documented_environment(rel: str) -> None:
+    """A snippet that reads its settings from the environment runs.
+
+    Each of these fails at start without the variables its page
+    documents, so exiting cleanly proves the output comparison sets them.
+    """
+    _run_snippet(rel)
+
+
+_HEADING_RE = re.compile(r"^[ \t]*#{1,6}[ \t]")
+
+
+def _headings(page: Path) -> list[int]:
+    """Return the line numbers of the page's headings, outside fenced blocks."""
+    text = page.read_text()
+    fenced: set[int] = set()
+    for match in _FENCE_RE.finditer(text):
+        first = text[: match.start()].count("\n") + 1
+        last = text[: match.end()].count("\n") + 1
+        fenced.update(range(first, last + 1))
+    return [
+        number
+        for number, line in enumerate(text.splitlines(), start=1)
+        if number not in fenced and _HEADING_RE.match(line)
+    ]
+
+
 def test_output_blocks_are_marked() -> None:
     """A block a page calls output is checked against the snippet.
 
@@ -682,19 +714,24 @@ def test_output_blocks_are_marked() -> None:
     unmarked = []
     for page in _pages():
         lines = page.read_text().splitlines()
-        after_include = False
+        headings = _headings(page)
+        include_line = None
         for line, info, body in _blocks(page):
             if _INCLUDE_RE.search(body):
-                after_include = True
+                include_line = line
+                continue
+            if include_line is None or any(
+                include_line < heading < line for heading in headings
+            ):
+                include_line = None
                 continue
             above = lines[max(line - 2, 0) : line - 1]
             lead = above[0].strip() if above else ""
             says_output = bool(
                 re.fullmatch(r"[\w ]*output:", lead, re.IGNORECASE)
             )
-            if after_include and says_output and 'title="output"' not in info:
+            if says_output and 'title="output"' not in info:
                 unmarked.append(f"{page.relative_to(_ROOT)}:{line}")
-            after_include = False
     assert not unmarked, (
         f'blocks shown as output without `title="output"`: {unmarked}. '
         "Label it so the snippet's real output is compared against it."
