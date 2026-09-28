@@ -164,6 +164,11 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
   through, and a token sent to it is not read. The request is held to the
   route the router dispatched it to, so a path rewritten on the way cannot
   leave `exclude=`.
+- **A gate needs the app's policy.** The middleware of the app that
+  authenticates a request puts its policy on the request. A gated route
+  reached without it, through a scope rebuilt on the way or from an app
+  without authentication, is refused `401`. So a router is not shared with an
+  app that does not authenticate it.
 - **A URL no route answers is `401`.** A request with no credential that
   reaches no gate gets the same `401` and body as a protected route, in place
   of the `404`, `405` or slash redirect. The challenge names no scopes, on any

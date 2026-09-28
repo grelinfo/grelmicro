@@ -344,7 +344,7 @@ def _from_authentication_required(
 ) -> Occurrence:
     return Occurrence(
         AUTHENTICATION_REQUIRED,
-        headers=_challenge(scopes=exc.scopes, metadata=exc.resource_metadata),
+        headers=_challenge(metadata=exc.resource_metadata),
     )
 
 
@@ -372,7 +372,7 @@ def _from_insufficient_scope(exc: InsufficientScopeError) -> Occurrence:
         INSUFFICIENT_SCOPE,
         headers=_challenge(
             error="insufficient_scope",
-            scopes=exc.scopes,
+            scopes=tuple(sorted(exc.scopes)),
             metadata=exc.resource_metadata,
         ),
     )

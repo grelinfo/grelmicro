@@ -52,6 +52,30 @@ sits in `exclude`. It could never serve the requests it was written for. Read
 
 HTTP requests and websocket handshakes are both covered.
 
+### Decided at the route, on Starlette
+
+On Starlette, `micro.install(app)` puts a gate in front of every route and
+every `HTTPEndpoint` method, and in front of every mount whose app is not a
+Starlette router. A request without a credential is still
+refused before routing, unless its path is in `exclude`. A request whose token
+verified is routed, and the gate of the route it reaches checks its scopes.
+
+- A URL no route answers gets the same `401` as a protected route, and the
+  `401` names no scope.
+- A mount whose app is not a Starlette router, such as `StaticFiles`, a
+  mounted app or a mount with middleware, is also one protected route, and the
+  routes it holds are gated too. A router `default` of your own is gated.
+- A route added later, through the app or any of its routers, is gated as it
+  lands. A route list, a mount's app or a router's default assigned once the
+  app serves is gated before the next request goes through it. An app whose
+  router is replaced after `install` refuses to start.
+- A path in `exclude` stays excluded only as far as the route it is routed to.
+  A mounted app's middleware that rewrites `/files/../admin` to `/admin` meets
+  the gate of `/admin`, which refuses it. So does a request whose middleware
+  rebuilds the scope on the way.
+- A route shared by several apps is gated with each app's own `exclude` and
+  error format. An app without `AuthenticatedRequests` gets `401` on it.
+
 ## Reading the caller
 
 The verified caller is put in `request.user` and `request.auth`, which is where
@@ -94,7 +118,7 @@ the `WWW-Authenticate` challenge
 
 | Case | Status | `type` anchor | Challenge |
 |---|---|---|---|
-| No credential, or another scheme such as `Basic` | `401` | [`authentication-required`](errors.md#authentication-required) | `Bearer`, with `scope=` when the route declares scopes |
+| No credential, or another scheme such as `Basic` | `401` | [`authentication-required`](errors.md#authentication-required) | `Bearer`, naming no scope |
 | A token that does not verify | `401` | [`token-rejected`](errors.md#token-rejected), with `reason` | `Bearer error="invalid_token"` |
 | More than one credential | `400` | [`ambiguous-credentials`](errors.md#ambiguous-credentials) | `Bearer error="invalid_request"` |
 | A missing scope | `403` | [`insufficient-scope`](errors.md#insufficient-scope) | `Bearer error="insufficient_scope"` with `scope=` |

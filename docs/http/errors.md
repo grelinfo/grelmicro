@@ -342,10 +342,10 @@ sending another request.
 ### Authentication required { #authentication-required }
 
 `401`. The request carried no bearer token, or a credential in another scheme
-such as `Basic`. `WWW-Authenticate` says `Bearer`, and names the scopes the
-route needs when it declares any, as
-[RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) asks. Send a token
-in `Authorization: Bearer`. A service publishing
+such as `Basic`. `WWW-Authenticate` says `Bearer`, as
+[RFC 6750](https://www.rfc-editor.org/rfc/rfc6750#section-3) asks, and names no
+scope, so a caller without a token cannot tell which routes exist or what they
+need. Send a token in `Authorization: Bearer`. A service publishing
 [where to get one](authentication.md#telling-a-client-where-to-get-a-token) adds
 `resource_metadata` to this challenge and to every other one below.
 

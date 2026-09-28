@@ -338,6 +338,9 @@
     "RenderedError": {
       "()": "(status, media_type, headers, body) -> None"
     },
+    "RouteDeclaration": {
+      "()": "(path, *, methods=None, anonymous=False, scopes=frozenset(), own_checks=False, cache=False) -> None"
+    },
     "StoredResponse": null,
     "TMFError": {
       "()": "(*, code, reason, message=None, referenceError=None, type_='Error', **extra_data) -> None"
@@ -507,8 +510,14 @@
     "install_middleware": {
       "()": "(app, components) -> None"
     },
+    "install_route_gate": {
+      "()": "(app, gate) -> None"
+    },
     "is_bound": {
       "()": "(app) -> bool"
+    },
+    "route_declarations": {
+      "()": "(app) -> 'list[RouteDeclaration]'"
     }
   },
   "grelmicro.log": {

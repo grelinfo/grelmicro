@@ -593,7 +593,7 @@ def Authenticated(  # noqa: N802
     ```
 
     A caller with no credential is answered `401`, and one lacking a scope
-    `403`, each with a `WWW-Authenticate` challenge naming the scopes.
+    `403`, whose `WWW-Authenticate` challenge names the scopes.
 
     It needs a registered `AuthenticatedRequests`, which verifies the token
     before the route runs. Without one, every call is answered `401`.

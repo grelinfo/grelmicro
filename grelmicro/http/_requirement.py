@@ -90,9 +90,7 @@ class Requirement:
         """
         caller = scope.get("user")
         if not is_authenticated(caller):
-            raise recorded(
-                scope, AuthenticationRequiredError(scopes=self.scopes)
-            )
+            raise recorded(scope, AuthenticationRequiredError())
         # Starlette's authentication and `AuthenticatedRequests` both grant
         # scopes on `scope["auth"]`. A caller set without credentials there
         # carries its own.
@@ -118,9 +116,7 @@ class Requirement:
         self.caller(scope)
         token = scope.get(TOKEN_SCOPE_KEY)
         if not isinstance(token, VerifiedToken):
-            raise recorded(
-                scope, AuthenticationRequiredError(scopes=self.scopes)
-            )
+            raise recorded(scope, AuthenticationRequiredError())
         return token
 
     def declare[T](self, target: T) -> T:

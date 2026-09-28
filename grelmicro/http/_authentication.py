@@ -8,6 +8,7 @@ import inspect
 import json
 import re
 import warnings
+from collections import Counter
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from itertools import chain, repeat
@@ -69,7 +70,16 @@ from grelmicro.http._kinds import (
 )
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
-from grelmicro.http._requirement import TOKEN_SCOPE_KEY, declared_scopes
+from grelmicro.http._requirement import (
+    TOKEN_SCOPE_KEY,
+    declared_scopes,
+    recorded,
+)
+from grelmicro.http._routes import (
+    RouteDeclaration,
+    refuse_impossible,
+    route_name,
+)
 from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
@@ -113,9 +123,12 @@ if TYPE_CHECKING:
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
-    _Check = Callable[
+    _CallerCheck = Callable[
         [Principal, Scope], Principal | Awaitable[Principal | None] | None
     ]
+
+    _Check = Callable[[Scope], "_Refusal | None"]
+    """What a gate hands a route: `None` to serve the request, or its refusal."""
 
 __all__ = [
     "AuthenticatedRequests",
@@ -551,6 +564,19 @@ class _PublicRoutes:
     def __init__(self) -> None:
         """Start with no app and no public route."""
         self._apps: dict[Any, _Routes] = {}
+        self._gated: dict[int, tuple[Any, GatePolicy]] = {}
+
+    def gate(self, app: Any, policy: GatePolicy) -> None:  # noqa: ANN401
+        """Mark `app` as one whose every route carries a gate, under `policy`.
+
+        The app is held, so its identity stays its own.
+        """
+        self._gated[id(app)] = (app, policy)
+
+    def policy_of(self, app: Any) -> GatePolicy | None:  # noqa: ANN401
+        """Return the policy the gates of `app` read, or `None` when it has none."""
+        gated = self._gated.get(id(app))
+        return None if gated is None else gated[1]
 
     @property
     def apps(self) -> tuple[Any, ...]:
@@ -1851,7 +1877,7 @@ class AuthenticatedRequestsMiddleware:
             ),
         ] = None,
         check: Annotated[
-            _Check | None,
+            _CallerCheck | None,
             Doc(
                 "Checks each verified caller before the app sees it, such as "
                 "against the tokens the service revoked. Called with the "
@@ -1939,6 +1965,8 @@ class AuthenticatedRequestsMiddleware:
         # Bound once, so a request leaves it on the scope without building
         # a new bound method each time.
         self._record_route_refusal = self._record_raised
+        self._record_unauthenticated = self._record
+        self._policy: object = _UNREAD
         self._metadata = _resource_metadata(
             described.resource,
             described.authorization_servers,
@@ -1969,12 +1997,9 @@ class AuthenticatedRequestsMiddleware:
                 self._routing_checked = True
                 _warn_if_unrouted(scope, metadata)
             send = _pointing_at(send, metadata.pointer)
-        if self._serves_anonymously(scope):
-            # Set only when nothing else did, so an authentication the app
-            # runs itself outside this one keeps its caller.
-            scope.setdefault("user", _ANONYMOUS)
-            scope.setdefault("auth", _ANONYMOUS)
-            await self._forward(scope, receive, send)
+        unverified = self._unverified(scope)
+        if unverified is not None:
+            await unverified(scope, receive, send)
             return
         try:
             caller, token = await self._authenticate(scope)
@@ -1995,6 +2020,11 @@ class AuthenticatedRequestsMiddleware:
         scope["auth"] = caller
         scope[SCOPE_KEY] = self._record_route_refusal
         scope[TOKEN_SCOPE_KEY] = verified
+        policy = self._policy
+        if policy is not None:
+            scope[GATE_KEY] = (
+                self._policy_of(scope) if policy is _UNREAD else policy
+            )
         self._events.authenticated(caller)
         await self._forward(scope, receive, send)
 
@@ -2012,19 +2042,23 @@ class AuthenticatedRequestsMiddleware:
     ) -> None:
         """Record a refusal, when it is one.
 
-        The route is read the way the router records it, and otherwise off
-        the routes the app declares, which is how a Starlette route and a
-        refusal before routing are named. A refusal `check` or a route raised
+        A gate names the route it refused on, and a request no route took
+        names none. Otherwise the route is read the way the router records
+        it, and then off the routes the app declares, which is how a refusal
+        before routing is named. A refusal `check` or a route raised
         names the `caller` its token verified. `authenticated` says the
         request already counted as one that authenticated.
         """
         found = refusal_of(error)
         if found is None:
             return
-        template = route_template(scope, _arrived_path(scope))
-        public = self._public
-        if template is None and public is not None:
-            template = public.template(scope)
+        if ROUTE_KEY in scope:
+            template = scope[ROUTE_KEY]
+        else:
+            template = route_template(scope, _arrived_path(scope))
+            public = self._public
+            if template is None and public is not None:
+                template = public.template(scope)
         self._events.refused(
             scope,
             refusal=found[0],
@@ -2053,23 +2087,73 @@ class AuthenticatedRequestsMiddleware:
             error.resource_metadata = metadata.url
             raise
 
-    def _serves_anonymously(self, scope: Scope) -> bool:
-        """Return whether the request is served without verifying a credential.
+    def _unverified(self, scope: Scope) -> ASGIApp | None:
+        """Return how the request is served without verifying a credential.
 
-        An excluded path never reads one. A public route reads one only when
-        a bearer token is presented, so a request sending none is served
-        anonymously and one sending a token is verified like any other.
+        An excluded path never reads one. On an app whose routes carry a
+        gate, any other request is verified, and one sending no bearer token
+        is refused before routing. On any other app a request sending none
+        is served anonymously on a public route. `None` for a request whose
+        credential is verified or refused.
         """
+        public = self._public
         if self._exclude and not selects(
             route_path(scope), include=(), exclude=self._exclude
         ):
-            return True
-        public = self._public
-        return (
-            public is not None
-            and not _presents_bearer(scope)
-            and public.matches(scope)
-        )
+            return self._serve_excluded
+        if (
+            public is None
+            or _presents_bearer(scope)
+            or self._policy_of(scope) is not None
+        ):
+            return None
+        if public.matches(scope):
+            return self._serve_anonymous
+        return None
+
+    def _policy_of(self, scope: Scope) -> GatePolicy | None:
+        """Return the policy the gates of the app serving the request read.
+
+        Read once, off the app the middleware sits in front of, which is the
+        one in `scope["app"]` when the request reaches it.
+        """
+        policy = self._policy
+        if policy is _UNREAD:
+            public = self._public
+            policy = self._policy = (
+                None if public is None else public.policy_of(scope.get("app"))
+            )
+        return cast("GatePolicy | None", policy)
+
+    async def _serve_anonymous(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Serve a request without a credential, with a caller that is not one.
+
+        Set only when nothing else set one, so an authentication the app
+        runs itself outside this one keeps its caller.
+        """
+        scope.setdefault("user", _ANONYMOUS)
+        scope.setdefault("auth", _ANONYMOUS)
+        await self._forward(scope, receive, send)
+
+    async def _serve_excluded(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Serve a request to an excluded path, never reading its credential.
+
+        On an app whose routes carry a gate, the gate the request reaches
+        holds it to the path it was routed with, read from the root path it
+        arrived with.
+        """
+        policy = self._policy_of(scope)
+        if policy is not None:
+            scope[GATE_KEY] = policy
+            scope[EXCLUDED_ROOT_KEY] = scope.get("root_path", "")
+            scope[SCOPE_KEY] = self._record_unauthenticated
+        scope.setdefault("user", _ANONYMOUS)
+        scope.setdefault("auth", _ANONYMOUS)
+        await self._forward(scope, receive, send)
 
     async def _authenticate(self, scope: Scope) -> tuple[Principal, str]:
         """Return the verified caller and its token, or raise what the caller is told."""
@@ -2236,7 +2320,9 @@ def _bearer_of(credential: bytes) -> str:
     return token if scheme.lower() == _BEARER else ""
 
 
-async def _checked(check: _Check, caller: Principal, scope: Scope) -> Principal:
+async def _checked(
+    check: _CallerCheck, caller: Principal, scope: Scope
+) -> Principal:
     """Return the caller `check` accepts, awaiting it when it answers later.
 
     Raises:
@@ -2261,6 +2347,14 @@ async def _checked(check: _Check, caller: Principal, scope: Scope) -> Principal:
     return checked
 
 
+def _errors_of(app: object) -> ErrorResponses:
+    """Return the `ErrorResponses` the app answers every refusal with."""
+    registered = getattr(
+        getattr(app, "state", None), "grelmicro_error_responses", None
+    )
+    return registered if registered is not None else ErrorResponses()
+
+
 async def _refuse(
     scope: Scope, receive: Receive, send: Send, error: Exception
 ) -> None:
@@ -2269,12 +2363,9 @@ async def _refuse(
     An error with no kind of its own, such as one a `check` raised, is
     raised again, for the server to answer as any other failure.
     """
-    app = scope.get("app")
-    registered = getattr(
-        getattr(app, "state", None), "grelmicro_error_responses", None
+    rendered = _errors_of(scope.get("app")).render(
+        error, instance=scope.get("path")
     )
-    errors = registered if registered is not None else ErrorResponses()
-    rendered = errors.render(error, instance=scope.get("path"))
     if rendered is None:
         raise error
     if scope["type"] == "http":
@@ -2314,6 +2405,264 @@ async def _deny_websocket(
         )
         return
     await send({"type": "websocket.close", "code": _POLICY_VIOLATION})
+
+
+EXCLUDED_ROOT_KEY: Final = "grelmicro.excluded_root"
+"""Where the middleware leaves the root path it matched `exclude` against."""
+
+GATE_KEY: Final = "grelmicro.gate"
+"""Where the middleware leaves the `GatePolicy` of the app serving the request."""
+
+ROUTE_KEY: Final = "grelmicro.route"
+"""Where a gate leaves the template of the route it refused a request on."""
+
+_UNREAD: Final = object()
+"""The policy of a middleware that has not read its app's yet."""
+
+
+class GatePolicy:
+    """What the gates of one app read off each request, beside the route's own.
+
+    The middleware of the app serving a request puts it on the scope, so a
+    route gated for several apps answers each by its own `exclude` and in
+    its own error format.
+    """
+
+    __slots__ = ("errors", "exclude")
+
+    def __init__(
+        self, *, exclude: tuple[str, ...], errors: ErrorResponses
+    ) -> None:
+        """Hold the app's `exclude` and the format its refusals are answered in."""
+        self.exclude = exclude
+        self.errors = errors
+
+
+class _Refusal:
+    """Refuses a request at a route's gate, in the app's error format.
+
+    An ASGI app, sent in place of the route. `status` says which refusal
+    it is: `401` for a request with no credential, `403` for a caller
+    lacking a scope.
+    """
+
+    __slots__ = ("_error", "_errors", "status", "template")
+
+    def __init__(
+        self,
+        error: Callable[[], Exception],
+        *,
+        status: int,
+        template: str,
+        errors: ErrorResponses,
+    ) -> None:
+        """Refuse with the error `error` builds, rendered by `errors`."""
+        self._error = error
+        self._errors = errors
+        self.status = status
+        self.template = template
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Record the refusal, then answer it."""
+        error = self._error()
+        scope.setdefault(ROUTE_KEY, self.template)
+        recorded(scope, error)
+        rendered = cast(
+            "RenderedError",
+            self._errors.render(error, instance=scope.get("path")),
+        )
+        if scope["type"] == "http":
+            await send_error(send, rendered)
+            return
+        await _deny_websocket(scope, receive, send, rendered)
+
+
+def _gate_path(scope: Scope) -> str:
+    """Return the path the app routed the request with, from its own root.
+
+    Read against the root path the request arrived at the middleware with,
+    which a mount inside the app grows by its prefix, so the path reads
+    the way `exclude` matched it before routing.
+    """
+    return starlette_route_path(scope["path"], scope.get(EXCLUDED_ROOT_KEY, ""))
+
+
+def _check_of(declaration: RouteDeclaration) -> _Check:
+    """Return the check one declaration asks for, built once for its route.
+
+    The check reads the app's `GatePolicy` off the request. A request
+    `AuthenticatedRequests` verified a token for is served unless it lacks
+    a scope. Any other request is served on an anonymous route, or on a
+    path still in the app's `exclude`, and refused `401` otherwise, in the
+    default format when it carries no policy.
+    """
+    if declaration.anonymous:
+        return _admit
+    unauthenticated = _without_credential(declaration.path)
+    if not declaration.scopes:
+        return _authenticated(unauthenticated)
+    return _scoped(declaration, unauthenticated)
+
+
+def _admit(scope: Scope) -> _Refusal | None:  # noqa: ARG001
+    """Serve the request, whoever sent it."""
+    return None
+
+
+def _without_credential(template: str) -> _Check:
+    """Return the check of a request that sent no verified credential.
+
+    It is served only on a path still in the `exclude` of the app whose
+    policy it carries. Without a policy it is refused in the default
+    format.
+    """
+
+    def check(scope: Scope) -> _Refusal | None:
+        policy: GatePolicy | None = scope.get(GATE_KEY)
+        if policy is None:
+            return _Refusal(
+                AuthenticationRequiredError,
+                status=AUTHENTICATION_REQUIRED.status,
+                template=template,
+                errors=ErrorResponses(),
+            )
+        exclude = policy.exclude
+        if exclude and not selects(
+            _gate_path(scope), include=(), exclude=exclude
+        ):
+            return None
+        return _Refusal(
+            AuthenticationRequiredError,
+            status=AUTHENTICATION_REQUIRED.status,
+            template=template,
+            errors=policy.errors,
+        )
+
+    return check
+
+
+def _authenticated(unauthenticated: _Check) -> _Check:
+    """Return the check of a route requiring a caller and no scope."""
+
+    def check(scope: Scope) -> _Refusal | None:
+        if TOKEN_SCOPE_KEY in scope:
+            return None
+        return unauthenticated(scope)
+
+    return check
+
+
+def _scoped(declaration: RouteDeclaration, unauthenticated: _Check) -> _Check:
+    """Return the check of a route requiring a caller holding every scope.
+
+    The scopes granted are read where `Authenticated` reads them:
+    `scope["auth"]` first, then the caller's own for one set without
+    credentials there.
+    """
+    held = declaration.scopes.issubset
+    missing = functools.partial(
+        InsufficientScopeError, scopes=tuple(sorted(declaration.scopes))
+    )
+    template = declaration.path
+
+    def check(scope: Scope) -> _Refusal | None:
+        if TOKEN_SCOPE_KEY not in scope:
+            return unauthenticated(scope)
+        granted: Any = getattr(scope.get("auth"), "scopes", None)
+        if granted is None:
+            granted = getattr(scope.get("user"), "scopes", ())
+        if held(granted):
+            return None
+        policy: GatePolicy | None = scope.get(GATE_KEY)
+        return _Refusal(
+            missing,
+            status=INSUFFICIENT_SCOPE.status,
+            template=template,
+            errors=ErrorResponses() if policy is None else policy.errors,
+        )
+
+    return check
+
+
+class RouteGate:
+    """Hands each route of one app the check its declaration asks for.
+
+    `micro.install(app)` builds one from `AuthenticatedRequests` and passes
+    it to the integration's `install_route_gate(app, gate)`. Each call
+    refuses a declaration that cannot hold, and counts it as gated, so a
+    route the integration lists without a gate is found. The check depends
+    on the declaration alone, and reads the app's policy off the request.
+    """
+
+    __slots__ = ("_app", "_gated", "_listing", "_public", "policy")
+
+    def __init__(
+        self,
+        app: Any,  # noqa: ANN401
+        *,
+        exclude: tuple[str, ...],
+        errors: ErrorResponses,
+        public: _PublicRoutes,
+    ) -> None:
+        """Gate the routes of `app`, refusing in the format of `errors`."""
+        self._app = app
+        self._public = public
+        self.policy = GatePolicy(exclude=exclude, errors=errors)
+        self._gated: Counter[RouteDeclaration] = Counter()
+        self._listing: Callable[[], Iterable[RouteDeclaration]] | None = None
+
+    def __call__(self, declaration: RouteDeclaration) -> _Check:
+        """Return the check for one declaration.
+
+        Raises:
+            TypeError: If `cache` is neither a boolean nor a number.
+            ValueError: If the declaration cannot hold, naming its route.
+        """
+        refuse_impossible(declaration)
+        self._gated[declaration] += 1
+        return _check_of(declaration)
+
+    def hold(
+        self,
+        *,
+        wired: bool,
+        listing: Callable[[], Iterable[RouteDeclaration]] | None,
+    ) -> None:
+        """Take the app's routes as gated, once the integration wired them.
+
+        The middleware in front of an app whose routes are `wired` puts its
+        policy on each request it lets through. `listing` returns the
+        routes the integration declares, each of which must carry a gate.
+
+        Raises:
+            RuntimeError: If a listed route carries no gate, naming it.
+        """
+        self._listing = listing
+        self.refuse_ungated()
+        if wired:
+            self._public.gate(self._app, self.policy)
+
+    def refuse_ungated(self) -> None:
+        """Refuse a route the integration lists that carries no gate.
+
+        Raises:
+            RuntimeError: Naming the first such route.
+        """
+        listing = self._listing
+        if listing is None:
+            return
+        ungated = Counter(listing()) - self._gated
+        if not ungated:
+            return
+        route = min(ungated, key=route_name)
+        msg = (
+            f"{route_name(route)} carries no authentication gate, so a "
+            f"request would reach it unchecked. Add a route through the app "
+            f"or its router, which gates it as it lands."
+        )
+        raise RuntimeError(msg)
 
 
 class AuthenticatedRequests:
@@ -2393,7 +2742,7 @@ class AuthenticatedRequests:
             ),
         ] = None,
         check: Annotated[
-            _Check | None,
+            _CallerCheck | None,
             Doc(
                 "Checks every verified caller before the app sees it, such as "
                 "against the tokens the service revoked. Called with the "
@@ -2504,7 +2853,7 @@ class AuthenticatedRequests:
             Doc("The proxies whose forwarded entries may be believed."),
         ] = None,
         check: Annotated[
-            _Check | None,
+            _CallerCheck | None,
             Doc(
                 "Checks every verified caller before the app sees it. It "
                 "returns the caller routes receive, or `None` to refuse it."
@@ -2547,7 +2896,7 @@ class AuthenticatedRequests:
         verifier: _Verifier,
         bans: ClientBans | None,
         trusted: TrustedProxies | None,
-        check: _Check | None,
+        check: _CallerCheck | None,
         name: str,
         openapi: bool,
     ) -> None:
@@ -2561,6 +2910,7 @@ class AuthenticatedRequests:
         self._openapi = openapi
         self._stack: AsyncExitStack | None = None
         self._public = _PublicRoutes()
+        self._gates: list[RouteGate] = []
         # Built once here so a mistake is refused where it is written,
         # rather than on the first request the app serves.
         AuthenticatedRequestsMiddleware(_nothing, **self._options())
@@ -2643,6 +2993,44 @@ class AuthenticatedRequests:
         refuse_routes_at_metadata(app, resource_metadata_of(self._options()))
         self._public.read(app)
 
+    def route_gate(
+        self,
+        app: Annotated[Any, Doc("The application whose routes to gate.")],  # noqa: ANN401
+        errors: Annotated[
+            ErrorResponses | None,
+            Doc("The registered format refusals are answered in, if any."),
+        ] = None,
+    ) -> RouteGate | None:
+        """Return the gate the app's routes are wrapped with.
+
+        Called by `micro.install(app)` once the middleware is added, for an
+        integration that declares its routes. `None` when the middleware in
+        front of the app is not this component's, such as one the app added
+        by hand, which serves public paths through `exclude` alone.
+        """
+        if not self._serves(app):
+            return None
+        gate = RouteGate(
+            app,
+            exclude=self._config.exclude,
+            errors=errors if errors is not None else ErrorResponses(),
+            public=self._public,
+        )
+        self._gates.append(gate)
+        return gate
+
+    def _serves(self, app: Any) -> bool:  # noqa: ANN401
+        """Return whether the middleware in front of `app` is this component's."""
+        for entry in getattr(app, "user_middleware", None) or ():
+            middleware = getattr(entry, "cls", None)
+            if isinstance(middleware, type) and issubclass(
+                middleware, AuthenticatedRequestsMiddleware
+            ):
+                return (
+                    getattr(entry, "kwargs", {}).get("public") is self._public
+                )
+        return False
+
     def handled_exceptions(self) -> tuple[type[Exception], ...]:
         """Return what this component answers rather than letting through.
 
@@ -2658,11 +3046,14 @@ class AuthenticatedRequests:
         Raises:
             TypeError: If a route added since install requires a caller where
                 it could never get one.
+            RuntimeError: If a route the integration lists carries no gate.
         """
         metadata = resource_metadata_of(self._options())
         for app in self._public.apps:
             refuse_unreachable_routes(app, self._config.exclude)
             refuse_routes_at_metadata(app, metadata)
+        for gate in self._gates:
+            gate.refuse_ungated()
         self._public.reread()
         stack = AsyncExitStack()
         enter = getattr(self._verifier, "__aenter__", None)

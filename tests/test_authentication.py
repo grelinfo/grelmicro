@@ -966,7 +966,7 @@ class TestPlacement:
     """Authentication runs before anything of ours can answer."""
 
     def test_authentication_runs_before_the_rate_limit(self) -> None:
-        """Registered after, it still answers first."""
+        """Registered after, it still refuses a token first."""
         limiter = RateLimiter.sliding_window(
             "burst", limit=100, window=60, backend=MemoryRateLimiterAdapter()
         )
@@ -975,7 +975,9 @@ class TestPlacement:
             AuthenticatedRequests(verifier()),
         )
 
-        response = TestClient(app, client=CALLER).get("/whoami")
+        response = TestClient(app, client=CALLER).get(
+            "/whoami", headers=bearer(token(FORGER))
+        )
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
         assert "ratelimit" not in response.headers
@@ -1125,9 +1127,7 @@ class TestStarlette:
         response = client.delete("/async")
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
-        assert response.headers["www-authenticate"] == (
-            'Bearer scope="orders:write"'
-        )
+        assert response.headers["www-authenticate"] == "Bearer"
 
     def test_the_report_names_the_scope(self) -> None:
         """`grelmicro check` reads the decorator as it reads a guard."""
@@ -1168,7 +1168,7 @@ class TestStarlette:
         assert response.json() == {"cancelled": True}
 
     def test_stacked_decorators_require_and_report_every_scope(self) -> None:
-        """Each one adds its scopes, and the refusal names all of them."""
+        """Each one adds its scopes, and the refusal names all of them, sorted."""
 
         @StarletteAuthenticated(scopes=["orders:read"])
         @StarletteAuthenticated(scopes=["admin"])
@@ -1195,7 +1195,7 @@ class TestStarlette:
         )
 
         assert refused.headers["www-authenticate"] == (
-            'Bearer error="insufficient_scope", scope="orders:read admin"'
+            'Bearer error="insufficient_scope", scope="admin orders:read"'
         )
         assert served.json() == {"audited": True}
         assert applies == ("authenticated orders:read admin",)
@@ -2155,9 +2155,7 @@ class TestFastAPI:
         response = client.delete("/orders/7", headers=bearer(token()))
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
-        assert response.headers["www-authenticate"] == (
-            'Bearer scope="orders:write"'
-        )
+        assert response.headers["www-authenticate"] == "Bearer"
 
     def test_the_current_principal_without_the_component_is_refused(
         self,
@@ -2713,9 +2711,7 @@ class TestLitestar:
             response = client.delete("/orders/7", headers=bearer(token()))
 
         assert response.status_code == HTTP_401_UNAUTHORIZED
-        assert response.headers["www-authenticate"] == (
-            'Bearer scope="orders:write"'
-        )
+        assert response.headers["www-authenticate"] == "Bearer"
 
     def test_authentication_runs_before_the_rate_limit_on_litestar(
         self,
