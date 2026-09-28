@@ -17,7 +17,7 @@ from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.metrics import _emit
 from grelmicro.task._fire import FireInfo, FireRecorder
-from grelmicro.task._gate import check_sync, gate_label
+from grelmicro.task._gate import LeaderWatch, check_sync, gate_label
 from grelmicro.task._utils import validate_and_generate_reference
 
 logger = getLogger("grelmicro.task")
@@ -77,6 +77,11 @@ class IntervalTask(Task):
         )
 
         self._gate_label = gate_label(gate, takes_lock=True)
+        self._watch = (
+            LeaderWatch(gate, self._name)
+            if isinstance(gate, LeaderElection)
+            else None
+        )
         primitives = self._gate_primitives(gate, seconds)
         self._claim = next(
             (p for p in primitives if isinstance(p, TaskLock)), None
@@ -171,11 +176,16 @@ class IntervalTask(Task):
         )
         if ready is not None and not ready.done():  # pragma: no branch
             ready.set_result(None)
+        watch = self._watch
+        if watch is not None:
+            watch.start()
         try:
             while True:
                 await self._fire.guard(
                     self._run_with_sync(self._sync_primitives)
                 )
+                if watch is not None:
+                    watch.check()
                 # The current iteration finished. Break here on a graceful
                 # stop so in-flight work is never interrupted; otherwise
                 # sleep until the next interval (waking early on stop).

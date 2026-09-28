@@ -1,7 +1,8 @@
 # Diagnostics
 
-grelmicro reports a handful of problems at startup: a variable that will not be
-applied, a backend that cannot keep its promise, a middleware that is missing.
+grelmicro reports a handful of configuration problems: a variable that will not
+be applied, a backend that cannot keep its promise, a middleware that is
+missing, a leader election that never runs.
 Each one carries a stable **code** so you can grep it, look it up, and assert on
 it in a test without pinning the wording.
 
@@ -64,6 +65,7 @@ configuration it names. Each entry below says which.
 | `middleware-placement` | `MiddlewarePlacementWarning` | none | A grelmicro middleware wraps middleware the app declared itself, so it would answer before them, or cannot see a path it serves. |
 | `provider-order` | none | `LifecycleOrderError` | A Provider is listed after the Component that borrows it. |
 | `sentinel-password` | `SentinelPasswordWarning` | none | A Sentinel password is set but the URL scheme cannot apply it. |
+| `leader-not-running` | `LeaderNotRunningWarning` | none | A task is gated on a leader election that does not run, so it skips every fire. |
 
 ### `env-load-off`
 
@@ -127,3 +129,12 @@ runs.
 
 The password configures the Sentinel servers, which only a `redis+sentinel://`
 URL connects to. Set it with `sentinel_password=` or the matching variable.
+
+### `leader-not-running`
+
+A `LeaderElection` acquires leadership only while it runs. A task gated on one
+that nothing runs skips every fire. The task reports it once, on the first fire
+it skips a lease duration after it started. Register the election beside the
+task with `tasks.add_task(election)`, or start it yourself. An election started
+later, by another `Tasks` or a lifespan, is fine as long as it runs within the
+lease duration. See [Leader Election](coordination/leader-election.md).
