@@ -96,6 +96,15 @@
 ### Docs
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
+* 📝 `llms.txt` is a curated index again, and the new `llms-full.txt` lists every page of the site. A test asserts that each page in the nav appears in one of them, so a new page cannot go missing. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 The Bulkhead, Fallback and Timeout pages name `RateLimiter` in the composition order, matching Composing patterns and `Stack`. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 Backends and adapters says which error a Pattern resolved outside the app raises, and teaches `micro.install(app)` instead of adding the middleware by hand. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 Graceful shutdown says what a force-cancelled lock holder releases. A task cancelled in its body still releases, and a cancel that lands during the release leaves the lease to expire by TTL. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 Declarative configuration says the resolution rule covers the programmatic and environmental paths, and that `from_config` skips the env layer. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 Configuration internals describes live reconfiguration as shipped, not as future work. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 The `@cached` page and docstring say the `ttl=` form takes async functions only, and that a sync function needs a `TTLCache`. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 Testing says how to build a verifier for a test instead of pointing at a JWT section that does not show it. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
+* 📝 The README describes the Task Scheduler as it behaves: every worker runs a task unless `gate=` picks one. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 
 ### Internal
 * 👷 One release ships `grelmicro` and `grelmicro-core`. When PyPI lacks the crate version, the release builds the core and publishes it first, so `grelmicro[jwt]` always resolves. A `jwt` pin that names another version, or a crate changed after its version was published, fails the pull request. ([#875](https://github.com/grelinfo/grelmicro/issues/875))
