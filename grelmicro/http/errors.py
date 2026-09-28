@@ -25,7 +25,9 @@ class PreconditionFailedError(PreconditionError):
 
     The `If-Match` header carried an entity tag that is not the one the
     resource has now, so another writer landed in between and the write
-    would have overwritten their change. Answers `412`.
+    would have overwritten their change. Or `If-Match` named a resource
+    that does not exist, or `If-None-Match` still matches the resource.
+    Answers `412`.
 
     Raise it yourself when the conditional write itself comes back empty,
     which is the case a check before the write cannot catch:

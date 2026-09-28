@@ -472,8 +472,8 @@ def check_precondition(
     every framework.
 
     Raises:
-        PreconditionFailedError: If the client's entity tag is not the
-            one the resource carries. Answers `412`.
+        PreconditionFailedError: If the resource is not in the state the
+            request's `If-Match` or `If-None-Match` asked for. Answers `412`.
         PreconditionRequiredError: If `require` and the request carried
             no precondition. Answers `428`.
         OutOfContextError: If `ConditionalRequests()` is not registered,

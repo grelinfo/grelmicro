@@ -832,7 +832,8 @@ class ConditionalRequest:
         """Refuse a write whose precondition no longer holds.
 
         Raises:
-            PreconditionFailedError: If the entity tag is not current.
+            PreconditionFailedError: If the resource is not in the state
+                the request's `If-Match` or `If-None-Match` asked for.
             PreconditionRequiredError: If `require` and none was sent.
         """
         # From the headers this was handed, not from the request scope, so
