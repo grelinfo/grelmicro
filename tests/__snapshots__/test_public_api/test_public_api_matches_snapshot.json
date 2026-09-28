@@ -316,7 +316,7 @@
     "PROBLEM_MEDIA_TYPE": null,
     "PreconditionError": null,
     "PreconditionFailedError": {
-      "()": "() -> None"
+      "()": "(message=None) -> None"
     },
     "PreconditionRequiredError": {
       "()": "() -> None"

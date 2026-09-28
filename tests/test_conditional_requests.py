@@ -26,6 +26,7 @@ from grelmicro.http import (
     check_precondition,
     etag_of,
 )
+from grelmicro.http._conditional import _Preconditions
 from grelmicro.integrations.fastapi import (
     Conditional,
     ConditionalRequired,
@@ -1806,3 +1807,46 @@ def test_a_router_prefix_selects_the_router_root() -> None:
     assert selects("/payments/1", include=("/payments/*",), exclude=())
     assert not selects("/payments-eu", include=("/payments/*",), exclude=())
     assert not selects("/other", include=("/payments/*",), exclude=())
+
+
+def test_a_stale_tag_is_told_to_fetch_again() -> None:
+    """`If-Match` naming an old tag names fetching the current one."""
+    # Arrange
+    preconditions = _Preconditions(if_match=('"v1"',))
+
+    # Act
+    with pytest.raises(PreconditionFailedError) as error:
+        preconditions.check('"v2"', require=False)
+
+    # Assert
+    assert "Fetch the resource again" in str(error.value)
+
+
+def test_if_match_on_a_missing_resource_says_it_does_not_exist() -> None:
+    """With no resource there is no tag to fetch, so none is suggested."""
+    # Arrange
+    preconditions = _Preconditions(if_match=('"v1"',))
+
+    # Act
+    with pytest.raises(PreconditionFailedError) as error:
+        preconditions.check(None, require=False)
+
+    # Assert
+    msg = str(error.value)
+    assert "The resource does not exist" in msg
+    assert "Fetch the resource again" not in msg
+
+
+def test_create_only_on_an_existing_resource_says_it_exists() -> None:
+    """A refused create is not told to retry with the current tag."""
+    # Arrange
+    preconditions = _Preconditions(if_none_match=("*",))
+
+    # Act
+    with pytest.raises(PreconditionFailedError) as error:
+        preconditions.check('"v1"', require=False)
+
+    # Assert
+    msg = str(error.value)
+    assert "a create-only write is refused" in msg
+    assert "Fetch the resource again" not in msg
