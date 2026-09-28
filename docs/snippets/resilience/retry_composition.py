@@ -3,9 +3,13 @@ import asyncio
 import httpx
 from pydantic import BaseModel
 
-from grelmicro.resilience import CircuitBreaker, retry
+from grelmicro.resilience import (
+    CircuitBreaker,
+    MemoryCircuitBreakerAdapter,
+    retry,
+)
 
-cb = CircuitBreaker("payments")
+cb = CircuitBreaker("payments", backend=MemoryCircuitBreakerAdapter())
 
 
 class Payment(BaseModel):
@@ -16,9 +20,14 @@ class Receipt(BaseModel):
     id: str
 
 
+def payments_api(request: httpx.Request) -> httpx.Response:
+    """Stand in for the payment API, so the example runs offline."""
+    return httpx.Response(200, json={"id": "pay_1"})
+
+
 # A narrow allowlist that excludes CircuitBreakerError. When the
 # breaker is open it raises CircuitBreakerError, which is not in
-# `on`, so the retry loop aborts immediately.
+# `when`, so the retry loop aborts immediately.
 @retry(when=(httpx.ConnectError, httpx.TimeoutException), attempts=3)
 async def call_payments(
     client: httpx.AsyncClient, url: str, payment: Payment
@@ -30,9 +39,10 @@ async def call_payments(
 
 
 async def main() -> None:
-    async with httpx.AsyncClient() as client:
+    transport = httpx.MockTransport(payments_api)
+    async with httpx.AsyncClient(transport=transport) as client:
         receipt = await call_payments(
-            client, "https://example.com", Payment(amount=100)
+            client, "https://payments.example/charges", Payment(amount=100)
         )
         print(receipt)
 
