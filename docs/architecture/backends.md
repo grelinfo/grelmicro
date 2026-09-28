@@ -171,7 +171,7 @@ Ambient resolution reads `Grelmicro.current()`, which is per asyncio task. A Fas
 micro.install(app)
 ```
 
-`install` adds `GrelmicroMiddleware` and wires everything else the app registered. Always call it, never add the middleware by hand, as [Wiring an App](../wiring.md) explains. The middleware is pure ASGI, binds on `http` and `websocket` scopes, and works with any ASGI framework. Background `Tasks` already run inside the app scope and need nothing.
+`install` binds the app to each request, or to each consumed message on FastStream, and wires everything else the app registered. On Starlette, FastAPI, Litestar and FastStream, always call it and never add the middleware by hand, as [Wiring an App](../wiring.md) explains. Any other ASGI framework wraps its app in `GrelmicroMiddleware` itself, as [Frameworks](../frameworks.md#any-other-asgi-framework) shows. Background `Tasks` already run inside the app scope and need nothing.
 
 ## Test-time overrides
 
