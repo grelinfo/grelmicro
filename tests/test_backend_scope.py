@@ -15,7 +15,11 @@ from grelmicro import (
     GrelmicroConfigWarning,
 )
 from grelmicro._config import flush_ignored_env_reports
-from grelmicro._environment import recorded_bindings, unmet_requirements
+from grelmicro._environment import (
+    Binding,
+    recorded_bindings,
+    unmet_requirements,
+)
 from grelmicro.cache import Cache, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.coordination import (
@@ -631,6 +635,49 @@ def test_an_idempotency_riding_a_memory_cache_is_refused() -> None:
         BackendScopeError, match=r"Idempotency\('orders'\) rides Cache"
     ):
         micro.check_backends()
+
+    del idem
+
+
+def test_a_binding_that_holds_and_rides_nothing_is_not_reported() -> None:
+    """With no backend and no component to ride, there is nothing to check."""
+    items = [Cache(MemoryCacheAdapter(), name="sessions")]
+
+    assert (
+        unmet_requirements(items, [Binding("X", "cluster")], check_items=False)
+        == []
+    )
+
+
+def test_an_idempotency_rides_the_sole_cache_when_none_is_default() -> None:
+    """With no `Cache('default')`, the pattern rides the only `Cache`."""
+    idem = Idempotency("orders")
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter(), name="sessions")])
+
+    with pytest.raises(
+        BackendScopeError,
+        match=r"Idempotency\('orders'\) rides Cache\('sessions'\)",
+    ):
+        micro.check_backends()
+
+    del idem
+
+
+async def test_a_rider_reads_the_override_of_the_sole_cache() -> None:
+    """An open override replaces the sole `Cache`, so the rider reads it."""
+    idem = Idempotency("orders")
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter(), name="x")])
+    replacement = Cache(MemoryCacheAdapter(), name="x")
+    rider = Binding("Rider", "cluster", rides=("cache", "default"))
+
+    async with micro, micro.override(replacement):
+        with pytest.raises(
+            BackendScopeError,
+            match=r"Idempotency\('orders'\) rides Cache\('x'\)",
+        ):
+            micro.check_backends()
+        unmet = micro._unmet_bindings([rider])
+        assert [entry.rides for entry in unmet] == ["Cache('x')"]
 
     del idem
 

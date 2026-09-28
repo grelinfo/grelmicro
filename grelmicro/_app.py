@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from contextlib import (
     AbstractAsyncContextManager,
     AsyncExitStack,
@@ -41,6 +42,7 @@ from grelmicro._environment import (
     resolve_environment,
     strict_message,
     unmet_requirements,
+    with_sole_defaults,
 )
 from grelmicro.errors import (
     AmbientBindingWarning,
@@ -123,7 +125,8 @@ def resolve_ambient(
 
     Backs every pattern that resolves without `backend=`, so it runs on each
     operation. An open `Bulkhead` scope wins, and the app answers whatever
-    the scope leaves alone.
+    the scope leaves alone. `"default"` resolves as `Grelmicro.get` resolves
+    it, to the sole entry of that kind when none is named `"default"`.
 
     Without `refusal`, every miss raises `LookupError`. With it, a miss
     raises `OutOfContextError` carrying `refusal`, with `{name}` standing
@@ -140,18 +143,27 @@ def resolve_ambient(
         # Past that this resolves the same way `Grelmicro.get` does, so
         # change one and change the other.
         micro = _current_micro.get()
-        overrides = _active_bulkhead.get(None)
-        if overrides is not None:
-            override = overrides.get(key)
-            if override is not None:
-                return override
-        try:
-            return micro._by_key[key]  # noqa: SLF001
-        except KeyError:
-            # Raised as the error `Grelmicro.get` raises, hint and all, so a
-            # caller that lets it through reports the same miss. Only a miss
-            # pays for building the message.
-            return micro.get(*key)
+        scope = _active_bulkhead.get(None)
+        # A miss goes through `Grelmicro.get`, which raises its error, hint
+        # and all, so a caller that lets it through reports the same miss.
+        # Only a miss pays for building the message.
+        if scope is None:
+            try:
+                return micro._resolved[key]  # noqa: SLF001
+            except KeyError:
+                return micro.get(*key)
+        component = scope.overrides.get(key)
+        if component is None:
+            component = micro._by_key.get(key)  # noqa: SLF001
+            if component is None and key[1] == "default":
+                sole = scope.sole
+                kind = key[0]
+                component = (
+                    sole[kind] if kind in sole else micro._resolved.get(key)  # noqa: SLF001
+                )
+        if component is not None:
+            return component
+        return micro.get(*key)
     except LookupError:
         if refusal is None:
             raise
@@ -183,15 +195,56 @@ when `GrelmicroMiddleware` binds the app per request (see
 `Grelmicro.check_ambient_binding`).
 """
 
-_active_bulkhead: ContextVar[Mapping[tuple[str, str], Component]] = ContextVar(
+
+@dataclass(frozen=True, slots=True)
+class _BulkheadScope:
+    """What the open `Bulkhead` scopes install, innermost first."""
+
+    overrides: Mapping[tuple[str, str], Component]
+    """Every scoped component by `(kind, name)`, an inner scope over an outer
+    one."""
+
+    sole: Mapping[str, Component | None]
+    """Per kind, the sole component of the innermost scope holding that kind,
+    or None when that scope holds several."""
+
+
+def bulkhead_layer(
+    overrides: Mapping[tuple[str, str], Component],
+) -> _BulkheadScope:
+    """Return the scope one `Bulkhead` opens on its own."""
+    counts = Counter(kind for kind, _ in overrides)
+    sole = {
+        kind: component if counts[kind] == 1 else None
+        for (kind, _), component in overrides.items()
+    }
+    return _BulkheadScope(dict(overrides), sole)
+
+
+def enter_bulkhead_scope(
+    current: _BulkheadScope | None, layer: _BulkheadScope
+) -> _BulkheadScope:
+    """Return the scope that `layer` opens inside `current`."""
+    if current is None:
+        return layer
+    return _BulkheadScope(
+        {**current.overrides, **layer.overrides},
+        {**current.sole, **layer.sole},
+    )
+
+
+_active_bulkhead: ContextVar[_BulkheadScope] = ContextVar(
     "grelmicro_active_bulkhead"
 )
-"""Component overrides installed by the active `Bulkhead` scope, keyed by `(kind, name)`.
+"""Component overrides installed by the open `Bulkhead` scopes.
 
-`Grelmicro.get` consults this before its own registrations so a Pattern resolving
-its default backend inside the scope picks up the bulkhead's `uses=`
-component. A Pattern with an explicit `backend=` never calls `get`, so
-explicit choices always win.
+`Grelmicro.get` consults this before its own registrations so a Pattern
+resolving its default backend inside the scope picks up the bulkhead's
+`uses=` component. A name matched exactly wins wherever it is registered,
+innermost scope first, then the app. Only then does `"default"` fall back to
+the sole component of the innermost scope holding that kind, then of the
+app. A Pattern with an explicit `backend=` never calls `get`, so explicit
+choices always win.
 """
 
 
@@ -306,7 +359,9 @@ class Grelmicro:
         self._installed_on: WeakSet[object] = WeakSet()
         """Apps with no `state` this app already wired, see `_install_marks`."""
         self._by_key: dict[tuple[str, str], Component] = {}
-        self._by_kind: dict[str, Component] = {}
+        self._resolved: dict[tuple[str, str], Component] = {}
+        """`_by_key` plus `(kind, "default")` for the sole entry of a kind
+        that has no default, kept in step by `_reindex`."""
         self._exit_stack: AsyncExitStack | None = None
         self._scoped_uses: dict[object, Any] = {}
         self._scoped_opened: set[int] = set()
@@ -384,13 +439,20 @@ class Grelmicro:
             BackendScopeError: If any bound backend reaches less far than its
                 component requires, naming every one of them.
         """
-        unmet = unmet_requirements(self._items, recorded_bindings())
+        unmet = unmet_requirements(
+            self._items, recorded_bindings(), components=self._resolved
+        )
         if unmet:
             raise BackendScopeError(strict_message(unmet, environment))
 
     def _unmet_bindings(self, bindings: Iterable[Binding]) -> list[Unmet]:
         """Check `bindings` alone against the components this app holds."""
-        return unmet_requirements(self._items, bindings, check_items=False)
+        return unmet_requirements(
+            self._items,
+            bindings,
+            check_items=False,
+            components=self._resolved,
+        )
 
     @classmethod
     def current(cls) -> Grelmicro:
@@ -565,12 +627,7 @@ class Grelmicro:
                 )
                 raise ComponentAlreadyRegisteredError(msg)
         self._by_key[key] = component
-        # `micro.<kind>` prefers the entry named `"default"`. Only update the
-        # kind-default index when this registration is the default one.
-        # `__getattr__` falls back to the sole entry per kind when no default
-        # is registered.
-        if component.name == "default":
-            self._by_kind[component.kind] = component
+        self._reindex()
         self._items.append(component)
         answer_for(component)
 
@@ -660,10 +717,16 @@ class Grelmicro:
             str,
             Doc(
                 """
-                Component instance name. `"default"` matches the entry that
-                also backs `micro.<kind>`. Pass the explicit name to resolve
-                a secondary registration such as
-                `Coordination(lock=backend, name="analytics")`.
+                Component instance name. `"default"` resolves the entry
+                that also backs `micro.<kind>`: the one named `"default"`,
+                or the sole entry of that kind when none is. Inside open
+                `Bulkhead` scopes, an entry with the exact name wins first,
+                innermost scope first, then the app. Only then does
+                `"default"` take the sole entry of the innermost scope
+                holding that kind, then of the app. Pass another name to
+                resolve that registration, such as
+                `Coordination(lock=backend, name="analytics")`. A name that
+                matches no component raises.
                 """,
             ),
         ] = "default",
@@ -693,21 +756,40 @@ class Grelmicro:
             kind = kind.kind
         # `resolve_ambient` resolves the same way for the pattern hot path.
         # Change one and change the other.
-        overrides = _active_bulkhead.get(None)
-        if overrides is not None:
-            override = overrides.get((kind, name))
-            if override is not None:
-                return override
-        try:
-            return self._by_key[(kind, name)]
-        except KeyError as exc:
-            registered = sorted(self._by_key)
-            if registered:
-                hint = "registered: " + ", ".join(repr(k) for k in registered)
-            else:
-                hint = "no components are registered"
-            msg = f"no component registered for {(kind, name)!r}. {hint}."
-            raise ComponentNotRegisteredError(msg) from exc
+        key = (kind, name)
+        scope = _active_bulkhead.get(None)
+        if scope is not None:
+            component = scope.overrides.get(key)
+            if component is None:
+                component = self._by_key.get(key)
+            if component is not None:
+                return component
+            if name == "default" and kind in scope.sole:
+                # The innermost scope holding this kind decides the fallback.
+                component = scope.sole[kind]
+                if component is None:
+                    raise self._not_registered(key)
+                return component
+        component = self._resolved.get(key)
+        if component is not None:
+            return component
+        raise self._not_registered(key)
+
+    def _not_registered(
+        self, key: tuple[str, str]
+    ) -> ComponentNotRegisteredError:
+        """Build the error for a `get` that matches no component."""
+        registered = sorted(self._by_key)
+        if registered:
+            hint = "registered: " + ", ".join(repr(k) for k in registered)
+        else:
+            hint = "no components are registered"
+        msg = f"no component registered for {key!r}. {hint}."
+        return ComponentNotRegisteredError(msg)
+
+    def _reindex(self) -> None:
+        """Rebuild `_resolved` after the registrations change."""
+        self._resolved = with_sole_defaults(self._by_key)
 
     def fake(
         self,
@@ -803,7 +885,6 @@ class Grelmicro:
         self._unfaked = _Unfaked(
             items=self._items,
             by_key=self._by_key,
-            by_kind=self._by_kind,
             skipped=skipped,
         )
         self._items = [
@@ -814,10 +895,7 @@ class Grelmicro:
         self._by_key = {
             key: replacements.get(id(c), c) for key, c in self._by_key.items()
         }
-        self._by_kind = {
-            kind: replacements.get(id(c), c)
-            for kind, c in self._by_kind.items()
-        }
+        self._reindex()
         for provider in skipped:
             provider._skips += 1  # noqa: SLF001
 
@@ -832,7 +910,7 @@ class Grelmicro:
             # The open failed during setup, before anything could register.
             self._items = unfaked.items
             self._by_key = unfaked.by_key
-            self._by_kind = unfaked.by_kind
+            self._reindex()
             return
         # A registration made while the faked app was open is kept, as it
         # would be on a real run.
@@ -850,14 +928,7 @@ class Grelmicro:
             ),
         ]
         self._by_key = {**unfaked.by_key, **added}
-        self._by_kind = {
-            **unfaked.by_kind,
-            **{
-                key[0]: component
-                for key, component in added.items()
-                if key[1] == "default"
-            },
-        }
+        self._reindex()
 
     @asynccontextmanager
     async def override(
@@ -901,7 +972,6 @@ class Grelmicro:
             raise OutOfContextError(self, "override")
         snapshot_by_key = self._by_key.copy()
         snapshot_items = self._items.copy()
-        snapshot_by_kind = self._by_kind.copy()
         async with AsyncExitStack() as stack:
             # The index is mutated one component at a time, so the restore
             # has to cover the loop as well as the block. A component that
@@ -910,10 +980,9 @@ class Grelmicro:
                 for component in components:
                     key = (component.kind, component.name)
                     self._by_key[key] = component
+                    self._reindex()
                     if component not in self._items:  # pragma: no branch
                         self._items.append(component)
-                    if component.name == "default":  # pragma: no branch
-                        self._by_kind[component.kind] = component
                     # `Component` is an async context manager; ty misreads the
                     # protocol's `Self`-returning `__aenter__` as incompatible
                     # with its own AbstractAsyncContextManager base.
@@ -922,7 +991,7 @@ class Grelmicro:
             finally:
                 self._by_key = snapshot_by_key
                 self._items = snapshot_items
-                self._by_kind = snapshot_by_kind
+                self._reindex()
 
     def describe(
         self,
@@ -1091,16 +1160,13 @@ class Grelmicro:
 
     def _resolve_kind(self, name: str) -> Any:  # noqa: ANN401
         """Shared resolution logic for typed properties and `__getattr__`."""
-        by_kind = self.__dict__.get("_by_kind", {})
-        if name in by_kind:
-            return by_kind[name]
+        component = self.__dict__.get("_resolved", {}).get((name, "default"))
+        if component is not None:
+            return component
         by_key = self.__dict__.get("_by_key", {})
-        matches = [v for (k, _), v in by_key.items() if k == name]
-        if len(matches) == 1:
-            return matches[0]
         cls = type(self).__name__
-        if matches:
-            names = sorted(n for (k, n), _ in by_key.items() if k == name)
+        names = sorted(n for (k, n) in by_key if k == name)
+        if names:
             msg = (
                 f"{cls!r} has multiple {name!r} components ({names}), "
                 f"none named 'default'. Use micro.get({name!r}, <name>)."
@@ -1536,7 +1602,11 @@ class Grelmicro:
         self._resolve_provider_sharing()
         if self._unfaked is None:
             report_unmet_requirements(
-                unmet_requirements(self._items, recorded_bindings()),
+                unmet_requirements(
+                    self._items,
+                    recorded_bindings(),
+                    components=self._resolved,
+                ),
                 self._environment,
             )
         else:
@@ -1803,7 +1873,6 @@ class _Unfaked:
 
     items: list[AbstractAsyncContextManager[object]]
     by_key: dict[tuple[str, str], Component]
-    by_kind: dict[str, Component]
     skipped: list[Provider]
     settled: bool = False
     """Whether the faked open got past its setup, so its lists are final."""

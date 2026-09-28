@@ -26,6 +26,8 @@ from grelmicro._app import (
     _opened_key,
     _opening_lock,
     _order_providers_first,
+    bulkhead_layer,
+    enter_bulkhead_scope,
 )
 from grelmicro._async import is_async_callable
 from grelmicro._component import Component, Usable, instantiate_if_class
@@ -281,6 +283,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         self._uses = _expand_uses(name, uses)
         self._owned = _owned_providers(self._uses)
         self._overrides = _index_overrides(name, self._uses)
+        self._layer = bulkhead_layer(self._overrides)
         self._scoped_to: Grelmicro | None = None
         self._scope_stack: AsyncExitStack | None = None
         self._opening = 0
@@ -366,13 +369,11 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
                 ):
                     await self._open_uses()
             if self._overrides:
-                current = _active_bulkhead.get(None)
-                merged = (
-                    {**current, **self._overrides}
-                    if current
-                    else dict(self._overrides)
+                token = _active_bulkhead.set(
+                    enter_bulkhead_scope(
+                        _active_bulkhead.get(None), self._layer
+                    )
                 )
-                token = _active_bulkhead.set(merged)
             task = _current_task()
         except BaseException:
             if token is not None:
