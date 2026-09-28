@@ -81,7 +81,7 @@ The JSON parse runs only on env values. A `default="[1,2,3]"` passed in code sta
 
 ## Composition
 
-The recommended outside-in order is **Fallback → Retry → CircuitBreaker → Bulkhead → Timeout → call**. Read more in [Composing patterns](composition.md).
+The recommended outside-in order is **Fallback → Retry → CircuitBreaker → RateLimiter → Bulkhead → Timeout → call**. Read more in [Composing patterns](composition.md).
 
 ```python
 --8<-- "resilience/fallback_composition.py"
