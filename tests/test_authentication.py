@@ -1622,6 +1622,63 @@ class TestConstruction:
                 app_with(), verifier=verifier(), exclude=("/livez", pattern)
             )
 
+    @pytest.mark.parametrize(
+        ("pattern", "suggested"),
+        [
+            ("/public*", "'/public/*' for everything under it, or '/public'"),
+            ("/public/v1*", "'/public/v1/*' for everything under it"),
+            ("/public/**", "'/public/*' for everything under it, or '/public'"),
+            ("/public/*/**", "'/public/*/*' for everything under it"),
+            ("/**", "segment boundary, such as '/internal/*'"),
+            ("**", "segment boundary, such as '/internal/*'"),
+        ],
+    )
+    def test_an_exclude_prefix_ending_mid_segment_is_refused(
+        self, pattern: str, suggested: str
+    ) -> None:
+        """`/public*` also serves `/publicity` without a credential."""
+        refused = f"ends inside a path segment.*{re.escape(suggested)}"
+        with pytest.raises(ValueError, match=refused):
+            AuthenticatedRequests(verifier(), exclude=(pattern,))
+        with pytest.raises(ValueError, match=refused):
+            AuthenticatedRequests.from_config(
+                AuthenticatedRequestsConfig(exclude=("/livez", pattern)),
+                verifier(),
+            )
+        with pytest.raises(ValueError, match=refused):
+            AuthenticatedRequestsMiddleware(
+                app_with(), verifier=verifier(), exclude=("/livez", pattern)
+            )
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "/public/*",
+            "/public",
+            "/public/",
+            "/public/v1/*",
+            "/public//*",
+            "/",
+            "/pub*lic",
+            "/public/*.json",
+            "/public/*/*",
+        ],
+    )
+    def test_an_exclude_ending_at_a_segment_boundary_is_kept(
+        self, pattern: str
+    ) -> None:
+        """An exact path, or a prefix ending with `/*`, names what it covers.
+
+        A `*` anywhere but the end is a literal character, so it matches
+        less than it reads, never more.
+        """
+        component = AuthenticatedRequests(verifier(), exclude=(pattern,))
+        AuthenticatedRequestsMiddleware(
+            app_with(), verifier=verifier(), exclude=(pattern,)
+        )
+
+        assert component.config.exclude == (pattern,)
+
     def test_an_exclude_under_a_prefix_is_kept(self) -> None:
         """A prefix narrower than the whole app is what `exclude` is for."""
         component = AuthenticatedRequests(verifier(), exclude=("/internal/*",))

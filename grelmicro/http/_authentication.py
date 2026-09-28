@@ -1676,7 +1676,7 @@ class AuthenticatedRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         PathPatterns,
         Doc(
             "Paths served without a credential, such as health probes. "
-            "Exact match unless the pattern ends with `*`, which matches as "
+            "Exact match unless the pattern ends with `/*`, which matches as "
             "a prefix."
         ),
     ] = ()
@@ -1831,7 +1831,7 @@ class AuthenticatedRequestsMiddleware:
             tuple[str, ...],
             Doc(
                 "Paths served without a credential. Exact match unless the "
-                "pattern ends with `*`, which matches as a prefix."
+                "pattern ends with `/*`, which matches as a prefix."
             ),
         ] = (),
         bans: Annotated[
@@ -1899,7 +1899,8 @@ class AuthenticatedRequestsMiddleware:
                 a single string, `bans` is given without `trusted`, `check`
                 cannot be called, or `resource` is given and no
                 authorization server is known.
-            ValueError: If a pattern in `exclude` matches every path.
+            ValueError: If a pattern in `exclude` matches every path, or is
+                a prefix ending inside a path segment, such as `/public*`.
             SettingsValidationError: If `resource`, an authorization server
                 or a scope is not one a client could use.
         """
@@ -1920,9 +1921,7 @@ class AuthenticatedRequestsMiddleware:
         self.app = app
         self._verifier = verifier
         self._check = check
-        self._exclude = _narrower_than_everything(
-            as_patterns(exclude, name="exclude")
-        )
+        self._exclude = _bounded(as_patterns(exclude, name="exclude"))
         self._bans = bans
         self._trusted = trusted
         self._public = public
@@ -2145,12 +2144,18 @@ def _expiry_of(caller: object) -> int | None:
     return None
 
 
-def _narrower_than_everything(exclude: tuple[str, ...]) -> tuple[str, ...]:
-    """Return `exclude`, refusing a pattern that matches every path.
+def _bounded(exclude: tuple[str, ...]) -> tuple[str, ...]:
+    """Return `exclude`, refusing a pattern that covers more than it names.
+
+    A prefix pattern matches every path that starts with it, so one that
+    stops inside a segment, such as `/public*`, also serves `/publicity`.
+    A prefix ends at a segment boundary, `/public/*`, or the pattern is an
+    exact path.
 
     Raises:
         ValueError: If a pattern is `*` or `/*`, which would serve every
-            request without a credential.
+            request without a credential, or a prefix ending inside a
+            path segment.
     """
     for pattern in exclude:
         if pattern in _EVERY_PATH:
@@ -2160,7 +2165,25 @@ def _narrower_than_everything(exclude: tuple[str, ...]) -> tuple[str, ...]:
                 f"to serve the app without a credential."
             )
             raise ValueError(msg)
+        if pattern.endswith("*") and not pattern[:-1].endswith("/"):
+            raise ValueError(_mid_segment(pattern))
     return exclude
+
+
+def _mid_segment(pattern: str) -> str:
+    """Say why a prefix ending inside a segment is refused, and what to write."""
+    base = pattern.rstrip("*").rstrip("/")
+    msg = (
+        f"exclude pattern {pattern!r} ends inside a path segment, so it also "
+        f"serves every path that merely starts the same way without a "
+        f"credential. Write a prefix that ends at a segment boundary"
+    )
+    if not base:
+        return f"{msg}, such as '/internal/*'."
+    return (
+        f"{msg}: '{base}/*' for everything under it, or '{base}' for that "
+        f"path alone."
+    )
 
 
 _EVERY_PATH: Final = frozenset({"*", "/*"})
@@ -2354,7 +2377,8 @@ class AuthenticatedRequests:
             tuple[str, ...],
             Doc(
                 "Paths served without a credential, such as health probes. "
-                "Same matching as every other middleware."
+                "Exact match unless the pattern ends with `/*`, which matches "
+                "as a prefix."
             ),
         ] = (),
         bans: Annotated[
@@ -2431,6 +2455,8 @@ class AuthenticatedRequests:
                 a single string, `bans` is given without `trusted`, `check`
                 cannot be called, or `resource` is given and no
                 authorization server is known.
+            ValueError: If a pattern in `exclude` matches every path, or is
+                a prefix ending inside a path segment, such as `/public*`.
             SettingsValidationError: If `resource`, an authorization server
                 or a scope is not one a client could use.
         """

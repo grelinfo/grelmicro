@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 🔒 A prefix in `AuthenticatedRequests(exclude=...)` that ends inside a path segment, such as `/public*`, is refused. It also served `/publicity` without a credential. Write `/public/*` or the exact path `/public`. ([#922](https://github.com/grelinfo/grelmicro/issues/922))
 * 💥 `micro.fake()` entered before the app opens fakes the next open, and `async with micro.fake()` no longer raises on a closed app. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
 * 🔒 A route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
