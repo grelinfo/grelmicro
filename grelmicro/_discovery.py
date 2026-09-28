@@ -38,7 +38,8 @@ resolves. Only the matching integration is imported, which keeps `install`
 from loading every framework grelmicro knows about.
 
 An integration module exposes `install(app, micro, *, ambient)` and
-`is_bound(app)`.
+`is_bound(app)`, and may expose `install_error_responses`,
+`install_middleware`, `install_route_gate` and `route_declarations`.
 """
 
 
@@ -68,6 +69,13 @@ class Integration(Protocol):
     are the registered components carrying `asgi_middleware()`. An
     integration that defines it adds each middleware the way its framework
     takes one, and one that does not is skipped the same way.
+
+    `install_route_gate(app, gate)` and `route_declarations(app)` declare
+    the app's routes. The first wraps what the router dispatches to with the
+    check `gate(declaration)` returns for each route. The second lists the
+    same `RouteDeclaration`s, and a listed route that carries no gate stops
+    the app from starting. An integration without them declares nothing, so
+    every route stays authenticated and is decided before routing.
     """
 
     def install(

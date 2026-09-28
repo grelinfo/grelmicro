@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 from collections import Counter
 from contextlib import (
     AbstractAsyncContextManager,
@@ -34,7 +35,11 @@ from grelmicro._diagnostics import (
     PROVIDER_ORDER,
     diagnostic,
 )
-from grelmicro._discovery import integration_names, load_integration
+from grelmicro._discovery import (
+    Integration,
+    integration_names,
+    load_integration,
+)
 from grelmicro._environment import (
     answer_for,
     recorded_bindings,
@@ -1321,9 +1326,51 @@ class Grelmicro:
             wire_middleware = getattr(integration, "install_middleware", None)
             if wire_middleware is not None:
                 wire_middleware(app, middleware)
+        self._install_route_gate(app, integration, errors)
         # Marked once the wiring holds, so a retry after a failure wires.
         marks, key = self._install_marks(app)
         marks.add(key)
+
+    def _install_route_gate(
+        self,
+        app: object,
+        integration: Integration,
+        errors: object,
+    ) -> None:
+        """Gate every route the integration dispatches to, when one can.
+
+        A component that carries `route_gate()` hands out the gate, and the
+        integration's `install_route_gate(app, gate)` wraps each route with
+        it. `route_declarations(app)` lists the same routes, each of which
+        must then carry a gate, now and when the app starts. Both are
+        feature-detected, like `install_middleware`.
+
+        Raises:
+            RuntimeError: If a route the integration lists carries no gate.
+        """
+        wire = getattr(integration, "install_route_gate", None)
+        listed = getattr(integration, "route_declarations", None)
+        if wire is None and listed is None:
+            return
+        gating: Any = next(
+            (
+                component
+                for component in self.components
+                if hasattr(component, "route_gate")
+            ),
+            None,
+        )
+        if gating is None:
+            return
+        gate = gating.route_gate(app, errors)
+        if gate is None:
+            return
+        if wire is not None:
+            wire(app, gate)
+        gate.hold(
+            wired=wire is not None,
+            listing=None if listed is None else functools.partial(listed, app),
+        )
 
     def _install_marks(self, app: object) -> tuple[WeakSet[object], object]:
         """Return where `app` records what wired it, and the key to record.

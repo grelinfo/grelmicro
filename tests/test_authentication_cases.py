@@ -1,7 +1,9 @@
 """The status every kind of request is answered with, on each framework.
 
 `AuthenticatedRequests` decides whether a request may go without a
-credential before the framework routes it. This table pins what that
+credential before the framework routes it. On Starlette the gate of the
+route a request reaches decides the rest, without the routes read before
+routing. This table pins what that
 decision answers for each kind of request, with no credential and with a
 valid one, on FastAPI, Starlette and Litestar. A change to how the decision
 is made must keep every row.
@@ -48,6 +50,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from grelmicro import Grelmicro
 from grelmicro.errors import MiddlewarePlacementWarning
 from grelmicro.http import AuthenticatedRequests, ErrorResponses
+from grelmicro.http._authentication import _PublicRoutes
 from grelmicro.integrations.fastapi import Anonymous
 from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
 from tests.test_authentication import bearer, token, verifier
@@ -523,6 +526,12 @@ def answered(
         )
 
 
+def unasked(self: _PublicRoutes, scope: Any) -> bool:  # noqa: ANN401, ARG001
+    """Fail the test: the routes read before routing were asked."""
+    msg = f"the router emulation was asked about {scope['path']}"
+    raise AssertionError(msg)
+
+
 FRAMEWORKS = {
     "fastapi": (fastapi_app, TestClient),
     "starlette": (starlette_app, TestClient),
@@ -538,8 +547,16 @@ FRAMEWORKS = {
         for case in CASES
     ],
 )
-def test_each_request_is_answered_as_today(framework: str, case: Case) -> None:
-    """Without a credential and with a valid one, the status is pinned."""
+def test_each_request_is_answered_as_today(
+    framework: str, case: Case, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a credential and with a valid one, the status is pinned.
+
+    Starlette decides at each route's gate, so the routes read before
+    routing are never asked.
+    """
     build, client_class = FRAMEWORKS[framework]
+    if framework == "starlette":
+        monkeypatch.setattr(_PublicRoutes, "matches", unasked)
 
     assert answered(build, client_class, case) == getattr(case, framework)

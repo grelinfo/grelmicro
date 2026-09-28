@@ -735,10 +735,6 @@ def test_a_banned_client_is_told_when_to_come_back() -> None:
 CHALLENGES = [
     (AuthenticationRequiredError(), "Bearer"),
     (
-        AuthenticationRequiredError(scopes=["orders:read", "orders:write"]),
-        'Bearer scope="orders:read orders:write"',
-    ),
-    (
         TokenRejectedError(TokenRejectedReason.EXPIRED),
         'Bearer error="invalid_token"',
     ),
@@ -788,7 +784,7 @@ def test_scopes_given_as_one_string_are_refused() -> None:
     """One string would otherwise read as one scope per character."""
     # Act & Assert
     with pytest.raises(TypeError, match="not a single string"):
-        AuthenticationRequiredError(scopes="orders:read")
+        InsufficientScopeError(scopes="orders:read")
 
 
 def test_the_component_renders_nothing_for_a_server_fault() -> None:

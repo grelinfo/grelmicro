@@ -1,0 +1,1693 @@
+"""Authentication decided per route, after the framework routed the request.
+
+Each route carries a gate built from its `RouteDeclaration`. A request with
+no credential is refused before routing unless its path is excluded or the
+app declares an anonymous route. An excluded request and a request whose
+credential verified are routed, and the gate of the route they reach
+decides, with the policy of the app serving them.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import math
+import posixpath
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
+
+import pytest
+from fastapi import FastAPI
+from starlette.applications import Starlette
+from starlette.endpoints import HTTPEndpoint
+from starlette.middleware import Middleware
+from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.routing import (
+    BaseRoute,
+    Host,
+    Match,
+    Mount,
+    Route,
+    Router,
+    WebSocketRoute,
+)
+from starlette.testclient import TestClient, WebSocketDenialResponse
+
+from grelmicro import Grelmicro
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.http import (
+    AuthenticatedRequests,
+    AuthenticatedRequestsMiddleware,
+    CachedResponses,
+    ErrorResponses,
+    IdempotentRequests,
+    RateLimitedRequests,
+    RouteDeclaration,
+)
+from grelmicro.http._authentication import (
+    GATE_KEY,
+    GatePolicy,
+    RouteGate,
+    _PublicRoutes,
+)
+from grelmicro.http._requirement import TOKEN_SCOPE_KEY
+from grelmicro.http._routes import refuse_impossible
+from grelmicro.integrations.fastapi import Anonymous
+from grelmicro.integrations.starlette import (
+    Authenticated,
+    install_route_gate,
+    route_declarations,
+)
+from grelmicro.resilience import RateLimiter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
+from grelmicro.security import TrustedProxies
+from tests.test_authentication import bearer, token, verifier
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator, MutableMapping
+
+    from starlette.requests import Request
+    from starlette.types import Receive, Scope, Send
+    from starlette.websockets import WebSocket
+
+pytestmark = [pytest.mark.timeout(10)]
+
+UNAUTHORIZED = 401
+FORBIDDEN = 403
+NOT_FOUND = 404
+METHOD_NOT_ALLOWED = 405
+REDIRECT = 307
+OK = 200
+SERVICE_UNAVAILABLE = 503
+CREATED = 201
+POLICY_VIOLATION = 1008
+MAINTENANCE = {"x-maintenance": "on"}
+EVENTS = "grelmicro.security.events"
+
+
+async def served(request: Request) -> JSONResponse:
+    """Answer with the path the request arrived at."""
+    return JSONResponse({"path": request.url.path})
+
+
+@Authenticated(scopes=["orders:write"])
+async def written(request: Request) -> JSONResponse:  # noqa: ARG001
+    """Answer a caller holding `orders:write`."""
+    return JSONResponse({"written": True})
+
+
+async def accept(websocket: WebSocket) -> None:
+    """Accept the handshake and close."""
+    await websocket.accept()
+    await websocket.close()
+
+
+@Authenticated(scopes=["chat"])
+async def chat(websocket: WebSocket) -> None:
+    """Accept a caller holding `chat`."""
+    await websocket.accept()
+    await websocket.close()
+
+
+class Orders(HTTPEndpoint):
+    """Reads need a caller, writes need `orders:write`."""
+
+    async def get(self, request: Request) -> JSONResponse:  # noqa: ARG002
+        """Read."""
+        return JSONResponse({"read": True})
+
+    @Authenticated(scopes=["orders:write"])
+    async def post(self, request: Request) -> JSONResponse:  # noqa: ARG002
+        """Write."""
+        return JSONResponse({"written": True})
+
+    async def helper(self, request: Request) -> JSONResponse:  # noqa: ARG002
+        """Answer whatever method is named after it, as `HTTPEndpoint` does."""
+        return JSONResponse({"helper": True})
+
+
+class NormalizedPath:
+    """Middleware of an app's own that resolves `..` in the path it routes."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        """Wrap `app`."""
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Route the normalized path."""
+        await self.app(
+            {**scope, "path": posixpath.normpath(scope["path"])}, receive, send
+        )
+
+
+class Maintenance:
+    """Answer `503` itself, before routing, when asked to."""
+
+    def __init__(self, app: Any) -> None:  # noqa: ANN401
+        """Wrap `app`."""
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Answer `503` to a request carrying `x-maintenance`, else pass it on."""
+        if (b"x-maintenance", b"on") in scope["headers"]:
+            await PlainTextResponse("down", status_code=503)(
+                scope, receive, send
+            )
+            return
+        await self.app(scope, receive, send)
+
+
+class CountingCache(MemoryCacheAdapter):
+    """A memory cache counting every call to it."""
+
+    calls = 0
+
+    def __getattribute__(self, name: str) -> Any:  # noqa: ANN401
+        """Count a public method looked up."""
+        found = super().__getattribute__(name)
+        if callable(found) and not name.startswith("_"):
+            type(self).calls += 1
+        return found
+
+
+async def created(request: Request) -> JSONResponse:  # noqa: ARG001
+    """Answer a created order."""
+    return JSONResponse({"created": True}, status_code=CREATED)
+
+
+def tenant_key(scope: Scope, key: str) -> str:
+    """Key an idempotent request by its caller, refusing one with none."""
+    user = scope.get("user")
+    if user is None or not user.is_authenticated:
+        msg = "idempotency needs an authenticated caller"
+        raise PermissionError(msg)
+    return json.dumps(["tenant-v1", str(user.identity), scope["path"], key])
+
+
+class Counted:
+    """An ASGI app counting the requests it serves."""
+
+    def __init__(self) -> None:
+        """Start at zero."""
+        self.calls = 0
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Count and answer."""
+        self.calls += 1
+        await PlainTextResponse("counted")(scope, receive, send)
+
+
+def authenticated(**options: Any) -> AuthenticatedRequests:  # noqa: ANN401
+    """Return the authentication every app here installs."""
+    return AuthenticatedRequests(verifier(), **options)
+
+
+def installed(
+    app: Starlette,
+    *uses: Any,  # noqa: ANN401
+    errors: ErrorResponses | None = None,
+    **options: Any,  # noqa: ANN401
+) -> Starlette:
+    """Install authentication on `app` and return it."""
+    micro = Grelmicro(
+        uses=[errors or ErrorResponses(), authenticated(**options), *uses]
+    )
+    micro.install(app)
+    app.state.micro = micro
+    return app
+
+
+def orders_app(**options: Any) -> Starlette:  # noqa: ANN401
+    """Return an app with a protected route, a scoped one and a websocket."""
+    return installed(
+        Starlette(
+            routes=[
+                Route("/orders", served),
+                Route("/orders/{order_id}", written, methods=["DELETE"]),
+                WebSocketRoute("/ws", accept),
+                WebSocketRoute("/chat", chat),
+            ]
+        ),
+        **options,
+    )
+
+
+def without_instance(content: bytes) -> dict[str, Any]:
+    """Return a problem body without the path it names."""
+    body = json.loads(content)
+    body.pop("instance", None)
+    return body
+
+
+class TestRouteDeclaration:
+    """What a route declares, as an integration builds it."""
+
+    def test_path_comes_first_and_everything_else_by_keyword(self) -> None:
+        """A declaration built with keywords keeps its meaning."""
+        declaration = RouteDeclaration(
+            "/orders", methods=frozenset({"GET"}), scopes=frozenset({"a"})
+        )
+
+        assert declaration.path == "/orders"
+        assert declaration.anonymous is False
+        assert declaration.cache is False
+        assert declaration.own_checks is False
+        with pytest.raises(TypeError):
+            RouteDeclaration("/orders", None)  # type: ignore[misc]  # ty: ignore[too-many-positional-arguments]
+
+    def test_it_is_frozen_and_hashable(self) -> None:
+        """Two equal declarations are one."""
+        declaration = RouteDeclaration("/orders")
+
+        with pytest.raises(AttributeError):
+            declaration.path = "/other"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+        assert {declaration, RouteDeclaration("/orders")} == {declaration}
+
+    def test_a_set_of_methods_or_scopes_is_held_frozen(self) -> None:
+        """A set, a list or a tuple is taken as the frozen set it names."""
+        declaration = RouteDeclaration(
+            "/orders",
+            methods=["GET"],  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            scopes={"a"},  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        )
+
+        assert declaration.methods == frozenset({"GET"})
+        assert declaration.scopes == frozenset({"a"})
+
+    def test_a_single_string_is_refused(self) -> None:
+        """One string would read as one entry per character."""
+        with pytest.raises(TypeError, match="not a single string"):
+            RouteDeclaration("/orders", methods="GET")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        with pytest.raises(TypeError, match="not a single string"):
+            RouteDeclaration("/orders", scopes="orders:read")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+class TestImpossibleDeclarations:
+    """A declaration that cannot hold fails where it is gated."""
+
+    @pytest.mark.parametrize(
+        ("declaration", "message"),
+        [
+            (
+                RouteDeclaration("/a", anonymous=True, scopes=frozenset({"x"})),
+                "anonymous=True and scopes",
+            ),
+            (
+                RouteDeclaration(
+                    "/a",
+                    methods=frozenset({"GET"}),
+                    cache=True,
+                    own_checks=True,
+                ),
+                "cache and own_checks",
+            ),
+            (
+                RouteDeclaration("/a", methods=frozenset({"POST"}), cache=30),
+                "Only a GET or HEAD",
+            ),
+            (RouteDeclaration("/a", cache=True), "every method"),
+            (RouteDeclaration("/a", methods=frozenset()), "no request matches"),
+            (RouteDeclaration("/a", methods=frozenset({"get"})), "in capitals"),
+            (
+                RouteDeclaration("/a", methods=frozenset({7})),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                "in capitals",
+            ),
+            (
+                RouteDeclaration("/a", methods=frozenset({"GET"}), cache=0),
+                "keeps nothing",
+            ),
+            (
+                RouteDeclaration("/a", methods=frozenset({"GET"}), cache=-1.5),
+                "keeps nothing",
+            ),
+            (
+                RouteDeclaration(
+                    "/a", methods=frozenset({"GET"}), cache=math.nan
+                ),
+                "keeps nothing",
+            ),
+            (
+                RouteDeclaration("/a", scopes=frozenset({'a"b'})),
+                "not an OAuth scope token",
+            ),
+        ],
+    )
+    def test_it_is_refused_naming_the_route(
+        self, declaration: RouteDeclaration, message: str
+    ) -> None:
+        """The refusal names the route and what cannot hold."""
+        with pytest.raises(ValueError, match=message) as refused:
+            refuse_impossible(declaration)
+
+        assert "/a" in str(refused.value)
+
+    def test_a_cache_that_is_not_a_number_is_refused(self) -> None:
+        """Only a boolean or a number of seconds says how long."""
+        with pytest.raises(TypeError, match="cache='soon'"):
+            refuse_impossible(
+                RouteDeclaration("/a", methods=frozenset({"GET"}), cache="soon")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            )
+
+    @pytest.mark.parametrize("cache", [True, 30, 0.5])
+    def test_a_cached_read_holds(self, cache: float) -> None:
+        """A `GET` and its `HEAD` may be cached, for the TTL or for seconds."""
+        refuse_impossible(
+            RouteDeclaration(
+                "/a", methods=frozenset({"GET", "HEAD"}), cache=cache
+            )
+        )
+
+    def test_the_gate_refuses_it_at_install(self) -> None:
+        """`gate(declaration)` raises, so a wrong route fails at install."""
+        gate = RouteGate(
+            object(),
+            exclude=(),
+            errors=ErrorResponses(),
+            public=_PublicRoutes(),
+        )
+
+        with pytest.raises(ValueError, match="GET /a declares anonymous"):
+            gate(
+                RouteDeclaration(
+                    "/a",
+                    methods=frozenset({"GET"}),
+                    anonymous=True,
+                    scopes=frozenset({"x"}),
+                )
+            )
+
+
+def gate_for(exclude: tuple[str, ...] = ()) -> RouteGate:
+    """Return a gate refusing in the default format."""
+    return RouteGate(
+        object(),
+        exclude=exclude,
+        errors=ErrorResponses(),
+        public=_PublicRoutes(),
+    )
+
+
+def policy(*exclude: str, errors: ErrorResponses | None = None) -> GatePolicy:
+    """Return the policy an app's middleware puts on each request."""
+    return GatePolicy(exclude=exclude, errors=errors or ErrorResponses())
+
+
+def request(**entries: Any) -> dict[str, Any]:  # noqa: ANN401
+    """Return the scope of a `GET /orders` request, with `entries` set."""
+    return {
+        "type": "http",
+        "method": "GET",
+        "path": "/orders",
+        "root_path": "",
+        "headers": [],
+        **entries,
+    }
+
+
+class TestCheck:
+    """What the check of one declaration answers."""
+
+    def test_a_verified_caller_is_served(self) -> None:
+        """The token verified before routing, and no scope is required."""
+        check = gate_for()(RouteDeclaration("/orders"))
+
+        assert (
+            check(request(**{TOKEN_SCOPE_KEY: object(), GATE_KEY: policy()}))
+            is None
+        )
+
+    def test_a_caller_lacking_a_scope_is_refused_403(self) -> None:
+        """The refusal says which it is, in the app's format."""
+        check = gate_for()(
+            RouteDeclaration("/orders", scopes=frozenset({"orders:write"}))
+        )
+        caller = SimpleNamespace(scopes=frozenset({"orders:read"}))
+
+        with_policy = check(
+            request(
+                **{
+                    TOKEN_SCOPE_KEY: object(),
+                    "auth": caller,
+                    GATE_KEY: policy(),
+                }
+            )
+        )
+        without_policy = check(
+            request(**{TOKEN_SCOPE_KEY: object(), "auth": caller})
+        )
+
+        assert getattr(with_policy, "status", None) == FORBIDDEN
+        assert getattr(without_policy, "status", None) == FORBIDDEN
+
+    def test_the_scopes_of_the_caller_count_when_auth_carries_none(
+        self,
+    ) -> None:
+        """Read where `Authenticated` reads them."""
+        check = gate_for()(
+            RouteDeclaration("/orders", scopes=frozenset({"orders:write"}))
+        )
+        caller = SimpleNamespace(scopes=("orders:write",))
+
+        assert (
+            check(
+                request(
+                    **{TOKEN_SCOPE_KEY: object(), "auth": None, "user": caller}
+                )
+            )
+            is None
+        )
+
+    def test_a_request_without_a_credential_is_refused_401(self) -> None:
+        """Whatever scopes the route requires."""
+        check = gate_for()(
+            RouteDeclaration("/orders", scopes=frozenset({"orders:write"}))
+        )
+
+        refusal = check(request(**{GATE_KEY: policy()}))
+
+        assert getattr(refusal, "status", None) == UNAUTHORIZED
+
+    def test_a_request_carrying_no_policy_is_refused(self) -> None:
+        """Nothing that authenticates the app vouches for it, so it fails closed."""
+        check = gate_for()(RouteDeclaration("/orders"))
+
+        assert getattr(check(request()), "status", None) == UNAUTHORIZED
+
+    def test_a_path_in_the_app_exclude_is_served(self) -> None:
+        """The exclude of the app serving the request, not the gate's."""
+        check = gate_for()(RouteDeclaration("/orders"))
+
+        served_here = check(request(**{GATE_KEY: policy("/orders")}))
+        refused_there = check(request(**{GATE_KEY: policy("/other")}))
+
+        assert served_here is None
+        assert getattr(refused_there, "status", None) == UNAUTHORIZED
+
+    def test_an_anonymous_route_serves_anyone(self) -> None:
+        """With a policy, a token, or neither."""
+        check = gate_for()(RouteDeclaration("/orders", anonymous=True))
+
+        assert check(request(**{GATE_KEY: policy()})) is None
+        assert check(request(**{TOKEN_SCOPE_KEY: object()})) is None
+        assert check(request()) is None
+
+
+class TestUngated:
+    """A route the integration lists without a gate never starts."""
+
+    def test_the_gate_names_the_route_it_was_not_handed(self) -> None:
+        """Every listed route must have been gated, before any is routed."""
+        app = object()
+        public = _PublicRoutes()
+        gate = RouteGate(
+            app, exclude=(), errors=ErrorResponses(), public=public
+        )
+        gate(RouteDeclaration("/orders", methods=frozenset({"GET"})))
+
+        with pytest.raises(RuntimeError, match="POST /orders carries no"):
+            gate.hold(
+                wired=True,
+                listing=lambda: [
+                    RouteDeclaration("/orders", methods=frozenset({"GET"})),
+                    RouteDeclaration("/orders", methods=frozenset({"POST"})),
+                ],
+            )
+        assert public.policy_of(app) is None
+
+    def test_a_route_listed_twice_needs_two_gates(self) -> None:
+        """A router included under two paths is gated at both."""
+        gate = gate_for()
+        gate(RouteDeclaration("/a"))
+
+        with pytest.raises(RuntimeError, match="/a carries no"):
+            gate.hold(
+                wired=True,
+                listing=lambda: [
+                    RouteDeclaration("/a"),
+                    RouteDeclaration("/a"),
+                ],
+            )
+
+    def test_an_integration_listing_routes_it_cannot_gate_fails_install(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Declared but never wrapped, a route would be served unchecked."""
+        integration = fake_integration(gates=False)
+        monkeypatch.setattr(
+            "grelmicro._app.load_integration",
+            lambda app: integration,  # noqa: ARG005
+        )
+
+        with pytest.raises(RuntimeError, match="/listed carries no"):
+            Grelmicro(uses=[ErrorResponses(), authenticated()]).install(
+                SimpleNamespace(user_middleware=[], state=SimpleNamespace())
+            )
+
+    async def test_an_integration_gating_without_listing_starts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing is listed, so nothing can be found ungated."""
+        integration = fake_integration(lists=False)
+        monkeypatch.setattr(
+            "grelmicro._app.load_integration",
+            lambda app: integration,  # noqa: ARG005
+        )
+        micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
+        app = SimpleNamespace(user_middleware=[], state=SimpleNamespace())
+
+        micro.install(app)
+        async with micro:
+            pass
+
+        assert integration.gated == [RouteDeclaration("/gated")]
+
+    def test_an_integration_listing_no_route_leaves_the_app_ungated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With nothing wired, a request without a credential is refused first."""
+        integration = fake_integration(gates=False, listed=())
+        monkeypatch.setattr(
+            "grelmicro._app.load_integration",
+            lambda app: integration,  # noqa: ARG005
+        )
+        component = authenticated()
+        app = SimpleNamespace(user_middleware=[], state=SimpleNamespace())
+
+        Grelmicro(uses=[ErrorResponses(), component]).install(app)
+
+        assert component._public.policy_of(app) is None
+
+    def test_without_authentication_no_route_is_gated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The gate comes from `AuthenticatedRequests`."""
+        integration = fake_integration()
+        monkeypatch.setattr(
+            "grelmicro._app.load_integration",
+            lambda app: integration,  # noqa: ARG005
+        )
+
+        Grelmicro(uses=[ErrorResponses()]).install(
+            SimpleNamespace(user_middleware=[], state=SimpleNamespace())
+        )
+
+        assert integration.gated == []
+
+
+def fake_integration(
+    *,
+    gates: bool = True,
+    lists: bool = True,
+    listed: tuple[RouteDeclaration, ...] = (RouteDeclaration("/listed"),),
+) -> Any:  # noqa: ANN401
+    """Return an integration module gating `/gated` and listing `listed`."""
+    gated: list[RouteDeclaration] = []
+
+    def install_middleware(app: Any, components: Any) -> None:  # noqa: ANN401
+        for component in components:
+            middleware, options = component.asgi_middleware()
+            app.user_middleware.append(Middleware(middleware, **options))
+
+    def install_route_gate(app: Any, gate: Any) -> None:  # noqa: ANN401, ARG001
+        declaration = RouteDeclaration("/gated")
+        gate(declaration)
+        gated.append(declaration)
+
+    module = SimpleNamespace(
+        install=lambda app, micro, *, ambient=True: None,  # noqa: ARG005
+        is_bound=lambda app: True,  # noqa: ARG005
+        install_middleware=install_middleware,
+        gated=gated,
+    )
+    if gates:
+        module.install_route_gate = install_route_gate
+    if lists:
+        module.route_declarations = lambda app: list(listed)  # noqa: ARG005
+    return module
+
+
+class TestNoRoute:
+    """A request without a credential is refused before routing, as it always was."""
+
+    @pytest.mark.parametrize(
+        ("method", "path", "served_with_a_token"),
+        [
+            ("GET", "/ordexx", NOT_FOUND),
+            ("PUT", "/orders", METHOD_NOT_ALLOWED),
+            ("GET", "/orders/", REDIRECT),
+        ],
+    )
+    def test_it_gets_the_401_a_protected_route_gets(
+        self, method: str, path: str, served_with_a_token: int
+    ) -> None:
+        """Same status, headers and body, so route existence does not leak."""
+        client = TestClient(orders_app())
+
+        protected = client.get("/orders")
+        refused = client.request(method, path, follow_redirects=False)
+        with_token = client.request(
+            method, path, headers=bearer(token()), follow_redirects=False
+        )
+
+        assert refused.status_code == protected.status_code == UNAUTHORIZED
+        assert without_instance(refused.content) == without_instance(
+            protected.content
+        )
+        assert json.loads(refused.content)["instance"] == path
+        assert {
+            name: value
+            for name, value in refused.headers.items()
+            if name != "content-length"
+        } == {
+            name: value
+            for name, value in protected.headers.items()
+            if name != "content-length"
+        }
+        assert with_token.status_code == served_with_a_token
+
+    def test_the_tmf_body_is_the_same_byte_for_byte(self) -> None:
+        """A format carrying no path makes the two indistinguishable."""
+        app = installed(
+            Starlette(routes=[Route("/orders", served)]),
+            errors=ErrorResponses.tmf(),
+        )
+        client = TestClient(app)
+
+        protected = client.get("/orders")
+        refused = client.get("/nowhere")
+
+        assert refused.content == protected.content
+        assert refused.headers == protected.headers
+
+    def test_a_scoped_route_names_no_scope_to_a_caller_without_a_credential(
+        self,
+    ) -> None:
+        """Its challenge is the one a URL no route answers gets."""
+        client = TestClient(orders_app())
+
+        scoped = client.delete("/orders/7")
+        missing = client.delete("/orders/7", headers=bearer(token()))
+
+        assert scoped.status_code == UNAUTHORIZED
+        assert scoped.headers["www-authenticate"] == "Bearer"
+        assert missing.status_code == FORBIDDEN
+        assert missing.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="orders:write"'
+        )
+
+    def test_the_rate_limit_never_counts_a_request_without_a_credential(
+        self,
+    ) -> None:
+        """A caller from the same address is not limited by requests refused first."""
+        limiter = RateLimiter.sliding_window(
+            "burst", limit=3, window=60, backend=MemoryRateLimiterAdapter()
+        )
+        app = installed(
+            Starlette(routes=[Route("/orders", served)]),
+            RateLimitedRequests(
+                limiter, trusted=TrustedProxies(["10.0.0.0/8"])
+            ),
+        )
+        client = TestClient(app)
+
+        refused = [client.get("/orders").status_code for _ in range(5)]
+        answered = client.get("/orders", headers=bearer(token()))
+
+        assert refused == [UNAUTHORIZED] * 5
+        assert answered.status_code == OK
+
+    def test_the_response_cache_is_never_asked_without_a_credential(
+        self,
+    ) -> None:
+        """No cache backend call for a request refused before routing."""
+        backend = CountingCache()
+        app = installed(
+            Starlette(routes=[Route("/feed", served)]),
+            Cache(backend),
+            CachedResponses(include=("/feed",)),
+        )
+        client = TestClient(app)
+        backend.calls = 0
+
+        statuses = [client.get("/feed").status_code for _ in range(3)]
+
+        assert statuses == [UNAUTHORIZED] * 3
+        assert backend.calls == 0
+
+    @pytest.mark.parametrize("key_maker", [None, "tenant"])
+    def test_an_idempotent_write_without_a_credential_stores_nothing(
+        self, key_maker: str | None
+    ) -> None:
+        """The key is never claimed, so the caller's retry with a token runs."""
+        backend = CountingCache()
+        idempotent = (
+            IdempotentRequests(key_maker=tenant_key)
+            if key_maker
+            else IdempotentRequests()
+        )
+        app = installed(
+            Starlette(routes=[Route("/orders", created, methods=["POST"])]),
+            Cache(backend),
+            idempotent,
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        backend.calls = 0
+
+        refused = client.post("/orders", headers={"Idempotency-Key": "k-1"})
+        calls = backend.calls
+        retried = client.post(
+            "/orders", headers={"Idempotency-Key": "k-1", **bearer(token())}
+        )
+
+        assert refused.status_code == UNAUTHORIZED
+        assert calls == 0
+        assert retried.status_code == CREATED
+
+    def test_a_mounted_app_middleware_never_runs_without_a_credential(
+        self,
+    ) -> None:
+        """Middleware on a mount, reading the body, sees no refused request."""
+        seen: list[str] = []
+
+        class Audit:
+            def __init__(self, app: Any) -> None:  # noqa: ANN401
+                self.app = app
+
+            async def __call__(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                seen.append(scope["path"])
+                await self.app(scope, receive, send)
+
+        app = installed(
+            Starlette(
+                routes=[
+                    Mount(
+                        "/admin",
+                        routes=[Route("/users", served, methods=["POST"])],
+                        middleware=[Middleware(Audit)],
+                    ),
+                    Mount(
+                        "/sub",
+                        app=Starlette(
+                            routes=[Route("/x", served)],
+                            middleware=[Middleware(Maintenance)],
+                        ),
+                    ),
+                ]
+            )
+        )
+        client = TestClient(app)
+
+        refused = client.post("/admin/users", content=b"y" * 1000)
+        elsewhere = client.post("/admin/nothing", content=b"z")
+        maintenance = client.get("/sub/x", headers=MAINTENANCE)
+        answered = client.get(
+            "/sub/x", headers={**MAINTENANCE, **bearer(token())}
+        )
+
+        assert refused.status_code == elsewhere.status_code == UNAUTHORIZED
+        assert maintenance.status_code == UNAUTHORIZED
+        assert answered.status_code == SERVICE_UNAVAILABLE
+        assert seen == []
+
+    async def test_an_unmatched_websocket_is_closed_before_it_is_accepted(
+        self,
+    ) -> None:
+        """A server without the denial response extension closes it with 1008."""
+        app = orders_app()
+        sent: list[MutableMapping[str, Any]] = []
+        received = iter([{"type": "websocket.connect"}])
+
+        async def receive() -> dict[str, Any]:
+            return next(received)
+
+        async def send(message: MutableMapping[str, Any]) -> None:
+            sent.append(message)
+
+        async with app.router.lifespan_context(app):
+            await app(
+                {
+                    "type": "websocket",
+                    "asgi": {"version": "3.0"},
+                    "path": "/nowhere",
+                    "raw_path": b"/nowhere",
+                    "root_path": "",
+                    "query_string": b"",
+                    "headers": [],
+                    "scheme": "ws",
+                    "server": ("testserver", 80),
+                    "client": ("203.0.113.7", 5000),
+                },
+                receive,
+                send,
+            )
+
+        assert sent == [{"type": "websocket.close", "code": POLICY_VIOLATION}]
+
+    def test_an_unmatched_websocket_gets_the_401_where_the_server_can_send_it(
+        self,
+    ) -> None:
+        """The denial response a protected websocket route gets."""
+        client = TestClient(orders_app())
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as unmatched,
+            client.websocket_connect("/nowhere"),
+        ):
+            pass  # pragma: no cover
+        with (
+            pytest.raises(WebSocketDenialResponse) as protected,
+            client.websocket_connect("/ws"),
+        ):
+            pass  # pragma: no cover
+
+        assert unmatched.value.status_code == protected.value.status_code
+        assert unmatched.value.status_code == UNAUTHORIZED
+
+
+class TestRefusedWhereItIsRouted:
+    """A refusal is sent with its status, never raised into a `500`."""
+
+    def test_a_route_in_a_mounted_app_is_refused_in_the_app_format(
+        self,
+    ) -> None:
+        """The format registered on the app, not the mounted app's default."""
+        sub = Starlette(routes=[Route("/orders", written)])
+        app = installed(
+            Starlette(routes=[Mount("/sub", app=sub)]),
+            errors=ErrorResponses.tmf(),
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+
+        unauthenticated = client.get("/sub/orders")
+        forbidden = client.get("/sub/orders", headers=bearer(token()))
+        unrouted = client.get("/nowhere")
+
+        assert unauthenticated.status_code == UNAUTHORIZED
+        assert forbidden.status_code == FORBIDDEN
+        assert unauthenticated.content == unrouted.content
+        assert (
+            unauthenticated.headers["content-type"]
+            == forbidden.headers["content-type"]
+            == unrouted.headers["content-type"]
+        )
+
+    def test_a_websocket_route_is_refused_with_its_status(self) -> None:
+        """`401` without a credential, `403` for a missing scope."""
+        client = TestClient(orders_app(), raise_server_exceptions=False)
+
+        with (
+            pytest.raises(WebSocketDenialResponse) as unauthenticated,
+            client.websocket_connect("/chat"),
+        ):
+            pass  # pragma: no cover
+        with (
+            pytest.raises(WebSocketDenialResponse) as forbidden,
+            client.websocket_connect("/chat", headers=bearer(token())),
+        ):
+            pass  # pragma: no cover
+        with client.websocket_connect(
+            "/chat", headers=bearer(token(scope="chat"))
+        ):
+            pass
+
+        assert unauthenticated.value.status_code == UNAUTHORIZED
+        assert forbidden.value.status_code == FORBIDDEN
+
+    def test_the_refusal_is_recorded_with_the_route_template(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The gate knows the route it refused on."""
+        caplog.set_level(logging.DEBUG, logger=EVENTS)
+        client = TestClient(orders_app())
+
+        client.delete("/orders/7")
+        client.delete("/orders/7", headers=bearer(token()))
+
+        assert [
+            (record.__dict__["error.type"], record.__dict__["http.route"])
+            for record in caplog.records
+            if record.name == EVENTS
+        ] == [
+            ("authentication-required", "/orders/{order_id}"),
+            ("insufficient-scope", "/orders/{order_id}"),
+        ]
+
+
+class TestEndpointMethods:
+    """An `HTTPEndpoint` declares each of its methods on its own."""
+
+    def test_each_method_is_gated_by_its_own_scopes(self) -> None:
+        """A read needs a caller, a write its scope."""
+        app = installed(Starlette(routes=[Route("/orders", Orders)]))
+        client = TestClient(app)
+        caller = bearer(token())
+
+        assert client.get("/orders").status_code == UNAUTHORIZED
+        assert client.get("/orders", headers=caller).json() == {"read": True}
+        assert client.head("/orders", headers=caller).status_code == OK
+        assert client.post("/orders", headers=caller).status_code == FORBIDDEN
+        assert client.post("/orders").headers["www-authenticate"] == "Bearer"
+        assert client.post(
+            "/orders", headers=bearer(token(scope="orders:write"))
+        ).json() == {"written": True}
+
+    def test_a_method_it_does_not_declare_needs_a_caller(self) -> None:
+        """Whatever the class would answer it with."""
+        app = installed(Starlette(routes=[Route("/orders", Orders)]))
+        client = TestClient(app)
+
+        assert client.put("/orders").status_code == UNAUTHORIZED
+        assert client.request("HELPER", "/orders").status_code == UNAUTHORIZED
+        assert (
+            client.put("/orders", headers=bearer(token())).status_code
+            == METHOD_NOT_ALLOWED
+        )
+
+    def test_its_declarations_are_one_per_method_set(self) -> None:
+        """Methods requiring the same scopes share one declaration."""
+
+        class Items(HTTPEndpoint):
+            async def head(self, request: Request) -> JSONResponse:  # noqa: ARG002
+                return JSONResponse({})  # pragma: no cover
+
+            async def get(self, request: Request) -> JSONResponse:  # noqa: ARG002
+                return JSONResponse({})  # pragma: no cover
+
+        app = Starlette(
+            routes=[
+                Route("/orders", Orders),
+                Route("/items", Items),
+                Route("/only-post", Orders, methods=["POST"]),
+            ]
+        )
+
+        assert route_declarations(app) == [
+            RouteDeclaration("/orders", methods=frozenset({"GET", "HEAD"})),
+            RouteDeclaration(
+                "/orders",
+                methods=frozenset({"POST"}),
+                scopes=frozenset({"orders:write"}),
+            ),
+            RouteDeclaration("/items", methods=frozenset({"GET", "HEAD"})),
+            RouteDeclaration(
+                "/only-post",
+                methods=frozenset({"POST"}),
+                scopes=frozenset({"orders:write"}),
+            ),
+        ]
+
+    def test_an_endpoint_answering_no_method_is_one_protected_route(
+        self,
+    ) -> None:
+        """Listed, and gated as an authenticated route."""
+
+        class Nothing(HTTPEndpoint):
+            pass
+
+        app = installed(Starlette(routes=[Route("/nothing", Nothing)]))
+
+        assert route_declarations(app) == [RouteDeclaration("/nothing")]
+        assert TestClient(app).get("/nothing").status_code == UNAUTHORIZED
+
+
+class TestDeclarations:
+    """What `route_declarations` lists, walked as the gates are."""
+
+    def test_every_kind_of_route_is_listed(self) -> None:
+        """A mount whose app is not a router is one route, and what it can read is walked."""
+        counted = Counted()
+        inner = Router(routes=[Route("/b", served, methods=["POST"])])
+        app = Starlette(
+            routes=[
+                Route("/a", written),
+                WebSocketRoute("/ws", chat),
+                Mount("/in", routes=[Route("/x", served)]),
+                Mount("/app", app=Starlette(routes=[Route("/y", served)])),
+                Mount("/wrapped", app=NormalizedPath(inner)),
+                Mount("/static", app=counted),
+                Mount("/fastapi", app=FastAPI()),
+                Host("api.example", app=Router(routes=[Route("/h", served)])),
+                Host("files.example", app=counted),
+                Route("/asgi", counted),
+                Mount("/route", app=Route("/", served)),
+            ]
+        )
+
+        assert route_declarations(app) == [
+            RouteDeclaration(
+                "/a",
+                methods=frozenset({"GET", "HEAD"}),
+                scopes=frozenset({"orders:write"}),
+            ),
+            RouteDeclaration("/ws", scopes=frozenset({"chat"})),
+            RouteDeclaration("/in/x", methods=frozenset({"GET", "HEAD"})),
+            RouteDeclaration("/app"),
+            RouteDeclaration("/app/y", methods=frozenset({"GET", "HEAD"})),
+            RouteDeclaration("/wrapped"),
+            RouteDeclaration("/wrapped/b", methods=frozenset({"POST"})),
+            RouteDeclaration("/static"),
+            RouteDeclaration("/fastapi"),
+            RouteDeclaration("/h", methods=frozenset({"GET", "HEAD"})),
+            RouteDeclaration("/"),
+            RouteDeclaration("/asgi"),
+            RouteDeclaration("/route"),
+        ]
+
+    def test_a_router_mounted_twice_is_listed_and_gated_at_both(self) -> None:
+        """And the app starts, each listed route carrying its gate."""
+        shared = Router(routes=[Route("/x", served)])
+        app = installed(
+            Starlette(routes=[Mount("/a", app=shared), Mount("/b", app=shared)])
+        )
+
+        with TestClient(app) as client:
+            assert client.get("/a/x").status_code == UNAUTHORIZED
+            assert client.get("/b/x", headers=bearer(token())).status_code == OK
+
+        assert [
+            declaration.path for declaration in route_declarations(app)
+        ] == [
+            "/a/x",
+            "/b/x",
+        ]
+
+    def test_a_router_mounting_itself_is_walked_once(self) -> None:
+        """A cycle ends where it started."""
+        router = Router(routes=[Route("/x", served)])
+        router.routes.append(Mount("/again", app=router))
+        app = installed(Starlette(routes=[Mount("/r", app=router)]))
+
+        assert [
+            declaration.path for declaration in route_declarations(app)
+        ] == ["/r/x"]
+        assert TestClient(app).get("/r/again/x").status_code == UNAUTHORIZED
+
+    def test_a_route_of_its_own_kind_is_one_protected_route(self) -> None:
+        """Whatever it answers, a caller is needed."""
+
+        class Probe(BaseRoute):
+            path = "/probe"
+
+            def matches(self, scope: Scope) -> tuple[Match, Scope]:
+                if scope["type"] == "http" and scope["path"] == self.path:
+                    return Match.FULL, {}
+                return Match.NONE, {}
+
+            async def handle(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                await PlainTextResponse("probe")(scope, receive, send)
+
+        app = installed(Starlette(routes=[Probe()]))
+        client = TestClient(app)
+
+        assert route_declarations(app) == [RouteDeclaration("/probe")]
+        assert client.get("/probe").status_code == UNAUTHORIZED
+        assert client.get("/probe", headers=bearer(token())).text == "probe"
+
+
+class TestOpaque:
+    """What cannot be read is gated as one protected route."""
+
+    def test_a_mounted_app_is_never_reached_without_a_credential(self) -> None:
+        """Its path and everything under it."""
+        counted = Counted()
+        app = installed(Starlette(routes=[Mount("/static", app=counted)]))
+        client = TestClient(app)
+
+        refused = client.get("/static/file.txt")
+        served_file = client.get("/static/file.txt", headers=bearer(token()))
+
+        assert refused.status_code == UNAUTHORIZED
+        assert served_file.text == "counted"
+        assert counted.calls == 1
+
+    def test_a_mounted_fastapi_app_is_one_protected_route(self) -> None:
+        """Its routes are not Starlette's own, so `Anonymous()` is not read."""
+        sub = FastAPI(openapi_url=None)
+
+        @sub.get("/open", dependencies=[Anonymous()])
+        async def opened() -> dict[str, bool]:
+            return {"open": True}
+
+        app = installed(Starlette(routes=[Mount("/api", app=sub)]))
+        client = TestClient(app)
+
+        assert client.get("/api/open").status_code == UNAUTHORIZED
+        assert client.get("/api/open", headers=bearer(token())).json() == {
+            "open": True
+        }
+
+    def test_a_mount_dispatching_past_its_router_is_one_protected_route(
+        self,
+    ) -> None:
+        """Its app sends some requests to a router the walk never sees."""
+        ran: list[str] = []
+
+        async def wipe(request: Request) -> JSONResponse:
+            ran.append(request.url.path)
+            return JSONResponse({"wiped": True})
+
+        class VersionDispatch:
+            def __init__(self, app: Any, v2: Any) -> None:  # noqa: ANN401
+                self.app, self.v2 = app, v2
+
+            async def __call__(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                target = (
+                    self.v2
+                    if (b"x-api", b"2") in scope["headers"]
+                    else self.app
+                )
+                await target(scope, receive, send)
+
+        v2 = Router([Route("/wipe", wipe, methods=["POST"])])
+        dispatch = VersionDispatch(Router([Route("/", served)]), v2)
+        app = installed(Starlette(routes=[Mount("/api", app=dispatch)]))
+        client = TestClient(app)
+
+        refused = client.post("/api/wipe", headers={"x-api": "2"})
+        answered = client.post(
+            "/api/wipe", headers={"x-api": "2", **bearer(token())}
+        )
+
+        assert refused.status_code == UNAUTHORIZED
+        assert answered.json() == {"wiped": True}
+        assert ran == ["/api/wipe"]
+        assert route_declarations(app) == [
+            RouteDeclaration("/api"),
+            RouteDeclaration("/api/", methods=frozenset({"GET", "HEAD"})),
+        ]
+        assert getattr(app.router.routes[0].handle, "__self__", None) is None
+
+    def test_a_router_default_of_its_own_is_gated(self) -> None:
+        """A frontend or a proxy answering what no route matched."""
+        counted = Counted()
+        app = installed(Starlette(routes=[Route("/orders", served)]))
+        app.router.default = counted
+
+        client = TestClient(app)
+        refused = client.post("/anything")
+        answered = client.post("/anything", headers=bearer(token()))
+
+        assert refused.status_code == UNAUTHORIZED
+        assert answered.text == "counted"
+        assert counted.calls == 1
+        assert RouteDeclaration("/") in route_declarations(app)
+
+
+class TestExclude:
+    """An excluded path is held to the route it was routed to."""
+
+    async def test_a_path_rewritten_out_of_exclude_is_refused(self) -> None:
+        """The mounted app's own middleware resolved `..` on the way."""
+        sub = Starlette(
+            routes=[
+                Route("/files/{name:path}", served),
+                Route("/admin", served),
+            ],
+            middleware=[Middleware(NormalizedPath)],
+        )
+        app = installed(
+            Starlette(routes=[Mount("/sub", app=sub)]),
+            exclude=("/sub/files/*",),
+        )
+
+        assert await status_of(app, "/sub/files/../admin") == UNAUTHORIZED
+        assert await status_of(app, "/sub/files/readme") == OK
+
+    async def test_a_path_rewritten_into_a_fresh_scope_is_refused(
+        self,
+    ) -> None:
+        """Middleware that rebuilds the scope drops the policy, so the gate refuses."""
+        keep = (
+            "type",
+            "asgi",
+            "method",
+            "scheme",
+            "path",
+            "raw_path",
+            "root_path",
+            "query_string",
+            "headers",
+            "client",
+            "server",
+            "app",
+        )
+
+        class Legacy:
+            def __init__(self, app: Any) -> None:  # noqa: ANN401
+                self.app = app
+
+            async def __call__(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                if "/legacy/" in scope["path"]:
+                    fresh = {
+                        name: scope[name] for name in keep if name in scope
+                    }
+                    fresh["path"] = scope["path"].replace("/legacy", "", 1)
+                    scope = fresh
+                await self.app(scope, receive, send)
+
+        sub = Starlette(
+            routes=[Route("/admin", served)], middleware=[Middleware(Legacy)]
+        )
+        app = installed(
+            Starlette(routes=[Mount("/api", app=sub)]),
+            exclude=("/api/legacy/*",),
+        )
+
+        assert await status_of(app, "/api/legacy/admin") == UNAUTHORIZED
+        assert await status_of(app, "/api/admin") == UNAUTHORIZED
+
+    @pytest.mark.parametrize("root_path", ["", "/v1"])
+    def test_an_app_mounted_under_a_parent_keeps_its_exclude(
+        self, root_path: str
+    ) -> None:
+        """Its paths read from the root it was reached at, behind a proxy too."""
+        inner = installed(
+            Starlette(
+                routes=[
+                    Route("/health", served),
+                    Mount("/public", routes=[Route("/ping", served)]),
+                    Route("/orders", served),
+                    WebSocketRoute("/ws/public", accept),
+                ]
+            ),
+            exclude=("/health", "/public/*", "/ws/public"),
+        )
+        parent = Starlette(routes=[Mount("/svc", app=inner)])
+
+        for app, prefix in ((inner, root_path), (parent, f"{root_path}/svc")):
+            with TestClient(app, root_path=root_path) as client:
+                assert client.get(f"{prefix}/health").status_code == OK
+                assert client.get(f"{prefix}/public/ping").status_code == OK
+                assert client.get(f"{prefix}/orders").status_code == (
+                    UNAUTHORIZED
+                )
+                with client.websocket_connect(f"{prefix}/ws/public"):
+                    pass
+
+    def test_a_token_sent_to_an_excluded_path_is_not_read(self) -> None:
+        """Even one that would not verify."""
+        app = installed(
+            Starlette(routes=[Route("/livez", served)]), exclude=("/livez",)
+        )
+
+        response = TestClient(app).get("/livez", headers=bearer("forged"))
+
+        assert response.status_code == OK
+
+    def test_an_excluded_path_answers_its_own_404(self) -> None:
+        """Nothing is authenticated there, so nothing is hidden."""
+        app = installed(
+            Starlette(routes=[Route("/orders", served)]),
+            exclude=("/public/*",),
+        )
+
+        assert TestClient(app).get("/public/x").status_code == NOT_FOUND
+
+
+async def status_of(app: Any, path: str) -> int:  # noqa: ANN401
+    """Return the status `app` answers `GET path` with, as a server sends it."""
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "method": "GET",
+            "path": path,
+            "raw_path": path.encode(),
+            "root_path": "",
+            "query_string": b"",
+            "headers": [],
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "client": ("203.0.113.7", 5000),
+        },
+        receive,
+        send,
+    )
+    return next(
+        message["status"]
+        for message in sent
+        if message["type"] == "http.response.start"
+    )
+
+
+class Probe:
+    """Counts the requests a handler serves."""
+
+    def __init__(self) -> None:
+        """Start at zero."""
+        self.calls = 0
+
+    async def endpoint(self, request: Request) -> JSONResponse:  # noqa: ARG002
+        """Count and answer."""
+        self.calls += 1
+        return JSONResponse({"served": True})
+
+
+@pytest.fixture
+def probe() -> Probe:
+    """Return a fresh probe."""
+    return Probe()
+
+
+def added(probe: Probe) -> Iterator[tuple[str, Callable[[Starlette], object]]]:
+    """Yield each way to put `/admin` in front of the app once it runs."""
+    route = Route("/admin", probe.endpoint)
+    yield "add_route", lambda app: app.add_route("/admin", probe.endpoint)
+    yield "append", lambda app: app.router.routes.append(route)
+    yield "insert", lambda app: app.router.routes.insert(0, route)
+    yield "extend", lambda app: app.router.routes.extend([route])
+    yield "iadd", lambda app: iadd(app, route)
+    yield (
+        "slice",
+        lambda app: app.router.routes.__setitem__(slice(0, 0), [route]),
+    )
+    yield "index", lambda app: app.router.routes.__setitem__(0, route)
+    yield (
+        "list",
+        lambda app: setattr(app.router, "routes", [route, *app.router.routes]),
+    )
+    yield (
+        "mount",
+        lambda app: (
+            app.router.routes.pop(1),
+            app.mount("/admin", Starlette(routes=[Route("/", probe.endpoint)])),
+        ),
+    )
+    yield (
+        "mount app",
+        lambda app: setattr(
+            app.router.routes[1], "app", Router([Route("/", probe.endpoint)])
+        ),
+    )
+    yield (
+        "default",
+        lambda app: (
+            app.router.routes.pop(1),
+            setattr(app.router, "default", Router([route]).app),
+        ),
+    )
+
+
+def iadd(app: Starlette, route: Route) -> None:
+    """Add `route` with `+=`."""
+    routes = app.router.routes
+    routes += [route]
+
+
+def recording() -> tuple[list[str], Any]:
+    """Return the paths checked, and a gate recording each one it checks."""
+    checked: list[str] = []
+
+    def gate(declaration: RouteDeclaration) -> Any:  # noqa: ANN401
+        def check(scope: Scope) -> None:  # noqa: ARG001
+            checked.append(declaration.path)
+
+        return check
+
+    return checked, gate
+
+
+class TestRoutesAddedLater:
+    """A route added after install is never served ungated."""
+
+    @pytest.mark.parametrize("spelling", [name for name, _ in added(Probe())])
+    def test_a_route_added_once_the_app_serves_is_checked_first(
+        self, probe: Probe, spelling: str
+    ) -> None:
+        """Its gate runs before its handler, whichever way it was added."""
+        checked, gate = recording()
+        app = Starlette(
+            routes=[Route("/orders", served), Mount("/admin", routes=[])]
+        )
+        install_route_gate(app, gate)
+        client = TestClient(app)
+        client.get("/orders")
+        checked.clear()
+
+        dict(added(probe))[spelling](app)
+        answered = client.get("/admin", follow_redirects=True)
+
+        assert answered.json() == {"served": True}
+        assert probe.calls == 1
+        assert checked
+
+    def test_an_opaque_mount_given_a_router_once_the_app_serves(
+        self, probe: Probe
+    ) -> None:
+        """The routes of its new app are gated, and the mount still is."""
+        checked, gate = recording()
+        mount = Mount("/static", app=Counted())
+        app = Starlette(routes=[mount])
+        install_route_gate(app, gate)
+        client = TestClient(app)
+        client.get("/static/x")
+        checked.clear()
+
+        mount.app = Router([Route("/x", probe.endpoint)])
+        answered = client.get("/static/x")
+
+        assert answered.json() == {"served": True}
+        assert checked == ["/static/x"]
+
+    def test_a_route_added_once_the_app_started_is_refused_without_a_token(
+        self, probe: Probe
+    ) -> None:
+        """Served with one, and its handler never runs without."""
+        app = installed(Starlette(routes=[Route("/orders", served)]))
+
+        with TestClient(app) as client:
+            app.add_route("/admin", probe.endpoint)
+            refused = client.get("/admin")
+            answered = client.get("/admin", headers=bearer(token()))
+
+        assert refused.status_code == UNAUTHORIZED
+        assert answered.json() == {"served": True}
+        assert probe.calls == 1
+
+    def test_a_scoped_route_added_after_install_is_gated_with_its_scopes(
+        self,
+    ) -> None:
+        """Its gate refuses before its handler, naming the scopes sorted."""
+
+        @Authenticated(scopes=["orders:write", "admin"])
+        async def audit(request: Request) -> JSONResponse:  # noqa: ARG001
+            return JSONResponse({})  # pragma: no cover
+
+        app = installed(Starlette(routes=[Route("/orders", served)]))
+        app.add_route("/audit", audit)
+
+        with TestClient(app) as client:
+            refused = client.get("/audit", headers=bearer(token()))
+
+        assert refused.status_code == FORBIDDEN
+        assert refused.headers["www-authenticate"] == (
+            'Bearer error="insufficient_scope", scope="admin orders:write"'
+        )
+
+    def test_a_route_list_given_back_to_its_router_stays_gated(self) -> None:
+        """The same list assigned again still gates what lands in it."""
+        checked, gate = recording()
+        app = Starlette(routes=[Route("/orders", served)])
+        install_route_gate(app, gate)
+        app.router.routes = app.router.routes
+        app.add_route("/admin", served)
+
+        TestClient(app).get("/admin")
+
+        assert checked == ["/admin"]
+
+    def test_a_router_given_to_the_app_after_install_is_refused_at_startup(
+        self, probe: Probe
+    ) -> None:
+        """Never served ungated: the app refuses to start."""
+        app = orders_app()
+        app.router = Router(routes=[Route("/admin", probe.endpoint)])
+
+        with (
+            pytest.raises(RuntimeError, match="router was replaced"),
+            TestClient(app),
+        ):
+            pass  # pragma: no cover
+        assert probe.calls == 0
+
+    def test_a_route_list_given_to_the_router_before_startup_is_gated(
+        self, probe: Probe
+    ) -> None:
+        """The router finds it on the first thing it serves, its startup."""
+        app = orders_app()
+        app.router.routes = [
+            *app.router.routes,
+            Route("/admin", probe.endpoint),
+        ]
+
+        with TestClient(app) as client:
+            refused = client.get("/admin")
+        declarations = route_declarations(app)
+
+        assert refused.status_code == UNAUTHORIZED
+        assert probe.calls == 0
+        assert (
+            RouteDeclaration("/admin", methods=frozenset({"GET", "HEAD"}))
+            in declarations
+        )
+
+    def test_the_classes_are_the_frameworks_own(self) -> None:
+        """Nothing is swapped: an app and its routers keep their classes."""
+        sub = Router([Route("/x", served)])
+        app = installed(
+            Starlette(routes=[Mount("/m", app=sub), Host("h", app=sub)])
+        )
+
+        assert type(app) is Starlette
+        assert type(app.router) is Router
+        assert type(sub) is Router
+        assert type(app.router.routes[0]) is Mount
+        assert type(app.router.routes[1]) is Host
+
+
+class TestSharedRoutes:
+    """A route gated for several apps answers each by its own policy."""
+
+    async def test_an_exclude_of_one_app_never_opens_the_other(self) -> None:
+        """One mounted app, two apps with their own `exclude`."""
+        sub = Starlette(
+            routes=[
+                Route("/files/{name:path}", served),
+                Route("/admin", served),
+            ],
+            middleware=[Middleware(NormalizedPath)],
+        )
+        public = installed(
+            Starlette(routes=[Mount("/sub", app=sub)]),
+            exclude=("/sub/files/*", "/sub/admin"),
+        )
+        internal = installed(
+            Starlette(routes=[Mount("/sub", app=sub)]),
+            exclude=("/sub/files/*",),
+        )
+
+        assert await status_of(public, "/sub/files/../admin") == OK
+        assert await status_of(internal, "/sub/files/../admin") == UNAUTHORIZED
+        assert await status_of(internal, "/sub/files/readme") == OK
+
+    def test_routes_built_once_serve_every_app_by_its_own_policy(
+        self,
+    ) -> None:
+        """An app factory with module-level routes, built twice."""
+        routes = [Route("/docs", served), Route("/orders", written)]
+        dev = installed(Starlette(routes=routes), exclude=("/docs",))
+        prod = installed(Starlette(routes=routes), errors=ErrorResponses.tmf())
+        dev_client, prod_client = TestClient(dev), TestClient(prod)
+
+        assert dev_client.get("/docs").status_code == OK
+        assert prod_client.get("/docs").status_code == UNAUTHORIZED
+        forbidden = prod_client.get("/orders", headers=bearer(token()))
+        assert forbidden.status_code == FORBIDDEN
+        assert (
+            forbidden.headers["content-type"]
+            == (prod_client.get("/docs").headers["content-type"])
+        )
+        assert (
+            forbidden.headers["content-type"]
+            != (
+                dev_client.get("/orders", headers=bearer(token())).headers[
+                    "content-type"
+                ]
+            )
+        )
+
+    def test_a_route_added_to_a_shared_router_is_counted_by_every_app(
+        self,
+    ) -> None:
+        """Both apps start, each listing it with a gate."""
+        shared = Router([Route("/x", served)])
+        first = installed(Starlette(routes=[Mount("/a", app=shared)]))
+        second = installed(Starlette(routes=[Mount("/b", app=shared)]))
+        shared.add_route("/y", served)
+
+        with TestClient(first) as one, TestClient(second) as two:
+            assert one.get("/a/y", headers=bearer(token())).status_code == OK
+            assert two.get("/b/y").status_code == UNAUTHORIZED
+
+    def test_an_app_without_authentication_is_refused_a_shared_route(
+        self,
+    ) -> None:
+        """A gated route reached without an app's policy fails closed."""
+        routes = [Route("/docs", served)]
+        installed(Starlette(routes=routes))
+        bare = Starlette(routes=routes)
+
+        refused = TestClient(bare).get("/docs")
+
+        assert refused.status_code == UNAUTHORIZED
+        assert refused.headers["www-authenticate"] == "Bearer"
+
+
+def test_an_app_without_this_middleware_gets_no_gate() -> None:
+    """Nothing of this component routes its requests, so nothing is gated."""
+    assert authenticated().route_gate(Starlette()) is None
+
+
+class TestHandAdded:
+    """A middleware the app added itself keeps deciding before routing."""
+
+    def test_its_routes_are_not_gated(self) -> None:
+        """Its own `exclude` decides, as it always did."""
+        app = Starlette(
+            routes=[Route("/livez", served), Route("/orders", served)],
+            middleware=[
+                Middleware(
+                    AuthenticatedRequestsMiddleware,
+                    verifier=verifier(),
+                    exclude=("/livez",),
+                )
+            ],
+        )
+        installed(app)
+        client = TestClient(app)
+
+        assert client.get("/livez").status_code == OK
+        assert client.get("/nowhere").status_code == UNAUTHORIZED
+        assert not getattr(
+            app.router.routes[0].handle, "__grelmicro_gated__", False
+        )
+
+
+def test_a_route_gate_installed_by_hand_gates_every_route() -> None:
+    """For an app that never goes through `install`."""
+    checked: list[str] = []
+
+    def gate(declaration: RouteDeclaration) -> Any:  # noqa: ANN401
+        def check(scope: Scope) -> None:  # noqa: ARG001
+            checked.append(declaration.path)
+
+        return check
+
+    app = Starlette(routes=[Route("/orders", served)])
+    install_route_gate(app, gate)
+
+    assert TestClient(app).get("/orders").json() == {"path": "/orders"}
+    assert checked == ["/orders"]

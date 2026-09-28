@@ -68,6 +68,7 @@ from grelmicro.http._response_cache import (
     CachedResponsesConfig,
     CachedResponsesMiddleware,
 )
+from grelmicro.http._routes import RouteDeclaration
 from grelmicro.http._server import OpsServer, OpsServerConfig
 from grelmicro.http._tmf import TMFError
 from grelmicro.http.errors import (
@@ -104,6 +105,7 @@ __all__ = [
     "RateLimitedRequests",
     "RateLimitedRequestsConfig",
     "RenderedError",
+    "RouteDeclaration",
     "StoredResponse",
     "TMFError",
     "check_freshness",

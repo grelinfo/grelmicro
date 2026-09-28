@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Breaking
+* 🔒 On Starlette, every route carries a gate. A request whose token verified is routed, and the gate of the route it reaches refuses a missing scope before the handler runs. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
+* 🔒 The `401` for a request without a credential names no scope, on every framework, so a scoped route can no longer be told from a URL no route answers. The `403` for a missing scope still names them. `AuthenticationRequiredError` takes no `scopes`. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
+* 🔒 On Starlette, a path in `exclude` that a mounted app's middleware rewrites to a route outside `exclude` needs a credential, and so does one whose scope that middleware rebuilds. ([#922](https://github.com/grelinfo/grelmicro/issues/922))
+* 💥 On Starlette, a route gated for an app that authenticates it answers `401` when an app without `AuthenticatedRequests` serves it. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
+* 💥 On Starlette, a mount whose app is not a Starlette router is one authenticated route, beside the routes it holds. A mounted FastAPI app's `Anonymous()` routes need a credential. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
+* 💥 The scopes an `insufficient_scope` challenge names are sorted, on every framework. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
+* 💥 On Starlette, an app whose router is replaced after `micro.install(app)` refuses to start. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * 🔒 A prefix in `AuthenticatedRequests(exclude=...)` that ends inside a path segment, such as `/public*`, is refused. It also served `/publicity` without a credential. Write `/public/*` or the exact path `/public`. ([#922](https://github.com/grelinfo/grelmicro/issues/922))
 * 💥 `micro.fake()` entered before the app opens fakes the next open, and `async with micro.fake()` no longer raises on a closed app. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
@@ -40,6 +47,8 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `RouteDeclaration` says what a route requires, and an integration declares its routes with `install_route_gate(app, gate)` and `route_declarations(app)`, which `micro.install(app)` feature-detects. A listed route without a gate stops the app from starting. The Starlette integration ships both. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
+* ✨ On Starlette, a route added through the app or any of its routers is gated as it lands, and a route list, a mount's app or a router's default assigned later is gated before it serves. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * ✨ `micro.fake()` works on an app that `install` opens: enter it before the test client starts. The Providers only faked components used stay closed, so the suite connects to nothing and `/readyz` does not probe them, and `fake(keep=[provider])` opens one for real. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * ✨ The testing guide shows one fixture for the app you ship, and app factories cover two apps or clients at once. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * ✨ `Coordination(MemoryLockAdapter())` puts a backend in the slot it serves, as `Coordination(lock=...)` does. ([#880](https://github.com/grelinfo/grelmicro/issues/880))

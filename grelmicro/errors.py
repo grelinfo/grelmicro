@@ -214,8 +214,7 @@ class AuthenticationRequiredError(GrelmicroError):
     """Raised when a request that must be authenticated carries no credential.
 
     No `Authorization` header, or one in another scheme such as `Basic`.
-    Answers `401` with a `Bearer` challenge, naming the scopes the route
-    needs when it declares any, as RFC 6750 asks.
+    Answers `401` with a `Bearer` challenge that names no scope.
     """
 
     resource_metadata: str | None = None
@@ -226,9 +225,8 @@ class AuthenticationRequiredError(GrelmicroError):
     wherever the refusal is rendered.
     """
 
-    def __init__(self, *, scopes: Sequence[str] = ()) -> None:
-        """Initialize the error with the scopes the route requires."""
-        self.scopes = _scope_tokens(scopes)
+    def __init__(self) -> None:
+        """Initialize the error."""
         super().__init__(
             "No credential was presented where one is required. Send a "
             "bearer token in the Authorization header."
@@ -264,7 +262,8 @@ class InsufficientScopeError(GrelmicroError):
 
     Answers `403`, never `401`: the caller is known, and a fresh token with
     the same grants would get the same answer. The challenge names every
-    scope required, so a client can ask its authorization server for them.
+    scope required, in sorted order, so a client can ask its authorization
+    server for them.
     """
 
     resource_metadata: str | None = None

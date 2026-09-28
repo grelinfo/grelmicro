@@ -1,4 +1,4 @@
-"""Starlette integration: the lifespan, the binding, and the error responses.
+"""Starlette integration: the lifespan, the binding, the error responses, the route gates.
 
 Everything here is pure ASGI, so it works on a plain Starlette app and on
 anything built from one. `grelmicro.integrations.fastapi` builds on it and
@@ -22,6 +22,7 @@ from grelmicro.http._requirement import (
     Requirement,
     declared_scopes,
 )
+from grelmicro.integrations._route_gate import declarations_of, gate_routes
 from grelmicro.security.principal import VerifiedToken
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
+    from grelmicro.http import RouteDeclaration
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -53,7 +55,9 @@ __all__ = [
     "install",
     "install_error_responses",
     "install_middleware",
+    "install_route_gate",
     "is_bound",
+    "route_declarations",
 ]
 
 
@@ -305,6 +309,57 @@ def install_middleware(
         if read_routes is not None:
             read_routes(app)
         _answer_for(app, component)
+
+
+def install_route_gate(
+    app: Annotated[
+        "Starlette",
+        Doc("The Starlette application whose routes to gate."),
+    ],
+    gate: Annotated[
+        "Callable[[RouteDeclaration], Callable[[Scope], ASGIApp | None]]",
+        Doc(
+            "Returns the check for one route's declaration, refusing a "
+            "declaration that cannot hold."
+        ),
+    ],
+) -> None:
+    """Gate every route the app dispatches to, before its handler runs.
+
+    Each route, websocket route and `HTTPEndpoint` method gets the check its
+    declaration asks for, and a mount of Starlette routes is walked into. A
+    mount serving any other app is gated as one authenticated route. A
+    route added later, to any router of the app, is gated as it lands.
+
+    `micro.install(app)` calls this when `AuthenticatedRequests` is
+    registered, so a direct call is only for an app that never goes
+    through `install`.
+
+    Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
+    docs.
+
+    Raises:
+        TypeError: If a declaration's `cache` is neither a boolean nor a
+            number.
+        ValueError: If a declaration cannot hold, naming its route.
+    """
+    gate_routes(app, gate)
+
+
+def route_declarations(
+    app: Annotated[
+        "Starlette",
+        Doc("The Starlette application whose routes to list."),
+    ],
+) -> "list[RouteDeclaration]":
+    """Return what every route of the app requires, as its gate reads it.
+
+    One declaration per route, or per method set of an `HTTPEndpoint` whose
+    methods require different scopes. A route's scopes are the ones its
+    `@Authenticated` names. A mount serving any other app is listed as one
+    authenticated route.
+    """
+    return declarations_of(app)
 
 
 HTTP_422_UNPROCESSABLE_CONTENT = 422
@@ -670,9 +725,9 @@ def Authenticated(  # noqa: N802
     ```
 
     A caller with no credential is answered `401`, and one lacking a scope
-    `403`, each with a `WWW-Authenticate` challenge naming the scopes. It
-    needs a registered `AuthenticatedRequests`, which verifies the token
-    before the endpoint runs.
+    `403`, whose `WWW-Authenticate` challenge names the scopes. It needs a
+    registered `AuthenticatedRequests`, which verifies the token before the
+    endpoint runs, and whose gate on the route refuses the caller first.
 
     Read more in the [Authentication](../http/authentication.md) docs.
 
