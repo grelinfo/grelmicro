@@ -32,6 +32,7 @@
     "GrelmicroMiddleware": {
       "()": "(app, *, micro) -> 'None'"
     },
+    "LeaderNotRunningWarning": null,
     "LifecycleOrderError": null,
     "MiddlewarePlacementWarning": null,
     "MultipleActiveAppsError": {

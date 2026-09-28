@@ -20,6 +20,11 @@ Register a provider, build a `LeaderElection`, and gate a task on it:
 Only the leader runs `run_once_in_the_cluster`. Every other worker skips it until
 it becomes the leader.
 
+The election renews its lease only while it runs, so register it with
+`tasks.add_task(leader)`. A task gated on an election that has not run for a
+lease duration after the task started warns once with
+[`leader-not-running`](../diagnostics.md#leader-not-running).
+
 ## Run only while leader
 
 `@tasks.every(..., gate=leader)` gates each tick. When you have one long-lived

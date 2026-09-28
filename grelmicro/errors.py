@@ -103,6 +103,16 @@ class SentinelPasswordWarning(GrelmicroConfigWarning):
     code: ClassVar[str] = "sentinel-password"
 
 
+class LeaderNotRunningWarning(GrelmicroConfigWarning):
+    """A task is gated on a leader election that does not run.
+
+    An election acquires leadership only while it runs, so the task it
+    gates skips every fire.
+    """
+
+    code: ClassVar[str] = "leader-not-running"
+
+
 class BackendScopeError(GrelmicroError, RuntimeError):
     """Raised when a backend does not reach as far as its component requires.
 
