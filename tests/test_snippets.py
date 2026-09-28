@@ -12,7 +12,7 @@ Snippets are tiered:
 - `SCRIPT`: also executed as `__main__`, so the `main()` a reader runs
   is covered too.
 - `NEEDS_SERVICE`: imported, never executed as a script, because
-  running it needs Redis, Postgres, or a long wait.
+  running it needs Redis, Postgres, a signal, or a long wait.
 - `COMPILE_ONLY`: parsed but not executed, because running them at
   import time has global side effects (they call `asyncio.run(...)`).
   These are still covered by `compileall` and the MkDocs build.
