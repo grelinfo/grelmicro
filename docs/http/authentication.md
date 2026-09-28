@@ -21,8 +21,10 @@ Two things say otherwise:
 
 - `exclude` names the paths never authenticated, such as health probes. A token
   sent to them is not read.
-  The patterns are the ones every other component takes: an exact path, or a
-  prefix ending in `*`. A pattern matching every path, `*` or `/*`, is refused.
+  A pattern is an exact path, or a prefix ending in `/*`. A pattern matching
+  every path, `*` or `/*`, is refused. So is a prefix that ends inside a
+  segment: `/public*` would also serve `/publicity` without a credential.
+  Write `/public/*` for everything under it, or `/public` for that path alone.
 - `Anonymous()` declared on a route makes the credential optional there. It applies
   per method, so a public read keeps the writes on the same path
   authenticated. A URL another route could also answer stays authenticated,

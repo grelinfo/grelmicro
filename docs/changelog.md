@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 🔒 A prefix in `AuthenticatedRequests(exclude=...)` that ends inside a path segment, such as `/public*`, is refused. It also served `/publicity` without a credential. Write `/public/*` or the exact path `/public`. ([#922](https://github.com/grelinfo/grelmicro/issues/922))
 * 💥 `micro.fake()` entered before the app opens fakes the next open, and `async with micro.fake()` no longer raises on a closed app. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
 * 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
 * 🔒 A route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
@@ -95,6 +96,9 @@
 * 🐛 `ClientBans.record()` no longer reports a ban that has already run out. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A full `ClientBans` table evicts the least recently recorded client, as documented, instead of the one that failed first, and a client `forget()` cleared no longer takes up room or gets a later entry evicted. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
+### Performance
+* ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 
 ### Docs
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
