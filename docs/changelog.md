@@ -66,7 +66,6 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
-* ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 * 🐛 The `"default"` backend of a kind is the Component named `"default"`, or the only Component of that kind when none is, as [Backends](architecture/backends.md) documents. A pattern that names no backend, `micro.get(kind)`, `micro.fake()` and the backend scope check all resolve it this way. Inside nested `Bulkhead` scopes, an exact name wins first, innermost scope first, then the app. The fallback then takes the only Component of the innermost scope holding that kind. A name that matches no Component still raises. ([#877](https://github.com/grelinfo/grelmicro/pull/877))
 * 🐛 A `Cache` and a `Coordination` sharing one SQLite file start together. The cache created its tables while another component held a transaction open on the shared connection, which failed with `cannot commit transaction - SQL statements in progress`. The rate limiter and the circuit breaker created theirs the same way. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 * 🐛 Two processes opening the same SQLite file at the same time no longer fail with `database is locked`. Switching a new file to WAL needs the file to itself and SQLite refuses instead of waiting, so the provider retries until the other process is done. It also sets a busy timeout, so every later write waits for its turn. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
@@ -91,6 +90,9 @@
 * 🐛 `ClientBans.record()` no longer reports a ban that has already run out. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A full `ClientBans` table evicts the least recently recorded client, as documented, instead of the one that failed first, and a client `forget()` cleared no longer takes up room or gets a later entry evicted. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+
+### Performance
+* ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 
 ### Docs
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
