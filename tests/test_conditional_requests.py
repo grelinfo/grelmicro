@@ -1850,3 +1850,18 @@ def test_create_only_on_an_existing_resource_says_it_exists() -> None:
     msg = str(error.value)
     assert "a create-only write is refused" in msg
     assert "Fetch the resource again" not in msg
+
+
+def test_if_none_match_naming_the_current_tag_is_not_told_to_refetch() -> None:
+    """The client holds the current tag, so a refetch changes nothing."""
+    # Arrange
+    preconditions = _Preconditions(if_none_match=('"v1"',))
+
+    # Act
+    with pytest.raises(PreconditionFailedError) as error:
+        preconditions.check('"v1"', require=False)
+
+    # Assert
+    msg = str(error.value)
+    assert "still has an entity tag the request named" in msg
+    assert "Fetch the resource again" not in msg

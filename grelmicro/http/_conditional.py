@@ -314,6 +314,13 @@ _ALREADY_EXISTS: Final = (
 )
 """What `If-None-Match: *` on an existing resource is refused with."""
 
+_STILL_MATCHES: Final = (
+    "The resource still has an entity tag the request named in "
+    "If-None-Match, so the write is refused. Send it only once the resource "
+    "has changed, or drop If-None-Match to write regardless."
+)
+"""What `If-None-Match` naming the current tag is refused with."""
+
 
 @dataclass(frozen=True, slots=True)
 class _Preconditions:
@@ -347,7 +354,9 @@ class _Preconditions:
         if self.if_none_match is not None:
             if _matches_weak(self.if_none_match, current):
                 message = (
-                    _ALREADY_EXISTS if _ANY in self.if_none_match else None
+                    _ALREADY_EXISTS
+                    if _ANY in self.if_none_match
+                    else _STILL_MATCHES
                 )
                 raise PreconditionFailedError(message)
             return
