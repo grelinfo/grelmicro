@@ -8,12 +8,15 @@ have to agree on every query, which is what these hold.
 from __future__ import annotations
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from pydantic_core import MultiHostUrl
 
 from grelmicro._redact import (
     MASK,
     _redact_query,
     _redact_query_values,
+    _redact_url_fully,
     redact_url,
 )
 
@@ -667,3 +670,229 @@ def test_multi_host_userinfo_survives_the_path_exception() -> None:
 def test_a_protocol_relative_url_still_masks_its_userinfo() -> None:
     """A url that opens with `//` still has userinfo, and it is masked."""
     assert redact_url("//user:pw@host/p") == f"//user:{MASK}@host/p"
+
+
+@pytest.mark.parametrize(
+    ("url", "multi_host", "expected"),
+    [
+        pytest.param(
+            "https://h/p?TOKEN=abc", False, "https://h/p?TOKEN=***", id="upper"
+        ),
+        pytest.param(
+            "https://h/p?Token=abc", False, "https://h/p?Token=***", id="title"
+        ),
+        pytest.param(
+            "https://h/p?accessToken=abc",
+            False,
+            "https://h/p?accessToken=***",
+            id="camel-case",
+        ),
+        pytest.param(
+            "https://h/p?%74oken=abc",
+            False,
+            "https://h/p?token=***",
+            id="percent-encoded-key",
+        ),
+        pytest.param(
+            "https://h/p?%2574oken=abc",
+            False,
+            "https://h/p?%2574oken=abc",
+            id="double-encoded-key",
+        ),
+        pytest.param(
+            "https://h/p?\u212aey=abc",
+            False,
+            "https://h/p?%E2%84%AAey=***",
+            id="kelvin-sign-key",
+        ),
+        pytest.param(
+            "https://h/p?\u017fecret=abc",
+            False,
+            "https://h/p?%C5%BFecret=***",
+            id="long-s-secret",
+        ),
+        pytest.param(
+            "https://h/p#access_token=abc",
+            False,
+            "https://h/p#access_token=***",
+            id="fragment",
+        ),
+        pytest.param(
+            "https://h/p#/cb?code=abc",
+            False,
+            "https://h/p#/cb?code=***",
+            id="fragment-path-query",
+        ),
+        pytest.param(
+            "https://h/p?a=1;token=abc",
+            False,
+            "https://h/p?a=1;token=***",
+            id="semicolon",
+        ),
+        pytest.param(
+            "https://h/p?token=a&token=b",
+            False,
+            "https://h/p?token=***&token=***",
+            id="repeated-key",
+        ),
+        pytest.param(
+            "https://h/p?tok\ten=abc",
+            False,
+            "https://h/p?token=***",
+            id="tab-inside-key",
+        ),
+        pytest.param(
+            "https://h/p?tok%\t65n=abc",
+            False,
+            "https://h/p?token=***",
+            id="tab-inside-escape",
+        ),
+        pytest.param(
+            "https://h/p?next=https%3A%2F%2Fu%3Apw%40x%2F",
+            False,
+            "https://h/p?next=***",
+            id="encoded-nested-userinfo",
+        ),
+        pytest.param(
+            "https://h/p?next=https%253A%252F%252Fu%253Apw%2540x%252F",
+            False,
+            "https://h/p?next=***",
+            id="double-encoded-nested-userinfo",
+        ),
+        pytest.param(
+            "https://user:@h/p", False, "https://user:@h/p", id="empty-password"
+        ),
+        pytest.param(
+            "https://user:pw@h/p",
+            False,
+            f"https://user:{MASK}@h/p",
+            id="userinfo",
+        ),
+        pytest.param(
+            "https://user:pw@[::1]:8080/p",
+            False,
+            f"https://user:{MASK}@[::1]:8080/p",
+            id="ipv6-userinfo",
+        ),
+        pytest.param(
+            "https://[::1]:8080/p?page=2",
+            False,
+            "https://[::1]:8080/p?page=2",
+            id="ipv6-clean",
+        ),
+        pytest.param(
+            "mailto:user:pw@example.com",
+            False,
+            f"mailto:{MASK}@example.com",
+            id="scheme-without-slashes",
+        ),
+        pytest.param(
+            "user:pw@host:5432/db",
+            False,
+            f"user:{MASK}@host:5432/db",
+            id="scheme-less",
+        ),
+        pytest.param(
+            "postgresql://u:pw@a:1,b:2/d?sslpassword=x",
+            True,
+            f"postgresql://u:{MASK}@a:1,b:2/d?sslpassword={MASK}",
+            id="multi-host",
+        ),
+        pytest.param(
+            "https://h/p?page=2&limit=50",
+            False,
+            "https://h/p?page=2&limit=50",
+            id="clean-query",
+        ),
+        pytest.param(
+            "https://h/a%20b?q=caf%C3%A9",  # codespell:ignore
+            False,
+            "https://h/a%20b?q=caf%C3%A9",  # codespell:ignore
+            id="clean-percent-encoded",
+        ),
+        pytest.param(
+            "https://h/oauth/authorize?page=2",
+            False,
+            "https://h/oauth/authorize?page=2",
+            id="credential-word-in-path",
+        ),
+        pytest.param("not a url", False, "not a url", id="not-a-url"),
+    ],
+)
+def test_every_spelling_redacts_the_same_through_the_shortcut(
+    url: str, *, multi_host: bool, expected: str
+) -> None:
+    """A clean URL skips the parse, and no credential spelling slips past."""
+    assert redact_url(url, multi_host=multi_host) == expected
+    assert _redact_url_fully(url, multi_host=multi_host) == expected
+
+
+_URL_PIECES = st.sampled_from(
+    [
+        "https://",
+        "postgresql://",
+        "mailto:",
+        "//",
+        ":",
+        "@",
+        "?",
+        "#",
+        "&",
+        ";",
+        "=",
+        "/",
+        ",",
+        "+",
+        "%",
+        "%25",
+        "%3D",
+        "%3d",
+        "%40",
+        "%3F",
+        "%2F",
+        "%74",
+        "%6F",
+        "%2574",
+        "%E2%84%AA",
+        "[::1]",
+        "\t",
+        "\n",
+        " ",
+        "token",
+        "Token",
+        "tok",
+        "en",
+        "key",
+        "\u212a",
+        "\u017f",
+        "ecret",  # codespell:ignore
+        "code",
+        "pass",
+        "word",
+        "sig",
+        "auth",
+        "api_key",
+        "cache_key",
+        "credential",
+        "pwd",
+        "page",
+        "h",
+        "1",
+        "é",
+    ]
+)
+
+
+@given(
+    pieces=st.lists(_URL_PIECES | st.text(max_size=3), max_size=16),
+    multi_host=st.booleans(),
+)
+@settings(max_examples=2000, deadline=None)
+def test_the_shortcut_answers_as_the_full_redaction_would(
+    pieces: list[str], *, multi_host: bool
+) -> None:
+    """Skipping the parse never changes what comes out."""
+    url = "".join(pieces)
+    assert redact_url(url, multi_host=multi_host) == _redact_url_fully(
+        url, multi_host=multi_host
+    )

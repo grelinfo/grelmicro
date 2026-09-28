@@ -92,6 +92,9 @@
 * 🐛 A full `ClientBans` table evicts the least recently recorded client, as documented, instead of the one that failed first, and a client `forget()` cleared no longer takes up room or gets a later entry evicted. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
+### Performance
+* ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
+
 ### Docs
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))
 * 📝 JWT verification is documented where people look first. The README lists it under a Security module marked Rust powered, Installation lists the `jwt` extra and the platforms its wheels cover, and the security overview and the roadmap no longer call it future work. ([#738](https://github.com/grelinfo/grelmicro/issues/738))
