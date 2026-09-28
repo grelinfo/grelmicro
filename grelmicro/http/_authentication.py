@@ -2467,7 +2467,7 @@ class _Refusal:
     ) -> None:
         """Record the refusal, then answer it."""
         error = self._error()
-        scope[ROUTE_KEY] = self.template
+        scope.setdefault(ROUTE_KEY, self.template)
         recorded(scope, error)
         rendered = cast(
             "RenderedError",

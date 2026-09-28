@@ -327,13 +327,13 @@ def install_route_gate(
     """Gate every route the app dispatches to, before its handler runs.
 
     Each route, websocket route and `HTTPEndpoint` method gets the check its
-    declaration asks for, and a mount of Starlette routes is walked into. A
-    mount serving any other app is gated as one authenticated route. A
-    route added later, to any router of the app, is gated as it lands.
+    declaration asks for. A mount whose app is a Starlette router is walked
+    into. Any other mount is gated as one authenticated route, and the
+    Starlette routes behind it are walked into too. A route added later,
+    to any router of the app, is gated as it lands.
 
     `micro.install(app)` calls this when `AuthenticatedRequests` is
-    registered, so a direct call is only for an app that never goes
-    through `install`.
+    registered, with the gate that component builds.
 
     Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
     docs.

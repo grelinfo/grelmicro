@@ -54,8 +54,9 @@ HTTP requests and websocket handshakes are both covered.
 
 ### Decided at the route, on Starlette
 
-On Starlette, `micro.install(app)` puts a gate in front of every route, every
-`HTTPEndpoint` method and every mount. A request without a credential is still
+On Starlette, `micro.install(app)` puts a gate in front of every route and
+every `HTTPEndpoint` method, and in front of every mount whose app is not a
+Starlette router. A request without a credential is still
 refused before routing, unless its path is in `exclude`. A request whose token
 verified is routed, and the gate of the route it reaches checks its scopes.
 

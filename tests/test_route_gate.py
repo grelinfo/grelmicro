@@ -1533,6 +1533,36 @@ class TestRoutesAddedLater:
             pass  # pragma: no cover
         assert probe.calls == 0
 
+    @pytest.mark.parametrize("started", [False, True])
+    async def test_a_mounted_app_given_a_router_before_it_serves(
+        self, *, started: bool
+    ) -> None:
+        """Its new routes are gated before its first request, not refused."""
+        sub = Starlette(
+            routes=[Route("/files/{name}", served)],
+            middleware=[Middleware(NormalizedPath)],
+        )
+        app = installed(
+            Starlette(routes=[Mount("/sub", app=sub)]),
+            exclude=("/sub/files/*",),
+        )
+        replaced = Router(
+            [Route("/files/{name}", served), Route("/admin", served)]
+        )
+
+        if started:
+            async with app.router.lifespan_context(app):
+                sub.router = replaced
+                rewritten = await status_of(app, "/sub/files/../admin")
+                excluded = await status_of(app, "/sub/files/readme")
+        else:
+            sub.router = replaced
+            rewritten = await status_of(app, "/sub/files/../admin")
+            excluded = await status_of(app, "/sub/files/readme")
+
+        assert rewritten == UNAUTHORIZED
+        assert excluded == OK
+
     def test_a_route_list_given_to_the_router_before_startup_is_gated(
         self, probe: Probe
     ) -> None:
@@ -1570,6 +1600,68 @@ class TestRoutesAddedLater:
 
 class TestSharedRoutes:
     """A route gated for several apps answers each by its own policy."""
+
+    @pytest.mark.parametrize("shared", ["default", "empty endpoint"])
+    def test_a_router_mounted_twice_with_nothing_declared_installs(
+        self, shared: str
+    ) -> None:
+        """Its default, or an endpoint answering no method, is gated at both paths."""
+
+        class Empty(HTTPEndpoint):
+            pass
+
+        counted = Counted()
+        router = (
+            Router([Route("/x", served)], default=counted)
+            if shared == "default"
+            else Router([Route("/e", Empty)])
+        )
+        app = installed(
+            Starlette(
+                routes=[Mount("/v1", app=router), Mount("/v2", app=router)]
+            )
+        )
+        path = "/nowhere" if shared == "default" else "/e"
+
+        with TestClient(app) as client:
+            refused = [client.get(f"{mount}{path}") for mount in ("/v1", "/v2")]
+            answered = client.get(f"/v2{path}", headers=bearer(token()))
+
+        assert [response.status_code for response in refused] == [
+            UNAUTHORIZED,
+            UNAUTHORIZED,
+        ]
+        assert answered.status_code == (
+            OK if shared == "default" else METHOD_NOT_ALLOWED
+        )
+
+    @pytest.mark.parametrize("mount", ["/v1", "/v2"])
+    def test_a_refusal_names_the_path_the_request_came_through(
+        self, caplog: pytest.LogCaptureFixture, mount: str
+    ) -> None:
+        """A router mounted twice records each refusal under its own mount."""
+        caplog.set_level(logging.DEBUG, logger=EVENTS)
+        shared = Router([Route("/orders", written, methods=["POST"])])
+        static = Mount("/{tenant}/static", app=Counted())
+        app = installed(
+            Starlette(
+                routes=[
+                    Mount("/v1", app=shared),
+                    Mount("/v2", app=shared),
+                    Mount("/files", routes=[static]),
+                ]
+            )
+        )
+        client = TestClient(app)
+
+        client.post(f"{mount}/orders", headers=bearer(token()))
+        client.get("/files/acme/static/x", headers=bearer(token()))
+
+        assert [
+            record.__dict__["http.route"]
+            for record in caplog.records
+            if record.name == EVENTS
+        ] == [f"{mount}/orders"]
 
     async def test_an_exclude_of_one_app_never_opens_the_other(self) -> None:
         """One mounted app, two apps with their own `exclude`."""
@@ -1631,6 +1723,23 @@ class TestSharedRoutes:
         with TestClient(first) as one, TestClient(second) as two:
             assert one.get("/a/y", headers=bearer(token())).status_code == OK
             assert two.get("/b/y").status_code == UNAUTHORIZED
+
+    def test_an_app_without_authentication_is_refused_a_shared_mount(
+        self,
+    ) -> None:
+        """A mount or a host gated as a whole fails closed the same way."""
+        counted = Counted()
+        shared = Router(
+            [Mount("/static", app=counted), Host("files.example", app=counted)]
+        )
+        installed(Starlette(routes=[Mount("/r", app=shared)]))
+        bare = TestClient(Starlette(routes=[Mount("/r", app=shared)]))
+
+        mounted = bare.get("/r/static/x")
+        hosted = bare.get("/r/x", headers={"host": "files.example"})
+
+        assert mounted.status_code == hosted.status_code == UNAUTHORIZED
+        assert counted.calls == 0
 
     def test_an_app_without_authentication_is_refused_a_shared_route(
         self,

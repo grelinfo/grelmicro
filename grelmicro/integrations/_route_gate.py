@@ -25,6 +25,7 @@ from starlette.routing import (
     WebSocketRoute,
 )
 
+from grelmicro.http._authentication import ROUTE_KEY
 from grelmicro.http._requirement import declared_scopes
 from grelmicro.http._routes import RouteDeclaration
 
@@ -55,6 +56,9 @@ _ENDPOINT_METHODS: Final = (
 _GATED: Final = "__grelmicro_gated__"
 """Set on a `handle` or a `default` once it carries a gate."""
 
+_PREFIX_KEY: Final = "grelmicro.route_prefix"
+"""Where each mount a request comes through adds its path, as its route declares it."""
+
 _HELD: Final = "_grelmicro_held"
 """Where a router, a mount or a host keeps what it was gated with."""
 
@@ -72,6 +76,9 @@ class _Visitor(Protocol):
         whole: RouteDeclaration | None,
     ) -> None:
         """Take a mount or a host, and the declaration it is gated as a whole with."""
+
+    def app(self, app: Starlette, prefix: str) -> None:
+        """Take a Starlette app a mount serves, found under `prefix`."""
 
     def route(
         self,
@@ -110,9 +117,11 @@ def _walk_route(
     """
     if isinstance(route, Mount | Host):
         under = f"{prefix}{route.path}" if isinstance(route, Mount) else prefix
-        inner = _inner_router(route.app)
+        inner, app = _inner_router(route.app)
         whole = None if inner is route.app else RouteDeclaration(under or "/")
         visit.mount(route, prefix, whole)
+        if app is not None:
+            visit.app(app, under)
         if inner is not None:
             _walk_router(inner, under, visit, ancestry)
         return
@@ -131,24 +140,27 @@ def _walk_default(router: Router, prefix: str, visit: _Visitor) -> None:
     visit.route(router, "default", prefix or "/", [])
 
 
-def _inner_router(app: Any) -> Router | None:  # noqa: ANN401
-    """Return the Starlette router an app routes with, looking through what wraps it.
+def _inner_router(
+    app: Any,  # noqa: ANN401
+) -> tuple[Router | None, Starlette | None]:
+    """Return the Starlette router an app routes with, and the Starlette app holding it.
 
-    Only a router of Starlette's own class is read, and an app's router
-    when the app is a Starlette app. Anything else is not read.
+    What wraps the app is looked through. Only a router of Starlette's own
+    class is read, and an app's router when the app is a Starlette app.
+    Anything else is not read.
     """
     seen: set[int] = set()
     while app is not None and id(app) not in seen:
         seen.add(id(app))
         if type(app) is Router:
-            return app
+            return app, None
         if isinstance(app, Starlette):
             router = app.router
-            return router if type(router) is Router else None
+            return (router if type(router) is Router else None), app
         if isinstance(app, BaseRoute | Router):
-            return None
+            return None, None
         app = getattr(app, "app", None)
-    return None
+    return None, None
 
 
 def _declarations(route: Any, path: str) -> list[RouteDeclaration]:  # noqa: ANN401
@@ -222,6 +234,9 @@ class _Listing:
         if whole is not None:
             self.found.append(whole)
 
+    def app(self, app: Starlette, prefix: str) -> None:
+        """List nothing for an app, whose router is listed on its own."""
+
     def route(
         self,
         owner: Any,  # noqa: ANN401, ARG002
@@ -243,7 +258,15 @@ def declarations_of(app: Starlette) -> list[RouteDeclaration]:
 class _Held:
     """What a router, a mount or a host was gated with, and what it held then."""
 
-    __slots__ = ("app", "default", "gates", "handle", "prefixes", "routes")
+    __slots__ = (
+        "app",
+        "default",
+        "gates",
+        "handle",
+        "prefixes",
+        "router",
+        "routes",
+    )
 
     def __init__(self, handle: Any) -> None:  # noqa: ANN401
         """Hold nothing yet, keeping the `handle` it dispatched with."""
@@ -253,6 +276,7 @@ class _Held:
         self.routes: Any = None
         self.default: Any = None
         self.app: Any = None
+        self.router: Any = None
 
 
 class _Gating:
@@ -309,6 +333,24 @@ class _Gating:
             mount, held, held.handle, checks[0] if checks else None
         )
 
+    def app(self, app: Starlette, prefix: str) -> None:
+        """Hold a mounted Starlette app, gating the router it builds its stack with."""
+        held, new = self._hold(app, prefix)
+        held.router = app.router
+        if not new:
+            return
+        build = app.build_middleware_stack
+
+        def build_middleware_stack() -> ASGIApp:
+            if app.router is not held.router:
+                gating = _Gating(held.gates)
+                for under in tuple(held.prefixes):
+                    _walk_router(app.router, under, gating, frozenset())
+                held.router = app.router
+            return build()
+
+        app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
     def route(
         self,
         owner: Any,  # noqa: ANN401
@@ -322,6 +364,7 @@ class _Gating:
         sits under, and the route is wrapped once. A method no declaration
         names meets the check of an authenticated route.
         """
+        declarations = declarations or [RouteDeclaration(path)]
         checks = self._checks(declarations)
         current = getattr(owner, attribute)
         if not getattr(current, _GATED, False):
@@ -334,12 +377,13 @@ class _Gating:
                     table.update(dict.fromkeys(declaration.methods, check))
             if every is None:
                 every = self.gates[0](RouteDeclaration(path))
+            own = getattr(owner, "path", "") if attribute == "handle" else ""
             setattr(
                 owner,
                 attribute,
-                _by_method(current, table, every)
+                _by_method(current, table, every, own)
                 if table
-                else _gated(current, every),
+                else _gated(current, every, own),
             )
         if attribute == "default":
             owner.__dict__[_HELD].default = owner.default
@@ -372,32 +416,47 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
     app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
-def _gated(target: ASGIApp, check: Check) -> ASGIApp:
+def _refused(
+    refusal: ASGIApp, own: str, scope: Scope, receive: Receive, send: Send
+) -> Awaitable[None]:
+    """Send `refusal`, naming the route by the mounts the request came through."""
+    scope[ROUTE_KEY] = f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
+    return refusal(scope, receive, send)
+
+
+def _gated(target: ASGIApp, check: Check, own: str) -> ASGIApp:
     """Return `target`, run only once `check` lets the request through.
 
-    It returns the awaitable `target` or the refusal returns.
+    It returns the awaitable `target` or the refusal returns. A refusal
+    names the route by its own path, `own`, under the mounts the request
+    came through.
     """
 
     def gated(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
         refusal = check(scope)
-        return (target if refusal is None else refusal)(scope, receive, send)
+        if refusal is None:
+            return target(scope, receive, send)
+        return _refused(refusal, own, scope, receive, send)
 
     setattr(gated, _GATED, True)
     return gated
 
 
 def _by_method(
-    target: ASGIApp, table: dict[str, Check], every: Check
+    target: ASGIApp, table: dict[str, Check], every: Check, own: str
 ) -> ASGIApp:
     """Return `target`, run once the check for the request's method lets it through.
 
-    It returns the awaitable `target` or the refusal returns.
+    It returns the awaitable `target` or the refusal returns, named as
+    `_gated` names it.
     """
     checks = table.get
 
     def gated(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
         refusal = checks(scope["method"], every)(scope)
-        return (target if refusal is None else refusal)(scope, receive, send)
+        if refusal is None:
+            return target(scope, receive, send)
+        return _refused(refusal, own, scope, receive, send)
 
     setattr(gated, _GATED, True)
     return gated
@@ -433,29 +492,24 @@ def _guarded_mount(
     handle: ASGIApp,
     check: Check | None,
 ) -> ASGIApp:
-    """Return `handle`, run once the mount's app is the one gated and `check` passes."""
-    if check is None:
+    """Return `handle`, run once the mount's app is the one gated and `check` passes.
 
-        def guarded(
-            scope: Scope, receive: Receive, send: Send
-        ) -> Awaitable[None]:
-            if mount.app is not held.app:
-                _regate(mount, held)
-                return mount.handle(scope, receive, send)
-            return handle(scope, receive, send)
+    A mount adds its path to the ones the request came through, which a
+    refusal names its route by.
+    """
+    own = mount.path if isinstance(mount, Mount) else ""
 
-    else:
-
-        def guarded(
-            scope: Scope, receive: Receive, send: Send
-        ) -> Awaitable[None]:
-            if mount.app is not held.app:
-                _regate(mount, held)
-                return mount.handle(scope, receive, send)
+    def guarded(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
+        if mount.app is not held.app:
+            _regate(mount, held)
+            return mount.handle(scope, receive, send)
+        if own:
+            scope[_PREFIX_KEY] = f"{scope.get(_PREFIX_KEY, '')}{own}"
+        if check is not None:
             refusal = check(scope)
-            return (handle if refusal is None else refusal)(
-                scope, receive, send
-            )
+            if refusal is not None:
+                return _refused(refusal, "", scope, receive, send)
+        return handle(scope, receive, send)
 
     return guarded
 
