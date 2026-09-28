@@ -142,17 +142,17 @@ def resolve_ambient(
         # Past that this resolves the same way `Grelmicro.get` does, so
         # change one and change the other.
         micro = _current_micro.get()
-        overrides = _active_bulkhead.get(None)
+        scope = _active_bulkhead.get(None)
         # A miss goes through `Grelmicro.get`, which raises its error, hint
         # and all, so a caller that lets it through reports the same miss.
         # Only a miss pays for building the message. A `Bulkhead` fallback
         # resolves there too.
-        if overrides is None:
+        if scope is None:
             try:
                 return micro._resolved[key]  # noqa: SLF001
             except KeyError:
                 return micro.get(*key)
-        component = overrides.get(key)
+        component = scope.overrides.get(key)
         if component is None:
             component = micro._by_key.get(key)  # noqa: SLF001
         if component is not None:
@@ -189,15 +189,49 @@ when `GrelmicroMiddleware` binds the app per request (see
 `Grelmicro.check_ambient_binding`).
 """
 
-_active_bulkhead: ContextVar[Mapping[tuple[str, str], Component]] = ContextVar(
+
+@dataclass(frozen=True, slots=True)
+class _BulkheadScope:
+    """What the open `Bulkhead` scopes install, innermost first."""
+
+    overrides: Mapping[tuple[str, str], Component]
+    """Every scoped component by `(kind, name)`, an inner scope over an outer
+    one."""
+
+    sole: Mapping[str, Component | None]
+    """Per kind, the sole component of the innermost scope holding that kind,
+    or None when that scope holds several."""
+
+
+def enter_bulkhead_scope(
+    current: _BulkheadScope | None,
+    layer: Mapping[tuple[str, str], Component],
+) -> _BulkheadScope:
+    """Return the scope that `layer` opens inside `current`."""
+    counts = Counter(kind for kind, _ in layer)
+    sole = {
+        kind: component if counts[kind] == 1 else None
+        for (kind, _), component in layer.items()
+    }
+    if current is None:
+        return _BulkheadScope(dict(layer), sole)
+    return _BulkheadScope(
+        {**current.overrides, **layer}, {**current.sole, **sole}
+    )
+
+
+_active_bulkhead: ContextVar[_BulkheadScope] = ContextVar(
     "grelmicro_active_bulkhead"
 )
-"""Component overrides installed by the active `Bulkhead` scope, keyed by `(kind, name)`.
+"""Component overrides installed by the open `Bulkhead` scopes.
 
-`Grelmicro.get` consults this before its own registrations so a Pattern resolving
-its default backend inside the scope picks up the bulkhead's `uses=`
-component. A Pattern with an explicit `backend=` never calls `get`, so
-explicit choices always win.
+`Grelmicro.get` consults this before its own registrations so a Pattern
+resolving its default backend inside the scope picks up the bulkhead's
+`uses=` component. A name matched exactly wins wherever it is registered,
+innermost scope first, then the app. Only then does `"default"` fall back to
+the sole component of the innermost scope holding that kind, then of the
+app. A Pattern with an explicit `backend=` never calls `get`, so explicit
+choices always win.
 """
 
 
@@ -665,9 +699,11 @@ class Grelmicro:
                 """
                 Component instance name. `"default"` resolves the entry
                 that also backs `micro.<kind>`: the one named `"default"`,
-                or the sole entry of that kind when none is. Inside a
-                `Bulkhead` that holds a component of that kind, the sole
-                entry is taken from the `Bulkhead`. Pass another name to
+                or the sole entry of that kind when none is. Inside open
+                `Bulkhead` scopes, an entry with the exact name wins first,
+                innermost scope first, then the app. Only then does
+                `"default"` take the sole entry of the innermost scope
+                holding that kind, then of the app. Pass another name to
                 resolve that registration, such as
                 `Coordination(lock=backend, name="analytics")`. A name that
                 matches no component raises.
@@ -701,20 +737,19 @@ class Grelmicro:
         # `resolve_ambient` resolves the same way for the pattern hot path.
         # Change one and change the other.
         key = (kind, name)
-        overrides = _active_bulkhead.get(None)
-        if overrides is not None:
-            component = overrides.get(key)
+        scope = _active_bulkhead.get(None)
+        if scope is not None:
+            component = scope.overrides.get(key)
             if component is None:
                 component = self._by_key.get(key)
             if component is not None:
                 return component
-            if name == "default":
+            if name == "default" and kind in scope.sole:
                 # The innermost scope holding this kind decides the fallback.
-                scoped = [c for (k, _), c in overrides.items() if k == kind]
-                if len(scoped) == 1:
-                    return scoped[0]
-                if scoped:
+                component = scope.sole[kind]
+                if component is None:
                     raise self._not_registered(key)
+                return component
         component = self._resolved.get(key)
         if component is not None:
             return component

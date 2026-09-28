@@ -1483,6 +1483,53 @@ async def test_ambient_fallback_follows_registration_changes() -> None:
             _ = micro.coordination
 
 
+async def test_ambient_fallback_lets_the_innermost_bulkhead_decide() -> None:
+    """Nested bulkheads: the innermost one holding the kind serves."""
+    outer_lock = MemoryLockAdapter()
+    inner_lock = MemoryLockAdapter()
+    micro = Grelmicro(
+        uses=[Coordination(lock=MemoryLockAdapter(), name="jobs")]
+    )
+    outer = Bulkhead("outer", uses=[Coordination(lock=outer_lock, name="a")])
+    inner = Bulkhead("inner", uses=[Coordination(lock=inner_lock, name="b")])
+
+    async with micro, outer:
+        async with inner:
+            assert Lock("cart").backend is inner_lock
+            assert micro.get("coordination").lock_backend is inner_lock
+            assert micro.get("coordination", "a").lock_backend is outer_lock
+        assert Lock("cart").backend is outer_lock
+
+
+async def test_exact_default_in_the_app_wins_over_a_bulkhead_fallback() -> None:
+    """An app `default` is an exact match, so it beats a bulkhead's sole one."""
+    default = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Coordination(lock=default)])
+    bulkhead = Bulkhead(
+        "checkout",
+        uses=[Coordination(lock=MemoryLockAdapter(), name="isolated")],
+    )
+
+    async with micro, bulkhead:
+        assert Lock("cart").backend is default
+        assert micro.get("coordination").lock_backend is default
+
+
+async def test_exact_default_in_an_outer_bulkhead_wins_over_the_inner() -> None:
+    """An exact name wins wherever it is, before any fallback."""
+    default = MemoryLockAdapter()
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
+    outer = Bulkhead("outer", uses=[Coordination(lock=default)])
+    inner = Bulkhead(
+        "inner", uses=[Coordination(lock=MemoryLockAdapter(), name="b")]
+    )
+
+    async with micro, outer, inner:
+        assert Lock("cart").backend is default
+        with pytest.raises(ComponentNotRegisteredError):
+            micro.get("coordination", "missing")
+
+
 async def test_ambient_fallback_resolves_the_faked_sole_component() -> None:
     """An app faked before open serves the fake of its sole named component."""
     backend = MemoryLockAdapter()

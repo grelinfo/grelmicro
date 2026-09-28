@@ -163,7 +163,7 @@ Resolution order, in priority:
 3. When the requested name is `"default"` and exactly one Component of that kind is registered: that sole entry.
 4. Otherwise raise `ComponentNotRegisteredError`.
 
-Inside a `Bulkhead`, its Components answer steps 2 and 3 first. When the `Bulkhead` holds any Component of the kind, step 3 picks the sole entry from the `Bulkhead`, not from the app.
+Inside open `Bulkhead` scopes, step 2 looks in the innermost scope first, then the outer scopes, then the app. An exact name wins wherever it is found. Step 3 then looks in the innermost scope that holds any Component of the kind, and in the app only when no scope does. That scope must hold exactly one, or the lookup raises.
 
 ## Request handlers and the ambient scope
 
