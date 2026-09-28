@@ -30,6 +30,7 @@ import contextlib
 import importlib
 import importlib.util
 import logging
+import os
 import pkgutil
 import re
 import runpy
@@ -43,9 +44,9 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
-from starlette.routing import Route
 
 import grelmicro
+from grelmicro._paths import walk_routes
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -351,13 +352,14 @@ def test_fastapi_snippet_routes_answer(
     app = getattr(module, "app", None)
     if app is None:
         pytest.skip(f"{rel} builds no app")
-    paths = [
-        route.path
-        for route in app.routes
-        if isinstance(route, Route)
-        and "GET" in (route.methods or set())
-        and "{" not in route.path
-    ]
+    paths = sorted(
+        {
+            f"{prefix}{route.path}"
+            for prefix, route, _ in walk_routes(app)
+            if "GET" in (getattr(route, "methods", None) or set())
+            and "{" not in route.path
+        }
+    )
     micro = getattr(module, "micro", None)
     fake = (
         micro.fake()
@@ -533,7 +535,25 @@ def _output_pairs() -> list[tuple[str, str, str]]:
     return pairs
 
 
+_COLOR_VARIABLES = frozenset(
+    {
+        "FORCE_COLOR",
+        "NO_COLOR",
+        "CLICOLOR",
+        "CLICOLOR_FORCE",
+        "TERM",
+        "COLORTERM",
+    }
+)
+"""Variables that turn terminal colors on or off, left out of a snippet run."""
+
+
 def _run_snippet(rel: str) -> str:
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in _COLOR_VARIABLES
+    }
     completed = subprocess.run(  # noqa: S603
         [sys.executable, str(_SNIPPETS_DIR / rel)],
         capture_output=True,
@@ -541,6 +561,7 @@ def _run_snippet(rel: str) -> str:
         cwd=_ROOT,
         check=False,
         timeout=120,
+        env=env,
     )
     assert completed.returncode == 0, (
         f"{rel} exited {completed.returncode}\n{completed.stderr}"

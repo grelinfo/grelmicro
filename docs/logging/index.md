@@ -188,8 +188,8 @@ Detects the output target and selects the best format automatically:
 ```
 
 In your terminal:
-```
-2026-04-01 10:30:00.123 INFO     __main__ - Application started version=1.0.0
+```text
+2026-04-01 10:30:00.123Z INFO     __main__ - Application started version=1.0.0
 ```
 
 In a container or CI:
@@ -276,15 +276,16 @@ In a container or CI:
     ```
 
     With exceptions:
-    ```
-      2026-04-01 10:30:01.456 ERROR Operation failed
-        at myapp.service:process:78
+    ```text
+      2026-04-01 10:30:01.456Z ERROR Operation failed
+        at myapp.service
         error.type: ZeroDivisionError
         error.message: division by zero
         error.stack:
           Traceback (most recent call last):
-            File "service.py", line 78, in process
+            File "/app/myapp/service.py", line 8, in process
               result = 1 / 0
+                       ~~^~~
           ZeroDivisionError: division by zero
     ```
 
