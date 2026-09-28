@@ -421,7 +421,7 @@ def test_uses_kwarg_accepts_none() -> None:
     """`uses=None` (the default) constructs an empty container."""
     micro = Grelmicro()
     with pytest.raises(
-        ComponentNotRegisteredError, match="no components are registered"
+        ComponentNotRegisteredError, match="No components are registered"
     ):
         micro.get("rec")
 
@@ -436,6 +436,18 @@ def test_get_missing_component_error_lists_registered_keys() -> None:
     msg = str(exc.value)
     assert "('rec', 'a')" in msg
     assert "('oth', 'b')" in msg
+
+
+def test_get_missing_component_error_names_the_fix() -> None:
+    """The miss names registering the component, not just what is missing."""
+    # Arrange
+    micro = Grelmicro(uses=[_RecordingComponent(name="a")])
+
+    # Act / Assert
+    with pytest.raises(ComponentNotRegisteredError) as exc:
+        micro.get("rec", "missing")
+
+    assert "Register one in Grelmicro(uses=[...])" in str(exc.value)
 
 
 # --- Lifespan: enter, LIFO teardown ---
@@ -499,6 +511,26 @@ async def test_current_micro_raises_outside_block() -> None:
         Grelmicro.current()
 
 
+async def test_current_micro_error_names_the_fix() -> None:
+    """The miss names both ways to bind an app, not just the class."""
+    # Act / Assert
+    with pytest.raises(NoActiveAppError) as exc:
+        Grelmicro.current()
+
+    msg = str(exc.value)
+    assert "micro.install(app)" in msg
+    assert "async with micro:" in msg
+
+
+async def test_current_micro_error_names_the_request_scope() -> None:
+    """A handler reaching the miss is told it runs in its own task."""
+    # Act / Assert
+    with pytest.raises(NoActiveAppError) as exc:
+        Grelmicro.current()
+
+    assert "handler runs in its own task" in str(exc.value)
+
+
 async def test_current_micro_is_per_task() -> None:
     """Two concurrent tasks each see their own Grelmicro."""
     # Neither app configures process-global state, so they overlap freely.
@@ -547,6 +579,20 @@ async def test_aexit_without_aenter_raises() -> None:
     micro = Grelmicro()
     with pytest.raises(OutOfContextError):
         await micro.__aexit__(None, None, None)
+
+
+async def test_aexit_without_aenter_error_names_the_fix() -> None:
+    """Closing an app that was never opened names how to open it."""
+    # Arrange
+    micro = Grelmicro()
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        await micro.__aexit__(None, None, None)
+
+    msg = str(exc.value)
+    assert "is not open" in msg
+    assert "async with micro:" in msg
 
 
 class _RecordingContext:
@@ -737,6 +783,22 @@ async def test_override_outside_active_context_raises() -> None:
     with pytest.raises(OutOfContextError):
         async with micro.override(mock):
             pass
+
+
+async def test_override_outside_active_context_error_names_the_fix() -> None:
+    """The message names the block `override` scopes to."""
+    # Arrange
+    micro = Grelmicro()
+    mock = _RecordingComponent(name="default")
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        async with micro.override(mock):
+            pass  # pragma: no cover
+
+    msg = str(exc.value)
+    assert "micro.override()" in msg
+    assert "async with micro:" in msg
 
 
 async def test_unknown_kind_attribute_raises_attribute_error() -> None:

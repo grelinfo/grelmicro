@@ -12,6 +12,7 @@ from starlette.status import HTTP_503_SERVICE_UNAVAILABLE
 
 import grelmicro.coordination._base as base_module
 import grelmicro.coordination.lock as lock_module
+from grelmicro import Grelmicro
 from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination._tokens import current_thread_identity
@@ -78,6 +79,99 @@ async def locks(backend: LockBackend) -> list[Lock]:
 async def lock(locks: list[Lock]) -> Lock:
     """Lock."""
     return locks[WORKER_1]
+
+
+def test_lock_ambient_miss_error_names_the_install_scope() -> None:
+    """The miss says what `micro.install(app)` does not cover."""
+    # Arrange
+    unwired = Lock("report")
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        _ = unwired.backend
+
+    msg = str(exc.value)
+    assert "not a lifespan of your own" in msg
+    assert "async with micro:" in msg
+
+
+def test_lock_ambient_miss_error_names_the_wiring_options() -> None:
+    """The miss names each way to give the lock a backend."""
+    # Arrange
+    unwired = Lock("report")
+
+    # Act / Assert
+    with pytest.raises(OutOfContextError) as exc:
+        _ = unwired.backend
+
+    msg = str(exc.value)
+    assert "Register a Coordination component" in msg
+    assert "pass backend=" in msg
+    assert "MemoryLockAdapter" not in msg
+
+
+async def test_lock_miss_in_an_open_app_names_registering_only() -> None:
+    """Inside an open app, the miss names registering, not opening the app."""
+    # Arrange
+    unwired = Lock("report")
+
+    # Act
+    async with Grelmicro():
+        with pytest.raises(OutOfContextError) as exc:
+            _ = unwired.backend
+
+    # Assert
+    msg = str(exc.value)
+    assert "No component registered for ('coordination', 'default')" in msg
+    assert "Register one in Grelmicro(uses=[...])" in msg
+    assert "async with micro:" not in msg
+    assert "micro.install" not in msg
+
+
+def test_lock_acquire_error_names_the_fix() -> None:
+    """A backend failure names checking the backend and retrying."""
+    # Arrange / Act
+    error = LockAcquireError(name=LOCK_NAME)
+
+    # Assert
+    assert "Check the backend is open and reachable, then retry." in str(error)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        LockAcquireError(name=LOCK_NAME),
+        LockReleaseError(name=LOCK_NAME),
+        LockLockedCheckError(name=LOCK_NAME),
+        LockOwnedCheckError(name=LOCK_NAME),
+    ],
+    ids=lambda error: type(error).__name__,
+)
+def test_lock_backend_error_on_a_closed_backend_names_opening_it(
+    error: LockAcquireError,
+) -> None:
+    """A backend that is not open names registering it, not retrying."""
+    # Arrange / Act
+    try:
+        raise error from OutOfContextError(object(), "client")
+    except type(error) as raised:
+        msg = str(raised)
+
+    # Assert
+    assert "The backend is not open." in msg
+    assert "Register it in Grelmicro(uses=[...])" in msg
+    assert "retry" not in msg
+
+
+def test_lock_not_owned_error_names_the_lease_fix() -> None:
+    """A lock not held names the lease duration, not the backend."""
+    # Arrange / Act
+    error = LockNotOwnedError(name=LOCK_NAME)
+
+    # Assert
+    msg = str(error)
+    assert "raise lease_duration= above how long the work runs" in msg
+    assert "Check the backend" not in msg
 
 
 # A lease long enough that it never expires mid-test, even under heavy

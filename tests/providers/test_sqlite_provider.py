@@ -98,8 +98,14 @@ def test_repr_carries_path() -> None:
 
 def test_client_before_open_raises() -> None:
     """Accessing the client before `__aenter__` raises."""
-    with pytest.raises(OutOfContextError):
+    with pytest.raises(OutOfContextError) as info:
         _ = SQLiteProvider("x.db").client
+    assert str(info.value) == (
+        "Could not call SQLiteProvider.client: the SQLiteProvider is not "
+        "open. It was never opened, or it already closed. Register it in "
+        "Grelmicro(uses=[...]) so the app opens it, or make the call while "
+        "it is open."
+    )
 
 
 def test_factories_return_adapters() -> None:

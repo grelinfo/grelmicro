@@ -45,11 +45,13 @@ from grelmicro._environment import (
     with_sole_defaults,
 )
 from grelmicro.errors import (
+    _AMBIENT_SCOPE_NOTE,
     AmbientBindingWarning,
     BackendScopeError,
     GrelmicroError,
     MultipleActiveAppsError,
     OutOfContextError,
+    _AmbientMissError,
 )
 from grelmicro.providers._base import Provider
 
@@ -119,7 +121,9 @@ overlap freely, matching how web frameworks treat multiple app objects.
 
 
 def resolve_ambient(
-    key: tuple[str, str], refusal: str | None = None, name: str | None = None
+    key: tuple[str, str],
+    refusal: tuple[str, str] | None = None,
+    name: str | None = None,
 ) -> Any:  # noqa: ANN401
     """Return the component `key` names in the active app.
 
@@ -129,8 +133,12 @@ def resolve_ambient(
     it, to the sole entry of that kind when none is named `"default"`.
 
     Without `refusal`, every miss raises `LookupError`. With it, a miss
-    raises `OutOfContextError` carrying `refusal`, with `{name}` standing
-    for the pattern's name. Only a miss formats it.
+    raises `OutOfContextError`. `refusal` is a lead naming the miss, with
+    `{name}` standing for the pattern's name, and the fix to give when no
+    app is bound. With no app bound, the message is the lead, the fix, and
+    what `micro.install(app)` covers. With an app bound, it is the lead and
+    the `ComponentNotRegisteredError` message, which names registering the
+    component. Only a miss formats it.
 
     Raises:
         LookupError: No app is bound in this scope, or it registers no such
@@ -140,9 +148,16 @@ def resolve_ambient(
     try:
         # The app is read first, so a scope that outlives the app it was
         # opened under raises rather than answering from a closed component.
-        # Past that this resolves the same way `Grelmicro.get` does, so
-        # change one and change the other.
         micro = _current_micro.get()
+    except LookupError:
+        if refusal is None:
+            raise
+        lead, fix = refusal
+        msg = f"{lead.format(name=name)} {fix} {_AMBIENT_SCOPE_NOTE}"
+        raise _AmbientMissError(msg, key=key, bound=False) from None
+    try:
+        # Past the app read, this resolves the same way `Grelmicro.get`
+        # does, so change one and change the other.
         scope = _active_bulkhead.get(None)
         # A miss goes through `Grelmicro.get`, which raises its error, hint
         # and all, so a caller that lets it through reports the same miss.
@@ -164,10 +179,11 @@ def resolve_ambient(
         if component is not None:
             return component
         return micro.get(*key)
-    except LookupError:
+    except LookupError as error:
         if refusal is None:
             raise
-        raise OutOfContextError(refusal.format(name=name)) from None
+        msg = f"{refusal[0].format(name=name)} {error}"
+        raise _AmbientMissError(msg, key=key, bound=True) from None
 
 
 def _item_owns_global_state(item: object) -> bool:
@@ -470,8 +486,10 @@ class Grelmicro:
         own active `Grelmicro`.
 
         Raises:
-            NoActiveAppError: If called outside any `async with micro:`
-                block in the current task scope.
+            NoActiveAppError: If no app is bound in the current task scope,
+                either because no `async with micro:` block is open or
+                because the call runs outside the scope `micro.install(app)`
+                binds.
         """
         try:
             return _current_micro.get()
@@ -781,10 +799,13 @@ class Grelmicro:
         """Build the error for a `get` that matches no component."""
         registered = sorted(self._by_key)
         if registered:
-            hint = "registered: " + ", ".join(repr(k) for k in registered)
+            hint = "Registered: " + ", ".join(repr(k) for k in registered)
         else:
-            hint = "no components are registered"
-        msg = f"no component registered for {key!r}. {hint}."
+            hint = "No components are registered"
+        msg = (
+            f"No component registered for {key!r}. {hint}. "
+            f"Register one in Grelmicro(uses=[...])."
+        )
         return ComponentNotRegisteredError(msg)
 
     def _reindex(self) -> None:
@@ -969,7 +990,12 @@ class Grelmicro:
                 block. The override needs an active app to scope to.
         """
         if self._exit_stack is None:
-            raise OutOfContextError(self, "override")
+            msg = (
+                "micro.override() found no open app to scope to. Call it "
+                "inside `async with micro:`, so the swapped components close "
+                "with the block."
+            )
+            raise OutOfContextError(msg)
         snapshot_by_key = self._by_key.copy()
         snapshot_items = self._items.copy()
         async with AsyncExitStack() as stack:
@@ -1568,7 +1594,12 @@ class Grelmicro:
     ) -> bool | None:
         """Close every item in reverse registration order (LIFO)."""
         if self._exit_stack is None:
-            raise OutOfContextError(self, "__aexit__")
+            msg = (
+                "This Grelmicro app is not open, so there is nothing to "
+                "close. Open it with `async with micro:`, or let "
+                "micro.install(app) open and close it with the app."
+            )
+            raise OutOfContextError(msg)
         self._closing = True
         self._opened = False
         try:
@@ -2106,11 +2137,38 @@ class ComponentAlreadyRegisteredError(GrelmicroError, RuntimeError):
 
 
 class ComponentNotRegisteredError(GrelmicroError, LookupError):
-    """Raised when resolving a component that has not been registered."""
+    """Raised when resolving a component that has not been registered.
+
+    The message lists every `(kind, name)` pair that is registered, then
+    names the fix: registering the missing one in `Grelmicro(uses=[...])`.
+    """
+
+
+_NO_ACTIVE_APP_MESSAGE = (
+    "No active Grelmicro app in this scope. A handler runs in its own task, "
+    "and a lifespan of your own runs outside the app scope. Call "
+    "micro.install(app) so every handler runs inside it, or run the call "
+    "inside `async with micro:`."
+)
+"""Default message for `NoActiveAppError`, naming both ways to bind an app."""
 
 
 class NoActiveAppError(GrelmicroError, LookupError):
-    """Raised by `Grelmicro.current()` when called outside any `async with micro:` block."""
+    """Raised when no active `Grelmicro` app is bound in this scope.
+
+    There are two ways to reach it. The first is `Grelmicro.current()`
+    called outside any `async with micro:` block.
+
+    The second is a request handler under a lifespan written by hand. The
+    block is open, so the app is active in the lifespan task, but
+    `micro.install(app)` was never called, so each request runs in its own
+    task and resolves nothing. The health and metrics routers reach it that
+    way on `GET /readyz` and `GET /metrics`.
+    """
+
+    def __init__(self, message: str | None = None) -> None:
+        """Initialize the error."""
+        super().__init__(message or _NO_ACTIVE_APP_MESSAGE)
 
 
 class LifecycleOrderError(GrelmicroError, ValueError):

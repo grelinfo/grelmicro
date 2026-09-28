@@ -38,7 +38,9 @@
     "MultipleActiveAppsError": {
       "()": "() -> None"
     },
-    "NoActiveAppError": null,
+    "NoActiveAppError": {
+      "()": "(message=None) -> 'None'"
+    },
     "OutOfContextError": {
       "()": "(cls, method_name=None) -> None"
     },
@@ -315,7 +317,7 @@
     "PROBLEM_MEDIA_TYPE": null,
     "PreconditionError": null,
     "PreconditionFailedError": {
-      "()": "() -> None"
+      "()": "(message=None) -> None"
     },
     "PreconditionRequiredError": {
       "()": "() -> None"
@@ -1084,7 +1086,7 @@
       "()": "(*args, **kwargs)"
     },
     "TaskAddOperationError": {
-      "()": "() -> None"
+      "()": "(message=None) -> None"
     },
     "TaskError": null,
     "TaskRouter": {

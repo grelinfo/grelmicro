@@ -1888,11 +1888,24 @@ class _TokenPattern:
     """What `ClientCredentials` and `TokenExchange` share: a name, a target, a client."""
 
     _PREFIX: ClassVar[str]
+    _REFUSAL: ClassVar[tuple[str, str]]
+    """The lead and fix a miss on the ambient `OAuthClient` reports."""
 
     _name: str
     _config: _TargetConfig
     _client: OAuthClient | None
     _client_name: str
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Build the subclass's miss message parts once, at class creation."""
+        super().__init_subclass__(**kwargs)
+        cls._REFUSAL = (
+            f"{cls.__name__}({{name!r}}) found no OAuthClient.",
+            (
+                "Register one in Grelmicro(uses=[...]) and run inside "
+                "`async with micro:`, or pass client=."
+            ),
+        )
 
     def _hold(
         self,
@@ -1927,16 +1940,9 @@ class _TokenPattern:
             return client
         from grelmicro._app import resolve_ambient  # noqa: PLC0415
 
-        try:
-            return resolve_ambient((OAuthClient.kind, self._client_name))
-        except LookupError:
-            msg = (
-                f"{type(self).__name__}({self._name!r}) found no OAuthClient."
-                " Register one in Grelmicro(uses=[...]) and run inside"
-                " `async with micro:` or after `micro.install(app)`, or pass"
-                " client=."
-            )
-            raise OutOfContextError(msg) from None
+        return resolve_ambient(
+            (OAuthClient.kind, self._client_name), self._REFUSAL, self._name
+        )
 
     def _target(self) -> dict[str, str]:
         """Return the form fields that name the API."""

@@ -32,11 +32,16 @@ logger = getLogger("grelmicro.task")
 
 
 _NO_BACKEND: Final = (
-    "CronTask({name!r}) resolved no backend. Register a Coordination "
-    "component, pass backend=, or run the call inside `async with micro:` "
-    "or after `micro.install(app)`."
+    "CronTask({name!r}) resolved no backend.",
+    (
+        "Register a Coordination component, pass backend=, or run the call "
+        "inside `async with micro:`."
+    ),
 )
-"""What `backend` raises when no `backend=` was passed and none resolves."""
+"""What `backend` raises when no `backend=` was passed and none resolves.
+
+The lead names the miss, and the fix is given when no app is bound.
+"""
 
 
 # Wall-clock seam for the current time. Tests pin it to a fixed instant so
@@ -431,7 +436,12 @@ class CronTask(Task):
             TimezoneError: If no timezone of that name can be loaded.
         """
         if self._running:
-            raise TaskAddOperationError
+            msg = (
+                "Could not set the default timezone on a running task. Pass "
+                "timezone= to the cron task, or set it on Tasks before it "
+                "starts."
+            )
+            raise TaskAddOperationError(msg)
         if self._declared_timezone is not None:
             return
         self._tz = resolve_timezone(timezone)
@@ -459,8 +469,9 @@ class CronTask(Task):
         Raises:
             OutOfContextError: No backend resolved in this scope.
                 Register a `Coordination` Component, pass `backend=`,
-                or run the call inside `async with micro:` or after
-                `micro.install(app)`.
+                or run the call inside `async with micro:`.
+                `micro.install(app)` covers request and message handlers,
+                and not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend

@@ -277,6 +277,19 @@ def test_router_add_task_when_started() -> None:
         router.add_task(custom_task)
 
 
+def test_router_add_task_when_started_error_names_the_fix() -> None:
+    """The refusal names when `add_task` has to be called."""
+    # Arrange
+    router = TaskRouter()
+    router.do_mark_as_started()
+
+    # Act / Assert
+    with pytest.raises(TaskAddOperationError, match="before starting") as exc:
+        router.add_task(EventTask())
+
+    assert "'add_task' and 'include_router'" in str(exc.value)
+
+
 def test_router_include_router_when_started() -> None:
     """Test Task Router Include Router When Started."""
     # Arrange

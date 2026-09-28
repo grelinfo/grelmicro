@@ -38,12 +38,20 @@ if TYPE_CHECKING:
 T = TypeVar("T", default=Any)
 
 
+_CACHE_KEY: Final = ("cache", "default")
+"""The component a `TTLCache` with no `backend=` resolves through."""
+
 _NO_BACKEND: Final = (
-    "TTLCache resolved no backend. Pass backend= (MemoryCacheAdapter() for "
-    "a per-process cache), register a Cache component, or run the call "
-    "inside `async with micro:` or after `micro.install(app)`."
+    "TTLCache resolved no backend.",
+    (
+        "Pass backend= (MemoryCacheAdapter() for a per-process cache), register "
+        "a Cache component, or run the call inside `async with micro:`."
+    ),
 )
-"""What `backend` raises when no `backend=` was passed and none resolves."""
+"""What `backend` raises when no `backend=` was passed and none resolves.
+
+The lead names the miss, and the fix is given when no app is bound.
+"""
 
 
 class TTLCacheConfig(BaseModel, frozen=True, extra="forbid"):
@@ -293,12 +301,13 @@ class TTLCache(Generic[T]):
             OutOfContextError: No backend resolved in this scope. Pass
                 `backend=` (a `MemoryCacheAdapter()` for a per-process
                 cache), register a `Cache` Component, or run the call
-                inside `async with micro:` or after
-                `micro.install(app)`.
+                inside `async with micro:`.
+                `micro.install(app)` covers request and message handlers,
+                and not a lifespan of your own.
         """
         if self._backend is not None:
             return self._backend
-        return resolve_ambient(("cache", "default"), _NO_BACKEND).backend
+        return resolve_ambient(_CACHE_KEY, _NO_BACKEND).backend
 
     def _bind_serializer(self) -> CacheSerializer[T] | None:
         """Resolve the serializer from the type parameter, once.

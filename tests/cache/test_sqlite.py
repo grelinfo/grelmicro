@@ -92,7 +92,7 @@ async def test_owned_provider_is_opened_and_closed(
         await cache.set(key="k", value=b"v", ttl=60)
         assert await cache.get(key="k") == b"v"
 
-    with pytest.raises(Exception, match="outside of the context manager"):
+    with pytest.raises(Exception, match="SQLiteProvider is not open"):
         _ = cache.provider.client
 
 

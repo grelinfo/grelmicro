@@ -1726,8 +1726,15 @@ class TestLifecycle:
             "payments-api", audience="payments-api", env_load=False
         )
 
-        with pytest.raises(OutOfContextError, match="found no OAuthClient"):
+        with pytest.raises(OutOfContextError) as info:
             await pattern.token()
+
+        assert str(info.value) == (
+            "ClientCredentials('payments-api') found no OAuthClient. Register "
+            "one in Grelmicro(uses=[...]) and run inside `async with micro:`, "
+            "or pass client=. micro.install(app) covers request and message "
+            "handlers, and not a lifespan of your own."
+        )
 
     @pytest.mark.usefixtures("server")
     async def test_a_call_from_another_event_loop_is_served(self) -> None:

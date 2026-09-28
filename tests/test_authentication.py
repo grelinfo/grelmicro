@@ -85,6 +85,8 @@ from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import (
     AmbiguousCredentialsError,
+    AuthenticationRequiredError,
+    InsufficientScopeError,
     MiddlewarePlacementWarning,
     SettingsValidationError,
 )
@@ -6093,3 +6095,36 @@ class TestResourceMetadataOnLitestar:
             for warning in caught
             if issubclass(warning.category, MiddlewarePlacementWarning)
         ]
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (
+            AuthenticationRequiredError(),
+            (
+                "No credential was presented where one is required. Send a "
+                "bearer token in the Authorization header."
+            ),
+        ),
+        (
+            AmbiguousCredentialsError(),
+            (
+                "More than one credential was presented. Send one "
+                "Authorization header."
+            ),
+        ),
+        (
+            InsufficientScopeError(scopes=["orders:write"]),
+            (
+                "The caller lacks a scope this request needs. Ask your "
+                "authorization server for a token carrying every scope the "
+                "challenge names."
+            ),
+        ),
+    ],
+)
+def test_a_refusal_names_the_fix(error: Exception, message: str) -> None:
+    """Each authentication refusal says what the caller sends to pass."""
+    # Assert
+    assert str(error) == message

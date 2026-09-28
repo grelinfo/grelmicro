@@ -19,6 +19,7 @@ from grelmicro._config import reconfigurable_instances, reconfigure_all
 from grelmicro.cache import Cache
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import JsonSerializer, PickleSerializer
+from grelmicro.cache.sqlite import SQLiteCacheAdapter
 from grelmicro.cache.ttl import _CACHE_PREFIX, TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
@@ -31,6 +32,7 @@ from grelmicro.idempotency import (
     IdempotencyWaitTimeoutError,
     idempotent,
 )
+from grelmicro.providers.sqlite import SQLiteProvider
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -505,6 +507,39 @@ class TestBackendResolution:
         with pytest.raises(OutOfContextError, match=r"micro\.install"):
             async with idem("key-1"):
                 pass
+
+    async def test_open_app_without_a_cache_names_registering_it(self) -> None:
+        """An open app with no Cache is told to register one."""
+        # Arrange
+        idem = Idempotency("charge", ttl=3600)
+
+        # Act
+        async with Grelmicro():
+            with pytest.raises(OutOfContextError) as error:
+                async with idem("key-1"):
+                    pass  # pragma: no cover
+
+        # Assert
+        msg = str(error.value)
+        assert "Register a Cache component in Grelmicro(uses=[...])" in msg
+        assert "async with micro:" not in msg
+
+    async def test_closed_explicit_cache_keeps_its_own_error(self) -> None:
+        """A cache backend that is not open reports itself, not a miss."""
+        # Arrange
+        provider = SQLiteProvider(":memory:")
+        cache = TTLCache(backend=SQLiteCacheAdapter(provider=provider))
+        idem = Idempotency("charge", ttl=3600, cache=cache)
+
+        # Act
+        with pytest.raises(OutOfContextError) as error:
+            async with idem("key-1"):
+                pass  # pragma: no cover
+
+        # Assert
+        msg = str(error.value)
+        assert "SQLiteProvider is not open" in msg
+        assert "Pass cache=" not in msg
 
 
 # ---------------------------------------------------------------------------

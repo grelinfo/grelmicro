@@ -25,7 +25,9 @@ class PreconditionFailedError(PreconditionError):
 
     The `If-Match` header carried an entity tag that is not the one the
     resource has now, so another writer landed in between and the write
-    would have overwritten their change. Answers `412`.
+    would have overwritten their change. Or `If-Match` named a resource
+    that does not exist, or `If-None-Match` still matches the resource.
+    Answers `412`.
 
     Raise it yourself when the conditional write itself comes back empty,
     which is the case a check before the write cannot catch:
@@ -41,12 +43,22 @@ class PreconditionFailedError(PreconditionError):
     ```
     """
 
-    def __init__(self) -> None:
-        """Initialize the error."""
-        super().__init__(
-            "The precondition of this request does not match the current "
-            "state of the resource."
-        )
+    def __init__(self, message: str | None = None) -> None:
+        """Initialize the error.
+
+        Without `message`, it says the entity tag the client holds is
+        stale, which is the case a conditional write that came back empty
+        reports.
+        """
+        super().__init__(message or _STALE_TAG)
+
+
+_STALE_TAG = (
+    "The precondition of this request does not match the current state of "
+    "the resource. Fetch the resource again and retry with the entity tag "
+    "it carries now."
+)
+"""Default `PreconditionFailedError` message, for an entity tag gone stale."""
 
 
 class PreconditionRequiredError(PreconditionError):

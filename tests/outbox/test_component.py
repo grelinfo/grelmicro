@@ -159,8 +159,13 @@ async def test_current_returns_registered_instance() -> None:
 
 async def test_current_out_of_context_raises() -> None:
     """`Outbox.current()` raises when no app is active."""
-    with pytest.raises(OutOfContextError):
+    with pytest.raises(OutOfContextError) as info:
         Outbox.current()
+    assert str(info.value) == (
+        "Outbox('default') is not available. Run inside `async with micro:`, "
+        "with an Outbox registered in uses=[...]. micro.install(app) covers "
+        "request and message handlers, and not a lifespan of your own."
+    )
 
 
 async def test_current_unknown_name_raises() -> None:
@@ -168,5 +173,9 @@ async def test_current_unknown_name_raises() -> None:
     outbox = Outbox(MemoryOutboxAdapter())
     micro = Grelmicro(uses=[outbox])
     async with micro:
-        with pytest.raises(OutOfContextError):
+        with pytest.raises(OutOfContextError) as info:
             Outbox.current("orders")
+    message = str(info.value)
+    assert message.startswith("Outbox('orders') is not available. ")
+    assert "Register one in Grelmicro(uses=[...])." in message
+    assert "async with micro:" not in message

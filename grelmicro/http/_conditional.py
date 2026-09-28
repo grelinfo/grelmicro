@@ -302,6 +302,26 @@ def _unsupported(value: object) -> str:
     raise TypeError(msg)
 
 
+_NO_RESOURCE: Final = (
+    "The resource does not exist, so there is no entity tag to match. "
+    "Create it without If-Match, or check the URL."
+)
+"""What `If-Match` on a missing resource is refused with."""
+
+_ALREADY_EXISTS: Final = (
+    "The resource already exists, so a create-only write is refused. Drop "
+    "If-None-Match: * to replace it on purpose, or pick another URL."
+)
+"""What `If-None-Match: *` on an existing resource is refused with."""
+
+_STILL_MATCHES: Final = (
+    "The resource still has an entity tag the request named in "
+    "If-None-Match, so the write is refused. Send it only once the resource "
+    "has changed, or drop If-None-Match to write regardless."
+)
+"""What `If-None-Match` naming the current tag is refused with."""
+
+
 @dataclass(frozen=True, slots=True)
 class _Preconditions:
     """What the request asked to be true before it runs.
@@ -326,12 +346,19 @@ class _Preconditions:
                 was sent.
         """
         if self.if_match is not None:
+            if current is None:
+                raise PreconditionFailedError(_NO_RESOURCE)
             if not _matches_strong(self.if_match, current):
                 raise PreconditionFailedError
             return
         if self.if_none_match is not None:
             if _matches_weak(self.if_none_match, current):
-                raise PreconditionFailedError
+                message = (
+                    _ALREADY_EXISTS
+                    if _ANY in self.if_none_match
+                    else _STILL_MATCHES
+                )
+                raise PreconditionFailedError(message)
             return
         if require:
             raise PreconditionRequiredError
@@ -350,16 +377,13 @@ class _Conditional:
     etag: str | None = None
 
 
-def _matches_strong(tags: tuple[str, ...], current: str | None) -> bool:
+def _matches_strong(tags: tuple[str, ...], current: str) -> bool:
     """Return whether one tag matches under strong comparison.
 
     `If-Match` takes strong comparison, so a weak tag never matches, and
-    the wildcard matches any resource that exists.
+    the wildcard matches any resource that exists. The caller refuses a
+    missing resource before comparing.
     """
-    if current is None:
-        # Nothing to match: the resource is not there, so no tag of it can
-        # be the one the client holds.
-        return False
     if _ANY in tags:
         return True
     if current.startswith(_WEAK_PREFIX):
@@ -448,8 +472,8 @@ def check_precondition(
     every framework.
 
     Raises:
-        PreconditionFailedError: If the client's entity tag is not the
-            one the resource carries. Answers `412`.
+        PreconditionFailedError: If the resource is not in the state the
+            request's `If-Match` or `If-None-Match` asked for. Answers `412`.
         PreconditionRequiredError: If `require` and the request carried
             no precondition. Answers `428`.
         OutOfContextError: If `ConditionalRequests()` is not registered,

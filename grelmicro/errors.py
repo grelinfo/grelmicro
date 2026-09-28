@@ -229,7 +229,10 @@ class AuthenticationRequiredError(GrelmicroError):
     def __init__(self, *, scopes: Sequence[str] = ()) -> None:
         """Initialize the error with the scopes the route requires."""
         self.scopes = _scope_tokens(scopes)
-        super().__init__("No credential was presented where one is required.")
+        super().__init__(
+            "No credential was presented where one is required. Send a "
+            "bearer token in the Authorization header."
+        )
 
 
 class AmbiguousCredentialsError(GrelmicroError):
@@ -250,7 +253,10 @@ class AmbiguousCredentialsError(GrelmicroError):
 
     def __init__(self) -> None:
         """Initialize the error."""
-        super().__init__("More than one credential was presented.")
+        super().__init__(
+            "More than one credential was presented. Send one Authorization "
+            "header."
+        )
 
 
 class InsufficientScopeError(GrelmicroError):
@@ -272,13 +278,20 @@ class InsufficientScopeError(GrelmicroError):
     def __init__(self, *, scopes: Sequence[str]) -> None:
         """Initialize the error with the scopes the request requires."""
         self.scopes = _scope_tokens(scopes)
-        super().__init__("The caller lacks a scope this request needs.")
+        super().__init__(
+            "The caller lacks a scope this request needs. Ask your "
+            "authorization server for a token carrying every scope the "
+            "challenge names."
+        )
 
 
 class OutOfContextError(GrelmicroError, RuntimeError):
-    """Outside Context Error.
+    """Raised when something is used while it is not open.
 
-    Raised when a method is called outside of the context manager.
+    The message names the object and the call that reached it, whether the
+    object was never opened or already closed. It then names the fixes:
+    registering it on the app so the app opens it, or making the call while
+    it is open.
     """
 
     def __init__(self, cls: object, method_name: str | None = None) -> None:
@@ -290,10 +303,42 @@ class OutOfContextError(GrelmicroError, RuntimeError):
         if method_name is None:
             super().__init__(str(cls))
         else:
+            name = cls.__class__.__name__
             super().__init__(
-                f"Could not call {cls.__class__.__name__}.{method_name} "
-                "outside of the context manager"
+                f"Could not call {name}.{method_name}: the {name} is not "
+                f"open. It was never opened, or it already closed. Register "
+                f"it in Grelmicro(uses=[...]) so the app opens it, or make "
+                f"the call while it is open."
             )
+
+
+class _AmbientMissError(OutOfContextError):
+    """Raised when a pattern resolved no component through the active app.
+
+    `key` is the `(kind, name)` looked up. `bound` is whether an app was bound
+    in the scope, so the component was not registered, rather than no app
+    being open at all.
+    """
+
+    def __init__(
+        self, message: str, *, key: tuple[str, str], bound: bool
+    ) -> None:
+        """Initialize the error with the lookup that missed."""
+        super().__init__(message)
+        self.key = key
+        self.bound = bound
+
+
+_AMBIENT_SCOPE_NOTE = (
+    "micro.install(app) covers request and message handlers, and not a "
+    "lifespan of your own."
+)
+"""Closing line of every message raised when a pattern resolves no backend.
+
+`micro.install(app)` binds the app around each handler it serves. A lifespan
+the caller wrote runs outside that scope, so a call made there resolves
+nothing even though `install` was called.
+"""
 
 
 class DependencyNotFoundError(GrelmicroError, ImportError):

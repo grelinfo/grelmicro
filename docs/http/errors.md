@@ -460,9 +460,10 @@ over `max_body_size`.
 
 ### Precondition failed { #precondition-failed }
 
-`412`. The resource changed since the entity tag in `If-Match` was issued, so
-the write would erase what landed in between. Read it again and retry with the
-new tag. See [Conditional Requests](conditional.md).
+`412`. The resource is not in the state the request's `If-Match` or
+`If-None-Match` header asked for. The tag in `If-Match` is stale or the
+resource is gone, or `If-None-Match` still matches, as `If-None-Match: *` does
+on a resource that exists. Read it again before retrying. See [Conditional Requests](conditional.md).
 
 ### Precondition required { #precondition-required }
 
