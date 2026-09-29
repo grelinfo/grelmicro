@@ -757,6 +757,43 @@ def test_a_cors_preflight_is_answered_before_authentication() -> None:
     } == {ORIGIN}
 
 
+def test_an_installed_app_under_an_anonymous_mount_hides_its_routes() -> None:
+    """Its own unmatched URL and wrong method answer the `401` a protected route does."""
+
+    @get("/pub", opt=Anonymous())
+    async def public() -> str:
+        return "public"
+
+    @get("/prot")
+    async def private() -> str:
+        return "private"
+
+    inner = Litestar([public, private])
+    Grelmicro(
+        uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+    ).install(inner)
+
+    inner_app = cast("ASGIApp", inner)
+
+    async def forward(scope: Scope, receive: Receive, send: Send) -> None:
+        await inner_app(scope, receive, send)
+
+    mount = asgi("/in", is_mount=True, copy_scope=False, opt=Anonymous())
+    outer = Litestar([mount(forward)])
+    Grelmicro(
+        uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+    ).install(outer)
+    with TestClient(outer) as client:
+        statuses = [
+            client.get("/in/nope").status_code,
+            client.post("/in/prot").status_code,
+            client.get("/in/prot").status_code,
+            client.get("/in/pub").status_code,
+        ]
+
+    assert statuses == [UNAUTHORIZED, UNAUTHORIZED, UNAUTHORIZED, OK]
+
+
 def test_authentication_on_a_handler_serves_its_anonymous_route() -> None:
     """A handler's own `middleware=` runs after the gate admitted the request."""
     component = AuthenticatedRequests(verifier())

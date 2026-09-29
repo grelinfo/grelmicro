@@ -2144,13 +2144,14 @@ class AuthenticatedRequestsMiddleware:
         What the app answers before a gate admitted or refused the request,
         such as a `404`, a `405`, a redirect or an exception, is answered
         with the `401` a protected route answers, recorded with no route.
-        A request an outer authentication routed already is answered there.
+        A request the same app routed already is answered where it was routed.
         """
         scope.setdefault("user", _ANONYMOUS)
         scope.setdefault("auth", _ANONYMOUS)
         scope[SCOPE_KEY] = self._record_unauthenticated
+        routed_by = scope.get(GATE_KEY)
         self._pass_on(scope)
-        if UNANSWERED_KEY in scope:
+        if UNANSWERED_KEY in scope and routed_by is scope[GATE_KEY]:
             await self._forward(scope, receive, send)
             return
         unanswered = scope[UNANSWERED_KEY] = Unanswered()
