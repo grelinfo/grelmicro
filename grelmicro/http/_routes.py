@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import math
 from dataclasses import KW_ONLY, dataclass
-from typing import Annotated, Final
+from typing import TYPE_CHECKING, Annotated, Any, Final, Protocol
 
 from typing_extensions import Doc
 
 from grelmicro.errors import _scope_tokens
 
-__all__ = ["RouteDeclaration", "refuse_impossible", "route_name"]
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, MutableMapping
+
+    Scope = MutableMapping[str, Any]
+    Message = MutableMapping[str, Any]
+    Receive = Callable[[], Awaitable[Message]]
+    Send = Callable[[Message], Awaitable[None]]
+    ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
+
+__all__ = ["Gate", "RouteDeclaration", "refuse_impossible", "route_name"]
 
 _READS: Final = frozenset({"GET", "HEAD"})
 """The methods whose responses may be cached."""
@@ -192,3 +201,38 @@ def route_name(declaration: RouteDeclaration) -> str:
     if methods is None:
         return declaration.path
     return f"{' '.join(sorted(methods))} {declaration.path}"
+
+
+class Gate(Protocol):
+    """What an integration's `install_route_gate(app, gate)` is handed.
+
+    Called with what the router dispatches to and the route's
+    declarations, it returns the app to dispatch to in its place. That app
+    refuses a request the declaration of its method does not admit, and
+    serves the one it admits.
+
+    ```python
+    def install_route_gate(app, gate: Gate) -> None:
+        for route in app.routes:
+            route.app = gate(route.app, declare(route))
+    ```
+
+    Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
+    docs.
+    """
+
+    def __call__(
+        self,
+        app: ASGIApp,
+        /,
+        *declarations: RouteDeclaration,
+        name: Callable[[Scope], str] | None = None,
+        door: bool = False,
+    ) -> ASGIApp:
+        """Return the app to dispatch to in place of `app`.
+
+        `name`, called with the request's scope, names a refusal. With
+        `door`, `app` is the entrance of a subtree whose routes carry gates
+        of their own.
+        """
+        ...  # pragma: no cover

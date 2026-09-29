@@ -14,6 +14,7 @@ from typing_extensions import Doc
 
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
+from grelmicro._component import authenticates, observes
 from grelmicro._wrapping import refuse_registered
 from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
-    from grelmicro.http import RouteDeclaration
+    from grelmicro.http import Gate, RouteDeclaration
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -268,8 +269,8 @@ def install_middleware(
     added = [
         (
             Middleware(middleware, **options),
-            _observes(component),
-            _authenticates(component),
+            observes(component),
+            authenticates(component),
         )
         for component, (middleware, options) in (
             (component, component.asgi_middleware()) for component in components
@@ -317,16 +318,17 @@ def install_route_gate(
         Doc("The Starlette application whose routes to gate."),
     ],
     gate: Annotated[
-        "Callable[[RouteDeclaration], Callable[[Scope], ASGIApp | None]]",
+        "Gate",
         Doc(
-            "Returns the check for one route's declaration, refusing a "
-            "declaration that cannot hold."
+            "Returns the app to dispatch to in place of a route, given it "
+            "and the route's declarations, refusing a declaration that "
+            "cannot hold."
         ),
     ],
 ) -> None:
     """Gate every route the app dispatches to, before its handler runs.
 
-    Each route, websocket route and `HTTPEndpoint` method gets the check its
+    Each route, websocket route and `HTTPEndpoint` method gets the gate its
     declaration asks for. A mount whose app is a Starlette router is walked
     into. Any other mount is gated as one authenticated route, and the
     Starlette routes behind it are walked into too. A route added later,
@@ -440,16 +442,6 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
     for klass in handled():
         if klass not in app.exception_handlers:
             app.add_exception_handler(klass, handler)
-
-
-def _authenticates(component: Any) -> bool:  # noqa: ANN401
-    """Return whether a component's middleware authenticates the request."""
-    return bool(getattr(component, "asgi_authenticates", False))
-
-
-def _observes(component: Any) -> bool:  # noqa: ANN401
-    """Return whether this component's middleware only watches a request."""
-    return bool(getattr(component, "asgi_observes", False))
 
 
 def _binding_first(

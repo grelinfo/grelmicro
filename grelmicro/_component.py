@@ -4,10 +4,21 @@ from __future__ import annotations
 
 import inspect
 from contextlib import AbstractAsyncContextManager
-from typing import TYPE_CHECKING, ClassVar, Protocol, Self, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Protocol,
+    Self,
+    cast,
+    runtime_checkable,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from types import TracebackType
+
+    from grelmicro.http._gate import Answering
 
 
 def _needs_constructor_arguments(source: type) -> bool:
@@ -159,3 +170,31 @@ A `uses=` list also takes `None` entries and skips them, which this alias does
 not cover, since `micro.use(None)` is an error. Annotate a prebuilt list that
 carries its own conditionals as `list[Usable | None]`.
 """
+
+
+def observes(component: object) -> bool:
+    """Return whether a component's middleware only watches a request."""
+    return bool(getattr(component, "asgi_observes", False))
+
+
+def authenticates(component: object) -> bool:
+    """Return whether a component's middleware authenticates the request."""
+    return bool(getattr(component, "asgi_authenticates", False))
+
+
+def answering_middleware(
+    components: Iterable[object],
+) -> Answering:
+    """Return the middleware that may answer a request, in registration order.
+
+    Each is the class and the arguments to build it with, of a component
+    carrying `asgi_middleware()` that neither only watches a request nor
+    authenticates it.
+    """
+    return tuple(
+        cast("Any", component).asgi_middleware()
+        for component in components
+        if hasattr(component, "asgi_middleware")
+        and not observes(component)
+        and not authenticates(component)
+    )

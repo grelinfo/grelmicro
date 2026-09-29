@@ -1,7 +1,7 @@
 """Gate every route a Starlette router dispatches to, and list what each declares.
 
 One walk serves both: `route_declarations` collects what it finds, and
-`install_route_gate` wraps each route's `handle` with the check its
+`install_route_gate` wraps each route's `handle` with the gate its
 declarations ask for, ahead of the route's own `405`.
 
 A route added later is gated as it lands in a router's route list. On each
@@ -12,6 +12,7 @@ them before dispatching.
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any, Final, Protocol, Self, SupportsIndex
 
 from starlette.applications import Starlette
@@ -25,20 +26,19 @@ from starlette.routing import (
     WebSocketRoute,
 )
 
-from grelmicro.http._authentication import ROUTE_KEY
 from grelmicro.http._requirement import declared_scopes
 from grelmicro.http._routes import RouteDeclaration
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, MutableMapping
 
+    from grelmicro.http import Gate
+
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
-    Check = Callable[[Scope], ASGIApp | None]
-    Gate = Callable[[RouteDeclaration], Check]
 
 __all__ = ["declarations_of", "gate_routes"]
 
@@ -52,9 +52,6 @@ _ENDPOINT_METHODS: Final = (
     "OPTIONS",
 )
 """The methods an `HTTPEndpoint` answers from a method of its own."""
-
-_GATED: Final = "__grelmicro_gated__"
-"""Set on a `handle` or a `default` once it carries a gate."""
 
 _PREFIX_KEY: Final = "grelmicro.route_prefix"
 """Where each mount a request comes through adds its path, as its route declares it."""
@@ -261,6 +258,7 @@ class _Held:
     __slots__ = (
         "app",
         "default",
+        "door",
         "gates",
         "handle",
         "prefixes",
@@ -273,6 +271,7 @@ class _Held:
         self.gates: list[Gate] = []
         self.prefixes: list[str] = []
         self.handle = handle
+        self.door: Any = None
         self.routes: Any = None
         self.default: Any = None
         self.app: Any = None
@@ -280,10 +279,10 @@ class _Held:
 
 
 class _Gating:
-    """Wraps what each route dispatches to with its checks, and holds each router."""
+    """Wraps what each route dispatches to with its gates, and holds each router."""
 
     def __init__(self, gates: list[Gate]) -> None:
-        """Gate with every gate in `gates`, the first building the checks."""
+        """Gate with every gate in `gates`, the first wrapping and the others counting."""
         self.gates = gates
 
     def _hold(self, owner: Any, prefix: str) -> tuple[_Held, bool]:  # noqa: ANN401
@@ -299,13 +298,22 @@ class _Gating:
             held.prefixes.append(prefix)
         return held, new
 
-    def _checks(self, declarations: list[RouteDeclaration]) -> list[Check]:
-        """Hand every declaration to every gate, and return the first gate's checks."""
-        first, *others = self.gates
-        for gate in others:
-            for declaration in declarations:
-                gate(declaration)
-        return [first(declaration) for declaration in declarations]
+    def _gated(
+        self,
+        app: ASGIApp,
+        declarations: list[RouteDeclaration],
+        own: str,
+        *,
+        door: bool = False,
+    ) -> ASGIApp:
+        """Return `app` gated by every gate, named by `own` under its mounts.
+
+        A door runs no lane.
+        """
+        name = functools.partial(_path_under_mounts, own)
+        for gate in self.gates:
+            app = gate(app, *declarations, name=name, door=door)
+        return app
 
     def router(self, router: Router, prefix: str) -> None:
         """Hold `router`, checking its route list and its default on each request."""
@@ -325,13 +333,18 @@ class _Gating:
     ) -> None:
         """Hold `mount`, checking its app on each request, gated as a whole if asked."""
         held, _ = self._hold(mount, prefix)
-        checks = self._checks([] if whole is None else [whole])
+        opaque = _inner_router(mount.app)[0] is None
         if held.app is mount.app:
+            if whole is not None:
+                self._gated(held.door, [whole], "", door=not opaque)
             return
         held.app = mount.app
-        mount.handle = _guarded_mount(  # type: ignore[method-assign,assignment]  # ty: ignore[invalid-assignment]
-            mount, held, held.handle, checks[0] if checks else None
+        held.door = (
+            held.handle
+            if whole is None
+            else self._gated(held.handle, [whole], "", door=not opaque)
         )
+        mount.handle = _guarded_mount(mount, held)  # type: ignore[method-assign,assignment]  # ty: ignore[invalid-assignment]
 
     def app(self, app: Starlette, prefix: str) -> None:
         """Hold a mounted Starlette app, gating the router it builds its stack with.
@@ -363,33 +376,22 @@ class _Gating:
         path: str,
         declarations: list[RouteDeclaration],
     ) -> None:
-        """Wrap `owner.attribute` with the checks its declarations ask for.
+        """Wrap `owner.attribute` with the gate its declarations ask for.
 
         Each declaration is handed to every gate at every path the route
-        sits under, and the route is wrapped once. A method no declaration
-        names meets the check of an authenticated route.
+        sits under, and the route is wrapped once. A refusal names the
+        route by its own path under the mounts the request came through.
         """
-        declarations = declarations or [RouteDeclaration(path)]
-        checks = self._checks(declarations)
-        current = getattr(owner, attribute)
-        if not getattr(current, _GATED, False):
-            table: dict[str, Check] = {}
-            every: Check | None = None
-            for declaration, check in zip(declarations, checks, strict=True):
-                if declaration.methods is None:
-                    every = check
-                else:
-                    table.update(dict.fromkeys(declaration.methods, check))
-            if every is None:
-                every = self.gates[0](RouteDeclaration(path))
-            own = getattr(owner, "path", "") if attribute == "handle" else ""
-            setattr(
-                owner,
-                attribute,
-                _by_method(current, table, every, own)
-                if table
-                else _gated(current, every, own),
-            )
+        own = getattr(owner, "path", "") if attribute == "handle" else ""
+        setattr(
+            owner,
+            attribute,
+            self._gated(
+                getattr(owner, attribute),
+                declarations or [RouteDeclaration(path)],
+                own,
+            ),
+        )
         if attribute == "default":
             owner.__dict__[_HELD].default = owner.default
 
@@ -421,50 +423,9 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
     app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
-def _refused(
-    refusal: ASGIApp, own: str, scope: Scope, receive: Receive, send: Send
-) -> Awaitable[None]:
-    """Send `refusal`, naming the route by the mounts the request came through."""
-    scope[ROUTE_KEY] = f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
-    return refusal(scope, receive, send)
-
-
-def _gated(target: ASGIApp, check: Check, own: str) -> ASGIApp:
-    """Return `target`, run only once `check` lets the request through.
-
-    It returns the awaitable `target` or the refusal returns. A refusal
-    names the route by its own path, `own`, under the mounts the request
-    came through.
-    """
-
-    def gated(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
-        refusal = check(scope)
-        if refusal is None:
-            return target(scope, receive, send)
-        return _refused(refusal, own, scope, receive, send)
-
-    setattr(gated, _GATED, True)
-    return gated
-
-
-def _by_method(
-    target: ASGIApp, table: dict[str, Check], every: Check, own: str
-) -> ASGIApp:
-    """Return `target`, run once the check for the request's method lets it through.
-
-    It returns the awaitable `target` or the refusal returns, named as
-    `_gated` names it.
-    """
-    checks = table.get
-
-    def gated(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
-        refusal = checks(scope["method"], every)(scope)
-        if refusal is None:
-            return target(scope, receive, send)
-        return _refused(refusal, own, scope, receive, send)
-
-    setattr(gated, _GATED, True)
-    return gated
+def _path_under_mounts(own: str, scope: Scope) -> str:
+    """Return a route by its own path, under the mounts the request came through."""
+    return f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
 
 
 def _regate(owner: Any, held: _Held) -> None:  # noqa: ANN401
@@ -491,18 +452,14 @@ def _guarded_router(router: Router, held: _Held, stack: ASGIApp) -> ASGIApp:
     return guarded
 
 
-def _guarded_mount(
-    mount: Mount | Host,
-    held: _Held,
-    handle: ASGIApp,
-    check: Check | None,
-) -> ASGIApp:
-    """Return `handle`, run once the mount's app is the one gated and `check` passes.
+def _guarded_mount(mount: Mount | Host, held: _Held) -> ASGIApp:
+    """Return what the mount dispatches to, once its app is the one gated.
 
     A mount adds its path to the ones the request came through, which a
     refusal names its route by.
     """
     own = mount.path if isinstance(mount, Mount) else ""
+    door = held.door
 
     def guarded(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
         if mount.app is not held.app:
@@ -510,11 +467,7 @@ def _guarded_mount(
             return mount.handle(scope, receive, send)
         if own:
             scope[_PREFIX_KEY] = f"{scope.get(_PREFIX_KEY, '')}{own}"
-        if check is not None:
-            refusal = check(scope)
-            if refusal is not None:
-                return _refused(refusal, "", scope, receive, send)
-        return handle(scope, receive, send)
+        return door(scope, receive, send)
 
     return guarded
 

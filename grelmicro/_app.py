@@ -29,7 +29,12 @@ from weakref import WeakKeyDictionary, WeakSet
 from typing_extensions import Doc
 
 from grelmicro._backend_kinds import backend_kinds, most_specific_backend
-from grelmicro._component import Component, Usable, instantiate_if_class
+from grelmicro._component import (
+    Component,
+    Usable,
+    answering_middleware,
+    instantiate_if_class,
+)
 from grelmicro._diagnostics import (
     AMBIENT_BINDING,
     PROVIDER_ORDER,
@@ -1343,7 +1348,9 @@ class Grelmicro:
         integration's `install_route_gate(app, gate)` wraps each route with
         it. `route_declarations(app)` lists the same routes, each of which
         must then carry a gate, now and when the app starts. Both are
-        feature-detected, like `install_middleware`.
+        feature-detected, like `install_middleware`. A first-party
+        integration may carry `_routed_middleware(app)` too, listing the
+        middleware the app runs once its router matched a route.
 
         Raises:
             RuntimeError: If a route the integration lists carries no gate.
@@ -1362,7 +1369,13 @@ class Grelmicro:
         )
         if gating is None:
             return
-        gate = gating.route_gate(app, errors)
+        routed = getattr(integration, "_routed_middleware", None)
+        gate = gating.route_gate(
+            app,
+            errors,
+            answering=answering_middleware(self.components),
+            routed=() if routed is None else routed(app),
+        )
         if gate is None:
             return
         if wire is not None:

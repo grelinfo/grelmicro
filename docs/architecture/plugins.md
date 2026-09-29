@@ -54,8 +54,9 @@ def route_declarations(app) -> Iterable[RouteDeclaration]: ...
 components that carry `asgi_middleware()`, which returns the middleware class
 and the arguments to build it with, and adds each one the way your framework
 takes a middleware. Keep the binding outermost, so a middleware that resolves
-a backend ambiently runs inside the request scope. The last two declare your
-routes, as [Declare the routes](#declare-the-routes) shows.
+a backend ambiently runs inside the request scope. `install_route_gate` and
+`route_declarations` declare your routes, as
+[Declare the routes](#declare-the-routes) shows.
 
 Leave them out for a framework that serves no HTTP. Nothing anywhere reads a
 framework's name to decide, so an absent attribute is the whole answer.
@@ -86,17 +87,33 @@ A declaration is frozen. Pass `path` first and every other field by keyword.
 A route whose methods declare differently, such as a public `GET` beside a
 protected `POST`, lists one declaration per method set.
 
-`install_route_gate(app, gate)` wraps what the router dispatches to. Call
-`gate(declaration)` at install, once for each declaration. It returns a check.
-Before the handler runs, call the check that matches the request, with the
-request's ASGI scope. It answers `None` to let the request through, or an ASGI
-app that refuses it: a `401` with its challenge, a `403` for a missing scope,
-or a websocket denial. Send the refusal in place of the handler. Its `status`
-says which, for a framework that records refusals. The check does no I/O,
-because the credential was verified before routing. A rule that needs I/O,
-such as a lookup by the caller, belongs in the handler or in the framework's
-own guard. `gate` itself raises for a declaration that cannot hold, so a wrong
-route fails at install.
+`install_route_gate(app, gate)` wraps what the router dispatches to. `gate`
+is a `Gate`, from `grelmicro.http`. For each
+thing your router dispatches to, call `gate(app, *declarations)` at install
+and dispatch to the ASGI app it returns. Pass one declaration, or one per
+method set. The returned app:
+
+- picks the declaration of the request's method. A method no declaration
+  names needs a caller,
+- refuses a request the declaration does not admit: a `401` with its
+  challenge, a `403` for a missing scope, or a websocket denial, recorded as a
+  security event with the declaration's path,
+- runs the handler of a request it admits, inside the rate limit, the response
+  cache, idempotency and conditional requests the app registered.
+
+Pass `name=`, a function of the request's ASGI scope, to name a refusal by
+another path, such as the mounts the request came through. Pass `door=True`
+for the entrance of a subtree whose routes you gate too, such as a mounted
+app you walk into: it refuses as a route's gate does, and leaves the rate
+limit, the cache and idempotency to the routes inside, so they run once.
+
+Gating an app that `gate` returned already counts its declarations and
+returns it as it is, so a route shared by two apps, or reached under two
+paths, is gated once. `gate`
+does no I/O, because the credential was verified before routing, and it raises
+for a declaration that cannot hold, so a wrong route fails at install. A rule
+that needs I/O, such as a lookup by the caller, belongs in the handler or in
+the framework's own guard.
 
 A mount whose routes you cannot read is one route. Declare its path with
 `methods=None` and nothing else, and everything under it stays authenticated.
@@ -125,7 +142,7 @@ def route_declarations(app):
 
 def install_route_gate(app, gate):
     for route in _routes(app):
-        route.app = _gated(route.app, gate(_declare(route)))
+        route.app = gate(route.app, _declare(route))
 
 
 def _routes(app):
@@ -142,14 +159,6 @@ def _declare(route):
         anonymous=getattr(endpoint, "anonymous", False),
         scopes=frozenset(getattr(endpoint, "scopes", ())),
     )
-
-
-def _gated(asgi, check):
-    async def gated(scope, receive, send):
-        refusal = check(scope)
-        await (asgi if refusal is None else refusal)(scope, receive, send)
-
-    return gated
 ```
 
 A mount is gated as one protected route here. A real integration walks into
@@ -169,12 +178,23 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
   reached without it, through a scope rebuilt on the way or from an app
   without authentication, is refused `401`. So a router is not shared with an
   app that does not authenticate it.
+- **A request without a credential is routed only where it can be served.**
+  An app with an `anonymous=True` route routes it, and any other refuses it
+  before routing. An anonymous route reached without the app's policy is
+  refused `401` as well.
 - **A URL no route answers is `401`.** A request with no credential that
   reaches no gate gets the same `401` and body as a protected route, in place
-  of the `404`, `405` or slash redirect. The challenge names no scopes, on any
-  route, so a caller without a credential cannot tell which routes exist.
+  of the `404`, `405`, slash redirect or error. The challenge names no scopes,
+  on any route, so a caller without a credential cannot tell which routes
+  exist.
 - **Some answers come before routing.** A CORS preflight, and a response your
-  app's own middleware writes before routing, are answered as today.
+  app's own middleware writes before routing, reach the caller unchanged. So is a
+  CORS answer to a preflight that middleware under a mount writes, since a
+  browser sends no credential on a preflight.
+- **Nothing is spent on a refusal.** The rate limit, the response cache and
+  idempotency run once a gate admitted the request, so a request a route
+  refuses spends no budget, costs no cache lookup and stores nothing. A
+  request no route answers reaches none of them either.
 - **A credential is verified before routing.** Outside `exclude=`, a token
   that does not verify, or a caller `bans` refuses, is answered before the
   framework sees the request. That holds on an `anonymous=True` route too: a

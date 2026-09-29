@@ -2581,18 +2581,18 @@ def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401
 class TestLitestar:
     """Handler declarations on Litestar."""
 
-    def test_the_options_litestar_answers_on_a_public_path_is_public(
-        self,
-    ) -> None:
-        """The `OPTIONS` Litestar adds to a route is public where a handler is."""
+    def test_the_options_litestar_adds_needs_a_caller(self) -> None:
+        """Beside a public handler too: it declares nothing of its own."""
         with LitestarTestClient(
             litestar_app(AuthenticatedRequests(verifier()))
         ) as client:
-            public = client.options("/catalog/7")
+            refused = client.options("/catalog/7")
+            answered = client.options("/catalog/7", headers=bearer(token()))
             private = client.options("/orders/7")
 
-        assert public.status_code == HTTP_204_NO_CONTENT
-        assert "GET" in public.headers["allow"]
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert answered.status_code == HTTP_204_NO_CONTENT
+        assert "GET" in answered.headers["allow"]
         assert private.status_code == HTTP_401_UNAUTHORIZED
 
     def test_an_options_handler_of_its_own_is_authenticated_by_its_own_opt(
@@ -5433,10 +5433,8 @@ class TestRootPathRedirects:
 class TestLitestarDeclarations:
     """What a Litestar route declares public, for a report or a schema."""
 
-    def test_the_options_litestar_adds_is_public_beside_a_public_handler(
-        self,
-    ) -> None:
-        """Only where a handler of the route is public."""
+    def test_the_options_litestar_adds_is_never_public(self) -> None:
+        """Beside a public handler too, since it declares nothing."""
 
         @get("/catalog", opt=LitestarAnonymous())
         async def catalog() -> list[str]:
@@ -5452,7 +5450,7 @@ class TestLitestarDeclarations:
             for _, route, _ in walk_routes(app)
         }
 
-        assert declared == {"/catalog": True, "/orders": False}
+        assert declared == {"/catalog": False, "/orders": False}
 
 
 class TestDocumentOperations:
