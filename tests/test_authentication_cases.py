@@ -552,11 +552,11 @@ def test_each_request_is_answered_as_today(
 ) -> None:
     """Without a credential and with a valid one, the status is pinned.
 
-    Starlette decides at each route's gate, so the routes read before
-    routing are never asked.
+    Starlette and Litestar decide at each route's gate, so the routes read
+    before routing are never asked.
     """
     build, client_class = FRAMEWORKS[framework]
-    if framework == "starlette":
+    if framework != "fastapi":
         monkeypatch.setattr(_PublicRoutes, "matches", unasked)
 
     assert answered(build, client_class, case) == getattr(case, framework)

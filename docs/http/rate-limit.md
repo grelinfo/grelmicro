@@ -15,6 +15,10 @@ Every request spends one token of every limiter listed. A burst limit stands
 beside a daily one, and a request passes both or is turned away by the first
 that says no.
 
+With [`AuthenticatedRequests`](authentication.md) on Starlette or Litestar, a
+request spends its tokens once its route admitted it. A request the route
+refuses, and one no route answers, spends none.
+
 ## What the caller is told
 
 Allowed or refused, the response states what is left, in the two fields of the

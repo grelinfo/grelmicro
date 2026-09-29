@@ -71,8 +71,11 @@ class Integration(Protocol):
     takes one, and one that does not is skipped the same way.
 
     `install_route_gate(app, gate)` and `route_declarations(app)` declare
-    the app's routes. The first wraps what the router dispatches to with the
-    check `gate(declaration)` returns for each route. The second lists the
+    the app's routes. The first dispatches each route to the app
+    `gate(app, *declarations, name=None, door=False)` returns for it,
+    `name` naming its refusals by the request and `door` gating the
+    entrance of a subtree whose routes carry gates of their own. The
+    second lists the
     same `RouteDeclaration`s, and a listed route that carries no gate stops
     the app from starting. An integration without them declares nothing, so
     every route stays authenticated and is decided before routing.

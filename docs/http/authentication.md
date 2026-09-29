@@ -76,6 +76,40 @@ verified is routed, and the gate of the route it reaches checks its scopes.
 - A route shared by several apps is gated with each app's own `exclude` and
   error format. An app without `AuthenticatedRequests` gets `401` on it.
 
+### Decided at the handler, on Litestar
+
+On Litestar, the gate sits where Litestar's router hands a request to the
+handler it matched, per method. A handler declaring `Anonymous()` serves a
+caller with no credential, and `Authenticated(scopes=[...])` guards name the
+scopes the gate checks before the handler runs.
+
+- A request without a credential is routed when a handler of the app declares
+  `Anonymous()`, and refused before routing otherwise. A URL no handler answers
+  and a method no handler serves get the same `401` as a protected route.
+- `Anonymous()` on one method keeps the route's other methods authenticated,
+  and so is the `OPTIONS` Litestar adds to a route. A CORS preflight is answered
+  by Litestar's CORS middleware before authentication.
+- An ASGI mount is one route: its app, and any middleware in it, never runs for
+  a request its handler refuses.
+- A handler registered later is gated as it lands.
+- A middleware declared in `Litestar(middleware=[...])` runs behind the
+  router, and checks the handler it serves the same way. The rate limit, the
+  response cache, idempotency and conditional requests then run behind it,
+  once the handler's declaration admitted the request. It is part of each
+  handler's own stack, so a URL no handler answers never reaches it, and
+  Litestar answers it `404`. Let `micro.install(app)` place it for that URL to
+  get the `401`.
+
+### Rate limits, caching and idempotency run at the route
+
+On Starlette and Litestar, `RateLimitedRequests`, `CachedResponses`,
+`IdempotentRequests` and `ConditionalRequests` run once the gate of the route
+admitted the request, around its handler. A request a route refuses spends no
+rate-limit budget, costs no cache lookup and stores nothing under its
+`Idempotency-Key`. A request no route answers reaches none of them. Their
+`include=` and `exclude=` still name paths from the app's root, under a mount
+too.
+
 ## Reading the caller
 
 The verified caller is put in `request.user` and `request.auth`, which is where

@@ -29,7 +29,12 @@ from weakref import WeakKeyDictionary, WeakSet
 from typing_extensions import Doc
 
 from grelmicro._backend_kinds import backend_kinds, most_specific_backend
-from grelmicro._component import Component, Usable, instantiate_if_class
+from grelmicro._component import (
+    Component,
+    Usable,
+    answering_middleware,
+    instantiate_if_class,
+)
 from grelmicro._diagnostics import (
     AMBIENT_BINDING,
     PROVIDER_ORDER,
@@ -1362,7 +1367,9 @@ class Grelmicro:
         )
         if gating is None:
             return
-        gate = gating.route_gate(app, errors)
+        gate = gating.route_gate(
+            app, errors, answering=answering_middleware(self.components)
+        )
         if gate is None:
             return
         if wire is not None:
