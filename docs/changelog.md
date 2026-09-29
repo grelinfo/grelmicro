@@ -3,11 +3,13 @@
 ## Unreleased
 
 ### Breaking
-* 💥 `gate(app, *declarations, name=None, door=False)` returns the app an integration dispatches to, in place of a check to call. It picks the declaration by method, a method no declaration names needs a caller, `name=` names a refusal by the request, and gating an app it returned only counts it again. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
+* 💥 `gate(app, *declarations, name=None, door=False)` returns the app an integration dispatches to. It no longer returns a check to call. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
+* 💥 A gate picks the declaration by the request's method. A method no declaration names needs a caller. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
+* ✨ `gate(..., name=...)` names a refusal from the request. Gating an app a gate already returned only counts it again. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * 🔒 On Litestar, every handler carries a gate, decided once the router matched it. A request without a credential is routed when a handler declares `Anonymous()`, and a URL or method no handler answers gets the `401` of a protected route. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
-* 🔒 On Litestar, the `OPTIONS` Litestar adds to a route needs a caller, beside a public handler too. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
+* 🔒 On Litestar, the `OPTIONS` handler Litestar adds to a route needs a caller. This holds on a route with a public handler too. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * 💥 On Starlette and Litestar, the rate limit, the response cache, idempotency and conditional requests run once the route admitted the request. A request with a token that no route answers is no longer rate limited. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
-* 🔒 An `anonymous=True` route reached without the policy of an app that authenticates it answers `401`. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
+* 🔒 An `anonymous=True` route answers `401` when no app that authenticates it serves the request. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * 🔒 On Starlette, every route carries a gate. A request whose token verified is routed, and the gate of the route it reaches refuses a missing scope before the handler runs. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * 🔒 The `401` for a request without a credential names no scope, on every framework, so a scoped route can no longer be told from a URL no route answers. The `403` for a missing scope still names them. `AuthenticationRequiredError` takes no `scopes`. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * 🔒 On Starlette, a path in `exclude` that a mounted app's middleware rewrites to a route outside `exclude` needs a credential, and so does one whose scope that middleware rebuilds. ([#922](https://github.com/grelinfo/grelmicro/issues/922))
@@ -52,7 +54,7 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
-* ✨ The Litestar integration ships `install_route_gate(app, gate)` and `route_declarations(app)`, per handler and per method, the handlers registered later and authentication passed to `Litestar(middleware=[...])` included. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
+* ✨ The Litestar integration ships `install_route_gate(app, gate)` and `route_declarations(app)`. Each handler is gated per method. A handler registered later is gated too, and so is an app that passes authentication to `Litestar(middleware=[...])`. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * ✨ `RouteDeclaration` says what a route requires, and an integration declares its routes with `install_route_gate(app, gate)` and `route_declarations(app)`, which `micro.install(app)` feature-detects. A listed route without a gate stops the app from starting. The Starlette integration ships both. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * ✨ On Starlette, a route added through the app or any of its routers is gated as it lands, and a route list, a mount's app or a router's default assigned later is gated before it serves. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * ✨ `micro.fake()` works on an app that `install` opens: enter it before the test client starts. The Providers only faked components used stay closed, so the suite connects to nothing and `/readyz` does not probe them, and `fake(keep=[provider])` opens one for real. ([#881](https://github.com/grelinfo/grelmicro/issues/881))

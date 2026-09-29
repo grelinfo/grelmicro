@@ -308,7 +308,7 @@ def install_route_gate(
         wrapped = gate(
             asgi_app,
             declaration,
-            name=functools.partial(_route_name, declaration.path),
+            name=functools.partial(_template_under_root, declaration.path),
         )
         gated[id(asgi_app)] = (asgi_app, wrapped)
         return wrapped
@@ -459,7 +459,7 @@ def _declaration(template: str, handler: Any) -> RouteDeclaration:  # noqa: ANN4
     )
 
 
-def _route_name(template: str, scope: Scope) -> str:
+def _template_under_root(template: str, scope: Scope) -> str:
     """Return a handler's template, under the root path the request arrived at."""
     root = scope.get("root_path", "").rstrip("/")
     if root and arrived_path(scope).startswith(root):

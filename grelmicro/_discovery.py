@@ -75,9 +75,8 @@ class Integration(Protocol):
     `gate(app, *declarations, name=None, door=False)` returns for it,
     `name` naming its refusals by the request and `door` gating the
     entrance of a subtree whose routes carry gates of their own. The
-    second lists the
-    same `RouteDeclaration`s, and a listed route that carries no gate stops
-    the app from starting. An integration without them declares nothing, so
+    second lists the same `RouteDeclaration`s, and a listed route that
+    carries no gate stops the app from starting. An integration without them declares nothing, so
     every route stays authenticated and is decided before routing.
     """
 

@@ -103,9 +103,11 @@ Pass `name=`, a function of the request's ASGI scope, to name a refusal by
 another path, such as the mounts the request came through. Pass `door=True`
 for the entrance of a subtree whose routes you gate too, such as a mounted
 app you walk into: it refuses as a route's gate does, and leaves the rate
-limit, the cache and idempotency to the routes inside, so they run once. Gating an app that
-`gate` returned already counts its declarations and returns it as it is, so a
-route shared by two apps, or reached under two paths, is gated once. `gate`
+limit, the cache and idempotency to the routes inside, so they run once.
+
+Gating an app that `gate` returned already counts its declarations and
+returns it as it is, so a route shared by two apps, or reached under two
+paths, is gated once. `gate`
 does no I/O, because the credential was verified before routing, and it raises
 for a declaration that cannot hold, so a wrong route fails at install. A rule
 that needs I/O, such as a lookup by the caller, belongs in the handler or in
@@ -184,7 +186,7 @@ mounts it can read, and declares each `HTTPEndpoint` method on its own.
   on any route, so a caller without a credential cannot tell which routes
   exist.
 - **Some answers come before routing.** A CORS preflight, and a response your
-  app's own middleware writes before routing, are answered as today. So is a
+  app's own middleware writes before routing, reach the caller unchanged. So is a
   CORS answer to a preflight that middleware under a mount writes, since a
   browser sends no credential on a preflight.
 - **Nothing is spent on a refusal.** The rate limit, the response cache and

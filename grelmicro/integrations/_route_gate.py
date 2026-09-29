@@ -309,7 +309,7 @@ class _Gating:
 
         A door runs no lane.
         """
-        name = functools.partial(_route_name, own)
+        name = functools.partial(_path_under_mounts, own)
         for gate in self.gates:
             app = gate(app, *declarations, name=name, door=door)
         return app
@@ -422,7 +422,7 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
     app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
-def _route_name(own: str, scope: Scope) -> str:
+def _path_under_mounts(own: str, scope: Scope) -> str:
     """Return a route by its own path, under the mounts the request came through."""
     return f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
 

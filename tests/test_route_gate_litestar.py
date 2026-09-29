@@ -17,6 +17,7 @@ import pytest
 from litestar import Litestar, asgi, get, post, websocket
 from litestar import WebSocket as LitestarWebSocket
 from litestar.background_tasks import BackgroundTask
+from litestar.config.cors import CORSConfig
 from litestar.exceptions import WebSocketDisconnect
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
@@ -64,6 +65,7 @@ METHOD_NOT_ALLOWED = 405
 TOO_MANY_REQUESTS = 429
 CLOSED = 1008
 EVENTS = "grelmicro.security.events"
+ORIGIN = "https://app.example"
 ADDRESS = ("203.0.113.7", 5000)
 """The address every caller shares, as behind one NAT."""
 
@@ -727,3 +729,29 @@ def test_a_litestar_router_without_the_seam_fails_install(
 
     with pytest.raises(RuntimeError, match="has no handle_routing"):
         installed(app)
+
+
+def test_a_cors_preflight_is_answered_before_authentication() -> None:
+    """Litestar's CORS middleware answers it, whatever the URL."""
+
+    @get("/private")
+    async def private() -> str:
+        return "private"  # pragma: no cover
+
+    app = installed(
+        Litestar(
+            [private, *catalog_handlers()],
+            cors_config=CORSConfig(allow_origins=[ORIGIN]),
+        )
+    )
+    preflight = {"origin": ORIGIN, "access-control-request-method": "GET"}
+    with TestClient(app) as client:
+        answered = [
+            client.options(path, headers=preflight)
+            for path in ("/private", "/public", "/nowhere")
+        ]
+
+    assert [response.status_code for response in answered] == [NO_CONTENT] * 3
+    assert {
+        response.headers["access-control-allow-origin"] for response in answered
+    } == {ORIGIN}
