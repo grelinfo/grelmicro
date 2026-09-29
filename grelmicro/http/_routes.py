@@ -207,7 +207,18 @@ class Gate(Protocol):
     """What an integration's `install_route_gate(app, gate)` is handed.
 
     Called with what the router dispatches to and the route's
-    declarations, it returns the app to dispatch to in its place.
+    declarations, it returns the app to dispatch to in its place. That app
+    refuses a request the declaration of its method does not admit, and
+    serves the one it admits.
+
+    ```python
+    def install_route_gate(app, gate: Gate) -> None:
+        for route in app.routes:
+            route.app = gate(route.app, declare(route))
+    ```
+
+    Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
+    docs.
     """
 
     def __call__(

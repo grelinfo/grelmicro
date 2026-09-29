@@ -79,10 +79,6 @@ class Integration(Protocol):
     carries no gate stops the app from starting. An integration without
     them declares nothing, so every route stays authenticated and is
     decided before routing.
-
-    `routed_middleware(app)` lists the middleware the app runs once its
-    router matched a route, each as its class and arguments. An
-    `AuthenticatedRequests` middleware among them checks each route there.
     """
 
     def install(

@@ -132,14 +132,14 @@ class Edge:
     lane of the route it reaches instead.
     """
 
-    __slots__ = ("_after", "alone", "answering", "below")
+    __slots__ = ("_after", "answering", "below", "only")
 
     def __init__(self, below: ASGIApp, answering: Answering) -> None:
         """Hand requests on to `below`, running `answering` at each route."""
         self.below = below
         self.answering = answering
-        self.alone: tuple[Edge, ...] = (self,)
-        """The edges of a request that crossed this one alone."""
+        self.only: tuple[Edge, ...] = (self,)
+        """The edges of a request that crossed this one and no other."""
         self._after: dict[tuple[Edge, ...], tuple[Edge, ...]] = {}
 
     def after(self, outer: tuple[Edge, ...]) -> tuple[Edge, ...]:
@@ -238,15 +238,26 @@ class Crossing(NamedTuple):
 
 
 def crossed(scope: Scope, edge: Edge) -> None:
-    """Record that the request crossed `edge`, with what it arrived with there."""
+    """Record that the request crossed `edge`, with what it arrived with there.
+
+    A request crossing an edge it already crossed, such as one routed
+    through an app mounted inside itself, keeps what it recorded there
+    first, so the answering middleware of that app run once.
+    """
     outer: Crossing | None = scope.get(CROSSED_KEY)
+    if outer is None:
+        edges = edge.only
+    elif edge in outer.edges:
+        return
+    else:
+        edges = edge.after(outer.edges)
     scope[CROSSED_KEY] = Crossing(
         edge,
         scope["path"],
         scope.get("root_path", ""),
         scope.get("app"),
         outer,
-        edge.alone if outer is None else edge.after(outer.edges),
+        edges,
     )
 
 
@@ -644,25 +655,22 @@ def _gated(target: ASGIApp, admit: _Admit, *, door: bool) -> ASGIApp:
     It returns the awaitable `target`, its lane, or the refusal. A door
     runs no lane.
     """
-    lanes: dict[Any, ASGIApp] = {}
+    lanes: tuple[
+        dict[tuple[Edge, ...], ASGIApp], dict[tuple[Edge, ...], ASGIApp]
+    ] = ({}, {})
 
     def lane(scope: Scope, arrived: Crossing) -> ASGIApp:
-        edge = arrived.edge
-        outer = arrived.outer
-        if (
-            outer is None
-            and scope["path"] == arrived.path
-            and scope.get("app") is arrived.app
-            and scope.get("root_path", "") == arrived.root_path
-        ):
-            built = lanes.get(edge)
-            if built is None:
-                built = lanes[edge] = _lane(target, (edge,), moved=False)
-            return built
-        edges = arrived.edges
-        built = lanes.get(edges)
+        moved = (
+            arrived.outer is not None
+            or scope["path"] != arrived.path
+            or scope.get("app") is not arrived.app
+            or scope.get("root_path", "") != arrived.root_path
+        )
+        built = lanes[moved].get(arrived.edges)
         if built is None:
-            built = lanes[edges] = _lane(target, edges, moved=True)
+            built = lanes[moved][arrived.edges] = _lane(
+                target, arrived.edges, moved=moved
+            )
         return built
 
     def gated(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:

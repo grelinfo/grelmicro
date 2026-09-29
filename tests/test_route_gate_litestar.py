@@ -755,3 +755,30 @@ def test_a_cors_preflight_is_answered_before_authentication() -> None:
     assert {
         response.headers["access-control-allow-origin"] for response in answered
     } == {ORIGIN}
+
+
+def test_authentication_on_a_handler_serves_its_anonymous_route() -> None:
+    """A handler's own `middleware=` runs after the gate admitted the request."""
+    component = AuthenticatedRequests(verifier())
+    middleware, options = component.asgi_middleware()
+    on_handler = [DefineMiddleware(middleware, **options)]
+
+    @get("/public", opt=Anonymous(), middleware=on_handler)
+    async def public() -> str:
+        return "public"
+
+    @get("/private", middleware=on_handler)
+    async def private() -> str:
+        return "private"
+
+    app = Litestar([public, private])
+    Grelmicro(uses=[ErrorResponses(), component]).install(app)
+    with TestClient(app) as client:
+        statuses = [
+            client.get("/public").status_code,
+            client.get("/private").status_code,
+            client.get("/private", headers=bearer(token())).status_code,
+            client.get("/nowhere").status_code,
+        ]
+
+    assert statuses == [OK, UNAUTHORIZED, OK, UNAUTHORIZED]

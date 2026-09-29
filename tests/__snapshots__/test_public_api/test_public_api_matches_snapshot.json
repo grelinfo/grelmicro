@@ -296,6 +296,9 @@
       ".problem_details": "(*, name='default') -> 'Self'",
       ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/errors/', name='default') -> 'Self'"
     },
+    "Gate": {
+      "()": "(*args, **kwargs)"
+    },
     "IdempotencyMiddleware": {
       "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
     },
@@ -495,9 +498,6 @@
     },
     "route_declarations": {
       "()": "(app) -> 'list[RouteDeclaration]'"
-    },
-    "routed_middleware": {
-      "()": "(app) -> 'list[tuple[Any, dict[str, Any]]]'"
     }
   },
   "grelmicro.integrations.starlette": {

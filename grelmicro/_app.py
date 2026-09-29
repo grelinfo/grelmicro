@@ -1347,10 +1347,10 @@ class Grelmicro:
         A component that carries `route_gate()` hands out the gate, and the
         integration's `install_route_gate(app, gate)` wraps each route with
         it. `route_declarations(app)` lists the same routes, each of which
-        must then carry a gate, now and when the app starts.
-        `routed_middleware(app)` lists the middleware the app runs once its
-        router matched a route. All three are feature-detected, like
-        `install_middleware`.
+        must then carry a gate, now and when the app starts. Both are
+        feature-detected, like `install_middleware`. A first-party
+        integration may carry `_routed_middleware(app)` too, listing the
+        middleware the app runs once its router matched a route.
 
         Raises:
             RuntimeError: If a route the integration lists carries no gate.
@@ -1369,7 +1369,7 @@ class Grelmicro:
         )
         if gating is None:
             return
-        routed = getattr(integration, "routed_middleware", None)
+        routed = getattr(integration, "_routed_middleware", None)
         gate = gating.route_gate(
             app,
             errors,

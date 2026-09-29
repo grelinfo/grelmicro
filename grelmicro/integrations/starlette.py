@@ -41,8 +41,7 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
-    from grelmicro.http import RouteDeclaration
-    from grelmicro.http._routes import Gate
+    from grelmicro.http import Gate, RouteDeclaration
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]

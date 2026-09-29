@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from litestar.response import Response
 
     from grelmicro import Grelmicro
-    from grelmicro.http._routes import Gate
+    from grelmicro.http import Gate
     from grelmicro.security.principal import VerifiedToken
 
     Scope = MutableMapping[str, Any]
@@ -63,7 +63,6 @@ __all__ = [
     "install_route_gate",
     "is_bound",
     "route_declarations",
-    "routed_middleware",
 ]
 
 
@@ -244,7 +243,7 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
     middleware, options = component.asgi_middleware()
     declared = [
         arguments
-        for declared_class, arguments in routed_middleware(app)
+        for declared_class, arguments in _routed_middleware(app)
         if declared_class is middleware
     ]
     for described in declared or [options]:
@@ -676,12 +675,7 @@ def _innermost_layer(handler: ASGIApp, app: Litestar) -> Any | None:  # noqa: AN
     return host  # pragma: no cover
 
 
-def routed_middleware(
-    app: Annotated[
-        Litestar,
-        Doc("The Litestar application whose middleware to list."),
-    ],
-) -> list[tuple[Any, dict[str, Any]]]:
+def _routed_middleware(app: Litestar) -> list[tuple[Any, dict[str, Any]]]:
     """Return the middleware the app runs once its router matched a handler.
 
     Each is what the app passed to `Litestar(middleware=[...])`, as its
@@ -705,10 +699,11 @@ def _already_wired(app: Litestar, middleware: type[Any]) -> bool:
     because `install` ran before and wrapped it. One layer answers, stores
     and tags. Two would do all three twice.
     """
-    declared = any(
-        declared is middleware for declared, _ in routed_middleware(app)
+    passed = any(
+        declared_class is middleware
+        for declared_class, _ in _routed_middleware(app)
     )
-    return declared or _wrapped_already(app.asgi_handler, middleware)
+    return passed or _wrapped_already(app.asgi_handler, middleware)
 
 
 def _declared_by_app(app: Litestar, component: Any) -> bool:  # noqa: ANN401
@@ -719,10 +714,10 @@ def _declared_by_app(app: Litestar, component: Any) -> bool:  # noqa: ANN401
     """
     middleware, options = component.asgi_middleware()
     return any(
-        declared is middleware
+        declared_class is middleware
         and "public" in arguments
         and arguments["public"] is options.get("public")
-        for declared, arguments in routed_middleware(app)
+        for declared_class, arguments in _routed_middleware(app)
     )
 
 
@@ -1130,6 +1125,6 @@ def is_bound(
     if isinstance(getattr(app, "asgi_handler", None), GrelmicroMiddleware):
         return True
     return any(
-        middleware is GrelmicroMiddleware
-        for middleware, _ in routed_middleware(app)
+        declared_class is GrelmicroMiddleware
+        for declared_class, _ in _routed_middleware(app)
     )

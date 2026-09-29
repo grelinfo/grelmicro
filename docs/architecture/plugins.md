@@ -47,7 +47,6 @@ def install_error_responses(app, errors) -> None: ...
 def install_middleware(app, components) -> None: ...
 def install_route_gate(app, gate) -> None: ...
 def route_declarations(app) -> Iterable[RouteDeclaration]: ...
-def routed_middleware(app) -> Iterable[tuple[type, dict]]: ...
 ```
 
 `install_error_responses` answers every rejection in the format the registered
@@ -57,11 +56,7 @@ and the arguments to build it with, and adds each one the way your framework
 takes a middleware. Keep the binding outermost, so a middleware that resolves
 a backend ambiently runs inside the request scope. `install_route_gate` and
 `route_declarations` declare your routes, as
-[Declare the routes](#declare-the-routes) shows. `routed_middleware` lists
-the middleware your framework runs once its router matched a route, each as
-its class and arguments. An `AuthenticatedRequests` middleware among them
-checks each route there, and runs the rate limit, the cache and idempotency
-once a route admitted the request.
+[Declare the routes](#declare-the-routes) shows.
 
 Leave them out for a framework that serves no HTTP. Nothing anywhere reads a
 framework's name to decide, so an absent attribute is the whole answer.
@@ -92,7 +87,8 @@ A declaration is frozen. Pass `path` first and every other field by keyword.
 A route whose methods declare differently, such as a public `GET` beside a
 protected `POST`, lists one declaration per method set.
 
-`install_route_gate(app, gate)` wraps what the router dispatches to. For each
+`install_route_gate(app, gate)` wraps what the router dispatches to. `gate`
+is a `Gate`, from `grelmicro.http`. For each
 thing your router dispatches to, call `gate(app, *declarations)` at install
 and dispatch to the ASGI app it returns. Pass one declaration, or one per
 method set. The returned app:

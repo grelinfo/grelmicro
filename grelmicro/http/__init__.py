@@ -68,7 +68,7 @@ from grelmicro.http._response_cache import (
     CachedResponsesConfig,
     CachedResponsesMiddleware,
 )
-from grelmicro.http._routes import RouteDeclaration
+from grelmicro.http._routes import Gate, RouteDeclaration
 from grelmicro.http._server import OpsServer, OpsServerConfig
 from grelmicro.http._tmf import TMFError
 from grelmicro.http.errors import (
@@ -91,6 +91,7 @@ __all__ = [
     "ConditionalRequestsConfig",
     "ConditionalRequestsMiddleware",
     "ErrorResponses",
+    "Gate",
     "IdempotencyMiddleware",
     "IdempotentRequests",
     "IdempotentRequestsConfig",

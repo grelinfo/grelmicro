@@ -1280,6 +1280,27 @@ class TestAnsweringMiddleware:
         assert statuses == [INTERNAL_SERVER_ERROR] * 2
         assert probe.calls == len(statuses)
 
+    def test_an_app_mounted_in_itself_runs_them_once_at_any_depth(
+        self,
+    ) -> None:
+        """Crossing its own authentication again adds no lane of its own."""
+        app = Starlette(routes=[Route("/orders", served)])
+        app.router.routes.append(Mount("/x", app=app))
+        installed(app, limited(limit=100))
+        client = TestClient(app, client=ADDRESS)
+
+        answered = [
+            client.get(f"{'/x' * depth}/orders", headers=bearer(token()))
+            for depth in (0, 1, 50)
+        ]
+
+        assert [response.status_code for response in answered] == [OK] * 3
+        assert [response.headers["ratelimit"] for response in answered] == [
+            '"burst";r=99;t=1',
+            '"burst";r=98;t=2',
+            '"burst";r=97;t=2',
+        ]
+
     def test_what_one_of_them_raises_meets_no_handler_of_the_app(self) -> None:
         """As before routing: the server answers it, not the app's handlers."""
 
