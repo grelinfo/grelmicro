@@ -450,16 +450,17 @@ def walking(
 ) -> Starlette:
     """Install `app` through an integration gating the routes of its mounted apps too."""
 
-    def routes(app: Starlette) -> list[tuple[str, Any]]:
-        found: list[tuple[str, Any]] = []
+    def routes(app: Starlette) -> list[tuple[str, Route]]:
+        found: list[tuple[str, Route]] = []
         for route in app.routes:
             if isinstance(route, Mount):
                 found.extend(
-                    (f"{route.path}{inner.path}", inner)  # type: ignore[attr-defined]
-                    for inner in route.app.routes  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+                    (f"{route.path}{inner.path}", inner)
+                    for inner in route.routes
+                    if isinstance(inner, Route)
                 )
-            else:
-                found.append((route.path, route))  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+            elif isinstance(route, Route):
+                found.append((route.path, route))
         return found
 
     def install_route_gate(app: Starlette, gate: Any) -> None:  # noqa: ANN401

@@ -30,6 +30,9 @@ from grelmicro.http._requirement import declared_scopes
 from grelmicro.http._routes import RouteDeclaration
 
 if TYPE_CHECKING:
+    from grelmicro.http._routes import Gate
+
+if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, MutableMapping
 
     Scope = MutableMapping[str, Any]
@@ -37,7 +40,6 @@ if TYPE_CHECKING:
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
-    Gate = Callable[..., ASGIApp]
 
 __all__ = ["declarations_of", "gate_routes"]
 

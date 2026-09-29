@@ -76,8 +76,13 @@ class Integration(Protocol):
     `name` naming its refusals by the request and `door` gating the
     entrance of a subtree whose routes carry gates of their own. The
     second lists the same `RouteDeclaration`s, and a listed route that
-    carries no gate stops the app from starting. An integration without them declares nothing, so
-    every route stays authenticated and is decided before routing.
+    carries no gate stops the app from starting. An integration without
+    them declares nothing, so every route stays authenticated and is
+    decided before routing.
+
+    `routed_middleware(app)` lists the middleware the app runs once its
+    router matched a route, each as its class and arguments. An
+    `AuthenticatedRequests` middleware among them checks each route there.
     """
 
     def install(

@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from litestar.response import Response
 
     from grelmicro import Grelmicro
+    from grelmicro.http._routes import Gate
     from grelmicro.security.principal import VerifiedToken
 
     Scope = MutableMapping[str, Any]
@@ -62,6 +63,7 @@ __all__ = [
     "install_route_gate",
     "is_bound",
     "route_declarations",
+    "routed_middleware",
 ]
 
 
@@ -241,9 +243,9 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
 
     middleware, options = component.asgi_middleware()
     declared = [
-        entry.kwargs
-        for entry in getattr(app, "middleware", ())
-        if getattr(entry, "middleware", None) is middleware
+        arguments
+        for declared_class, arguments in routed_middleware(app)
+        if declared_class is middleware
     ]
     for described in declared or [options]:
         metadata = resource_metadata_of(described)
@@ -265,7 +267,7 @@ def install_route_gate(
         Doc("The Litestar application whose handlers to gate."),
     ],
     gate: Annotated[
-        Callable[..., ASGIApp],
+        Gate,
         Doc(
             "Returns the app to dispatch to in place of a handler, given it "
             "and the handler's declaration, refusing a declaration that "
@@ -674,6 +676,28 @@ def _innermost_layer(handler: ASGIApp, app: Litestar) -> Any | None:  # noqa: AN
     return host  # pragma: no cover
 
 
+def routed_middleware(
+    app: Annotated[
+        Litestar,
+        Doc("The Litestar application whose middleware to list."),
+    ],
+) -> list[tuple[Any, dict[str, Any]]]:
+    """Return the middleware the app runs once its router matched a handler.
+
+    Each is what the app passed to `Litestar(middleware=[...])`, as its
+    class and the arguments it is built with. `micro.install(app)` reads
+    it to find an `AuthenticatedRequests` middleware the app runs behind
+    its router.
+    """
+    return [
+        (
+            getattr(entry, "middleware", entry),
+            dict(getattr(entry, "kwargs", {})),
+        )
+        for entry in getattr(app, "middleware", ())
+    ]
+
+
 def _already_wired(app: Litestar, middleware: type[Any]) -> bool:
     """Return whether this middleware is already in front of the app.
 
@@ -682,28 +706,24 @@ def _already_wired(app: Litestar, middleware: type[Any]) -> bool:
     and tags. Two would do all three twice.
     """
     declared = any(
-        getattr(entry, "middleware", None) is middleware or entry is middleware
-        for entry in getattr(app, "middleware", ())
+        declared is middleware for declared, _ in routed_middleware(app)
     )
     return declared or _wrapped_already(app.asgi_handler, middleware)
 
 
 def _declared_by_app(app: Litestar, component: Any) -> bool:  # noqa: ANN401
-    """Return whether the app declared this component's own middleware itself.
+    """Return whether the app runs this component's own middleware itself.
 
-    That is, passed it to `Litestar(middleware=[...])`.
+    That is, the app passed it to `Litestar(middleware=[...])`, built with
+    the arguments the component builds it with.
     """
     middleware, options = component.asgi_middleware()
     return any(
-        getattr(entry, "middleware", None) is middleware
-        and getattr(entry, "kwargs", {}).get("public", _NOTHING)
-        is options.get("public")
-        for entry in getattr(app, "middleware", ())
+        declared is middleware
+        and "public" in arguments
+        and arguments["public"] is options.get("public")
+        for declared, arguments in routed_middleware(app)
     )
-
-
-_NOTHING: Final = object()
-"""An option a middleware was not built with."""
 
 
 def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
@@ -1110,6 +1130,6 @@ def is_bound(
     if isinstance(getattr(app, "asgi_handler", None), GrelmicroMiddleware):
         return True
     return any(
-        getattr(entry, "middleware", None) is GrelmicroMiddleware
-        for entry in getattr(app, "middleware", ())
+        middleware is GrelmicroMiddleware
+        for middleware, _ in routed_middleware(app)
     )

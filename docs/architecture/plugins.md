@@ -47,6 +47,7 @@ def install_error_responses(app, errors) -> None: ...
 def install_middleware(app, components) -> None: ...
 def install_route_gate(app, gate) -> None: ...
 def route_declarations(app) -> Iterable[RouteDeclaration]: ...
+def routed_middleware(app) -> Iterable[tuple[type, dict]]: ...
 ```
 
 `install_error_responses` answers every rejection in the format the registered
@@ -54,8 +55,13 @@ def route_declarations(app) -> Iterable[RouteDeclaration]: ...
 components that carry `asgi_middleware()`, which returns the middleware class
 and the arguments to build it with, and adds each one the way your framework
 takes a middleware. Keep the binding outermost, so a middleware that resolves
-a backend ambiently runs inside the request scope. The last two declare your
-routes, as [Declare the routes](#declare-the-routes) shows.
+a backend ambiently runs inside the request scope. `install_route_gate` and
+`route_declarations` declare your routes, as
+[Declare the routes](#declare-the-routes) shows. `routed_middleware` lists
+the middleware your framework runs once its router matched a route, each as
+its class and arguments. An `AuthenticatedRequests` middleware among them
+checks each route there, and runs the rate limit, the cache and idempotency
+once a route admitted the request.
 
 Leave them out for a framework that serves no HTTP. Nothing anywhere reads a
 framework's name to decide, so an absent attribute is the whole answer.

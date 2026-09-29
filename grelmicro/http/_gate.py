@@ -132,12 +132,25 @@ class Edge:
     lane of the route it reaches instead.
     """
 
-    __slots__ = ("answering", "below")
+    __slots__ = ("_after", "alone", "answering", "below")
 
     def __init__(self, below: ASGIApp, answering: Answering) -> None:
         """Hand requests on to `below`, running `answering` at each route."""
         self.below = below
         self.answering = answering
+        self.alone: tuple[Edge, ...] = (self,)
+        """The edges of a request that crossed this one alone."""
+        self._after: dict[tuple[Edge, ...], tuple[Edge, ...]] = {}
+
+    def after(self, outer: tuple[Edge, ...]) -> tuple[Edge, ...]:
+        """Return the edges of a request that crossed `outer`, then this one.
+
+        The same tuple each time for the same `outer`.
+        """
+        edges = self._after.get(outer)
+        if edges is None:
+            edges = self._after[outer] = (*outer, self)
+        return edges
 
 
 def edge_of(app: ASGIApp, policy: GatePolicy) -> Edge:
@@ -219,20 +232,21 @@ class Crossing(NamedTuple):
     root_path: str
     app: Any
     outer: Crossing | None
-    """The edge of the app the request crossed before this one, if any."""
+    """The crossing of the app the request crossed before this one, if any."""
+    edges: tuple[Edge, ...]
+    """Every edge the request crossed so far, the outermost first."""
 
 
 def crossed(scope: Scope, edge: Edge) -> None:
     """Record that the request crossed `edge`, with what it arrived with there."""
-    scope[CROSSED_KEY] = tuple.__new__(
-        Crossing,
-        (
-            edge,
-            scope["path"],
-            scope.get("root_path", ""),
-            scope.get("app"),
-            scope.get(CROSSED_KEY),
-        ),
+    outer: Crossing | None = scope.get(CROSSED_KEY)
+    scope[CROSSED_KEY] = Crossing(
+        edge,
+        scope["path"],
+        scope.get("root_path", ""),
+        scope.get("app"),
+        outer,
+        edge.alone if outer is None else edge.after(outer.edges),
     )
 
 
@@ -563,7 +577,7 @@ def _admission(
     A refusal is named by `name`, when there is one, and answers a request
     routed without a credential.
     """
-    table: dict[str, _Check] = {}
+    table: dict[str | None, _Check] = {}
     every: _Check | None = None
     for declaration in declarations:
         check = _check_of(declaration)
@@ -577,7 +591,7 @@ def _admission(
     otherwise = every
 
     def admit(scope: Scope) -> ASGIApp | None:
-        refusal = pick(scope.get("method"), otherwise)(scope)  # type: ignore[arg-type]
+        refusal = pick(scope.get("method"), otherwise)(scope)
         if refusal is None:
             return None
         _answered(scope)
@@ -645,11 +659,7 @@ def _gated(target: ASGIApp, admit: _Admit, *, door: bool) -> ASGIApp:
             if built is None:
                 built = lanes[edge] = _lane(target, (edge,), moved=False)
             return built
-        found = [edge]
-        while outer is not None:
-            found.append(outer.edge)
-            outer = outer.outer
-        edges = tuple(reversed(found))
+        edges = arrived.edges
         built = lanes.get(edges)
         if built is None:
             built = lanes[edges] = _lane(target, edges, moved=True)

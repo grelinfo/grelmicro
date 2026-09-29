@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
     from grelmicro import Grelmicro
     from grelmicro.http import RouteDeclaration
+    from grelmicro.http._routes import Gate
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -318,7 +319,7 @@ def install_route_gate(
         Doc("The Starlette application whose routes to gate."),
     ],
     gate: Annotated[
-        "Callable[..., ASGIApp]",
+        "Gate",
         Doc(
             "Returns the app to dispatch to in place of a route, given it "
             "and the route's declarations, refusing a declaration that "

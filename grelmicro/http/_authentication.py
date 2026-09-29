@@ -2834,22 +2834,29 @@ class AuthenticatedRequests:
                 "integration placed them."
             ),
         ] = (),
+        routed: Annotated[
+            Iterable[tuple[Any, Mapping[str, Any]]],
+            Doc(
+                "The middleware the app runs once its router matched a "
+                "route, as class and arguments, when its integration says."
+            ),
+        ] = (),
     ) -> RouteGate | None:
         """Return the gate the app's routes are wrapped with.
 
         Called by `micro.install(app)` once the middleware is added, for an
         integration that declares its routes. `None` when the middleware in
         front of the app is not this component's, such as one the app added
-        by hand, which serves public paths through `exclude` alone.
+        by hand, which serves public paths through `exclude` alone. When
+        the app runs this component's middleware behind its router, an
+        answering middleware the app runs there too is left to it.
         """
-        placed = self._placement(app)
+        routed = tuple(routed)
+        placed = self._placement(app, routed)
         if placed is None:
             return None
         if placed is _Placement.BEHIND:
-            declared = {
-                getattr(entry, "middleware", None)
-                for entry in getattr(app, "middleware", ())
-            }
+            declared = {middleware for middleware, _ in routed}
             answering = tuple(
                 spec for spec in answering if spec[0] not in declared
             )
@@ -2864,13 +2871,17 @@ class AuthenticatedRequests:
         self._gates.append(gate)
         return gate
 
-    def _placement(self, app: Any) -> _Placement | None:  # noqa: ANN401
+    def _placement(
+        self,
+        app: Any,  # noqa: ANN401
+        routed: tuple[tuple[Any, Mapping[str, Any]], ...],
+    ) -> _Placement | None:
         """Return where this component's middleware sits in front of `app`.
 
         `IN_FRONT` when the app lists it among its middleware or its
-        handler is wrapped in it, `BEHIND` when the app runs it behind its
-        router, and `None` when the middleware in front of the app is not
-        this component's.
+        handler is wrapped in it, `BEHIND` when it is among the `routed`
+        middleware the app runs behind its router, and `None` when the
+        middleware in front of the app is not this component's.
         """
         for entry in getattr(app, "user_middleware", None) or ():
             middleware = getattr(entry, "cls", None)
@@ -2889,14 +2900,11 @@ class AuthenticatedRequests:
                     else None
                 )
             node = getattr(node, "app", None)
-        for entry in getattr(app, "middleware", None) or ():
-            middleware = getattr(entry, "middleware", None)
+        for middleware, options in routed:
             if isinstance(middleware, type) and issubclass(
                 middleware, AuthenticatedRequestsMiddleware
             ):
-                return self._ours(
-                    getattr(entry, "kwargs", {}), _Placement.BEHIND
-                )
+                return self._ours(options, _Placement.BEHIND)
         return None
 
     def _ours(
