@@ -22,7 +22,7 @@ from litestar.config.cors import CORSConfig
 from litestar.exceptions import WebSocketDisconnect
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
-from litestar.response import Response, Stream
+from litestar.response import Stream
 from litestar.testing import TestClient
 from starlette.responses import PlainTextResponse
 
@@ -576,35 +576,6 @@ class TestAnAnonymousHandler:
             assert first.status_code == retried.status_code == SERVER_ERROR
             assert "idempotent-replayed" not in retried.headers
         assert calls.served == ["signup", "signup"]
-
-    @pytest.mark.parametrize("middleware", [[], [Passing]])
-    def test_a_write_that_returns_a_500_is_replayed(
-        self, middleware: list[Any]
-    ) -> None:
-        """The handler chose that answer, so the retry gets it back."""
-        calls = Calls()
-
-        @post("/signups", opt=Anonymous())
-        async def signup() -> Response[dict[str, bool]]:
-            calls.served.append("signup")
-            return Response({"signed": False}, status_code=SERVER_ERROR)
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", MiddlewarePlacementWarning)
-            app = installed(
-                Litestar([signup], middleware=middleware),
-                Cache(MemoryCacheAdapter()),
-                IdempotentRequests(),
-            )
-        with TestClient(app) as client:
-            first, retried = (
-                client.post("/signups", headers={"Idempotency-Key": "k-1"})
-                for _ in range(2)
-            )
-
-            assert first.status_code == retried.status_code == SERVER_ERROR
-            assert retried.headers["idempotent-replayed"] == "true"
-        assert calls.served == ["signup"]
 
     def test_a_streamed_body_and_a_background_task_run(self) -> None:
         """Through the rate limit, which runs around them."""

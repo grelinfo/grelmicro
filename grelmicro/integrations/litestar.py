@@ -6,6 +6,7 @@ import functools
 import warnings
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
+from litestar.exceptions import HTTPException
 from typing_extensions import Doc
 
 from grelmicro._asgi import GrelmicroMiddleware
@@ -35,7 +36,13 @@ from grelmicro.http._requirement import (
 from grelmicro.http._routes import RouteDeclaration
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping, Sequence
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Mapping,
+        MutableMapping,
+        Sequence,
+    )
 
     from litestar import Litestar, Request
     from litestar.connection import ASGIConnection
@@ -95,8 +102,8 @@ def install(
     lifespan managers already passed to `Litestar(...)` keep running.
 
     Adds an `after_exception` hook that marks a request whose handler raised
-    an unhandled exception, so the idempotency middleware stores nothing for
-    it even where Litestar renders the crash before the middleware sees it.
+    an unhandled exception. The idempotency middleware stores nothing for a
+    marked request.
 
     When `ambient` is `True`, wraps the app's ASGI handler so patterns resolve
     through `Grelmicro.current()` inside route handlers. The wrap sits outside
@@ -145,16 +152,11 @@ def install(
 async def _mark_unhandled(exc: Exception, scope: Scope) -> None:
     """Mark the request when the exception Litestar is about to render is unhandled.
 
-    Registered once as an `after_exception` hook, so it runs only for a
-    request that raised, and marks only one idempotency may store. An
-    `HTTPException` is handled, and so is an exception with a handler
-    registered for its class or a base of it, at the route or above it.
-    Any other is unhandled, one that only the handler for `500` or for
-    `Exception` catches included. A request that raised before it was
-    routed is left unmarked.
+    Runs as an `after_exception` hook, for a request that raised. Only a
+    request idempotency may store is marked, and only once it was routed.
+    An `HTTPException` is handled. Any other exception is unhandled unless
+    `_caught_on_purpose` says a handler of the route answers it.
     """
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
-
     unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
     route_handler = scope.get("route_handler")
     if (
@@ -163,12 +165,25 @@ async def _mark_unhandled(exc: Exception, scope: Scope) -> None:
         or isinstance(exc, HTTPException)
     ):
         return
-    handlers = route_handler.resolve_exception_handlers()
-    handled = next(
-        (klass for klass in type(exc).__mro__ if klass in handlers), Exception
-    )
-    if handled is Exception:
+    if not _caught_on_purpose(exc, route_handler.resolve_exception_handlers()):
         unhandled.raised = True
+
+
+_CATCH_ALL: Final = (Exception, BaseException)
+"""Classes whose exception handler answers any crash."""
+
+
+def _caught_on_purpose(exc: Exception, handlers: Mapping[Any, Any]) -> bool:
+    """Return whether a handler answers `exc` for its own class or a base of it.
+
+    The first class of its MRO holding a handler decides. A handler for
+    `Exception` or `BaseException` is a catch-all and does not count, and
+    neither does one registered for status `500`.
+    """
+    for klass in type(exc).__mro__:
+        if klass in handlers:
+            return klass not in _CATCH_ALL
+    return False
 
 
 def install_middleware(
@@ -505,8 +520,6 @@ def _template_under_root(template: str, scope: Scope) -> str:
 
 def _routes(app: Litestar, path: str) -> bool:
     """Return whether Litestar's router answers `GET path` with a route."""
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
-
     try:
         app.asgi_router.handle_routing(path=path, method="GET")
     except HTTPException:
@@ -894,7 +907,6 @@ def install_error_responses(
     def http_error(request: Request, exc: Exception) -> Response:
         """Reshape Litestar's own error into the registered format."""
         from litestar.exceptions import (  # noqa: PLC0415
-            HTTPException,
             ValidationException,
         )
         from litestar.response import (  # noqa: PLC0415
@@ -932,8 +944,6 @@ def install_error_responses(
         )
 
     app.state.grelmicro_error_responses = errors
-
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
 
     if HTTPException not in app.exception_handlers:
         app.exception_handlers[HTTPException] = http_error

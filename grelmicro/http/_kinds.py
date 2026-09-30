@@ -83,9 +83,9 @@ class Unhandled:
     """Whether the handler of a request raised an unhandled exception.
 
     An integration whose framework renders that exception into a `500`
-    before the middleware around the route see it sets `raised`, so
-    idempotency stores nothing for the request. One object, so every copy
-    of the scope the request is handed on with shares it.
+    before the middleware around the route sees it sets `raised`, and
+    idempotency then stores nothing for the request. Every copy of the
+    scope the request is handed on with shares it.
     """
 
     __slots__ = ("raised",)
