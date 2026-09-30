@@ -94,11 +94,12 @@ headers and no body.
 
 Only `GET` is cached. `CachedResponse()` on a route that answers anything
 else is refused when `micro.install(app)` reads it, naming the path.
-A FastAPI `GET` with another dependency is left uncached: a hit would answer
-before that dependency ran, and an ordinary `Depends` may read a custom
-credential or otherwise vary the response without declaring `Vary`. With
-`AuthenticatedRequests` registered, a `CachedResponse()` written on such a
-route is refused at install, naming the route.
+A hit would answer before any other dependency of a FastAPI `GET` ran, and an
+ordinary `Depends` may read a custom credential or otherwise vary the response
+without declaring `Vary`. So `CachedResponse()` written on a route that runs
+another dependency, on the route or on a router above it, is refused at
+install, naming the path. One declared on a router leaves such a read
+uncached.
 
 ## Vary
 
@@ -260,7 +261,7 @@ can answer.
 !!! warning "A hit answers before the app is routed"
     A route's own `Depends` never runs on a hit, because the response is
     already on its way back by then. A route carrying any dependency besides
-    the `CachedResponse()` marker is therefore left uncached, including a
+    the `CachedResponse()` marker is therefore never cached, including a
     plain `Depends` that reads `Request` or `Header`. Dependencies on the app,
     router, and include count too.
 

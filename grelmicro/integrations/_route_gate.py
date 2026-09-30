@@ -13,7 +13,15 @@ them before dispatching.
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, Any, Final, Protocol, Self, SupportsIndex
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Final,
+    Protocol,
+    Self,
+    SupportsIndex,
+    cast,
+)
 
 from starlette.applications import Starlette
 from starlette.endpoints import HTTPEndpoint
@@ -126,8 +134,9 @@ class _Visitor(Protocol):
         route: Any,  # noqa: ANN401
         context: Any,  # noqa: ANN401
         declaration: RouteDeclaration,
+        router: Any,  # noqa: ANN401
     ) -> None:
-        """Take a FastAPI route dispatched as itself, through `context` or directly."""
+        """Take a FastAPI route of `router` dispatched as itself, through `context` or directly."""
 
 
 def _walk_router(
@@ -185,7 +194,7 @@ def _walk_route(
         return _walk_included(route, prefix, visit, ancestry, top=True)
     if fastapi.is_dispatched_as_itself(route):
         declaration = _dependant_declaration(route, route, path, router)
-        visit.contextual(route, None, declaration)
+        visit.contextual(route, None, declaration, router)
         return declaration.anonymous
     declarations = (
         [_dependant_declaration(route, route, path, router)]
@@ -233,7 +242,7 @@ def _walk_candidate(
     path = f"{prefix}{fastapi.path_of(candidate)}" or "/"
     route = fastapi.original_of(candidate)
     declaration = _dependant_declaration(candidate, route, path, router)
-    visit.contextual(route, candidate, declaration)
+    visit.contextual(route, candidate, declaration, router)
     return declaration.anonymous
 
 
@@ -377,7 +386,7 @@ def _dependant_declaration(
         ):
             own_checks = True
             pending.extend(dependency.dependencies)
-    methods = frozenset(getattr(owner, "methods", None) or ()) or None
+    methods = fastapi.methods_of(owner)
     if kept_here is not False:
         cache = kept_here
     elif own_checks or methods is None or not methods <= _READS:
@@ -451,9 +460,38 @@ class _Listing:
         route: Any,  # noqa: ANN401, ARG002
         context: Any,  # noqa: ANN401, ARG002
         declaration: RouteDeclaration,
+        router: Any,  # noqa: ANN401, ARG002
     ) -> None:
         """List what a FastAPI route declares where it is dispatched."""
         self.found.append(declaration)
+
+
+class _Beneath(_Listing):
+    """Collects what a mount brings up to date before its open door, beside the declarations.
+
+    Each router under it, and each include a router holds, by identity. A
+    refresh holds what it refreshes, so no identity is reused while kept.
+    """
+
+    def __init__(self) -> None:
+        """Start with none."""
+        super().__init__()
+        self.refreshes: dict[int, Callable[[], object]] = {}
+
+    def router(self, router: Router, prefix: str) -> None:  # noqa: ARG002
+        """Keep what refreshes `router`."""
+        self.refreshes[id(router)] = router.__dict__[_HELD].refresh
+
+    def included(
+        self,
+        included: Any,  # noqa: ANN401
+        prefix: str,  # noqa: ARG002
+        *,
+        top: bool,
+    ) -> None:
+        """Keep what refreshes an include a router holds."""
+        if top:
+            self.refreshes[id(included)] = included.__dict__[_HELD].refresh
 
 
 def declarations_of(app: Starlette) -> list[RouteDeclaration]:
@@ -466,8 +504,9 @@ def declarations_of(app: Starlette) -> list[RouteDeclaration]:
 class _Held:
     """What a router, a mount or a host was gated with, and what it held then.
 
-    `within` is each mount it sits under, and a mount's `beneath` what it
-    brings up to date before its open door lets a request through.
+    `within` is each mount it sits under, `refresh` what brings a router
+    or an include up to date, and a mount's `beneath` each refresh it calls
+    before its open door lets a request through.
     """
 
     __slots__ = (
@@ -478,6 +517,7 @@ class _Held:
         "gates",
         "handle",
         "prefixes",
+        "refresh",
         "router",
         "routes",
         "shut",
@@ -491,6 +531,7 @@ class _Held:
         self.prefixes: list[str] = []
         self.within: list[_Held] = []
         self.beneath: dict[int, Callable[[], object]] = {}
+        self.refresh: Callable[[], object] | None = None
         self.handle = handle
         self.door: Any = None
         self.shut: Any = None
@@ -532,19 +573,26 @@ class _Gating:
         )
         return held, new
 
-    def _beneath(self, owner: Any, refresh: Callable[[], object]) -> None:  # noqa: ANN401
-        """Have each mount the routes sit under call `refresh` before its open door."""
+    def _beneath(self, owner: Any, held: _Held) -> None:  # noqa: ANN401
+        """Have each mount the routes sit under refresh `owner` before its open door."""
         for mount in self.within:
-            mount.beneath[id(owner)] = refresh
+            mount.beneath[id(owner)] = cast(
+                "Callable[[], object]", held.refresh
+            )
 
     def settle(self) -> None:
-        """Open the door of each mount the routes sit under while a route under it is anonymous."""
+        """Open the door of each mount the routes sit under while a route under it is anonymous.
+
+        Each mount refreshes before its open door what is under it now.
+        """
         for mount in self.within:
             inner = _inner_router(mount.app)[0]
-            mount.settle(
-                opens=inner is not None
-                and _walk_router(inner, "", _Listing(), frozenset())
+            beneath = _Beneath()
+            opens = inner is not None and _walk_router(
+                inner, "", beneath, frozenset()
             )
+            mount.beneath = beneath.refreshes
+            mount.settle(opens=opens)
 
     def _gated(
         self,
@@ -573,14 +621,16 @@ class _Gating:
             if not isinstance(low, _GatedRoutes):
                 fastapi.gate_low_priority(router, _GatedRoutes(low, router))
         if new:
+            held.refresh = functools.partial(_refresh, router, held)
             router.middleware_stack = _guarded_router(  # type: ignore[assignment]
                 router, held, router.middleware_stack
             )
-        self._beneath(router, functools.partial(_refresh, router, held))
+        self._beneath(router, held)
 
     def mount(self, mount: Mount | Host, prefix: str) -> _Gating:
-        """Hold `mount`, and return what gates the routes under it."""
+        """Hold `mount`, and return what gates the routes under it, refreshed anew."""
         held, _ = self._hold(mount, prefix)
+        held.beneath = {}
         return _Gating(self.gates, (*self.within, held))
 
     def door(
@@ -678,19 +728,19 @@ class _Gating:
                 top=top,
                 changed=functools.partial(_regate_candidates, held),
             )
+            if top:
+                held.refresh = fastapi.track(included)
         if top:
-            self._beneath(
-                included,
-                functools.partial(fastapi.candidates, included, top=True),
-            )
+            self._beneath(included, held)
 
     def contextual(
         self,
         route: Any,  # noqa: ANN401
         context: Any,  # noqa: ANN401
         declaration: RouteDeclaration,
+        router: Any,  # noqa: ANN401
     ) -> None:
-        """Gate a FastAPI route where it is dispatched, directly or through `context`.
+        """Gate a FastAPI route of `router` where it is dispatched, directly or through `context`.
 
         The route dispatches each request to the gated handler of the
         context FastAPI routed it through, or of the route itself. A
@@ -698,6 +748,7 @@ class _Gating:
         request arrived at, as the access log does.
         """
         held, new = self._hold(route, "")
+        held.router = router
         if new:
             route.handle = _chosen(route, held)
         owner = route if context is None else context
@@ -791,9 +842,14 @@ def _guarded_mount(mount: Mount | Host, held: _Held) -> ASGIApp:
         if mount.app is not held.app:
             _regate(mount, held)
             return mount.handle(scope, receive, send)
-        if held.shut is not None and held.door is held.handle:
+        if (
+            held.shut is not None
+            and held.door is held.handle
+            and scope.get(fastapi.FRESH_KEY) is not True
+        ):
             for refresh in tuple(held.beneath.values()):
                 refresh()
+            scope[fastapi.FRESH_KEY] = True
         if own:
             scope[_PREFIX_KEY] = f"{scope.get(_PREFIX_KEY, '')}{own}"
         return held.door(scope, receive, send)
@@ -815,7 +871,8 @@ def _chosen(route: Any, held: _Held) -> ASGIApp:  # noqa: ANN401
 
     That of the context FastAPI routed the request through, or of the
     route itself. One neither was gated for, reached from an app no walk
-    gated, is gated where it is met, with no path above its own.
+    gated, is gated where it is met, with no path above its own, and read
+    with what the router holding it declares.
     """
     context_of = fastapi.context_of
 
@@ -825,8 +882,11 @@ def _chosen(route: Any, held: _Held) -> ASGIApp:  # noqa: ANN401
         target = owner.__dict__.get(_TARGET)
         if target is None:
             path = _own_path(route, context) or "/"
+            declaration = _dependant_declaration(
+                owner, route, path, held.router
+            )
             _Gating(held.gates, held.within).contextual(
-                route, context, _dependant_declaration(owner, route, path, None)
+                route, context, declaration, held.router
             )
             target = owner.__dict__[_TARGET]
         return target(scope, receive, send)

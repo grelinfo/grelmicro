@@ -12,7 +12,7 @@ FastAPI installed, nothing here is FastAPI's.
 from __future__ import annotations
 
 from itertools import chain, repeat
-from operator import eq, is_
+from operator import attrgetter, is_
 from typing import TYPE_CHECKING, Any, Final
 
 try:
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     Scope = MutableMapping[str, Any]
 
 __all__ = [
+    "FRESH_KEY",
     "ROUTERS",
     "candidates",
     "context_of",
@@ -35,10 +36,12 @@ __all__ = [
     "is_included",
     "is_websocket_route",
     "low_priority_routes",
+    "methods_of",
     "original_of",
     "path_of",
     "require",
     "router_of",
+    "track",
     "watch",
 ]
 
@@ -56,6 +59,13 @@ _SCOPE_KEY: Final[Any] = getattr(routing, "_FASTAPI_SCOPE_KEY", None)
 _CONTEXT_KEY: Final[Any] = getattr(
     routing, "_FASTAPI_EFFECTIVE_ROUTE_CONTEXT_KEY", None
 )
+FRESH_KEY: Final = "grelmicro.fresh"
+"""Where a request holds what was brought up to date for it.
+
+The checks of the includes the router matched it against, or `True` once
+a mount's open door brought everything under it up to date.
+"""
+
 _CANDIDATES: Final = "effective_candidates"
 _LOW_PRIORITY: Final = "effective_low_priority_routes"
 
@@ -89,6 +99,7 @@ def require(router: object) -> None:
         (_CONTEXT, "_EffectiveRouteContext", "starlette_route"),
         (_CONTEXT, "_EffectiveRouteContext", "path"),
         (_CONTEXT, "_EffectiveRouteContext", "dependant"),  # codespell:ignore
+        (_CONTEXT, "_EffectiveRouteContext", "methods"),
         (
             _CONTEXT if frontend else None,
             "_EffectiveRouteContext",
@@ -161,6 +172,16 @@ def candidates(included: Any, *, top: bool) -> list[Any]:  # noqa: ANN401
     return found
 
 
+def methods_of(owner: object) -> frozenset[str] | None:
+    """Return the methods a route or an include's context answers, `None` for every request.
+
+    A websocket route and a frontend group answer every request.
+    """
+    if isinstance(owner, _CONTEXT | _ROUTE):
+        return frozenset(owner.methods) or None
+    return None
+
+
 def router_of(included: Any) -> Any:  # noqa: ANN401
     """Return the router an include holds the routes of."""
     return included.original_router
@@ -176,33 +197,27 @@ def watch(
 
     FastAPI builds them anew when told the routes of the included router
     changed, and dispatches through the list it returns, so `changed` sees
-    each list before any request meets it. A `top` include, one a router
-    holds itself, tells FastAPI first when a route under it was added,
-    removed or edited in place without telling it.
+    each list before any request meets it.
     """
     names = (
         (_CANDIDATES, _LOW_PRIORITY)
         if top and _FRONTEND is not None
         else (_CANDIDATES,)
     )
-    shape = _Shape(included.original_router) if top else None
     for name in names:
         build = getattr(included, name)
-        setattr(included, name, _watched(build, build(), changed, shape))
+        setattr(included, name, _watched(build, build(), changed))
 
 
 def _watched(
     build: Callable[[], list[Any]],
     last: list[Any],
     changed: Callable[[list[Any]], None],
-    shape: _Shape | None,
 ) -> Callable[[], list[Any]]:
     """Return `build`, calling `changed` with each list it returns other than `last`."""
 
     def watched() -> list[Any]:
         nonlocal last
-        if shape is not None:
-            shape.check()
         found = build()
         if found is not last:
             last = found
@@ -212,10 +227,49 @@ def _watched(
     return watched
 
 
+def track(included: Any) -> Callable[[], None]:  # noqa: ANN401
+    """Tell FastAPI when a route under a router's own include changed.
+
+    A route added, removed or edited in place without telling FastAPI.
+
+    Checked once per request, as the router first matches the include,
+    unless a mount's open door brought everything under it up to date.
+    Returns the check, which builds the include's contexts anew at once
+    when a route changed.
+    """
+    shape = _Shape(included.original_router)
+    matches = included.matches
+
+    def checked(scope: Scope) -> Any:  # noqa: ANN401
+        fresh = scope.get(FRESH_KEY)
+        if fresh is None:
+            fresh = scope[FRESH_KEY] = set()
+        if fresh is not True and shape not in fresh:
+            fresh.add(shape)
+            shape.check()
+        return matches(scope)
+
+    def refresh() -> None:
+        if shape.check():
+            candidates(included, top=True)
+
+    included.matches = checked
+    return refresh
+
+
 class _Shape:
     """What the routers under an include hold: each route, its regex and its methods."""
 
-    __slots__ = ("items", "lists", "methods", "regexes", "router", "routers")
+    __slots__ = (
+        "items",
+        "lists",
+        "others",
+        "regexes",
+        "router",
+        "routers",
+        "served",
+        "shapes",
+    )
 
     def __init__(self, router: Any) -> None:  # noqa: ANN401
         """Hold what `router`, and each router its includes hold, hold now."""
@@ -223,8 +277,10 @@ class _Shape:
         self.routers: tuple[Any, ...] = ()
         self.lists: tuple[list[Any], ...] = ()
         self.items: tuple[Any, ...] = ()
+        self.served: tuple[Any, ...] = ()
+        self.shapes: tuple[tuple[Any, frozenset[str]], ...] = ()
+        self.others: tuple[Any, ...] = ()
         self.regexes: tuple[Any, ...] = ()
-        self.methods: tuple[frozenset[str] | None, ...] = ()
         self._take()
 
     def _take(self) -> None:
@@ -242,38 +298,54 @@ class _Shape:
                 if isinstance(route, _INCLUDED)
             )
         self.routers = tuple(routers)
-        self.lists = tuple(router.routes for router in routers)
+        self.lists = tuple(map(_ROUTES, routers))
         self.items = tuple(chain.from_iterable(self.lists))
-        self.regexes = _regexes(self.items)
-        self.methods = tuple(
-            None if methods is None else frozenset(methods)
-            for methods in _methods(self.items)
+        self.served = tuple(
+            route
+            for route in self.items
+            if getattr(route, "methods", None) is not None
+            and hasattr(route, "path_regex")
+        )
+        self.shapes = tuple(
+            (regex, frozenset(methods))
+            for regex, methods in map(_SHAPE, self.served)
+        )
+        served = set(map(id, self.served))
+        self.others = tuple(
+            route for route in self.items if id(route) not in served
+        )
+        self.regexes = tuple(
+            map(getattr, self.others, repeat("path_regex"), repeat(None))
         )
 
-    def check(self) -> None:
-        """Tell FastAPI the routes changed, when any changed since last held."""
-        lists = tuple(router.routes for router in self.routers)
+    def check(self) -> bool:
+        """Tell FastAPI the routes changed, when any changed since last held.
+
+        Returns whether any did.
+        """
+        lists = tuple(map(_ROUTES, self.routers))
         if (
             all(map(is_, lists, self.lists))
             and sum(map(len, lists)) == len(self.items)
             and all(map(is_, chain.from_iterable(lists), self.items))
-            and all(map(is_, _regexes(self.items), self.regexes))
-            and all(map(eq, _methods(self.items), self.methods))
+            and tuple(map(_SHAPE, self.served)) == self.shapes
+            and tuple(
+                map(getattr, self.others, repeat("path_regex"), repeat(None))
+            )
+            == self.regexes
         ):
-            return
+            return False
         for router in self.routers:
             router._mark_routes_changed()  # noqa: SLF001
         self._take()
+        return True
 
 
-def _regexes(routes: tuple[Any, ...]) -> tuple[Any, ...]:
-    """Return the regex each route matches its path with, if any."""
-    return tuple(map(getattr, routes, repeat("path_regex"), repeat(None)))
+_ROUTES: Final = attrgetter("routes")
+"""Reads a router's route list."""
 
-
-def _methods(routes: tuple[Any, ...]) -> tuple[Any, ...]:
-    """Return the methods each route answers, if it names any."""
-    return tuple(map(getattr, routes, repeat("methods"), repeat(None)))
+_SHAPE: Final = attrgetter("path_regex", "methods")
+"""Reads what an HTTP route matches a request with: its regex and its methods."""
 
 
 def context_of(scope: Scope, route: object) -> Any | None:  # noqa: ANN401

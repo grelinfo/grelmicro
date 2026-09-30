@@ -706,8 +706,10 @@ def public_routes(app: Any) -> Callable[[Any, str, str], bool]:  # noqa: ANN401
     Asked with the route, a method and the path of the mounts and routers
     above it, for a report or a schema. On an app whose integration gates
     and lists its routes, the declarations answer, as each route's gate
-    serves it. On any other, the routes read off the app answer, as the
-    middleware serves them before routing.
+    serves it, and a route another one declared before it takes a URL of
+    its own from is described as authenticated, as the router serves it.
+    On any other, the routes read off the app answer, as the middleware
+    serves them before routing.
     """
     routes = routes_of(app)
     integration = load_integration(app)
@@ -727,7 +729,14 @@ def public_routes(app: Any) -> Callable[[Any, str, str], bool]:  # noqa: ANN401
 
     def serves_publicly(route: Any, method: str, prefix: str) -> bool:  # noqa: ANN401
         path = f"{prefix}{route.path}" or "/"
-        return declared.get((path, method), declared.get((path, None), False))
+        if not declared.get((path, method), declared.get((path, None), False)):
+            return False
+        sample = _sample_url(path)
+        return (
+            sample is None
+            or routes.template_of("http", method, sample)
+            == f"{prefix}{getattr(route, 'path_format', route.path)}"
+        )
 
     return serves_publicly
 

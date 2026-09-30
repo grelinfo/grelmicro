@@ -76,6 +76,7 @@ from grelmicro.http._idempotency import (
     _authenticated_scope,
     _authentication_paths,
 )
+from grelmicro.http._requirement import declared_scopes, declares_optional
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -887,6 +888,35 @@ def _has_non_cache_dependencies(
     return False
 
 
+def _runs_own_checks(route: Any, contexts: tuple[Any, ...]) -> bool:  # noqa: ANN401
+    """Return whether a dependency that is not grelmicro's own runs before the route.
+
+    `CachedResponse()`, `Anonymous()`, `OptionalPrincipal` and what requires
+    the caller are grelmicro's own.
+    """
+    declared = getattr(route, "dependant", None)  # codespell:ignore
+    calls = [
+        dependency.call
+        for dependency in getattr(declared, "dependencies", ()) or ()
+    ]
+    calls.extend(
+        depends.dependency
+        for context in contexts
+        for depends in getattr(context, "dependencies", ()) or ()
+    )
+    return not all(map(_is_grelmicros, calls))
+
+
+def _is_grelmicros(call: object) -> bool:
+    """Return whether a dependency is one of grelmicro's own declarations."""
+    return (
+        getattr(call, _MARKER, _UNMARKED) is not _UNMARKED
+        or is_anonymous_declaration(call)
+        or declared_scopes(call) is not None
+        or declares_optional(call)
+    )
+
+
 def _methods_of(route: Any) -> frozenset[str]:  # noqa: ANN401
     """Return the methods this route answers, upper case."""
     return frozenset(
@@ -988,11 +1018,12 @@ def _unreadable(
 ) -> str | None:
     """Return why a response cache must not answer for this route.
 
-    `None` says it may. A route that answers anything but a read, and one
-    gated by a security scheme, are the two it must not: a hit is answered
-    before the app is routed, so a gate declared on the route or on the
-    router that holds it would never run, and one caller's response would
-    go to whoever asks next.
+    `None` says it may. A route that answers anything but a read, one
+    gated by a security scheme and one running a dependency that is not
+    grelmicro's own are the three it must not: a hit is answered before the
+    app is routed, so what is declared on the route or on the router that
+    holds it would never run, and one caller's response would go to
+    whoever asks next.
     """
     methods = {
         method.upper() for method in (getattr(route, "methods", None) or ())
@@ -1006,15 +1037,22 @@ def _unreadable(
             "it on the GET route instead."
         )
     schemes = _gating_schemes(route, contexts)
-    if not schemes:
-        return None
-    named = ", ".join(sorted(set(schemes)))
-    return (
-        f"CachedResponse() is declared on {declared!r}, which is gated by "
-        f"{named}. A hit is answered before the app is routed, so the gate "
-        "would not run, and one caller's response would be handed to "
-        "whoever asks next. Cache a route that answers everybody the same."
-    )
+    if schemes:
+        named = ", ".join(sorted(set(schemes)))
+        return (
+            f"CachedResponse() is declared on {declared!r}, which is gated by "
+            f"{named}. A hit is answered before the app is routed, so the gate "
+            "would not run, and one caller's response would be handed to "
+            "whoever asks next. Cache a route that answers everybody the same."
+        )
+    if _runs_own_checks(route, contexts):
+        return (
+            f"CachedResponse() is declared on {declared!r}, which runs a "
+            "dependency of its own before the handler. A hit is answered "
+            "before it runs, so one caller's response would be handed to "
+            "whoever asks next. Cache a route that answers everybody the same."
+        )
+    return None
 
 
 def _declared_schemes(context: Any) -> list[str]:  # noqa: ANN401

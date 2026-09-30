@@ -4605,6 +4605,23 @@ class TestConsistency:
         assert self.applies(app, "GET", "/open") == ("anonymous",)
         assert TestClient(app).get("/OPEN").json() == {"listed": True}
 
+    def test_a_public_route_an_earlier_route_takes_is_authenticated(
+        self,
+    ) -> None:
+        """The router dispatches its URL to the route declared first."""
+        app = FastAPI()
+        app.add_api_route("/{name}", listed)
+        app.add_api_route("/root", listed, dependencies=[Anonymous()])
+        self.reported(app)
+
+        assert app.openapi()["paths"]["/root"]["get"]["security"] == [
+            {SCHEME: []}
+        ]
+        assert self.applies(app, "GET", "/root") == ("authenticated",)
+        assert TestClient(app).get("/root").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+
     def test_a_public_route_under_a_mount_of_a_mount_is_authenticated(
         self,
     ) -> None:

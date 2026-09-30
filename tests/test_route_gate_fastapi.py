@@ -544,6 +544,57 @@ class TestMounts:
         assert statuses == [UNAUTHORIZED] * 2
         assert seen == []
 
+    def test_a_router_taken_out_of_a_mounted_app_is_no_longer_read(
+        self,
+    ) -> None:
+        """Its mount stops bringing it up to date on each request."""
+
+        class Watched(list[Any]):
+            reads = 0
+
+            def __iter__(self) -> Any:  # noqa: ANN401
+                Watched.reads += 1
+                return super().__iter__()
+
+        router = APIRouter()
+        router.add_api_route("/r", listed)
+        router.routes = Watched(router.routes)
+        sub = FastAPI(openapi_url=None)
+        sub.add_api_route("/open", listed, dependencies=[Anonymous()])
+        sub.include_router(router)
+        app = FastAPI(openapi_url=None)
+        app.mount("/sub", sub)
+        installed(app)
+        client = TestClient(app)
+        client.get("/sub/open")
+
+        sub.router.routes.pop()
+        client.get("/sub/open")
+        Watched.reads = 0
+        client.get("/sub/open")
+
+        assert Watched.reads == 0
+
+    def test_a_route_added_two_includes_deep_in_a_mounted_app_is_gated(
+        self,
+    ) -> None:
+        """The include holding it is brought up to date through the mount."""
+        inner = APIRouter()
+        inner.add_api_route("/open", listed, dependencies=[Anonymous()])
+        outer = APIRouter()
+        outer.include_router(inner, prefix="/in")
+        sub = FastAPI(openapi_url=None)
+        sub.include_router(outer)
+        app = FastAPI(openapi_url=None)
+        app.mount("/sub", sub)
+        installed(app)
+        client = TestClient(app)
+        client.get("/sub/in/open")
+
+        inner.add_api_route("/late", listed)
+
+        assert client.get("/sub/in/late").status_code == UNAUTHORIZED
+
     def test_a_cors_preflight_its_own_middleware_answers_passes(self) -> None:
         """A browser sends none of its credentials on a preflight."""
         sub = FastAPI(openapi_url=None)
@@ -609,6 +660,27 @@ class TestMounts:
         assert client.get(f"{root_path}/svc/nowhere").status_code == (
             UNAUTHORIZED
         )
+
+    @pytest.mark.parametrize("outer", [Starlette, FastAPI])
+    def test_a_mounted_app_refuses_a_missing_scope_with_a_403(
+        self, outer: type[Starlette]
+    ) -> None:
+        """Answered once, in the error format of the app that authenticates."""
+        sub = FastAPI(openapi_url=None)
+        sub.add_api_route(
+            "/orders/{order_id}",
+            listed,
+            methods=["DELETE"],
+            dependencies=[Authenticated(scopes=["orders:write"])],
+        )
+        app = installed(outer(routes=[Mount("/api", app=sub)]))
+
+        refused = TestClient(app).delete(
+            "/api/orders/7", headers=bearer(token(scope="orders:read"))
+        )
+
+        assert refused.status_code == FORBIDDEN
+        assert refused.headers["content-type"] == "application/problem+json"
 
     def test_a_url_no_route_of_an_installed_app_answers_is_refused_by_its_parent(
         self,
@@ -880,6 +952,23 @@ class TestSharedRoutes:
         assert client.get("/catalog").status_code == UNAUTHORIZED
         assert client.get("/orders").status_code == UNAUTHORIZED
 
+    def test_a_route_its_router_caches_is_refused_by_an_app_without_authentication(
+        self,
+    ) -> None:
+        """Read with what its router declares, where the route is first met."""
+        router = APIRouter(dependencies=[CachedResponse(ttl=60)])
+        router.add_api_route(
+            "/paged", listed, dependencies=[Anonymous(), Depends(page)]
+        )
+        app = FastAPI(openapi_url=None)
+        app.include_router(router)
+        installed(app, Cache(MemoryCacheAdapter()), CachedResponses())
+        bare = FastAPI(openapi_url=None)
+        bare.include_router(router, prefix="/b")
+
+        assert TestClient(app).get("/paged").json() == {"listed": True}
+        assert TestClient(bare).get("/b/paged").status_code == UNAUTHORIZED
+
 
 class TestRefusals:
     """A refusal names the route it was refused on."""
@@ -921,6 +1010,7 @@ class TestRefusals:
         ("_EffectiveRouteContext", "path"),
         ("_EffectiveRouteContext", "frontend_prefix"),
         ("_EffectiveRouteContext", "dependant"),  # codespell:ignore
+        ("_EffectiveRouteContext", "methods"),
         ("APIRouter", "_mark_routes_changed"),
     ],
 )
@@ -1204,19 +1294,51 @@ class TestDeclarations:
             RouteDeclaration("/r", methods=frozenset({"GET"}), cache=60)
         )
 
+    @pytest.mark.parametrize("authenticated", [False, True])
     def test_a_route_caching_beside_a_check_of_its_own_fails_install(
-        self,
+        self, *, authenticated: bool
     ) -> None:
-        """One caller's response would be served to another."""
+        """One caller's response would be served to another, with authentication or without."""
         app = FastAPI(openapi_url=None)
         app.add_api_route(
             "/r", listed, dependencies=[Depends(page), CachedResponse()]
         )
+        uses = [
+            ErrorResponses(),
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(),
+        ]
+        if authenticated:
+            uses.append(AuthenticatedRequests(verifier()))
 
         with pytest.raises(
-            ValueError, match=r"GET /r declares cache and own_checks"
+            TypeError,
+            match=r"CachedResponse\(\) is declared on '/r', which runs",
         ):
-            installed(app)
+            Grelmicro(uses=uses).install(app)
+
+    @pytest.mark.parametrize("authenticated", [False, True])
+    def test_a_router_caching_beside_a_check_of_its_own_installs(
+        self, *, authenticated: bool
+    ) -> None:
+        """The read running the check is left to its handler."""
+        router = APIRouter(dependencies=[CachedResponse()])
+        router.add_api_route("/r", listed, dependencies=[Depends(page)])
+        app = FastAPI(openapi_url=None)
+        app.include_router(router)
+        uses = [
+            ErrorResponses(),
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(),
+        ]
+        if authenticated:
+            uses.append(AuthenticatedRequests(verifier()))
+
+        Grelmicro(uses=uses).install(app)
+
+        assert TestClient(app).get("/r", headers=bearer(token())).json() == {
+            "listed": True
+        }
 
     @pytest.mark.parametrize("where", ["router", "include", "app"])
     def test_a_router_caching_covers_the_reads_that_run_no_check(
