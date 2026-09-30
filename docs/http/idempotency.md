@@ -173,7 +173,7 @@ IdempotentRequests(
 )
 ```
 
-A handler that raises an unhandled exception is different. The middleware sits under whatever turns an exception into a response, on every framework, so nothing is stored and a retry runs fresh rather than replaying a `500` for the whole window. A raised `HTTPException` is not an unhandled exception. The framework turns it into a response the handler chose, so it is stored and replayed like any other.
+A handler that raises an unhandled exception is different. Nothing is stored, on every framework, so a retry runs fresh rather than replaying a `500` for the whole window. That holds when the framework renders the crash before the middleware sees it, as Litestar does for an app that declares middleware of its own. A raised `HTTPException` is not an unhandled exception, and neither is one the app registered a handler for. The framework turns it into a response the handler chose, so it is stored and replayed like any other.
 
 ## What is never stored
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import warnings
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pytest
@@ -21,7 +22,7 @@ from litestar.config.cors import CORSConfig
 from litestar.exceptions import WebSocketDisconnect
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
-from litestar.response import Stream
+from litestar.response import Response, Stream
 from litestar.testing import TestClient
 from starlette.responses import PlainTextResponse
 
@@ -63,6 +64,7 @@ FORBIDDEN = 403
 NOT_FOUND = 404
 METHOD_NOT_ALLOWED = 405
 TOO_MANY_REQUESTS = 429
+SERVER_ERROR = 500
 CLOSED = 1008
 EVENTS = "grelmicro.security.events"
 ORIGIN = "https://app.example"
@@ -97,6 +99,20 @@ class Calls:
     def __init__(self) -> None:
         """Start at zero."""
         self.served: list[str] = []
+
+
+class Passing:
+    """Middleware of the app's own that passes every request on."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        """Wrap `app`."""
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Pass the request on."""
+        await self.app(scope, receive, send)
 
 
 def installed(app: Litestar, *uses: Any, **options: Any) -> Litestar:  # noqa: ANN401
@@ -531,6 +547,65 @@ class TestAnAnonymousHandler:
             assert retried.headers["idempotent-replayed"] == "true"
         assert calls.served == ["signup"]
 
+    @pytest.mark.parametrize("middleware", [[], [Passing]])
+    def test_a_write_that_raises_stores_nothing(
+        self, middleware: list[Any]
+    ) -> None:
+        """With or without app middleware, the retry runs the handler again."""
+        calls = Calls()
+
+        @post("/signups", opt=Anonymous(), status_code=CREATED)
+        async def signup() -> dict[str, bool]:
+            calls.served.append("signup")
+            msg = "kaboom"
+            raise RuntimeError(msg)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MiddlewarePlacementWarning)
+            app = installed(
+                Litestar([signup], middleware=middleware),
+                Cache(MemoryCacheAdapter()),
+                IdempotentRequests(),
+            )
+        with TestClient(app, raise_server_exceptions=False) as client:
+            first, retried = (
+                client.post("/signups", headers={"Idempotency-Key": "k-1"})
+                for _ in range(2)
+            )
+
+            assert first.status_code == retried.status_code == SERVER_ERROR
+            assert "idempotent-replayed" not in retried.headers
+        assert calls.served == ["signup", "signup"]
+
+    @pytest.mark.parametrize("middleware", [[], [Passing]])
+    def test_a_write_that_returns_a_500_is_replayed(
+        self, middleware: list[Any]
+    ) -> None:
+        """The handler chose that answer, so the retry gets it back."""
+        calls = Calls()
+
+        @post("/signups", opt=Anonymous())
+        async def signup() -> Response[dict[str, bool]]:
+            calls.served.append("signup")
+            return Response({"signed": False}, status_code=SERVER_ERROR)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", MiddlewarePlacementWarning)
+            app = installed(
+                Litestar([signup], middleware=middleware),
+                Cache(MemoryCacheAdapter()),
+                IdempotentRequests(),
+            )
+        with TestClient(app) as client:
+            first, retried = (
+                client.post("/signups", headers={"Idempotency-Key": "k-1"})
+                for _ in range(2)
+            )
+
+            assert first.status_code == retried.status_code == SERVER_ERROR
+            assert retried.headers["idempotent-replayed"] == "true"
+        assert calls.served == ["signup"]
+
     def test_a_streamed_body_and_a_background_task_run(self) -> None:
         """Through the rate limit, which runs around them."""
         ran: list[str] = []
@@ -627,20 +702,6 @@ class TestRegisteredLater:
         assert answered.text == "admin"
         assert public.text == "open"
         assert calls.served == ["admin"]
-
-
-class Passing:
-    """Middleware of the app's own that passes every request on."""
-
-    def __init__(self, app: ASGIApp) -> None:
-        """Wrap `app`."""
-        self.app = app
-
-    async def __call__(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
-        """Pass the request on."""
-        await self.app(scope, receive, send)
 
 
 class TestAuthenticationInTheApp:

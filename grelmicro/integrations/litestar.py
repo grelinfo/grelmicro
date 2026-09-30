@@ -25,7 +25,7 @@ from grelmicro.http._authentication import (
     resource_metadata_of,
     serves_anonymous_routes,
 )
-from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
+from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED, UNHANDLED_KEY
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._requirement import (
     AUTHENTICATED,
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
     from grelmicro import Grelmicro
     from grelmicro.http import Gate
+    from grelmicro.http._kinds import Unhandled
     from grelmicro.security.principal import VerifiedToken
 
     Scope = MutableMapping[str, Any]
@@ -93,6 +94,10 @@ def install(
     components are registered before the first request. Startup hooks and
     lifespan managers already passed to `Litestar(...)` keep running.
 
+    Adds an `after_exception` hook that marks a request whose handler raised
+    an unhandled exception, so the idempotency middleware stores nothing for
+    it even where Litestar renders the crash before the middleware sees it.
+
     When `ambient` is `True`, wraps the app's ASGI handler so patterns resolve
     through `Grelmicro.current()` inside route handlers. The wrap sits outside
     every middleware Litestar built, so one that resolves a backend ambiently
@@ -124,6 +129,7 @@ def install(
 
     app.on_startup.append(_open_micro)
     app.on_shutdown.append(_close_micro)
+    app.after_exception.append(cast("Any", _mark_unhandled))
 
     if not ambient:
         micro._on_ambient_disabled()  # noqa: SLF001
@@ -134,6 +140,35 @@ def install(
         app.asgi_handler = cast(
             "Any", GrelmicroMiddleware(handler, micro=micro)
         )
+
+
+async def _mark_unhandled(exc: Exception, scope: Scope) -> None:
+    """Mark the request when the exception Litestar is about to render is unhandled.
+
+    Registered once as an `after_exception` hook, so it runs only for a
+    request that raised, and marks only one idempotency may store. An
+    `HTTPException` is handled, and so is an exception with a handler
+    registered for its class or a base of it, at the route or above it.
+    Any other is unhandled, one that only the handler for `500` or for
+    `Exception` catches included. A request that raised before it was
+    routed is left unmarked.
+    """
+    from litestar.exceptions import HTTPException  # noqa: PLC0415
+
+    unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
+    route_handler = scope.get("route_handler")
+    if (
+        unhandled is None
+        or route_handler is None
+        or isinstance(exc, HTTPException)
+    ):
+        return
+    handlers = route_handler.resolve_exception_handlers()
+    handled = next(
+        (klass for klass in type(exc).__mro__ if klass in handlers), Exception
+    )
+    if handled is Exception:
+        unhandled.raised = True
 
 
 def install_middleware(
