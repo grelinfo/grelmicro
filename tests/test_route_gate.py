@@ -21,6 +21,10 @@ import pytest
 from fastapi import FastAPI
 from starlette.applications import Starlette
 from starlette.background import BackgroundTask
+from starlette.convertors import (  # codespell:ignore
+    Convertor,  # codespell:ignore
+    register_url_convertor,
+)
 from starlette.endpoints import HTTPEndpoint
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
@@ -902,6 +906,58 @@ class TestUngated:
         assert redirected.status_code == REDIRECT
         assert root.status_code == UNAUTHORIZED
         assert reread.json() == {"open": True}
+
+    @pytest.mark.parametrize("lists", [False, True])
+    def test_an_integration_without_gates_describes_a_rivalled_route_as_authenticated(
+        self, monkeypatch: pytest.MonkeyPatch, *, lists: bool
+    ) -> None:
+        """The report reads the routes as the middleware reads them before routing."""
+
+        class Week(Convertor[str]):  # codespell:ignore
+            regex = "W{9}"
+
+            def convert(self, value: str) -> str:
+                return value  # pragma: no cover
+
+            def to_string(self, value: str) -> str:
+                return value  # pragma: no cover
+
+        register_url_convertor("grelmicro_week", Week())
+        for module in ("grelmicro._app", "grelmicro.http._authentication"):
+            monkeypatch.setattr(
+                f"{module}.load_integration",
+                lambda app: fake_integration(  # noqa: ARG005
+                    gates=False, lists=lists, listed=()
+                ),
+            )
+        app = public_catalog()
+
+        @app.get("/items/featured", dependencies=[Anonymous()])
+        async def featured() -> dict[str, bool]:
+            return {"featured": True}  # pragma: no cover
+
+        @app.get("/items/{item_id}")
+        async def item(item_id: str) -> dict[str, str]:
+            return {"item": item_id}  # pragma: no cover
+
+        @app.get("/tags/{tag}", dependencies=[Anonymous()])
+        async def tag(tag: str) -> dict[str, str]:
+            return {"tag": tag}  # pragma: no cover
+
+        @app.get("/days/{day:grelmicro_week}", dependencies=[Anonymous()])
+        async def day(day: str) -> dict[str, str]:
+            return {"day": day}  # pragma: no cover
+
+        micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
+        micro.install(app)
+        applies = {
+            row.path: row.applies for row in micro.describe(app).endpoints
+        }
+
+        assert applies["/catalog"] == ("anonymous",)
+        assert applies["/tags/{tag}"] == ("anonymous",)
+        assert applies["/items/featured"] == ("authenticated",)
+        assert applies["/days/{day:grelmicro_week}"] == ("authenticated",)
 
     def test_an_integration_without_hooks_refuses_an_app_with_no_public_route(
         self, monkeypatch: pytest.MonkeyPatch

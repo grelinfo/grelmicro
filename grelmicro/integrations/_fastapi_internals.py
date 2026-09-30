@@ -5,12 +5,14 @@ builds for each include: an `APIRoute` or a frontend group runs as itself
 with the context in the scope, and any other route runs as a copy the
 context holds. Frontend routes are matched after every other route. Every
 private part of FastAPI the gates rely on is read here alone, and
-`require()` fails install when a FastAPI release moved one. Without
+`require(router)` fails install when a FastAPI release moved one. Without
 FastAPI installed, nothing here is FastAPI's.
 """
 
 from __future__ import annotations
 
+from itertools import chain, repeat
+from operator import eq, is_
 from typing import TYPE_CHECKING, Any, Final
 
 try:
@@ -36,6 +38,7 @@ __all__ = [
     "original_of",
     "path_of",
     "require",
+    "router_of",
     "watch",
 ]
 
@@ -47,6 +50,7 @@ ROUTERS: Final[tuple[type[Any], ...]] = (
 _ROUTE: Final[Any] = getattr(routing, "APIRoute", None)
 _WEBSOCKET_ROUTE: Final[Any] = getattr(routing, "APIWebSocketRoute", None)
 _INCLUDED: Final[Any] = getattr(routing, "_IncludedRouter", None)
+_CONTEXT: Final[Any] = getattr(routing, "_EffectiveRouteContext", None)
 _FRONTEND: Final[Any] = getattr(routing, "_FrontendRouteGroup", None)
 _SCOPE_KEY: Final[Any] = getattr(routing, "_FASTAPI_SCOPE_KEY", None)
 _CONTEXT_KEY: Final[Any] = getattr(
@@ -56,8 +60,8 @@ _CANDIDATES: Final = "effective_candidates"
 _LOW_PRIORITY: Final = "effective_low_priority_routes"
 
 
-def require() -> None:
-    """Fail when FastAPI no longer has what the route gates rely on.
+def require(router: object) -> None:
+    """Fail when FastAPI no longer has a part the route gates read of `router`.
 
     Raises:
         RuntimeError: Naming each missing part.
@@ -66,15 +70,42 @@ def require() -> None:
         name
         for name, found in (
             ("_IncludedRouter", _INCLUDED),
+            ("_EffectiveRouteContext", _CONTEXT),
             ("_FASTAPI_SCOPE_KEY", _SCOPE_KEY),
             ("_FASTAPI_EFFECTIVE_ROUTE_CONTEXT_KEY", _CONTEXT_KEY),
         )
         if found is None
     ]
-    if _INCLUDED is not None and not hasattr(_INCLUDED, _CANDIDATES):
-        missing.append(f"_IncludedRouter.{_CANDIDATES}")
-    if _FRONTEND is not None and not hasattr(_INCLUDED, _LOW_PRIORITY):
-        missing.append(f"_IncludedRouter.{_LOW_PRIORITY}")
+    frontend = _FRONTEND is not None
+    attributes = (
+        (_INCLUDED, "_IncludedRouter", _CANDIDATES),
+        (_INCLUDED if frontend else None, "_IncludedRouter", _LOW_PRIORITY),
+        (router, "APIRouter", "_mark_routes_changed"),
+        (router if frontend else None, "APIRouter", "_low_priority_routes"),
+    )
+    fields = (
+        (_INCLUDED, "_IncludedRouter", "original_router"),
+        (_CONTEXT, "_EffectiveRouteContext", "original_route"),
+        (_CONTEXT, "_EffectiveRouteContext", "starlette_route"),
+        (_CONTEXT, "_EffectiveRouteContext", "path"),
+        (_CONTEXT, "_EffectiveRouteContext", "dependant"),  # codespell:ignore
+        (
+            _CONTEXT if frontend else None,
+            "_EffectiveRouteContext",
+            "frontend_prefix",
+        ),
+    )
+    missing.extend(
+        f"{name}.{part}"
+        for kind, name, part in attributes
+        if kind is not None and not hasattr(kind, part)
+    )
+    missing.extend(
+        f"{name}.{part}"
+        for kind, name, part in fields
+        if kind is not None
+        and part not in getattr(kind, "__dataclass_fields__", {})
+    )
     if missing:
         msg = (
             f"FastAPI's router has no {', '.join(missing)}, which "
@@ -106,8 +137,11 @@ def is_included(route: object) -> bool:
 
 
 def low_priority_routes(router: Any) -> list[Any]:  # noqa: ANN401
-    """Return the routes a router matches after every other, its frontend group."""
-    return getattr(router, "_low_priority_routes", [])
+    """Return the routes a router matches after every other, its frontend group.
+
+    Empty on a FastAPI release without frontend routes.
+    """
+    return router._low_priority_routes if _FRONTEND is not None else []  # noqa: SLF001
 
 
 def gate_low_priority(router: Any, routes: list[Any]) -> None:  # noqa: ANN401
@@ -127,6 +161,11 @@ def candidates(included: Any, *, top: bool) -> list[Any]:  # noqa: ANN401
     return found
 
 
+def router_of(included: Any) -> Any:  # noqa: ANN401
+    """Return the router an include holds the routes of."""
+    return included.original_router
+
+
 def watch(
     included: Any,  # noqa: ANN401
     *,
@@ -135,29 +174,35 @@ def watch(
 ) -> None:
     """Call `changed` with each list of contexts FastAPI builds anew for an include.
 
-    FastAPI builds them anew when the routes of the included router
+    FastAPI builds them anew when told the routes of the included router
     changed, and dispatches through the list it returns, so `changed` sees
-    each list before any request meets it.
+    each list before any request meets it. A `top` include, one a router
+    holds itself, tells FastAPI first when a route under it was added,
+    removed or edited in place without telling it.
     """
     names = (
         (_CANDIDATES, _LOW_PRIORITY)
         if top and _FRONTEND is not None
         else (_CANDIDATES,)
     )
+    shape = _Shape(included.original_router) if top else None
     for name in names:
         build = getattr(included, name)
-        setattr(included, name, _watched(build, build(), changed))
+        setattr(included, name, _watched(build, build(), changed, shape))
 
 
 def _watched(
     build: Callable[[], list[Any]],
     last: list[Any],
     changed: Callable[[list[Any]], None],
+    shape: _Shape | None,
 ) -> Callable[[], list[Any]]:
     """Return `build`, calling `changed` with each list it returns other than `last`."""
 
     def watched() -> list[Any]:
         nonlocal last
+        if shape is not None:
+            shape.check()
         found = build()
         if found is not last:
             last = found
@@ -165,6 +210,70 @@ def _watched(
         return found
 
     return watched
+
+
+class _Shape:
+    """What the routers under an include hold: each route, its regex and its methods."""
+
+    __slots__ = ("items", "lists", "methods", "regexes", "router", "routers")
+
+    def __init__(self, router: Any) -> None:  # noqa: ANN401
+        """Hold what `router`, and each router its includes hold, hold now."""
+        self.router = router
+        self.routers: tuple[Any, ...] = ()
+        self.lists: tuple[list[Any], ...] = ()
+        self.items: tuple[Any, ...] = ()
+        self.regexes: tuple[Any, ...] = ()
+        self.methods: tuple[frozenset[str] | None, ...] = ()
+        self._take()
+
+    def _take(self) -> None:
+        """Hold what the routers hold now."""
+        routers: list[Any] = []
+        pending = [self.router]
+        while pending:
+            router = pending.pop()
+            if any(router is known for known in routers):
+                continue
+            routers.append(router)
+            pending.extend(
+                route.original_router
+                for route in router.routes
+                if isinstance(route, _INCLUDED)
+            )
+        self.routers = tuple(routers)
+        self.lists = tuple(router.routes for router in routers)
+        self.items = tuple(chain.from_iterable(self.lists))
+        self.regexes = _regexes(self.items)
+        self.methods = tuple(
+            None if methods is None else frozenset(methods)
+            for methods in _methods(self.items)
+        )
+
+    def check(self) -> None:
+        """Tell FastAPI the routes changed, when any changed since last held."""
+        lists = tuple(router.routes for router in self.routers)
+        if (
+            all(map(is_, lists, self.lists))
+            and sum(map(len, lists)) == len(self.items)
+            and all(map(is_, chain.from_iterable(lists), self.items))
+            and all(map(is_, _regexes(self.items), self.regexes))
+            and all(map(eq, _methods(self.items), self.methods))
+        ):
+            return
+        for router in self.routers:
+            router._mark_routes_changed()  # noqa: SLF001
+        self._take()
+
+
+def _regexes(routes: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Return the regex each route matches its path with, if any."""
+    return tuple(map(getattr, routes, repeat("path_regex"), repeat(None)))
+
+
+def _methods(routes: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Return the methods each route answers, if it names any."""
+    return tuple(map(getattr, routes, repeat("methods"), repeat(None)))
 
 
 def context_of(scope: Scope, route: object) -> Any | None:  # noqa: ANN401
@@ -188,4 +297,6 @@ def original_of(context: Any) -> Any:  # noqa: ANN401
 
 def path_of(context: Any) -> str:  # noqa: ANN401
     """Return the path of an include's context, under the include's prefix."""
-    return context.path or context.frontend_prefix
+    if _FRONTEND is not None and isinstance(context.original_route, _FRONTEND):
+        return context.frontend_prefix
+    return context.path

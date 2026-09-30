@@ -47,6 +47,9 @@ module was imported again is still recognised as one.
 _FROM_REQUEST: Final = "from-request"
 """The mark of a declaration whose scopes arrive with the request."""
 
+_OPTIONAL: Final = "__grelmicro_optional_caller__"
+"""Set on what reads the caller when there is one, and requires none."""
+
 
 def recorded[E: BaseException](scope: Scope, error: E) -> E:
     """Return `error`, recorded as a refusal when authentication handled the request.
@@ -149,6 +152,17 @@ def declared_scopes(target: object) -> tuple[str, ...] | None:
     if marked is None:
         return None
     return () if marked == _FROM_REQUEST else tuple(marked)
+
+
+def declare_optional[T](target: T) -> T:
+    """Mark `target` as reading the caller when there is one, requiring none."""
+    setattr(target, _OPTIONAL, True)
+    return target
+
+
+def declares_optional(target: object) -> bool:
+    """Return whether `target` reads the caller when there is one, requiring none."""
+    return bool(getattr(target, _OPTIONAL, False))
 
 
 _REQUIREMENTS: Final[dict[tuple[str, ...], Requirement]] = {}

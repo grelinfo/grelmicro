@@ -78,6 +78,7 @@ from grelmicro.http._ratelimit import (
 from grelmicro.http._requirement import (
     Requirement,
     declare_from_request,
+    declare_optional,
     requirement_for,
 )
 from grelmicro.http._response_cache import declare_cached
@@ -271,8 +272,11 @@ def route_declarations(
     One declaration per route, and one per include of a router's route. A
     route declaring `Anonymous()` is anonymous, and its scopes are the ones
     every `Security` around `Authenticated`, `CurrentPrincipal`, `Claims` or
-    `CurrentToken` names. Any other dependency is a check of its own, and a
-    `CachedResponse()` caches a read that runs none.
+    `CurrentToken` names. Any other dependency is a check of its own, except
+    `CachedResponse()` and `OptionalPrincipal`. A `CachedResponse()` on the
+    route is declared as it is, so one beside a check of its own fails
+    install. One on a router caches the reads under it that run no check of
+    their own.
     """
     return declarations_of(app)
 
@@ -535,6 +539,7 @@ declare_from_request(_authenticated)
 declare_from_request(_current_principal)
 declare_from_request(_current_claims)
 declare_from_request(_current_token)
+declare_optional(_optional_principal)
 
 
 CurrentPrincipal = Annotated[

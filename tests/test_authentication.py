@@ -4018,10 +4018,10 @@ async def status_of(app: Any, path: str) -> int:  # noqa: ANN401
     )
 
 
-class TestRoutesMatchedElsewhere:
-    """A route matched other than by its path is never served without a credential."""
+class TestRoutesMatchedOtherThanByPath:
+    """The route a request reaches decides, whatever matched it or rewrote its path."""
 
-    async def test_a_mounted_app_rewriting_the_path_keeps_its_routes_protected(
+    async def test_a_path_a_mounted_app_rewrites_meets_the_gate_it_reaches(
         self,
     ) -> None:
         """Its public route is served, and a path rewritten to another route meets its gate."""
@@ -4559,6 +4559,71 @@ class TestConsistency:
             "featured": True
         }
 
+    @staticmethod
+    def reported(app: FastAPI) -> FastAPI:
+        """Install authentication on `app`, keeping what reports on it."""
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+        app.state.micro = micro
+        return app
+
+    def test_a_public_route_in_a_mounted_app_with_middleware_is_public(
+        self,
+    ) -> None:
+        """Its gate decides once its app routed it, whatever the middleware did."""
+        sub = FastAPI()
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        sub.add_api_route("/admin", secret)
+        app = FastAPI()
+        app.mount("/sub", sub)
+        self.reported(app)
+
+        assert self.applies(app, "GET", "/sub/files/{name:path}") == (
+            "anonymous",
+        )
+        assert TestClient(app).get("/sub/files/x").json() == {"listed": True}
+
+    def test_a_public_route_of_a_class_matching_on_its_own_is_public(
+        self,
+    ) -> None:
+        """Described as its gate serves it, whatever URL its class matches."""
+        public = APIRouter(route_class=CaseInsensitiveRoute)
+        public.add_api_route("/open", listed, dependencies=[Anonymous()])
+        app = FastAPI()
+        app.include_router(public)
+        self.reported(app)
+
+        assert app.openapi()["paths"]["/open"]["get"]["security"] == [
+            {},
+            {SCHEME: []},
+        ]
+        assert self.applies(app, "GET", "/open") == ("anonymous",)
+        assert TestClient(app).get("/OPEN").json() == {"listed": True}
+
+    def test_a_public_route_under_a_mount_of_a_mount_is_authenticated(
+        self,
+    ) -> None:
+        """The outer mount is one protected route, as its gate serves it."""
+        app = FastAPI()
+        app.mount(
+            "/t",
+            Mount(
+                "/r",
+                routes=[APIRoute("/a", listed, dependencies=[Anonymous()])],
+            ),
+        )
+        self.reported(app)
+
+        assert self.applies(app, "GET", "/t/r/a") == ("authenticated",)
+        assert TestClient(app).get("/t/r/a").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+
     def test_scopes_a_parent_security_declares_are_described(self) -> None:
         """A `Security` wrapping `Authenticated()` passes its scopes down."""
 
@@ -4682,7 +4747,7 @@ class TestConsistency:
     def test_a_public_route_with_a_registered_converter_is_described_public(
         self,
     ) -> None:
-        """A sample that fits the converter describes the route as it is served."""
+        """Described as its gate serves it, whatever the converter matches."""
 
         class Day(Convertor[str]):  # codespell:ignore
             regex = r"\d{4}-\d{2}-\d{2}"
@@ -4697,7 +4762,7 @@ class TestConsistency:
             regex = "9{12}"
 
             def convert(self, value: str) -> str:
-                return value  # pragma: no cover
+                return value
 
             def to_string(self, value: str) -> str:
                 return value  # pragma: no cover
@@ -4714,7 +4779,7 @@ class TestConsistency:
                 "/codes/{code:grelmicro_nines}", dependencies=[Anonymous()]
             )
             async def code(code: str) -> dict[str, str]:
-                return {"code": code}  # pragma: no cover
+                return {"code": code}
 
         app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
         paths = app.openapi()["paths"]
@@ -4726,7 +4791,10 @@ class TestConsistency:
         assert TestClient(app).get("/days/2026-01-01").json() == {
             "day": "2026-01-01"
         }
-        assert paths["/codes/{code}"]["get"]["security"] == [{SCHEME: []}]
+        assert paths["/codes/{code}"]["get"]["security"] == [{}, {SCHEME: []}]
+        assert TestClient(app).get(f"/codes/{'9' * 12}").json() == {
+            "code": "9" * 12
+        }
 
     def test_scopes_a_security_passes_to_the_caller_are_enforced(self) -> None:
         """`Security` around a dependency reading the caller requires its scopes."""

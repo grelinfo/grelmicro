@@ -96,7 +96,9 @@ Only `GET` is cached. `CachedResponse()` on a route that answers anything
 else is refused when `micro.install(app)` reads it, naming the path.
 A FastAPI `GET` with another dependency is left uncached: a hit would answer
 before that dependency ran, and an ordinary `Depends` may read a custom
-credential or otherwise vary the response without declaring `Vary`.
+credential or otherwise vary the response without declaring `Vary`. With
+`AuthenticatedRequests` registered, a `CachedResponse()` written on such a
+route is refused at install, naming the route.
 
 ## Vary
 

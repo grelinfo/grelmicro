@@ -8,18 +8,19 @@ request, and the answering middleware run around the route it admitted.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pytest
-from fastapi import APIRouter, Body, FastAPI, Security
+from fastapi import APIRouter, Body, Depends, FastAPI, Security, params
 from fastapi import WebSocket as FastAPIWebSocket
+from fastapi import routing as fastapi_routing
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, PlainTextResponse
-from starlette.routing import Mount, Route, WebSocketRoute
+from starlette.routing import Mount, Route, WebSocketRoute, compile_path
 from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import Grelmicro
@@ -42,12 +43,13 @@ from grelmicro.integrations.fastapi import (
     CurrentPrincipal,
     CurrentToken,
     OptionalPrincipal,
+    install_route_gate,
     route_declarations,
 )
 from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.security.jwt import JWTClaims
-from grelmicro.security.principal import VerifiedToken
+from grelmicro.security.principal import Principal, VerifiedToken
 from tests.test_authentication import bearer, token, verifier
 from tests.test_authentication_cases import unasked
 from tests.test_route_gate import (
@@ -60,6 +62,7 @@ from tests.test_route_gate import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from fastapi.routing import APIRoute
     from starlette.requests import Request
     from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -93,6 +96,13 @@ def installed(app: Any, *uses: Any, **options: Any) -> Any:  # noqa: ANN401
         ]
     ).install(app)
     return app
+
+
+@pytest.fixture
+def site(tmp_path: Any) -> str:  # noqa: ANN401
+    """Return a directory holding a built frontend."""
+    (tmp_path / "index.html").write_text("<p>app</p>")
+    return str(tmp_path)
 
 
 class Calls:
@@ -209,6 +219,11 @@ class TestTheCaller:
 async def listed() -> dict[str, bool]:
     """Answer on a FastAPI route."""
     return {"listed": True}
+
+
+async def secret() -> dict[str, bool]:
+    """Answer on a FastAPI route that is not public."""
+    return {"secret": True}
 
 
 async def plain(request: Request) -> JSONResponse:
@@ -370,6 +385,36 @@ class TestRoutesAddedLater:
         assert opened.json() == {"listed": True}
         assert refused.status_code == UNAUTHORIZED
 
+    @pytest.mark.parametrize("change", ["removed", "moved", "nested"])
+    def test_an_included_route_changed_in_place_is_served_as_it_is_now(
+        self, change: str
+    ) -> None:
+        """FastAPI answers from the routes the router holds, not from its copy of them."""
+        included = APIRouter()
+        included.add_api_route("/a", secret)
+        included.add_api_route("/{name}", listed, dependencies=[Anonymous()])
+        outer = APIRouter()
+        outer.include_router(included)
+        outer.include_router(included, prefix="/again")
+        app = FastAPI(openapi_url=None)
+        app.include_router(
+            outer if change == "nested" else included, prefix="/s"
+        )
+        installed(app)
+        with TestClient(app) as client:
+            client.get("/s/warm")
+            if change == "moved":
+                moved = cast("APIRoute", included.routes[0])
+                moved.path = "/zz"
+                moved.path_regex, moved.path_format, moved.param_convertors = (
+                    compile_path("/zz")
+                )
+            else:
+                included.routes.pop(0)
+            response = client.get("/s/a")
+
+        assert response.json() == {"listed": True}
+
     def test_a_router_included_later_is_gated(self) -> None:
         """With what it is included with."""
         app = installed(FastAPI(openapi_url=None))
@@ -463,6 +508,42 @@ class TestMounts:
         assert statuses == [OK, UNAUTHORIZED, UNAUTHORIZED]
         assert seen == ["/sub/open", "/sub/private", "/sub/nowhere"]
 
+    @pytest.mark.parametrize("removal", ["replaced", "removed", "included"])
+    def test_a_mounted_app_losing_its_anonymous_route_never_runs_again(
+        self, removal: str
+    ) -> None:
+        """Its middleware sees no request without a credential from then on."""
+        seen: list[str] = []
+        router = APIRouter()
+        sub = FastAPI(openapi_url=None)
+        sub.add_middleware(Spy, seen=seen)
+        sub.add_api_route("/private", listed)
+        if removal == "included":
+            router.add_api_route("/open", listed, dependencies=[Anonymous()])
+            sub.include_router(router)
+        else:
+            sub.add_api_route("/open", listed, dependencies=[Anonymous()])
+        app = FastAPI(openapi_url=None)
+        app.mount("/sub", sub)
+        installed(app)
+        client = TestClient(app)
+        client.get("/sub/open")
+        seen.clear()
+
+        if removal == "replaced":
+            sub.router.routes = sub.router.routes[:-1]
+        elif removal == "removed":
+            sub.router.routes.pop()
+        else:
+            router.routes.pop()
+        statuses = [
+            client.get("/sub/open").status_code,
+            client.get("/sub/private").status_code,
+        ]
+
+        assert statuses == [UNAUTHORIZED] * 2
+        assert seen == []
+
     def test_a_cors_preflight_its_own_middleware_answers_passes(self) -> None:
         """A browser sends none of its credentials on a preflight."""
         sub = FastAPI(openapi_url=None)
@@ -528,6 +609,24 @@ class TestMounts:
         assert client.get(f"{root_path}/svc/nowhere").status_code == (
             UNAUTHORIZED
         )
+
+    def test_a_url_no_route_of_an_installed_app_answers_is_refused_by_its_parent(
+        self,
+    ) -> None:
+        """In the parent's error format, since the parent routed it there."""
+        inner = FastAPI(openapi_url=None)
+        inner.add_api_route("/open", listed, dependencies=[Anonymous()])
+        installed(inner)
+        outer = FastAPI(openapi_url=None)
+        outer.mount("/svc", inner)
+        Grelmicro(
+            uses=[ErrorResponses.tmf(), AuthenticatedRequests(verifier())]
+        ).install(outer)
+
+        refused = TestClient(outer).get("/svc/nowhere")
+
+        assert refused.status_code == UNAUTHORIZED
+        assert refused.json()["code"] == "GREL-AUTHENTICATION-REQUIRED"
 
     async def test_a_path_rewritten_into_a_fresh_scope_is_refused(self) -> None:
         """Middleware that rebuilds the scope drops the policy, so the gate refuses."""
@@ -812,28 +911,49 @@ class TestRefusals:
 
 
 @pytest.mark.parametrize(
-    "seam", ["effective_candidates", "effective_low_priority_routes"]
+    ("owner", "part"),
+    [
+        ("_IncludedRouter", "effective_candidates"),
+        ("_IncludedRouter", "effective_low_priority_routes"),
+        ("_IncludedRouter", "original_router"),
+        ("_EffectiveRouteContext", "original_route"),
+        ("_EffectiveRouteContext", "starlette_route"),
+        ("_EffectiveRouteContext", "path"),
+        ("_EffectiveRouteContext", "frontend_prefix"),
+        ("_EffectiveRouteContext", "dependant"),  # codespell:ignore
+        ("APIRouter", "_mark_routes_changed"),
+    ],
 )
-def test_a_fastapi_router_without_the_seam_fails_install(
-    monkeypatch: pytest.MonkeyPatch, seam: str
+def test_a_fastapi_router_without_a_part_the_gates_read_fails_install(
+    monkeypatch: pytest.MonkeyPatch, owner: str, part: str
 ) -> None:
     """A FastAPI release that moved how it dispatches includes stops `install` loudly."""
-    from fastapi.routing import _IncludedRouter  # noqa: PLC0415
+    kind = getattr(fastapi_routing, owner)
+    fields = getattr(kind, "__dataclass_fields__", {})
+    if part in fields:
+        monkeypatch.delitem(fields, part)
+    else:
+        monkeypatch.delattr(kind, part)
 
-    monkeypatch.delattr(_IncludedRouter, seam)
-
-    with pytest.raises(RuntimeError, match=rf"has no _IncludedRouter.{seam}"):
+    with pytest.raises(RuntimeError, match=rf"has no {owner}.{part}\b"):
         installed(FastAPI(openapi_url=None))
+
+
+def test_a_fastapi_router_without_its_low_priority_routes_fails_install() -> (
+    None
+):
+    """The routes it matches after every other, its frontend among them."""
+    app = FastAPI(openapi_url=None)
+    del app.router._low_priority_routes
+
+    with pytest.raises(
+        RuntimeError, match=r"has no APIRouter._low_priority_routes\b"
+    ):
+        installed(app)
 
 
 class TestFrontendRoutes:
     """What `frontend()` serves after every other route is gated too."""
-
-    @pytest.fixture
-    def site(self, tmp_path: Any) -> str:  # noqa: ANN401
-        """Return a directory holding a built frontend."""
-        (tmp_path / "index.html").write_text("<p>app</p>")
-        return str(tmp_path)
 
     def test_it_needs_a_caller_unless_declared_anonymous(
         self, site: str
@@ -864,3 +984,258 @@ class TestFrontendRoutes:
         assert client.get("/index.html", headers=bearer(token())).text == (
             "<p>app</p>"
         )
+
+
+class Recording:
+    """A gate recording what each call declares, letting every request through."""
+
+    def __init__(self) -> None:
+        """Start with no call."""
+        self.calls: list[tuple[tuple[RouteDeclaration, ...], bool]] = []
+        self.names: dict[str, Any] = {}
+
+    def __call__(
+        self,
+        app: ASGIApp,
+        *declarations: RouteDeclaration,
+        name: Any = None,  # noqa: ANN401
+        door: bool = False,
+    ) -> ASGIApp:
+        """Record the call, and return `app` as it is."""
+        self.calls.append((declarations, door))
+        self.names[declarations[0].path] = name
+        return app
+
+    @property
+    def paths(self) -> list[str]:
+        """Return the path of each call, in order."""
+        return [declarations[0].path for declarations, _ in self.calls]
+
+
+class TestTheGateContract:
+    """What `install_route_gate` hands the gate for each route FastAPI dispatches to."""
+
+    def test_each_route_is_declared_under_each_include(self, site: str) -> None:
+        """With the scopes of every include around it, websocket and frontend routes too."""
+        inner = APIRouter(dependencies=[Authenticated(scopes=["inner"])])
+        inner.add_api_route("/r", listed, methods=["GET"])
+        inner.add_api_websocket_route(
+            "/ws", accept, dependencies=[Authenticated(scopes=["live"])]
+        )
+        middle = APIRouter()
+        middle.include_router(
+            inner, prefix="/in", dependencies=[Authenticated(scopes=["mid"])]
+        )
+        app = FastAPI(openapi_url=None)
+        app.include_router(
+            middle, prefix="/a", dependencies=[Authenticated(scopes=["outer"])]
+        )
+        app.include_router(middle, prefix="/b")
+        app.frontend("/ui", directory=site)
+        gate = Recording()
+
+        install_route_gate(app, gate)
+
+        assert gate.calls == [
+            (
+                (
+                    RouteDeclaration(
+                        "/a/in/r",
+                        methods=frozenset({"GET"}),
+                        scopes=frozenset({"inner", "mid", "outer"}),
+                    ),
+                ),
+                False,
+            ),
+            (
+                (
+                    RouteDeclaration(
+                        "/a/in/ws",
+                        scopes=frozenset({"inner", "live", "mid", "outer"}),
+                    ),
+                ),
+                False,
+            ),
+            (
+                (
+                    RouteDeclaration(
+                        "/b/in/r",
+                        methods=frozenset({"GET"}),
+                        scopes=frozenset({"inner", "mid"}),
+                    ),
+                ),
+                False,
+            ),
+            (
+                (
+                    RouteDeclaration(
+                        "/b/in/ws",
+                        scopes=frozenset({"inner", "live", "mid"}),
+                    ),
+                ),
+                False,
+            ),
+            ((RouteDeclaration("/"),), False),
+        ]
+        assert route_declarations(app) == [
+            declarations[0] for declarations, _ in gate.calls
+        ]
+
+    def test_a_mount_is_a_door_before_the_routes_it_holds(self) -> None:
+        """Its routes are gated where they are, and it is listed while none is anonymous."""
+        sub = FastAPI(openapi_url=None)
+        sub.add_api_route("/private", listed)
+        app = FastAPI(openapi_url=None)
+        app.mount("/sub", sub)
+        gate = Recording()
+
+        install_route_gate(app, gate)
+
+        assert gate.calls == [
+            (
+                (RouteDeclaration("/sub/private", methods=frozenset({"GET"})),),
+                False,
+            ),
+            ((RouteDeclaration("/sub"),), True),
+        ]
+        assert route_declarations(app) == [
+            RouteDeclaration("/sub"),
+            RouteDeclaration("/sub/private", methods=frozenset({"GET"})),
+        ]
+
+    def test_a_refusal_is_named_by_the_route_under_the_root_path(self) -> None:
+        """An include's route under its prefix, a mounted app's under the mount."""
+        router = APIRouter()
+        router.add_api_route("/orders/{order_id}", listed)
+        sub = FastAPI(openapi_url=None)
+        sub.add_api_route("/private", listed)
+        app = FastAPI(openapi_url=None)
+        app.include_router(router, prefix="/v1")
+        app.mount("/sub", sub)
+        gate = Recording()
+        install_route_gate(app, gate)
+
+        included = gate.names["/v1/orders/{order_id}"]
+        mounted = gate.names["/sub/private"]
+
+        assert included({"root_path": "/svc", "path": "/svc/v1/orders/7"}) == (
+            "/svc/v1/orders/{order_id}"
+        )
+        assert mounted({"root_path": "/sub", "path": "/sub/private"}) == (
+            "/sub/private"
+        )
+
+    def test_a_route_added_to_an_include_is_gated_with_the_contexts_built_anew(
+        self,
+    ) -> None:
+        """Under each include, once FastAPI dispatches through it."""
+        router = APIRouter()
+        router.add_api_route("/r", listed)
+        app = FastAPI(openapi_url=None)
+        app.include_router(router, prefix="/a")
+        app.include_router(router, prefix="/b", dependencies=[Anonymous()])
+        gate = Recording()
+        install_route_gate(app, gate)
+        client = TestClient(app)
+        client.get("/a/r")
+        gate.calls.clear()
+
+        router.add_api_route("/late", listed)
+        client.get("/a/late")
+        client.get("/b/late")
+
+        assert gate.paths == ["/a/r", "/a/late", "/b/r", "/b/late"]
+        assert [
+            declarations[0].anonymous for declarations, _ in gate.calls
+        ] == [
+            False,
+            False,
+            True,
+            True,
+        ]
+
+
+def checked(*dependencies: params.Depends) -> RouteDeclaration:
+    """Return what a `GET /r` route with `dependencies` declares."""
+    app = FastAPI(openapi_url=None)
+    app.add_api_route("/r", listed, dependencies=list(dependencies))
+    return route_declarations(app)[0]
+
+
+def page(number: int = 1) -> int:
+    """Read a query parameter, a dependency of the route's own."""
+    return number  # pragma: no cover
+
+
+class TestDeclarations:
+    """What `route_declarations` reads off the dependencies each route runs."""
+
+    def test_grelmicro_reading_the_caller_is_no_check_of_its_own(self) -> None:
+        """`Authenticated`, `CurrentPrincipal`, `Claims`, `CurrentToken` and `OptionalPrincipal`."""
+        app = FastAPI(openapi_url=None)
+
+        @app.get("/me", dependencies=[Authenticated(scopes=["me:read"])])
+        async def me(
+            principal: CurrentPrincipal,
+            claims: Claims,
+            presented: CurrentToken,
+            maybe: OptionalPrincipal,
+            scoped: Annotated[Principal, Authenticated(scopes=["orders:read"])],
+        ) -> None: ...
+
+        assert route_declarations(app) == [
+            RouteDeclaration(
+                "/me",
+                methods=frozenset({"GET"}),
+                scopes=frozenset({"me:read", "orders:read"}),
+            )
+        ]
+
+    def test_a_dependency_of_the_app_is_a_check_of_its_own(self) -> None:
+        """Whatever it reads, the route's answer can depend on it, a `Security` included."""
+        assert checked(Depends(page)).own_checks
+        assert checked(Security(listed, scopes=[])).own_checks
+
+    def test_a_route_caching_beside_an_authenticated_caller_caches(
+        self,
+    ) -> None:
+        """Every caller the route admits is served the same response."""
+        assert checked(Authenticated(), CachedResponse(ttl=60)) == (
+            RouteDeclaration("/r", methods=frozenset({"GET"}), cache=60)
+        )
+
+    def test_a_route_caching_beside_a_check_of_its_own_fails_install(
+        self,
+    ) -> None:
+        """One caller's response would be served to another."""
+        app = FastAPI(openapi_url=None)
+        app.add_api_route(
+            "/r", listed, dependencies=[Depends(page), CachedResponse()]
+        )
+
+        with pytest.raises(
+            ValueError, match=r"GET /r declares cache and own_checks"
+        ):
+            installed(app)
+
+    @pytest.mark.parametrize("where", ["router", "include", "app"])
+    def test_a_router_caching_covers_the_reads_that_run_no_check(
+        self, where: str
+    ) -> None:
+        """Its writes and its reads running a check of their own declare no cache."""
+        cached = CachedResponse(ttl=30)
+        router = APIRouter(dependencies=[cached] if where == "router" else [])
+        router.add_api_route("/read", listed)
+        router.add_api_route("/paged", listed, dependencies=[Depends(page)])
+        router.add_api_route("/write", listed, methods=["POST"])
+        app = FastAPI(
+            openapi_url=None, dependencies=[cached] if where == "app" else []
+        )
+        app.include_router(
+            router, dependencies=[cached] if where == "include" else []
+        )
+
+        assert [
+            (declaration.path, declaration.cache)
+            for declaration in route_declarations(installed(app))
+        ] == [("/read", 30), ("/paged", False), ("/write", False)]
