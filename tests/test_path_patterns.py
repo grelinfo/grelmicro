@@ -899,7 +899,7 @@ def test_a_path_litestar_routed_is_read_as_its_router_wrote_it() -> None:
         "root_path": "/v1",
         "app": app,
         "litestar_app": app,
-        "route_handler": SimpleNamespace(is_mount=False),
+        "route_handler": SimpleNamespace(is_mount=False, owner=app),
     }
 
     assert route_path(scope) == "/files/v1/livez"
@@ -912,7 +912,7 @@ def test_a_litestar_mount_its_router_does_not_list_is_refused() -> None:
         "path": "/livez/",
         "app": app,
         "litestar_app": app,
-        "route_handler": SimpleNamespace(is_mount=True),
+        "route_handler": SimpleNamespace(is_mount=True, owner=app),
     }
 
     with pytest.raises(RuntimeError, match="mount"):

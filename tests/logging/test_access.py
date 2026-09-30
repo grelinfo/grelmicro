@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 import httpx
 import pytest
 from fastapi import FastAPI
-from litestar import Litestar, get
+from litestar import Litestar, asgi, get
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
 from starlette.applications import Starlette
@@ -510,6 +510,34 @@ async def test_litestar_records_the_route_template(
         await client.get("/orders/7")
 
     assert capture()[0].__dict__["http.route"] == "/orders/{order_id}"
+
+
+async def test_a_litestar_app_under_a_litestar_mount_names_no_route_it_missed(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """A URL the mounted app has no route for records no route, not the outer mount's."""
+
+    @get("/orders/{order_id:str}")
+    async def order(order_id: Annotated[str, Parameter()]) -> str:
+        return order_id
+
+    micro = Grelmicro(uses=[AccessLog()])
+    inner = Litestar(route_handlers=[order], logging_config=None)
+    micro.install(inner)
+
+    @asgi("/in", is_mount=True, copy_scope=False)
+    async def mount(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        await inner(scope, receive, send)
+
+    outer = Litestar(route_handlers=[mount], logging_config=None)
+
+    async with micro, client_for(outer) as client:
+        await client.get("/in/orders/7")
+        await client.get("/in/nowhere")
+
+    routed, missed = capture()
+    assert routed.__dict__["http.route"] == "/orders/{order_id}"
+    assert "http.route" not in missed.__dict__
 
 
 async def test_starlette_leaves_the_route_out(

@@ -1279,6 +1279,7 @@ class TestMutationGaps:
         middleware = AuthenticatedRequestsMiddleware(
             _served, verifier=verifier()
         )
+        app = SimpleNamespace(owner=None)
 
         await _call(
             middleware,
@@ -1286,6 +1287,9 @@ class TestMutationGaps:
             path=f"{root_path}/orders",
             root_path=root_path,
             path_template="/orders",
+            app=app,
+            litestar_app=app,
+            route_handler=SimpleNamespace(owner=app, is_mount=False),
         )
 
         [record] = events

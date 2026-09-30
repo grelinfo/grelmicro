@@ -32,6 +32,7 @@ __all__ = [
     "compile_route",
     "declared_dependencies",
     "holds_control_character",
+    "litestar_route_handler",
     "matches",
     "names_route",
     "refuse_bare_method",
@@ -268,6 +269,9 @@ def route_path(
     Middleware Litestar runs behind its router reads the path the router
     wrote back, which has the root path off already. A mount's is only what
     is left inside the mount, so the mount's own path is joined back to it.
+    A Litestar app mounted under another Litestar app finds the outer app's
+    handler in the scope until its own router matches one, so the path is
+    read as before routing until then.
 
     Raises:
         RuntimeError: If Litestar routed the request to a mount its router
@@ -278,13 +282,47 @@ def route_path(
     litestar = scope.get("litestar_app")
     if litestar is None or litestar is not scope.get("app"):
         return starlette_route_path(path, root)
-    handler = scope.get("route_handler")
+    handler = _routed_by(litestar, scope.get("route_handler"))
     if handler is None:
         routed = path.split(root, maxsplit=1)[-1] if root else path
         return _litestar_normalize()(routed)
     if getattr(handler, "is_mount", False):
         return _litestar_mounted_path(litestar, handler, path)
     return path
+
+
+def litestar_route_handler(
+    scope: Annotated[
+        MutableMapping[str, Any], Doc("The ASGI scope of the request.")
+    ],
+) -> Any | None:  # noqa: ANN401
+    """Return the handler the router of the Litestar app serving the request matched.
+
+    `None` when the app in `scope["app"]` is not a Litestar app, or when its
+    router has not matched a handler yet. An app mounted under another
+    Litestar app finds the outer app's handler in the scope until then,
+    and that one belongs to the outer app.
+    """
+    litestar = scope.get("litestar_app")
+    if litestar is None or litestar is not scope.get("app"):
+        return None
+    return _routed_by(litestar, scope.get("route_handler"))
+
+
+def _routed_by(app: Any, handler: Any) -> Any | None:  # noqa: ANN401
+    """Return `handler` when `app` owns it, so its router matched it.
+
+    Litestar gives each handler it registers the router it was registered
+    on as its owner, and each router the one above it, up to the app.
+    """
+    if handler is None:
+        return None
+    owner = handler.owner
+    while owner is not None:
+        if owner is app:
+            return handler
+        owner = owner.owner
+    return None
 
 
 def _litestar_mounted_path(app: Any, handler: Any, remaining: str) -> str:  # noqa: ANN401
@@ -1272,7 +1310,10 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     each framework is read the way it records it: Litestar writes
     `path_template`, and FastAPI a route carrying `path_format`. Starlette
     records neither, so a plain Starlette app leaves it out rather than
-    guessing a template from the values that filled it.
+    guessing a template from the values that filled it. Litestar's key is
+    read only once the router of the app in `scope["app"]` matched a
+    handler, since an app mounted under another Litestar app finds the
+    outer app's template there until then.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1280,7 +1321,11 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     prefix stays off, for the same reason: the two describe one request
     and have to agree.
     """
-    template = scope.get("path_template")
+    template = (
+        scope.get("path_template")
+        if litestar_route_handler(scope) is not None
+        else None
+    )
     if not isinstance(template, str):
         route = scope.get("route")
         template = getattr(route, "path_format", None) or getattr(
