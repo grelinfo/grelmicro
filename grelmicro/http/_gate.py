@@ -25,7 +25,7 @@ import functools
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
 
-from grelmicro._paths import route_path, selects
+from grelmicro._paths import ROUTE_KEY, route_path, selects
 from grelmicro.errors import AuthenticationRequiredError, InsufficientScopeError
 from grelmicro.http._component import ErrorResponses, raw_headers_of, send_error
 from grelmicro.http._kinds import AUTHENTICATION_REQUIRED, INSUFFICIENT_SCOPE
@@ -81,9 +81,6 @@ EXCLUDED_ROOT_KEY: Final = "grelmicro.excluded_root"
 
 GATE_KEY: Final = "grelmicro.gate"
 """Where the middleware leaves the `GatePolicy` of the app serving the request."""
-
-ROUTE_KEY: Final = "grelmicro.route"
-"""Where a gate leaves the template of the route it refused a request on."""
 
 _GATED: Final = "__grelmicro_gated__"
 """Set on an app a gate returned."""

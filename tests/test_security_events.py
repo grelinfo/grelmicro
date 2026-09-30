@@ -12,15 +12,17 @@ import logging
 import time
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi import WebSocket as FastAPIWebSocket
 from fastapi.testclient import TestClient
 from litestar import Litestar
+from litestar import delete as litestar_delete
 from litestar import get as litestar_get
 from litestar.middleware import DefineMiddleware
+from litestar.params import Parameter
 from litestar.testing import TestClient as LitestarTestClient
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -52,6 +54,9 @@ from grelmicro.http._kinds import classify
 from grelmicro.http._requirement import recorded
 from grelmicro.integrations.fastapi import (
     Authenticated as FastAPIAuthenticated,
+)
+from grelmicro.integrations.litestar import (
+    Authenticated as LitestarAuthenticated,
 )
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
@@ -560,6 +565,78 @@ class TestIncludedRoute:
                 },
             )
         ]
+
+
+def starlette_whoami() -> Starlette:
+    """Return a Starlette app whose `/whoami` route needs a caller."""
+    return app_with(AccessLog(), AuthenticatedRequests(verifier()))
+
+
+def litestar_orders() -> Litestar:
+    """Return a Litestar app whose `/orders/{order_id}` route needs `orders:write`."""
+
+    @litestar_delete(
+        "/orders/{order_id:int}",
+        guards=[LitestarAuthenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: Annotated[int, Parameter()]) -> None:
+        """Never reached: the gate refuses first."""  # pragma: no cover
+
+    app = Litestar(route_handlers=[cancel], logging_config=None)
+    Grelmicro(
+        uses=[ErrorResponses(), AccessLog(), AuthenticatedRequests(verifier())]
+    ).install(app)
+    return app
+
+
+class TestRefusedRoute:
+    """The route a refused request names, alike in the access record and the attempt."""
+
+    @pytest.mark.parametrize(
+        ("build", "method", "path", "expected"),
+        [
+            (on_the_app, "DELETE", "/7", "/{order_id}"),
+            (versioned, "DELETE", "/v1/orders/7", "/v1/orders/{order_id}"),
+            (versioned, "GET", "/v1/orders/7", "/v1/orders/{order_id}"),
+            (
+                nested_prefixes,
+                "DELETE",
+                "/v1/orders/7",
+                "/v1/orders/{order_id}",
+            ),
+            (versioned, "GET", "/v1/nowhere", None),
+            (starlette_whoami, "GET", "/whoami", "/whoami"),
+            (litestar_orders, "DELETE", "/orders/7", "/orders/{order_id}"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "forged", [False, True], ids=["no-token", "forged"]
+    )
+    def test_the_access_record_names_the_route_the_attempt_names(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        metrics: InMemoryMetricReader,
+        *,
+        build: Callable[[], Any],
+        method: str,
+        path: str,
+        expected: str | None,
+        forged: bool,
+    ) -> None:
+        """A refused request carries one route, or none where no route answers."""
+        caplog.set_level(logging.INFO, logger="grelmicro.access")
+        headers = bearer(token(FORGER)) if forged else {}
+
+        TestClient(build()).request(method, path, headers=headers)
+
+        [access] = [
+            record
+            for record in caplog.records
+            if record.name == "grelmicro.access"
+        ]
+        [(_, attempt)] = points(metrics, "grelmicro.authentication.attempts")
+        assert field(access, "http.route") == expected
+        assert attempt.get("http.route") == expected
 
 
 class TestAuthorization:
