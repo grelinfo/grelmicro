@@ -200,9 +200,11 @@ def _seconds_until_reset(result: RateLimitResult) -> int:
     The wait is rounded to the millisecond first, as `Retry-After` is,
     then up to the second. A reset that lands on a whole second within
     float rounding states that second, and a refusal states the same
-    wait in both headers.
+    wait in both headers. A wait above zero states at least one second.
     """
-    return ceil(round(result.reset_after, 3))
+    if result.reset_after <= 0:
+        return 0
+    return max(ceil(round(result.reset_after, 3)), 1)
 
 
 def _rate_limit_headers(

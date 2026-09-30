@@ -1284,3 +1284,29 @@ async def test_a_refusal_states_the_same_wait_in_every_header() -> None:
     assert response.headers["retry-after"] == "2"
     assert response.headers["ratelimit"] == '"api";r=0;t=2'
     assert response.headers["x-ratelimit-reset"] == "2"
+
+
+async def test_a_refusal_never_states_the_quota_is_back() -> None:
+    """A wait under a millisecond still states a whole second."""
+    # Arrange
+    bucket = RateLimiter.token_bucket(
+        "api", capacity=1, refill_rate=1.0, backend=MemoryRateLimiterAdapter()
+    )
+    app = _app(bucket, legacy_headers=True)
+    transport = httpx.ASGITransport(app=app, client=CALLER)
+
+    # Act
+    async with (
+        VirtualClock(start=1000.0) as clock,
+        httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client,
+    ):
+        await client.get("/read")
+        await clock.advance(0.9996)
+        response = await client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["ratelimit"] == '"api";r=0;t=1'
+    assert response.headers["x-ratelimit-reset"] == "1"
