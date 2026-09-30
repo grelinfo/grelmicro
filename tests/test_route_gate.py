@@ -16,6 +16,7 @@ import posixpath
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from starlette.applications import Starlette
@@ -1169,6 +1170,14 @@ class TestNoRoute:
         assert unmatched.value.status_code == UNAUTHORIZED
 
 
+def async_client(app: Any) -> httpx.AsyncClient:  # noqa: ANN401
+    """Return a client that drives `app` in the test's context, from `ADDRESS`."""
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=ADDRESS),
+        base_url="http://testserver",
+    )
+
+
 def limited(limit: int = 3) -> RateLimitedRequests:
     """Return a per-caller rate limit of `limit` requests a minute."""
     return RateLimitedRequests(
@@ -1196,7 +1205,8 @@ class TestAnsweringMiddleware:
         assert unrouted == [NOT_FOUND] * 5
         assert answered.status_code == OK
 
-    def test_under_a_mount_they_match_the_app_paths(self) -> None:
+    @pytest.mark.usefixtures("clock")
+    async def test_under_a_mount_they_match_the_app_paths(self) -> None:
         """`include=` names the path from the app's root, as before routing."""
         app = installed(
             Starlette(routes=[Mount("/api", routes=[Route("/items", served)])]),
@@ -1211,15 +1221,15 @@ class TestAnsweringMiddleware:
                 include=("/api/*",),
             ),
         )
-        client = TestClient(app, client=ADDRESS)
-
-        first = client.get("/api/items", headers=bearer(token()))
-        second = client.get("/api/items", headers=bearer(token()))
+        async with async_client(app) as client:
+            first = await client.get("/api/items", headers=bearer(token()))
+            second = await client.get("/api/items", headers=bearer(token()))
 
         assert first.headers["ratelimit"] == '"burst";r=4;t=12'
         assert second.headers["ratelimit"] == '"burst";r=3;t=24'
 
-    def test_an_app_installed_under_another_runs_each_app_middleware_once(
+    @pytest.mark.usefixtures("clock")
+    async def test_an_app_installed_under_another_runs_each_app_middleware_once(
         self,
     ) -> None:
         """Each on the paths of its own app, outermost first."""
@@ -1244,10 +1254,9 @@ class TestAnsweringMiddleware:
             Starlette(routes=[Mount("/svc", app=inner)]),
             limit("outer", 5, "/svc/*"),
         )
-        client = TestClient(outer, client=ADDRESS)
-
-        first = client.get("/svc/orders", headers=bearer(token()))
-        second = client.get("/svc/orders", headers=bearer(token()))
+        async with async_client(outer) as client:
+            first = await client.get("/svc/orders", headers=bearer(token()))
+            second = await client.get("/svc/orders", headers=bearer(token()))
 
         assert first.headers["ratelimit"] == (
             '"inner";r=2;t=20, "outer";r=4;t=12'
@@ -1280,19 +1289,22 @@ class TestAnsweringMiddleware:
         assert statuses == [INTERNAL_SERVER_ERROR] * 2
         assert probe.calls == len(statuses)
 
-    def test_an_app_mounted_in_itself_runs_them_once_at_any_depth(
+    @pytest.mark.usefixtures("clock")
+    async def test_an_app_mounted_in_itself_runs_them_once_at_any_depth(
         self,
     ) -> None:
         """Crossing its own authentication again adds no lane of its own."""
         app = Starlette(routes=[Route("/orders", served)])
         app.router.routes.append(Mount("/x", app=app))
         installed(app, limited(limit=100))
-        client = TestClient(app, client=ADDRESS)
 
-        answered = [
-            client.get(f"{'/x' * depth}/orders", headers=bearer(token()))
-            for depth in (0, 1, 50)
-        ]
+        async with async_client(app) as client:
+            answered = [
+                await client.get(
+                    f"{'/x' * depth}/orders", headers=bearer(token())
+                )
+                for depth in (0, 1, 50)
+            ]
 
         assert [response.status_code for response in answered] == [OK] * 3
         assert [response.headers["ratelimit"] for response in answered] == [
@@ -1450,7 +1462,8 @@ class TestAnExcludedPath:
             assert retried.headers["idempotent-replayed"] == "true"
         assert probe.calls == 1
 
-    def test_a_streamed_body_and_a_background_task_run(self) -> None:
+    @pytest.mark.usefixtures("clock")
+    async def test_a_streamed_body_and_a_background_task_run(self) -> None:
         """Through the rate limit, which runs around them."""
         ran: list[str] = []
 
@@ -1469,7 +1482,8 @@ class TestAnExcludedPath:
             exclude=("/stream",),
         )
 
-        response = TestClient(app, client=ADDRESS).get("/stream")
+        async with async_client(app) as client:
+            response = await client.get("/stream")
 
         assert response.text == "ab"
         assert response.headers["ratelimit"] == '"burst";r=2;t=20'
@@ -2398,7 +2412,8 @@ class TestSharedRoutes:
             )
         )
 
-    def test_routes_built_once_run_the_middleware_of_the_app_serving_them(
+    @pytest.mark.usefixtures("clock")
+    async def test_routes_built_once_run_the_middleware_of_the_app_serving_them(
         self,
     ) -> None:
         """Once per request, and only the serving app's."""
@@ -2406,12 +2421,11 @@ class TestSharedRoutes:
         first = installed(Starlette(routes=routes), limited())
         second = installed(Starlette(routes=routes), limited(limit=5))
 
-        answered = [
-            TestClient(app, client=ADDRESS)
-            .get("/orders", headers=bearer(token()))
-            .headers["ratelimit"]
-            for app in (first, second)
-        ]
+        answered = []
+        for app in (first, second):
+            async with async_client(app) as client:
+                response = await client.get("/orders", headers=bearer(token()))
+            answered.append(response.headers["ratelimit"])
 
         assert answered == ['"burst";r=2;t=20', '"burst";r=4;t=12']
 

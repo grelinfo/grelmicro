@@ -42,6 +42,7 @@ from grelmicro._paths import (
     compile_route,
     declared_dependencies,
     holds_control_character,
+    litestar_route_handler,
     route_path,
     route_template,
     selects,
@@ -1945,11 +1946,7 @@ class AuthenticatedRequestsMiddleware:
                 return
             if (
                 not self._routing_checked
-                and "route_handler" in scope
-                and "litestar_app" in scope
-                # An app mounted under Litestar keeps both keys, and is not
-                # the one Litestar's router serves.
-                and scope["litestar_app"] is scope.get("app")
+                and litestar_route_handler(scope) is not None
             ):
                 self._routing_checked = True
                 _warn_if_unrouted(scope, metadata)

@@ -5800,6 +5800,45 @@ class TestResourceMetadataOnLitestar:
 
         assert response.json()["resource"] == "https://api.example.com/orders/"
 
+    def test_a_middleware_wrapping_a_mounted_litestar_app_stays_quiet(
+        self,
+    ) -> None:
+        """In front of its app's router under another Litestar app, it serves the document."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        inner = Litestar(route_handlers=[orders], openapi_config=None)
+        inner.asgi_handler = cast(
+            "Any",
+            AuthenticatedRequestsMiddleware(
+                cast("Any", inner.asgi_handler),
+                verifier=issuing(),
+                resource=RESOURCE,
+            ),
+        )
+
+        @asgi("/in", is_mount=True, copy_scope=False)
+        async def mount(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await inner(scope, receive, send)
+
+        outer = Litestar(route_handlers=[mount], openapi_config=None)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(outer) as client:
+                document = client.get(f"/in{WELL_KNOWN}")
+                refused = client.get("/in/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
+
     def test_a_route_of_the_app_at_the_path_needs_no_warning(self) -> None:
         """A hand-built middleware behind a router routing the path stays quiet."""
 
