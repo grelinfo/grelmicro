@@ -20,7 +20,6 @@ from typing import (
     Protocol,
     Self,
     SupportsIndex,
-    cast,
 )
 
 from starlette.applications import Starlette
@@ -467,10 +466,10 @@ class _Listing:
 
 
 class _Beneath(_Listing):
-    """Collects what a mount brings up to date before its open door, beside the declarations.
+    """Collects what a mount brings up to date before its door, beside the declarations.
 
-    Each router under it, and each include a router holds, by identity. A
-    refresh holds what it refreshes, so no identity is reused while kept.
+    Each router under it, and each include a router holds, that a walk
+    gated, by identity.
     """
 
     def __init__(self) -> None:
@@ -479,8 +478,8 @@ class _Beneath(_Listing):
         self.refreshes: dict[int, Callable[[], object]] = {}
 
     def router(self, router: Router, prefix: str) -> None:  # noqa: ARG002
-        """Keep what refreshes `router`."""
-        self.refreshes[id(router)] = router.__dict__[_HELD].refresh
+        """Keep what refreshes `router`, once gated."""
+        self._keep(router)
 
     def included(
         self,
@@ -489,9 +488,15 @@ class _Beneath(_Listing):
         *,
         top: bool,
     ) -> None:
-        """Keep what refreshes an include a router holds."""
+        """Keep what refreshes an include a router holds, once gated."""
         if top:
-            self.refreshes[id(included)] = included.__dict__[_HELD].refresh
+            self._keep(included)
+
+    def _keep(self, owner: Any) -> None:  # noqa: ANN401
+        """Keep what refreshes `owner`, if a walk gated it."""
+        held = owner.__dict__.get(_HELD)
+        if held is not None and held.refresh is not None:
+            self.refreshes[id(owner)] = held.refresh
 
 
 def declarations_of(app: Starlette) -> list[RouteDeclaration]:
@@ -506,7 +511,7 @@ class _Held:
 
     `within` is each mount it sits under, `refresh` what brings a router
     or an include up to date, and a mount's `beneath` each refresh it calls
-    before its open door lets a request through.
+    before its door lets a request through.
     """
 
     __slots__ = (
@@ -573,17 +578,15 @@ class _Gating:
         )
         return held, new
 
-    def _beneath(self, owner: Any, held: _Held) -> None:  # noqa: ANN401
-        """Have each mount the routes sit under refresh `owner` before its open door."""
+    def _beneath(self, owner: Any, refresh: Callable[[], object]) -> None:  # noqa: ANN401
+        """Have each mount the routes sit under call `refresh` for `owner` before its door."""
         for mount in self.within:
-            mount.beneath[id(owner)] = cast(
-                "Callable[[], object]", held.refresh
-            )
+            mount.beneath[id(owner)] = refresh
 
     def settle(self) -> None:
         """Open the door of each mount the routes sit under while a route under it is anonymous.
 
-        Each mount refreshes before its open door what is under it now.
+        Each mount refreshes before its door what is under it now.
         """
         for mount in self.within:
             inner = _inner_router(mount.app)[0]
@@ -612,7 +615,7 @@ class _Gating:
 
     def router(self, router: Router, prefix: str) -> None:
         """Hold `router`, checking its route list and its default on each request."""
-        held, new = self._hold(router, prefix)
+        held, _ = self._hold(router, prefix)
         held.routes = _own_routes(router)
         held.size = len(held.routes)
         held.default = router.default
@@ -620,12 +623,13 @@ class _Gating:
             low = fastapi.low_priority_routes(router)
             if not isinstance(low, _GatedRoutes):
                 fastapi.gate_low_priority(router, _GatedRoutes(low, router))
-        if new:
-            held.refresh = functools.partial(_refresh, router, held)
+        refresh = held.refresh
+        if refresh is None:
+            refresh = held.refresh = functools.partial(_refresh, router, held)
             router.middleware_stack = _guarded_router(  # type: ignore[assignment]
                 router, held, router.middleware_stack
             )
-        self._beneath(router, held)
+        self._beneath(router, refresh)
 
     def mount(self, mount: Mount | Host, prefix: str) -> _Gating:
         """Hold `mount`, and return what gates the routes under it, refreshed anew."""
@@ -718,7 +722,7 @@ class _Gating:
         """Hold an include, gating each list of contexts FastAPI builds for it later.
 
         A mount it sits under brings a `top` include up to date before its
-        open door lets a request through.
+        door lets a request through.
         """
         held, new = self._hold(included, prefix)
         if new:
@@ -728,10 +732,11 @@ class _Gating:
                 top=top,
                 changed=functools.partial(_regate_candidates, held),
             )
-            if top:
-                held.refresh = fastapi.track(included)
         if top:
-            self._beneath(included, held)
+            refresh = held.refresh
+            if refresh is None:
+                refresh = held.refresh = fastapi.track(included)
+            self._beneath(included, refresh)
 
     def contextual(
         self,
@@ -832,8 +837,8 @@ def _guarded_router(router: Router, held: _Held, stack: ASGIApp) -> ASGIApp:
 def _guarded_mount(mount: Mount | Host, held: _Held) -> ASGIApp:
     """Return what the mount dispatches to, once its app is the one gated.
 
-    An open door brings what is under the mount up to date first, so it
-    shuts once no route under it is anonymous. A mount adds its path to
+    A door brings what is under the mount up to date first, so it opens
+    once a route under it is anonymous and shuts once none is. A mount adds its path to
     the ones the request came through, which a refusal names its route by.
     """
     own = mount.path if isinstance(mount, Mount) else ""
@@ -842,11 +847,7 @@ def _guarded_mount(mount: Mount | Host, held: _Held) -> ASGIApp:
         if mount.app is not held.app:
             _regate(mount, held)
             return mount.handle(scope, receive, send)
-        if (
-            held.shut is not None
-            and held.door is held.handle
-            and scope.get(fastapi.FRESH_KEY) is not True
-        ):
+        if held.shut is not None and scope.get(fastapi.FRESH_KEY) is not True:
             for refresh in tuple(held.beneath.values()):
                 refresh()
             scope[fastapi.FRESH_KEY] = True

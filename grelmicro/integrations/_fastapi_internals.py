@@ -63,7 +63,7 @@ FRESH_KEY: Final = "grelmicro.fresh"
 """Where a request holds what was brought up to date for it.
 
 The checks of the includes the router matched it against, or `True` once
-a mount's open door brought everything under it up to date.
+a mount's door brought everything under it up to date.
 """
 
 _CANDIDATES: Final = "effective_candidates"
@@ -233,7 +233,7 @@ def track(included: Any) -> Callable[[], None]:  # noqa: ANN401
     A route added, removed or edited in place without telling FastAPI.
 
     Checked once per request, as the router first matches the include,
-    unless a mount's open door brought everything under it up to date.
+    unless a mount's door brought everything under it up to date.
     Returns the check, which builds the include's contexts anew at once
     when a route changed.
     """

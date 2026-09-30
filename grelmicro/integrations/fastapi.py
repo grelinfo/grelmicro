@@ -438,10 +438,10 @@ def CachedResponse(  # noqa: N802
 ) -> Any:  # noqa: ANN401
     """Declare that this route's response is cached.
 
-    Declared on the route rather than called in the handler, because the
-    middleware has to answer before the app is routed. `micro.install(app)`
-    reads it off the dependency tree, so a repeated read is answered
-    without the handler running:
+    Declared on the route rather than called in the handler, because a hit
+    is answered before the handler runs. `micro.install(app)` reads it off
+    the dependency tree, so a repeated read is answered without the handler
+    running:
 
     ```python
     from grelmicro.integrations.fastapi import CachedResponse

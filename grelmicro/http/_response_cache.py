@@ -410,7 +410,7 @@ class _Policies:
         """Return whether the app refuses to have this path cached.
 
         A write, and a read behind a security scheme. A hit is answered
-        before the app is routed, so caching either one answers over the
+        before the handler runs, so caching either one answers over the
         gate or hands back what was never a read.
         """
         # A path holding a control character is refused whatever it names:
@@ -992,7 +992,7 @@ def _refuse_named_gate(
     named = ", ".join(sorted(set(schemes)))
     msg = (
         f"include= names {declared!r}, which is gated by {named}. A hit "
-        "is answered before the app is routed, so the gate would not "
+        "is answered before the handler runs, so the gate would not "
         "run, and one caller's response would be handed to whoever asks "
         "next. Name a path that answers everybody the same."
     )
@@ -1018,12 +1018,9 @@ def _unreadable(
 ) -> str | None:
     """Return why a response cache must not answer for this route.
 
-    `None` says it may. A route that answers anything but a read, one
-    gated by a security scheme and one running a dependency that is not
-    grelmicro's own are the three it must not: a hit is answered before the
-    app is routed, so what is declared on the route or on the router that
-    holds it would never run, and one caller's response would go to
-    whoever asks next.
+    `None` says it may. It must not for a route that answers anything but
+    a read, one gated by a security scheme, and one running a dependency
+    that is not grelmicro's own.
     """
     methods = {
         method.upper() for method in (getattr(route, "methods", None) or ())
@@ -1041,7 +1038,7 @@ def _unreadable(
         named = ", ".join(sorted(set(schemes)))
         return (
             f"CachedResponse() is declared on {declared!r}, which is gated by "
-            f"{named}. A hit is answered before the app is routed, so the gate "
+            f"{named}. A hit is answered before the handler runs, so the gate "
             "would not run, and one caller's response would be handed to "
             "whoever asks next. Cache a route that answers everybody the same."
         )

@@ -20,7 +20,13 @@ from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, PlainTextResponse
-from starlette.routing import Mount, Route, WebSocketRoute, compile_path
+from starlette.routing import (
+    Mount,
+    Route,
+    Router,
+    WebSocketRoute,
+    compile_path,
+)
 from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import Grelmicro
@@ -50,7 +56,7 @@ from grelmicro.resilience import RateLimiter
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.security.jwt import JWTClaims
 from grelmicro.security.principal import Principal, VerifiedToken
-from tests.test_authentication import bearer, token, verifier
+from tests.test_authentication import bearer, needs_frontend, token, verifier
 from tests.test_authentication_cases import unasked
 from tests.test_route_gate import (
     ADDRESS,
@@ -595,6 +601,83 @@ class TestMounts:
 
         assert client.get("/sub/in/late").status_code == UNAUTHORIZED
 
+    def test_a_route_added_beside_a_swapped_mount_is_served(self) -> None:
+        """The router a mount under it now serves is gated on its first request."""
+
+        def plain(request: Request) -> PlainTextResponse:  # noqa: ARG001
+            return PlainTextResponse("plain")  # pragma: no cover
+
+        sub = FastAPI(openapi_url=None)
+        sub.add_api_route("/open", listed, dependencies=[Anonymous()])
+        sub.mount("/m", Router([Route("/a", plain)]))
+        app = FastAPI(openapi_url=None)
+        app.mount("/sub", sub)
+        installed(app)
+        client = TestClient(app)
+        client.get("/sub/open")
+
+        mount = cast("Mount", sub.router.routes[-1])
+        mount.app = Router([Route("/b", plain)])
+        sub.add_api_route("/new", listed, dependencies=[Anonymous()])
+
+        answered = [
+            client.get(path).status_code for path in ("/sub/new", "/sub/m/b")
+        ]
+        assert answered == [OK, UNAUTHORIZED]
+
+    def test_a_router_included_into_a_replaced_route_list_is_gated(
+        self,
+    ) -> None:
+        """A route taken out beside it leaves the anonymous routes served."""
+        inner = FastAPI(openapi_url=None)
+        inner.add_api_route("/in", listed, dependencies=[Anonymous()])
+        sub = FastAPI(openapi_url=None)
+        sub.add_api_route("/open", listed, dependencies=[Anonymous()])
+        sub.add_api_route("/gone", listed)
+        sub.mount("/t", inner)
+        app = FastAPI(openapi_url=None)
+        app.mount("/sub", sub)
+        installed(app)
+        client = TestClient(app)
+        client.get("/sub/open")
+
+        inner.router.routes = list(inner.router.routes)
+        late = APIRouter()
+        late.add_api_route("/late", listed)
+        inner.include_router(late)
+        sub.router.routes.pop(1)
+
+        answered = [
+            client.get(path).status_code
+            for path in ("/sub/open", "/sub/t/late")
+        ]
+        assert answered == [OK, UNAUTHORIZED]
+
+    def test_an_anonymous_route_added_under_a_shut_mount_is_served(
+        self,
+    ) -> None:
+        """It opens the mount's door on its first request."""
+        inner = APIRouter()
+        inner.add_api_route("/private", listed)
+        outer = APIRouter()
+        outer.include_router(inner, prefix="/in")
+        sub = FastAPI(openapi_url=None)
+        sub.include_router(outer)
+        app = FastAPI(openapi_url=None)
+        app.mount("/sub", sub)
+        app.add_api_route("/open", listed, dependencies=[Anonymous()])
+        installed(app)
+        client = TestClient(app)
+        client.get("/sub/in/private")
+
+        inner.add_api_route("/open", listed, dependencies=[Anonymous()])
+
+        answered = [
+            client.get(path).status_code
+            for path in ("/sub/in/open", "/sub/in/private")
+        ]
+        assert answered == [OK, UNAUTHORIZED]
+
     def test_a_cors_preflight_its_own_middleware_answers_passes(self) -> None:
         """A browser sends none of its credentials on a preflight."""
         sub = FastAPI(openapi_url=None)
@@ -1003,12 +1086,18 @@ class TestRefusals:
     ("owner", "part"),
     [
         ("_IncludedRouter", "effective_candidates"),
-        ("_IncludedRouter", "effective_low_priority_routes"),
+        pytest.param(
+            "_IncludedRouter",
+            "effective_low_priority_routes",
+            marks=needs_frontend,
+        ),
         ("_IncludedRouter", "original_router"),
         ("_EffectiveRouteContext", "original_route"),
         ("_EffectiveRouteContext", "starlette_route"),
         ("_EffectiveRouteContext", "path"),
-        ("_EffectiveRouteContext", "frontend_prefix"),
+        pytest.param(
+            "_EffectiveRouteContext", "frontend_prefix", marks=needs_frontend
+        ),
         ("_EffectiveRouteContext", "dependant"),  # codespell:ignore
         ("_EffectiveRouteContext", "methods"),
         ("APIRouter", "_mark_routes_changed"),
@@ -1029,6 +1118,7 @@ def test_a_fastapi_router_without_a_part_the_gates_read_fails_install(
         installed(FastAPI(openapi_url=None))
 
 
+@needs_frontend
 def test_a_fastapi_router_without_its_low_priority_routes_fails_install() -> (
     None
 ):
@@ -1042,6 +1132,7 @@ def test_a_fastapi_router_without_its_low_priority_routes_fails_install() -> (
         installed(app)
 
 
+@needs_frontend
 class TestFrontendRoutes:
     """What `frontend()` serves after every other route is gated too."""
 
@@ -1105,8 +1196,8 @@ class Recording:
 class TestTheGateContract:
     """What `install_route_gate` hands the gate for each route FastAPI dispatches to."""
 
-    def test_each_route_is_declared_under_each_include(self, site: str) -> None:
-        """With the scopes of every include around it, websocket and frontend routes too."""
+    def test_each_route_is_declared_under_each_include(self) -> None:
+        """With the scopes of every include around it, websocket routes too."""
         inner = APIRouter(dependencies=[Authenticated(scopes=["inner"])])
         inner.add_api_route("/r", listed, methods=["GET"])
         inner.add_api_websocket_route(
@@ -1121,7 +1212,6 @@ class TestTheGateContract:
             middle, prefix="/a", dependencies=[Authenticated(scopes=["outer"])]
         )
         app.include_router(middle, prefix="/b")
-        app.frontend("/ui", directory=site)
         gate = Recording()
 
         install_route_gate(app, gate)
@@ -1165,10 +1255,26 @@ class TestTheGateContract:
                 ),
                 False,
             ),
-            ((RouteDeclaration("/"),), False),
         ]
         assert route_declarations(app) == [
             declarations[0] for declarations, _ in gate.calls
+        ]
+
+    @needs_frontend
+    def test_a_frontend_is_declared_after_every_other_route(
+        self, site: str
+    ) -> None:
+        """As one route answering every request."""
+        app = FastAPI(openapi_url=None)
+        app.frontend("/ui", directory=site)
+        app.add_api_route("/r", listed, methods=["GET"])
+        gate = Recording()
+
+        install_route_gate(app, gate)
+
+        assert gate.calls == [
+            ((RouteDeclaration("/r", methods=frozenset({"GET"})),), False),
+            ((RouteDeclaration("/"),), False),
         ]
 
     def test_a_mount_is_a_door_before_the_routes_it_holds(self) -> None:

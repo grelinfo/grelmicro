@@ -5,7 +5,7 @@
 ### Breaking
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
-* 💥 A `CachedResponse()` written on a FastAPI route that runs another dependency fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, a URL no route answers, a method no route serves and a trailing slash redirect get the `401` of a protected route. This holds for a redirect to a public route too. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the `403` for a missing scope names every scope the route requires, its routers' included. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the rate limit, the response cache, idempotency and conditional requests run once the route admitted the request. A request with a token that no route answers is no longer rate limited. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -105,7 +105,7 @@
 
 ### Fixed
 * 🐛 On FastAPI, `http.route` in the access log and the authentication metrics carries the prefixes of the routers a route is included by. A request authentication refuses names the same `http.route` in the access log as in the authentication metrics, on every framework. ([#953](https://github.com/grelinfo/grelmicro/issues/953))
-* 🐛 A FastAPI app mounted in an app `micro.install(app)` authenticates answers a missing scope `403`, not `500`. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 🐛 A FastAPI app mounted in an app that `micro.install(app)` protects answers `403` for a missing scope, not `500`. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 🐛 A Litestar app mounted under another Litestar app serves its routes with idempotency, the response cache, rate limiting and conditional requests installed, and records no `http.route` for a URL it has no route for. ([#947](https://github.com/grelinfo/grelmicro/issues/947))
 * 🐛 On Litestar, idempotency stores nothing for a handler that raises an unhandled exception when the app declares middleware of its own, so the retry runs the handler again instead of replaying the `500`. ([#942](https://github.com/grelinfo/grelmicro/issues/942))
 * 🐛 The `"default"` backend of a kind is the Component named `"default"`, or the only Component of that kind when none is, as [Backends](architecture/backends.md) documents. A pattern that names no backend, `micro.get(kind)`, `micro.fake()` and the backend scope check all resolve it this way. Inside nested `Bulkhead` scopes, an exact name wins first, innermost scope first, then the app. The fallback then takes the only Component of the innermost scope holding that kind. A name that matches no Component still raises. ([#877](https://github.com/grelinfo/grelmicro/pull/877))

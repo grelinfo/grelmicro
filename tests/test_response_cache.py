@@ -2297,6 +2297,47 @@ def test_a_route_caching_under_a_router_dependency_fails_install(
         micro.install(app)
 
 
+@pytest.mark.parametrize("placement", ["router", "include"])
+def test_a_router_caching_beside_a_principal_keeps_each_caller_private(
+    placement: str,
+) -> None:
+    """Each caller gets their own response, and none is cached."""
+    calls = 0
+    router = APIRouter(
+        dependencies=(
+            [CachedResponse(ttl=TTL)] if placement == "router" else None
+        )
+    )
+
+    @router.get("/private")
+    async def private(
+        user: str = Depends(_header_principal),  # noqa: FAST002
+    ) -> dict[str, str | int]:
+        nonlocal calls
+        calls += 1
+        return {"user": user, "calls": calls}
+
+    app = FastAPI()
+    app.include_router(
+        router,
+        dependencies=(
+            [CachedResponse(ttl=TTL)] if placement == "include" else None
+        ),
+    )
+    micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
+    micro.install(app)
+
+    with TestClient(app) as client:
+        alice = client.get("/private", headers={"X-API-Key": "alice"})
+        bob = client.get("/private", headers={"X-API-Key": "bob"})
+        anonymous = client.get("/private")
+
+    assert alice.json() == {"user": "alice", "calls": 1}
+    assert bob.json() == {"user": "bob", "calls": 2}
+    assert anonymous.status_code == HTTP_401_UNAUTHORIZED
+    assert "age" not in bob.headers
+
+
 def test_hand_wired_include_does_not_replay_dependency_responses() -> None:
     """An include policy cannot answer before an ordinary dependency."""
     app = FastAPI()
@@ -3809,7 +3850,7 @@ def test_a_write_inside_a_router_is_refused_too() -> None:
 
 
 def test_a_route_behind_a_security_scheme_is_refused() -> None:
-    """A hit answers before the app is routed, so the gate would not run."""
+    """A hit answers before the handler runs, so the gate would not run."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter()), CachedResponses()])
     app = FastAPI()
@@ -4013,7 +4054,7 @@ def _gated_app(spelling: str) -> FastAPI:
 def test_a_gated_read_is_refused_however_the_gate_is_spelled(
     spelling: str,
 ) -> None:
-    """A hit answers before the app is routed, so no gate would run.
+    """A hit answers before the handler runs, so no gate would run.
 
     The whole surface, because each spelling reaches the route by a road
     of its own, and one that is not read is a cached response handed to

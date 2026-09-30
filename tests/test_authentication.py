@@ -170,6 +170,12 @@ PROXIES = ["10.0.0.0/8"]
 SIGNER = Signer()
 FORGER = Signer()
 
+needs_frontend = pytest.mark.skipif(
+    not hasattr(APIRouter, "frontend"),
+    reason="This FastAPI release serves no frontend routes.",
+)
+"""Skips a test on a FastAPI release without frontend routes."""
+
 
 def token(signer: Signer = SIGNER, **claims: Any) -> str:  # noqa: ANN401
     """Return a token `signer` signed for the suite's audience."""
@@ -4144,6 +4150,7 @@ class TestRoutesMatchedOtherThanByPath:
             HTTP_401_UNAUTHORIZED
         )
 
+    @needs_frontend
     async def test_a_rewriting_mounted_app_serving_a_frontend_is_protected(
         self, tmp_path: Path
     ) -> None:
@@ -4165,6 +4172,7 @@ class TestRoutesMatchedOtherThanByPath:
             HTTP_401_UNAUTHORIZED
         )
 
+    @needs_frontend
     async def test_a_frontend_on_a_router_a_rewriting_app_includes(
         self, tmp_path: Path
     ) -> None:
@@ -4206,6 +4214,7 @@ class TestRoutesMatchedOtherThanByPath:
 
         assert await status_of(app, "/sub/files/x") == HTTP_200_OK
 
+    @needs_frontend
     async def test_a_frontend_added_to_a_rewriting_mounted_app_after_startup(
         self, tmp_path: Path
     ) -> None:
