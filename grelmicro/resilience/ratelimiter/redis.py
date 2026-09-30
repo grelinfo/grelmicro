@@ -13,6 +13,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
+from grelmicro.resilience.ratelimiter._base import SLOT_TOLERANCE
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -159,6 +160,7 @@ class _RedisGCRA(RateLimiterStrategy):
         local rate = tonumber(ARGV[2])
         local period = tonumber(ARGV[3])
         local cost = tonumber(ARGV[4])
+        local slot_tolerance = tonumber(ARGV[5])
 
         local emission_interval = period / rate
         local increment = period * cost / rate
@@ -177,18 +179,17 @@ class _RedisGCRA(RateLimiterStrategy):
             tat = tonumber(tat)
         end
 
-        local new_tat = math.max(tat, now) + increment
-        local allow_at = new_tat - burst_offset
-        local diff = now - allow_at
-        local remaining = math.floor(diff / emission_interval + 0.5)
+        local gap = math.max(0, tat - now)
+        local reset_after = gap + increment
+        local diff = burst_offset - reset_after
+        local remaining = math.floor(diff / emission_interval + slot_tolerance)
 
         if remaining < 0 then
-            local reset_after = tat - now
-            local retry_after = diff * -1
-            return {0, 0, tostring(retry_after), tostring(reset_after)}
+            local retry_after = math.max(0, diff * -1)
+            return {0, 0, tostring(retry_after), tostring(gap)}
         end
 
-        local reset_after = math.max(0, tat - now) + increment
+        local new_tat = math.max(tat, now) + increment
         redis.call("SET", key, new_tat, "EX", math.max(1, math.ceil(reset_after)))
         return {1, remaining, "0", tostring(reset_after)}
     """
@@ -197,6 +198,7 @@ class _RedisGCRA(RateLimiterStrategy):
         local key = KEYS[1]
         local rate = tonumber(ARGV[1])
         local period = tonumber(ARGV[2])
+        local slot_tolerance = tonumber(ARGV[3])
 
         local emission_interval = period / rate
 
@@ -211,24 +213,21 @@ class _RedisGCRA(RateLimiterStrategy):
             tat = tonumber(tat)
         end
 
-        local new_tat = math.max(tat, now)
-        local allow_at = new_tat - period
-        local diff = now - allow_at
-        local remaining = math.floor(diff / emission_interval + 0.5)
+        local gap = math.max(0, tat - now)
+        local diff = period - gap
+        local remaining = math.floor(diff / emission_interval + slot_tolerance)
 
         -- Use <= 0 (not < 0 like acquire): remaining=0 means the next
         -- acquire(cost=1) would be rejected, so peek reports allowed=false.
         if remaining <= 0 then
-            local reset_after = math.max(0, tat - now)
             local retry_after = emission_interval - diff
             if remaining < 0 then
                 retry_after = diff * -1
             end
-            return {0, 0, tostring(math.max(0, retry_after)), tostring(reset_after)}
+            return {0, 0, tostring(math.max(0, retry_after)), tostring(gap)}
         end
 
-        local reset_after = new_tat - now
-        return {1, remaining, "0", tostring(reset_after)}
+        return {1, remaining, "0", tostring(gap)}
     """
 
     def __init__(
@@ -248,7 +247,13 @@ class _RedisGCRA(RateLimiterStrategy):
         """Async acquire (GCRA)."""
         result: list[Any] = await self._lua_acquire(
             keys=[f"{self._key_prefix}{key}"],
-            args=[self._limit, self._limit, self._window, cost],
+            args=[
+                self._limit,
+                self._limit,
+                self._window,
+                cost,
+                SLOT_TOLERANCE,
+            ],
             client=self._redis,
         )
         return RateLimitResult(
@@ -263,7 +268,7 @@ class _RedisGCRA(RateLimiterStrategy):
         """Async peek (GCRA)."""
         result: list[Any] = await self._lua_peek(
             keys=[f"{self._key_prefix}{key}"],
-            args=[self._limit, self._window],
+            args=[self._limit, self._window, SLOT_TOLERANCE],
             client=self._redis,
         )
         return RateLimitResult(

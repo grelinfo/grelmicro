@@ -125,6 +125,8 @@ def test_advisory_lock_uses_namespaced_64bit_hash() -> None:
         pg_mod.PostgresRateLimiterAdapter._SQL_CREATE_FN_TB_ACQUIRE,
         pg_mod.PostgresRateLimiterAdapter._SQL_CREATE_FN_GCRA_ACQUIRE,
     ):
-        rendered = sql_template.format(table_name="t", lock_namespace=ns)
+        rendered = sql_template.format(
+            table_name="t", lock_namespace=ns, slot_tolerance=0.001
+        )
         assert "pg_advisory_xact_lock" in rendered
         assert expected in rendered

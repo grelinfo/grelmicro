@@ -15,6 +15,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
+from grelmicro.resilience.ratelimiter._base import SLOT_TOLERANCE
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -194,7 +195,8 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_emission DOUBLE PRECISION := p_window / p_limit;
             v_increment DOUBLE PRECISION;
             v_tat DOUBLE PRECISION;
-            v_new_tat DOUBLE PRECISION;
+            v_gap DOUBLE PRECISION;
+            v_reset DOUBLE PRECISION;
             v_diff DOUBLE PRECISION;
             v_remaining INT;
         BEGIN
@@ -206,25 +208,28 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             IF v_tat IS NULL THEN
                 v_tat := v_now;
             END IF;
-            v_new_tat := GREATEST(v_tat, v_now) + v_increment;
-            v_diff := v_now - (v_new_tat - p_window);
-            v_remaining := FLOOR(v_diff / v_emission + 0.5)::INT;
+            v_gap := GREATEST(0::double precision, v_tat - v_now);
+            v_reset := v_gap + v_increment;
+            v_diff := p_window - v_reset;
+            v_remaining := FLOOR(v_diff / v_emission + {slot_tolerance})::INT;
             IF v_remaining < 0 THEN
                 RETURN QUERY SELECT
                     FALSE,
                     0,
                     GREATEST(0::double precision, -v_diff),
-                    GREATEST(0::double precision, v_tat - v_now);
+                    v_gap;
             ELSE
                 INSERT INTO {table_name} (key, tokens, updated_at)
-                VALUES (p_key, v_new_tat, clock_timestamp())
+                VALUES (
+                    p_key, GREATEST(v_tat, v_now) + v_increment, clock_timestamp()
+                )
                 ON CONFLICT (key) DO UPDATE
                     SET tokens = EXCLUDED.tokens, updated_at = EXCLUDED.updated_at;
                 RETURN QUERY SELECT
                     TRUE,
                     v_remaining,
                     0::double precision,
-                    GREATEST(0::double precision, v_tat - v_now) + v_increment;
+                    v_reset;
             END IF;
         END;
         $$ LANGUAGE plpgsql;
@@ -245,7 +250,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
             v_emission DOUBLE PRECISION := p_window / p_limit;
             v_tat DOUBLE PRECISION;
-            v_new_tat DOUBLE PRECISION;
+            v_gap DOUBLE PRECISION;
             v_diff DOUBLE PRECISION;
             v_remaining INT;
             v_retry DOUBLE PRECISION;
@@ -254,9 +259,9 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             IF v_tat IS NULL THEN
                 v_tat := v_now;
             END IF;
-            v_new_tat := GREATEST(v_tat, v_now);
-            v_diff := v_now - (v_new_tat - p_window);
-            v_remaining := FLOOR(v_diff / v_emission + 0.5)::INT;
+            v_gap := GREATEST(0::double precision, v_tat - v_now);
+            v_diff := p_window - v_gap;
+            v_remaining := FLOOR(v_diff / v_emission + {slot_tolerance})::INT;
             IF v_remaining <= 0 THEN
                 IF v_remaining < 0 THEN
                     v_retry := -v_diff;
@@ -267,13 +272,13 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                     FALSE,
                     0,
                     GREATEST(0::double precision, v_retry),
-                    GREATEST(0::double precision, v_tat - v_now);
+                    v_gap;
             ELSE
                 RETURN QUERY SELECT
                     TRUE,
                     v_remaining,
                     0::double precision,
-                    GREATEST(0::double precision, v_new_tat - v_now);
+                    v_gap;
             END IF;
         END;
         $$ LANGUAGE plpgsql;
@@ -391,6 +396,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                     sql.format(
                         table_name=self._table_name,
                         lock_namespace=_RATE_LIMITER_ADVISORY_NAMESPACE,
+                        slot_tolerance=SLOT_TOLERANCE,
                     )
                 )
 

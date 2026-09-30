@@ -259,3 +259,33 @@ async def test_sliding_window_reset_after_exact_when_cost_spends_the_limit() -> 
 
     assert result.allowed is True
     assert result.reset_after == window
+
+
+async def test_sliding_window_refuses_a_request_before_its_slot(
+    clock: VirtualClock,
+) -> None:
+    """A request before its slot is refused, however close the slot is."""
+    rl = RateLimiter.sliding_window("sw-early", limit=10, window=1.0)
+    for _ in range(10):
+        assert (await rl.acquire(cost=1)).allowed is True
+    # The 11th slot opens 0.1 seconds after the burst.
+    await clock.advance(0.06)
+
+    result = await rl.acquire(cost=1)
+
+    assert result.allowed is False
+
+
+async def test_sliding_window_admits_a_request_at_its_slot(
+    clock: VirtualClock,
+) -> None:
+    """A request exactly at its slot is admitted despite float rounding."""
+    rl = RateLimiter.sliding_window("sw-on-time", limit=10, window=1.0)
+    for _ in range(10):
+        assert (await rl.acquire(cost=1)).allowed is True
+    await clock.advance(0.1)
+
+    result = await rl.acquire(cost=1)
+
+    assert result.allowed is True
+    assert result.remaining == 0
