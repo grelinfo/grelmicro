@@ -12,10 +12,13 @@ import logging
 import time
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
+from litestar import Litestar
+from litestar import get as litestar_get
+from litestar.middleware import DefineMiddleware
 from litestar.testing import TestClient as LitestarTestClient
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -1269,28 +1272,30 @@ class TestMutationGaps:
     @pytest.mark.parametrize(
         ("root_path", "expected"), [("", "/orders"), ("/api", "/api/orders")]
     )
-    async def test_a_template_the_router_recorded_is_used_as_is(
+    def test_a_template_the_router_recorded_is_used_as_is(
         self,
         events: list[logging.LogRecord],
         root_path: str,
         expected: str,
     ) -> None:
         """A middleware behind a router reads what the router matched."""
-        middleware = AuthenticatedRequestsMiddleware(
-            _served, verifier=verifier()
-        )
-        app = SimpleNamespace(owner=None)
 
-        await _call(
-            middleware,
-            bearer(token(FORGER)),
-            path=f"{root_path}/orders",
-            root_path=root_path,
-            path_template="/orders",
-            app=app,
-            litestar_app=app,
-            route_handler=SimpleNamespace(owner=app, is_mount=False),
+        @litestar_get("/orders")
+        async def orders() -> str:
+            return "orders"  # pragma: no cover
+
+        app = Litestar(
+            [orders],
+            middleware=[
+                DefineMiddleware(
+                    cast("Any", AuthenticatedRequestsMiddleware),
+                    verifier=verifier(),
+                )
+            ],
         )
+
+        with LitestarTestClient(app, root_path=root_path) as client:
+            client.get(f"{root_path}/orders", headers=bearer(token(FORGER)))
 
         [record] = events
         assert field(record, "http.route") == expected

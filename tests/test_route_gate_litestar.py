@@ -23,7 +23,7 @@ from litestar.exceptions import WebSocketDisconnect
 from litestar.middleware import DefineMiddleware
 from litestar.params import Parameter
 from litestar.response import Stream
-from litestar.testing import TestClient
+from litestar.testing import AsyncTestClient, TestClient
 from starlette.responses import PlainTextResponse
 
 from grelmicro import Grelmicro
@@ -386,14 +386,19 @@ def tenant_key(scope: Scope, key: str) -> str:
 class TestNothingIsSpentOnARefusal:
     """A request a handler refuses reaches none of the answering middleware."""
 
-    def test_the_rate_limit_of_an_address_is_not_spent(self) -> None:
+    @pytest.mark.usefixtures("clock")
+    async def test_the_rate_limit_of_an_address_is_not_spent(self) -> None:
         """Callers behind one address keep their budget."""
         calls = Calls()
         app = catalog(calls, limited())
-        with TestClient(app) as client:
-            refused = [client.post("/items/7").status_code for _ in range(5)]
-            unrouted = [client.get("/nowhere").status_code for _ in range(5)]
-            answered = client.get("/items/7")
+        async with AsyncTestClient(app) as client:
+            refused = [
+                (await client.post("/items/7")).status_code for _ in range(5)
+            ]
+            unrouted = [
+                (await client.get("/nowhere")).status_code for _ in range(5)
+            ]
+            answered = await client.get("/items/7")
 
         assert refused == unrouted == [UNAUTHORIZED] * 5
         assert answered.status_code == OK
@@ -577,7 +582,8 @@ class TestAnAnonymousHandler:
             assert "idempotent-replayed" not in retried.headers
         assert calls.served == ["signup", "signup"]
 
-    def test_a_streamed_body_and_a_background_task_run(self) -> None:
+    @pytest.mark.usefixtures("clock")
+    async def test_a_streamed_body_and_a_background_task_run(self) -> None:
         """Through the rate limit, which runs around them."""
         ran: list[str] = []
 
@@ -592,14 +598,15 @@ class TestAnAnonymousHandler:
             )
 
         app = installed(Litestar([stream]), limited())
-        with TestClient(app) as client:
-            response = client.get("/stream")
+        async with AsyncTestClient(app) as client:
+            response = await client.get("/stream")
 
         assert response.text == "ab"
         assert response.headers["ratelimit"] == '"burst";r=2;t=20'
         assert ran == ["after"]
 
-    def test_the_app_middleware_run_inside_them(self) -> None:
+    @pytest.mark.usefixtures("clock")
+    async def test_the_app_middleware_run_inside_them(self) -> None:
         """Litestar's own stack for the handler, once per request."""
         seen: list[str | None] = []
 
@@ -622,8 +629,8 @@ class TestAnAnonymousHandler:
                 ),
                 limited(),
             )
-        with TestClient(app) as client:
-            response = client.get("/public")
+        async with AsyncTestClient(app) as client:
+            response = await client.get("/public")
 
         assert response.headers["ratelimit"] == '"burst";r=2;t=20'
         assert seen == ["public"]
@@ -722,7 +729,8 @@ class TestAuthenticationInTheApp:
         assert statuses == [OK, UNAUTHORIZED, OK, FORBIDDEN, UNAUTHORIZED]
         assert calls.served == ["public", "private"]
 
-    def test_the_answering_middleware_run_once_it_admitted_the_request(
+    @pytest.mark.usefixtures("clock")
+    async def test_the_answering_middleware_run_once_it_admitted_the_request(
         self,
     ) -> None:
         """A refused request spends nothing, an admitted one is limited."""
@@ -742,10 +750,12 @@ class TestAuthenticationInTheApp:
             middleware=[DefineMiddleware(middleware, **options)],
         )
         Grelmicro(uses=[ErrorResponses(), component, limited()]).install(app)
-        with TestClient(app) as client:
-            refused = [client.get("/private").status_code for _ in range(3)]
-            answered = client.get("/private", headers=bearer(token()))
-            public_read = client.get("/public")
+        async with AsyncTestClient(app) as client:
+            refused = [
+                (await client.get("/private")).status_code for _ in range(3)
+            ]
+            answered = await client.get("/private", headers=bearer(token()))
+            public_read = await client.get("/public")
 
         assert refused == [UNAUTHORIZED] * 3
         assert answered.headers["ratelimit"] == '"burst";r=2;t=20'

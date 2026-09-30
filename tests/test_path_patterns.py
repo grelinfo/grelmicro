@@ -13,6 +13,10 @@ from typing import Any, cast
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
+from litestar import Litestar
+from litestar import Request as LitestarRequest
+from litestar import get as litestar_get
+from litestar.testing import TestClient as LitestarTestClient
 from starlette.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -893,20 +897,25 @@ def test_the_route_path_is_read_as_litestar_routes_it(
 
 def test_a_path_litestar_routed_is_read_as_its_router_wrote_it() -> None:
     """Behind routing, the root path is already off, so it is not taken off again."""
-    app = object()
-    scope = {
-        "path": "/files/v1/livez",
-        "root_path": "/v1",
-        "app": app,
-        "litestar_app": app,
-        "route_handler": SimpleNamespace(is_mount=False, owner=app),
-    }
+    seen: list[str] = []
 
-    assert route_path(scope) == "/files/v1/livez"
+    @litestar_get("/files/v1/livez")
+    async def livez(request: LitestarRequest[Any, Any, Any]) -> str:
+        seen.append(route_path(cast("Any", request.scope)))
+        return "live"
+
+    with LitestarTestClient(Litestar([livez]), root_path="/v1") as client:
+        client.get("/v1/files/v1/livez")
+
+    assert seen == ["/files/v1/livez"]
 
 
 def test_a_litestar_mount_its_router_does_not_list_is_refused() -> None:
-    """Without the mount's own path, the path it serves is unknown."""
+    """Without the mount's own path, the path it serves is unknown.
+
+    A real app always lists the mounts it owns, so the app and the mount
+    are stand-ins.
+    """
     app = SimpleNamespace(asgi_router=SimpleNamespace(_mount_routes={}))
     scope = {
         "path": "/livez/",
