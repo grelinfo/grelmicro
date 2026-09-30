@@ -7,6 +7,7 @@ and GCRA strategies, in both allowed and denied states, driven by a
 and a non-zero clock start keep the formulas sensitive to sign and operator.
 """
 
+import math
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -223,3 +224,20 @@ async def test_sliding_window_peek_denied_fields(
     assert result.remaining == 0
     assert result.retry_after == expected_retry
     assert result.reset_after == expected_reset
+
+
+async def test_sliding_window_reset_after_exact_below_power_of_two() -> None:
+    """Opening acquire reports the exact window just below a power of two."""
+    window = 20.0
+    # Just below 2048, `now + window` rounds to the coarser step above it.
+    virtual_clock = VirtualClock(start=math.nextafter(2048.0, 0.0))
+    backend = MemoryRateLimiterAdapter()
+    async with Grelmicro(uses=[virtual_clock, RateLimiterComponent(backend)]):
+        rl = RateLimiter.sliding_window(
+            "sw-power-of-two", limit=1, window=window
+        )
+
+        result = await rl.acquire(cost=1)
+
+    assert result.allowed is True
+    assert result.reset_after == window

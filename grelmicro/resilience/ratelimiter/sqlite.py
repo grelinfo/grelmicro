@@ -387,7 +387,7 @@ class _SQLiteGCRA(RateLimiterStrategy):
                 limit=self._limit,
                 remaining=remaining,
                 retry_after=0.0,
-                reset_after=new_tat - now,
+                reset_after=max(0.0, tat - now) + increment,
             )
 
     async def peek(self, *, key: str) -> RateLimitResult:

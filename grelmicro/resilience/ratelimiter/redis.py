@@ -188,7 +188,7 @@ class _RedisGCRA(RateLimiterStrategy):
             return {0, 0, tostring(retry_after), tostring(reset_after)}
         end
 
-        local reset_after = new_tat - now
+        local reset_after = math.max(0, tat - now) + increment
         redis.call("SET", key, new_tat, "EX", math.max(1, math.ceil(reset_after)))
         return {1, remaining, "0", tostring(reset_after)}
     """

@@ -224,7 +224,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                     TRUE,
                     v_remaining,
                     0::double precision,
-                    v_new_tat - v_now;
+                    GREATEST(0::double precision, v_tat - v_now) + v_increment;
             END IF;
         END;
         $$ LANGUAGE plpgsql;

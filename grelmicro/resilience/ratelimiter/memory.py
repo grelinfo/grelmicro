@@ -380,7 +380,7 @@ class _MemoryGCRA(RateLimiterStrategy):
                     reset_after=max(0.0, reset_after),
                 )
 
-            reset_after = new_tat - now
+            reset_after = max(0.0, tat - now) + increment
             self._state[key] = new_tat
             return RateLimitResult(
                 allowed=True,
