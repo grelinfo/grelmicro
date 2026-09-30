@@ -15,7 +15,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
-from grelmicro.resilience.ratelimiter._base import SLOT_TOLERANCE
+from grelmicro.resilience.ratelimiter._base import CLOCK_TOLERANCE
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -369,7 +369,7 @@ class _MemoryGCRA(RateLimiterStrategy):
             reset_after = gap + increment
             diff = self._window - reset_after
             remaining = math.floor(
-                diff / self._emission_interval + SLOT_TOLERANCE
+                (diff + CLOCK_TOLERANCE) / self._emission_interval
             )
 
             if remaining < 0:
@@ -399,7 +399,7 @@ class _MemoryGCRA(RateLimiterStrategy):
             gap = max(0.0, tat - now)
             diff = self._window - gap
             remaining = math.floor(
-                diff / self._emission_interval + SLOT_TOLERANCE
+                (diff + CLOCK_TOLERANCE) / self._emission_interval
             )
 
             if remaining <= 0:

@@ -15,7 +15,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
-from grelmicro.resilience.ratelimiter._base import SLOT_TOLERANCE
+from grelmicro.resilience.ratelimiter._base import CLOCK_TOLERANCE
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -211,7 +211,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_gap := GREATEST(0::double precision, v_tat - v_now);
             v_reset := v_gap + v_increment;
             v_diff := p_window - v_reset;
-            v_remaining := FLOOR(v_diff / v_emission + {slot_tolerance})::INT;
+            v_remaining := FLOOR((v_diff + {clock_tolerance}) / v_emission)::INT;
             IF v_remaining < 0 THEN
                 RETURN QUERY SELECT
                     FALSE,
@@ -261,7 +261,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             END IF;
             v_gap := GREATEST(0::double precision, v_tat - v_now);
             v_diff := p_window - v_gap;
-            v_remaining := FLOOR(v_diff / v_emission + {slot_tolerance})::INT;
+            v_remaining := FLOOR((v_diff + {clock_tolerance}) / v_emission)::INT;
             IF v_remaining <= 0 THEN
                 IF v_remaining < 0 THEN
                     v_retry := -v_diff;
@@ -396,7 +396,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                     sql.format(
                         table_name=self._table_name,
                         lock_namespace=_RATE_LIMITER_ADVISORY_NAMESPACE,
-                        slot_tolerance=SLOT_TOLERANCE,
+                        clock_tolerance=CLOCK_TOLERANCE,
                     )
                 )
 

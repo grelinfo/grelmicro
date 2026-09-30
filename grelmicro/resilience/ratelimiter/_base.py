@@ -5,8 +5,8 @@ from typing import Annotated
 from pydantic import BaseModel
 from typing_extensions import Doc
 
-SLOT_TOLERANCE = 1e-3
-"""Fraction of a slot a sliding window forgives for float rounding.
+CLOCK_TOLERANCE = 1e-6
+"""Seconds a sliding window forgives for float rounding.
 
 A request this close to its slot is admitted, and `remaining` counts a
 slot this close to opening.

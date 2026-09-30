@@ -13,7 +13,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
-from grelmicro.resilience.ratelimiter._base import SLOT_TOLERANCE
+from grelmicro.resilience.ratelimiter._base import CLOCK_TOLERANCE
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -160,7 +160,7 @@ class _RedisGCRA(RateLimiterStrategy):
         local rate = tonumber(ARGV[2])
         local period = tonumber(ARGV[3])
         local cost = tonumber(ARGV[4])
-        local slot_tolerance = tonumber(ARGV[5])
+        local clock_tolerance = tonumber(ARGV[5])
 
         local emission_interval = period / rate
         local increment = period * cost / rate
@@ -182,7 +182,7 @@ class _RedisGCRA(RateLimiterStrategy):
         local gap = math.max(0, tat - now)
         local reset_after = gap + increment
         local diff = burst_offset - reset_after
-        local remaining = math.floor(diff / emission_interval + slot_tolerance)
+        local remaining = math.floor((diff + clock_tolerance) / emission_interval)
 
         if remaining < 0 then
             local retry_after = math.max(0, diff * -1)
@@ -198,7 +198,7 @@ class _RedisGCRA(RateLimiterStrategy):
         local key = KEYS[1]
         local rate = tonumber(ARGV[1])
         local period = tonumber(ARGV[2])
-        local slot_tolerance = tonumber(ARGV[3])
+        local clock_tolerance = tonumber(ARGV[3])
 
         local emission_interval = period / rate
 
@@ -215,7 +215,7 @@ class _RedisGCRA(RateLimiterStrategy):
 
         local gap = math.max(0, tat - now)
         local diff = period - gap
-        local remaining = math.floor(diff / emission_interval + slot_tolerance)
+        local remaining = math.floor((diff + clock_tolerance) / emission_interval)
 
         -- Use <= 0 (not < 0 like acquire): remaining=0 means the next
         -- acquire(cost=1) would be rejected, so peek reports allowed=false.
@@ -252,7 +252,7 @@ class _RedisGCRA(RateLimiterStrategy):
                 self._limit,
                 self._window,
                 cost,
-                SLOT_TOLERANCE,
+                CLOCK_TOLERANCE,
             ],
             client=self._redis,
         )
@@ -268,7 +268,7 @@ class _RedisGCRA(RateLimiterStrategy):
         """Async peek (GCRA)."""
         result: list[Any] = await self._lua_peek(
             keys=[f"{self._key_prefix}{key}"],
-            args=[self._limit, self._window, SLOT_TOLERANCE],
+            args=[self._limit, self._window, CLOCK_TOLERANCE],
             client=self._redis,
         )
         return RateLimitResult(

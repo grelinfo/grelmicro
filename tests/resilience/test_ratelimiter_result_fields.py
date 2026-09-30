@@ -289,3 +289,21 @@ async def test_sliding_window_admits_a_request_at_its_slot(
 
     assert result.allowed is True
     assert result.remaining == 0
+
+
+async def test_sliding_window_refuses_a_request_before_a_long_slot(
+    clock: VirtualClock,
+) -> None:
+    """A long slot forgives no more than a short one."""
+    window = 3600.0
+    rl = RateLimiter.sliding_window("sw-hourly", limit=1, window=window)
+    assert (await rl.acquire(cost=1)).allowed is True
+    await clock.advance(window - 0.5)
+
+    early = await rl.acquire(cost=1)
+    await clock.advance(0.5)
+    on_time = await rl.acquire(cost=1)
+
+    assert early.allowed is False
+    assert on_time.allowed is True
+    assert on_time.reset_after == window
