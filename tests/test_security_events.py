@@ -33,6 +33,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 )
 from opentelemetry.trace import StatusCode
 from starlette.applications import Starlette
+from starlette.responses import PlainTextResponse
 from starlette.routing import Mount, Route
 from starlette.testclient import WebSocketDenialResponse
 
@@ -94,10 +95,13 @@ from tests.test_authentication import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, MutableMapping
 
+    from starlette.requests import Request
+
 pytestmark = [pytest.mark.timeout(5)]
 
 LOGGER = "grelmicro.security.events"
 ADDRESS = CALLER[0]
+HTTP_200 = 200
 HTTP_401 = 401
 HTTP_403 = 403
 HTTP_429 = 429
@@ -409,7 +413,7 @@ def orders() -> APIRouter:
         dependencies=[FastAPIAuthenticated(scopes=["orders:write"])],
     )
     async def cancel(order_id: int) -> dict[str, int]:
-        return {"cancelled": order_id}  # pragma: no cover
+        return {"cancelled": order_id}
 
     return router
 
@@ -455,6 +459,19 @@ def included_twice() -> FastAPI:
     app = FastAPI()
     app.include_router(router, prefix="/a")
     app.include_router(router, prefix="/b")
+    return installed(app)
+
+
+def with_a_starlette_route() -> FastAPI:
+    """Return an app including a plain Starlette route under `/v1`."""
+
+    async def ping(_: Request) -> PlainTextResponse:
+        return PlainTextResponse("pong")
+
+    v1 = APIRouter()
+    v1.add_route("/ping", ping, methods=["DELETE"])
+    app = FastAPI()
+    app.include_router(v1, prefix="/v1")
     return installed(app)
 
 
@@ -527,6 +544,39 @@ class TestIncludedRoute:
         assert points(metrics, "grelmicro.authorization.refusals") == [
             (1, {"error.type": "insufficient-scope", "http.route": expected})
         ]
+
+    @pytest.mark.parametrize(
+        ("build", "path", "expected"),
+        [
+            (on_the_app, "/7", "/{order_id}"),
+            (with_a_starlette_route, "/v1/ping", None),
+            (nested_prefixes, "/v1/orders/7", "/v1/orders/{order_id}"),
+            (included_twice, "/b/7", "/b/{order_id}"),
+            (under_starlette, "/api/v1/orders/7", "/api/v1/orders/{order_id}"),
+        ],
+    )
+    def test_an_admitted_request_records_the_full_template(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        *,
+        build: Callable[[], Starlette],
+        path: str,
+        expected: str | None,
+    ) -> None:
+        """A served route records its template with every prefix, a plain one none."""
+        caplog.set_level(logging.INFO, logger="grelmicro.access")
+
+        response = TestClient(build()).delete(
+            path, headers=bearer(token(scope="orders:write"))
+        )
+
+        assert response.status_code == HTTP_200
+        [access] = [
+            record
+            for record in caplog.records
+            if record.name == "grelmicro.access"
+        ]
+        assert field(access, "http.route") == expected
 
     def test_a_websocket_refusal_names_the_full_template(
         self, metrics: InMemoryMetricReader

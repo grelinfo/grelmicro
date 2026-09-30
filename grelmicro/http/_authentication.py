@@ -31,6 +31,7 @@ from typing_extensions import Doc
 
 from grelmicro._caller import is_authenticated, subject_of
 from grelmicro._config import build_config
+from grelmicro._discovery import load_integration
 from grelmicro._paths import (
     PathPatterns,
     _has_configured_middleware,
@@ -201,6 +202,18 @@ def arrived_path(scope: Scope) -> str:
     if isinstance(raw, bytes):
         return unquote(raw.decode("latin-1"))
     return scope.get("path", "")
+
+
+def template_under_root(template: str, scope: Scope) -> str:
+    """Return a route's template, under the root path the request arrived at.
+
+    As the access log names the route: a root path the request's path
+    starts with goes on, and one a proxy stripped from it stays off.
+    """
+    root = scope.get("root_path", "").rstrip("/")
+    if root and arrived_path(scope).startswith(root):
+        return f"{root}{template}"
+    return template
 
 
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
@@ -685,6 +698,47 @@ def routes_of(app: Any) -> _Routes:  # noqa: ANN401
     if getattr(app, "asgi_router", None) is not None:
         return _litestar_routes(app)
     return _starlette_routes(app)
+
+
+def public_routes(app: Any) -> Callable[[Any, str, str], bool]:  # noqa: ANN401
+    """Return what says whether a route of `app` is served without a credential.
+
+    Asked with the route, a method and the path of the mounts and routers
+    above it, for a report or a schema. On an app whose integration gates
+    and lists its routes, the declarations answer, as each route's gate
+    serves it, and a route another one declared before it takes a URL of
+    its own from is described as authenticated, as the router serves it.
+    On any other, the routes read off the app answer, as the middleware
+    serves them before routing.
+    """
+    routes = routes_of(app)
+    integration = load_integration(app)
+    listed = getattr(integration, "route_declarations", None)
+    if (
+        listed is None
+        or not hasattr(integration, "install_route_gate")
+        or routes.litestar is not None
+    ):
+        return routes.serves_publicly
+    declared: dict[tuple[str, str | None], bool] = {}
+    for declaration in listed(app):
+        for method in declaration.methods or (None,):
+            declared.setdefault(
+                (declaration.path, method), declaration.anonymous
+            )
+
+    def serves_publicly(route: Any, method: str, prefix: str) -> bool:  # noqa: ANN401
+        path = f"{prefix}{route.path}" or "/"
+        if not declared.get((path, method), declared.get((path, None), False)):
+            return False
+        sample = _sample_url(path)
+        return (
+            sample is None
+            or routes.template_of("http", method, sample)
+            == f"{prefix}{getattr(route, 'path_format', route.path)}"
+        )
+
+    return serves_publicly
 
 
 def serves_anonymous_routes(app: Any) -> bool:  # noqa: ANN401
@@ -1452,7 +1506,7 @@ def operation_authentication(
     With `anonymous` false no declaration counts, as for a middleware added
     by hand.
     """
-    served = routes_of(app)
+    served = public_routes(app)
     public: set[tuple[str, str]] = set()
     scopes: dict[tuple[str, str], list[str]] = {}
     for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
@@ -1460,7 +1514,7 @@ def operation_authentication(
         # `None` for an endpoint class, which answers whatever it defines.
         for method in getattr(route, "methods", None) or ():
             key = (path, method.lower())
-            if anonymous and served.serves_publicly(route, method, prefix):
+            if anonymous and served(route, method, prefix):
                 public.add(key)
             else:
                 scopes[key] = list(route_scopes(route, method, contexts))
@@ -2141,17 +2195,22 @@ class AuthenticatedRequestsMiddleware:
         What the app answers before a gate admitted or refused the request,
         such as a `404`, a `405`, a redirect or an exception, is answered
         with the `401` a protected route answers, recorded with no route.
-        A request the same app routed already is answered where it was routed.
+        A request the same app routed already is answered where it was
+        routed, and so is one an app it is mounted in routed and no gate
+        answered yet.
         """
         scope.setdefault("user", _ANONYMOUS)
         scope.setdefault("auth", _ANONYMOUS)
         scope[SCOPE_KEY] = self._record_unauthenticated
         routed_by = scope.get(GATE_KEY)
         self._pass_on(scope)
-        if UNANSWERED_KEY in scope and routed_by is scope[GATE_KEY]:
+        outer: Unanswered | None = scope.get(UNANSWERED_KEY)
+        if outer is not None and (outer.open or routed_by is scope[GATE_KEY]):
             await self._forward(scope, receive, send)
             return
         unanswered = scope[UNANSWERED_KEY] = Unanswered()
+        policy: GatePolicy = scope[GATE_KEY]
+        arrived: Crossing = scope[CROSSED_KEY]
         preflight = _is_preflight(scope)
         replaced = False
 
@@ -2165,7 +2224,7 @@ class AuthenticatedRequestsMiddleware:
                 and not (preflight and _allows_origin(message))
             ):
                 replaced = True
-                await self._refuse_unanswered(scope, send)
+                await self._refuse_unanswered(scope, send, policy, arrived)
                 return
             await send(message)
 
@@ -2174,25 +2233,29 @@ class AuthenticatedRequestsMiddleware:
         except Exception:
             if not unanswered.open or replaced:
                 raise
-            await self._refuse_unanswered(scope, send, receive=receive)
+            await self._refuse_unanswered(
+                scope, send, policy, arrived, receive=receive
+            )
 
     async def _refuse_unanswered(
         self,
         scope: Scope,
         send: Send,
+        policy: GatePolicy,
+        arrived: Crossing,
         *,
         receive: Receive | None = None,
     ) -> None:
         """Answer a request no gate answered with the `401` of a protected route.
 
-        A websocket handshake is refused with the denial, reading the
-        handshake first when `receive` is given, since nothing read it yet.
+        Rendered by `policy`, for the path the request `arrived` with at
+        this app, whichever app it was routed into since. A websocket
+        handshake is refused with the denial, reading the handshake first
+        when `receive` is given, since nothing read it yet.
         """
         scope[ROUTE_KEY] = None
         error = AuthenticationRequiredError()
         self._record(scope, error)
-        policy = cast("GatePolicy", scope[GATE_KEY])
-        arrived: Crossing = scope[CROSSED_KEY]
         rendered = cast(
             "RenderedError",
             policy.errors.render(error, instance=arrived.path),

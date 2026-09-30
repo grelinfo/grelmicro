@@ -456,8 +456,14 @@
     "install_middleware": {
       "()": "(app, components) -> None"
     },
+    "install_route_gate": {
+      "()": "(app, gate) -> None"
+    },
     "is_bound": {
       "()": "(app) -> bool"
+    },
+    "route_declarations": {
+      "()": "(app) -> 'list[RouteDeclaration]'"
     }
   },
   "grelmicro.integrations.faststream": {

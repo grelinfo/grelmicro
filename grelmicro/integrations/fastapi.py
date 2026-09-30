@@ -78,9 +78,11 @@ from grelmicro.http._ratelimit import (
 from grelmicro.http._requirement import (
     Requirement,
     declare_from_request,
+    declare_optional,
     requirement_for,
 )
 from grelmicro.http._response_cache import declare_cached
+from grelmicro.integrations._route_gate import declarations_of, gate_routes
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
     error_response,
@@ -105,6 +107,7 @@ if TYPE_CHECKING:
     from fastapi.params import Depends
 
     from grelmicro import Grelmicro
+    from grelmicro.http import Gate, RouteDeclaration
     from grelmicro.idempotency import Idempotency
     from grelmicro.resilience.ratelimiter import RateLimiter
     from grelmicro.security.clientip import TrustedProxies
@@ -133,7 +136,9 @@ __all__ = [
     "install",
     "install_error_responses",
     "install_middleware",
+    "install_route_gate",
     "is_bound",
+    "route_declarations",
 ]
 
 _logger = logging.getLogger(__name__)
@@ -215,6 +220,65 @@ def install_middleware(
         document = getattr(component, "document_openapi", None)
         if document is not None:
             document(app)
+
+
+def install_route_gate(
+    app: Annotated[
+        "FastAPI",
+        Doc("The FastAPI application whose routes to gate."),
+    ],
+    gate: Annotated[
+        "Gate",
+        Doc(
+            "Returns the app to dispatch to in place of a route, given it "
+            "and the route's declarations, refusing a declaration that "
+            "cannot hold."
+        ),
+    ],
+) -> None:
+    """Gate every route FastAPI dispatches to, before it reads the request.
+
+    Each route is gated as it is dispatched: directly, and under each
+    router that includes it, with what that include adds. So a request the
+    route refuses is answered before its body is read. Websocket routes,
+    frontend routes, and the routes of a mounted app or router are gated
+    too, and a mount holding no anonymous route refuses a request without
+    a credential at its door. A route added later is gated as it lands.
+
+    `micro.install(app)` calls this when `AuthenticatedRequests` is
+    registered, with the gate that component builds.
+
+    Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
+    docs.
+
+    Raises:
+        RuntimeError: If FastAPI's router lacks what the gates rely on,
+            naming it.
+        TypeError: If a declaration's `cache` is neither a boolean nor a
+            number.
+        ValueError: If a declaration cannot hold, naming its route.
+    """
+    gate_routes(app, gate)
+
+
+def route_declarations(
+    app: Annotated[
+        "FastAPI",
+        Doc("The FastAPI application whose routes to list."),
+    ],
+) -> "list[RouteDeclaration]":
+    """Return what every route of the app requires, as its gate reads it.
+
+    One declaration per route, and one per include of a router's route. A
+    route declaring `Anonymous()` is anonymous, and its scopes are the ones
+    every `Security` around `Authenticated`, `CurrentPrincipal`, `Claims` or
+    `CurrentToken` names. Any other dependency is a check of its own, except
+    `CachedResponse()` and `OptionalPrincipal`. A `CachedResponse()` on the
+    route is declared as it is, so one beside a check of its own fails
+    install. One on a router caches the reads under it that run no check of
+    their own.
+    """
+    return declarations_of(app)
 
 
 def _instrument_app(app: "FastAPI", micro: "Grelmicro") -> None:
@@ -374,10 +438,10 @@ def CachedResponse(  # noqa: N802
 ) -> Any:  # noqa: ANN401
     """Declare that this route's response is cached.
 
-    Declared on the route rather than called in the handler, because the
-    middleware has to answer before the app is routed. `micro.install(app)`
-    reads it off the dependency tree, so a repeated read is answered
-    without the handler running:
+    Declared on the route rather than called in the handler, because a hit
+    is answered before the handler runs. `micro.install(app)` reads it off
+    the dependency tree, so a repeated read is answered without the handler
+    running:
 
     ```python
     from grelmicro.integrations.fastapi import CachedResponse
@@ -475,6 +539,7 @@ declare_from_request(_authenticated)
 declare_from_request(_current_principal)
 declare_from_request(_current_claims)
 declare_from_request(_current_token)
+declare_optional(_optional_principal)
 
 
 CurrentPrincipal = Annotated[
@@ -627,15 +692,15 @@ def Anonymous() -> Any:  # noqa: N802, ANN401
     async def catalog() -> list[Product]: ...
     ```
 
-    `micro.install(app)` reads it off the dependency tree, and the app is
-    read again when it starts. It applies per method, so a path serving a
-    public read keeps its writes authenticated. A URL another route without
-    it could also answer stays authenticated, whichever route would serve it,
-    so a declaration never opens a route it was not written on. A credential
-    is optional there. A request sending none is served with a caller that is
-    not authenticated, and a bearer token that is sent is verified, so a valid
-    one hands the route its caller through `OptionalPrincipal` and one that
-    does not verify is answered `401`.
+    `micro.install(app)` reads it off the dependency tree, and off what the
+    router holding the route was included with. It applies per method, so a
+    path serving a public read keeps its writes authenticated. It is read off
+    the route FastAPI dispatches the request to, so a declaration never opens
+    a route it was not written on. A credential is optional there. A request
+    sending none is served with a caller that is not authenticated, and a
+    bearer token that is sent is verified, so a valid one hands the route its
+    caller through `OptionalPrincipal` and one that does not verify is
+    answered `401`.
 
     Read more in the [Authentication](../http/authentication.md) docs.
     """

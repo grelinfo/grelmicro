@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### Breaking
+* 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 💥 On FastAPI, a URL no route answers, a method no route serves and a trailing slash redirect get the `401` of a protected route. This holds for a redirect to a public route too. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 💥 On FastAPI, the `403` for a missing scope names every scope the route requires, its routers' included. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 💥 On FastAPI, the rate limit, the response cache, idempotency and conditional requests run once the route admitted the request. A request with a token that no route answers is no longer rate limited. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 🔒 On FastAPI, a mount holding no `Anonymous()` route refuses a request without a credential before anything under it runs, and so does one whose last `Anonymous()` route was taken out. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 🔒 A URL no route answers in an installed app mounted under another gets the `401` of the outer app, in its error format. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* 💥 On FastAPI, a mount whose app is a route or another mount is one authenticated route, its `Anonymous()` routes included. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 `gate(app, *declarations, name=None, door=False)` returns the app an integration dispatches to. It no longer returns a check to call. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * 💥 A gate picks the declaration by the request's method. A method no declaration names needs a caller. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * 🔒 On Litestar, every handler carries a gate, decided once the router matched it. A request without a credential is routed when a handler declares `Anonymous()`, and a URL or method no handler answers gets the `401` of a protected route. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
@@ -13,14 +22,15 @@
 * 🔒 The `401` for a request without a credential names no scope, on every framework, so a scoped route can no longer be told from a URL no route answers. The `403` for a missing scope still names them. `AuthenticationRequiredError` takes no `scopes`. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * 🔒 On Starlette, a path in `exclude` that a mounted app's middleware rewrites to a route outside `exclude` needs a credential, and so does one whose scope that middleware rebuilds. ([#922](https://github.com/grelinfo/grelmicro/issues/922))
 * 💥 On Starlette, a route gated for an app that authenticates it answers `401` when an app without `AuthenticatedRequests` serves it. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
-* 💥 On Starlette, a mount whose app is not a Starlette router is one authenticated route, beside the routes it holds. A mounted FastAPI app's `Anonymous()` routes need a credential. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
+* 💥 On Starlette, a mount whose app is not a Starlette router is one authenticated route, beside the routes it holds. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * 💥 The scopes an `insufficient_scope` challenge names are sorted, on every framework. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * 💥 On Starlette, an app whose router is replaced after `micro.install(app)` refuses to start. ([#914](https://github.com/grelinfo/grelmicro/issues/914))
 * 🔒 A prefix in `AuthenticatedRequests(exclude=...)` that ends inside a path segment, such as `/public*`, is refused. It also served `/publicity` without a credential. Write `/public/*` or the exact path `/public`. ([#922](https://github.com/grelinfo/grelmicro/issues/922))
 * 💥 `micro.fake()` entered before the app opens fakes the next open, and `async with micro.fake()` no longer raises on a closed app. ([#881](https://github.com/grelinfo/grelmicro/issues/881))
-* 🔒 A public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. A FastAPI sub-app's docs routes count. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
-* 🔒 A route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
-* 🔒 Routes, mounts and a mounted app's middleware changed after startup are read again before a request is served without a credential, and FastAPI then serves the routes read, an included route removed or edited in place included. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 On an app whose integration declares no routes, a public route in a mounted app with middleware of its own needs a credential unless every route in that app is public. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 On an app whose integration declares no routes, a route or a mount that matches requests other than by its path is never public, and the public routes it could shadow need a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 On an app whose integration declares no routes, routes, mounts and a mounted app's middleware changed after startup are read again before a request is served without a credential. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
+* 🔒 On FastAPI, an included route removed or edited in place after startup is served as it is now, not from FastAPI's copy of it. ([#921](https://github.com/grelinfo/grelmicro/pull/921))
 * 💥 `every` and `cron` take one `gate=` saying which workers run a task: `None`, `"claim"` for one worker per interval or fire, or a `LeaderElection`. `every` also takes a tuned `TaskLock`. `lock=` and `leader=` are gone. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 💥 `cron` runs on every worker by default, as `every` does. Pass `gate="claim"` to keep running each fire once across the fleet. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
 * 💥 A gated task with no schedule or lock backend reports a coordination error and runs nothing, instead of running on every worker. ([#879](https://github.com/grelinfo/grelmicro/issues/879))
@@ -53,6 +63,11 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ The FastAPI integration ships `install_route_gate(app, gate)` and `route_declarations(app)`. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* ✨ On FastAPI, a route is gated under each include with what that include adds, and so are frontend routes, websocket routes and the routes an include copies. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* ✨ On FastAPI, a route added after install, to the app or to a router it includes, is gated as it lands. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* ✨ A FastAPI app mounted under a Starlette app is gated route by route, and its `Anonymous()` routes serve a caller with no credential. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
+* ✨ A mounted app's own middleware runs for a request without a credential when the app holds an `Anonymous()` route, and its CORS middleware answers a preflight. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * ✨ The Litestar integration ships `install_route_gate(app, gate)` and `route_declarations(app)`. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * ✨ On Litestar, each handler is gated per method. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
 * ✨ On Litestar, a handler registered after install is gated as it lands. ([#916](https://github.com/grelinfo/grelmicro/issues/916))
@@ -90,6 +105,7 @@
 
 ### Fixed
 * 🐛 On FastAPI, `http.route` in the access log and the authentication metrics carries the prefixes of the routers a route is included by. A request authentication refuses names the same `http.route` in the access log as in the authentication metrics, on every framework. ([#953](https://github.com/grelinfo/grelmicro/issues/953))
+* 🐛 A FastAPI app mounted in an app that `micro.install(app)` protects answers `403` for a missing scope, not `500`. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 🐛 A Litestar app mounted under another Litestar app serves its routes with idempotency, the response cache, rate limiting and conditional requests installed, and records no `http.route` for a URL it has no route for. ([#947](https://github.com/grelinfo/grelmicro/issues/947))
 * 🐛 On Litestar, idempotency stores nothing for a handler that raises an unhandled exception when the app declares middleware of its own, so the retry runs the handler again instead of replaying the `500`. ([#942](https://github.com/grelinfo/grelmicro/issues/942))
 * 🐛 The `"default"` backend of a kind is the Component named `"default"`, or the only Component of that kind when none is, as [Backends](architecture/backends.md) documents. A pattern that names no backend, `micro.get(kind)`, `micro.fake()` and the backend scope check all resolve it this way. Inside nested `Bulkhead` scopes, an exact name wins first, innermost scope first, then the app. The fallback then takes the only Component of the innermost scope holding that kind. A name that matches no Component still raises. ([#877](https://github.com/grelinfo/grelmicro/pull/877))

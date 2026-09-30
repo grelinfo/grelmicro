@@ -569,13 +569,13 @@ def _served_publicly(app: object) -> Callable[[Any, str, str], bool]:
     authentication the app added by hand serves no route publicly.
     """
     from grelmicro.http._authentication import (  # noqa: PLC0415
-        routes_of,
+        public_routes,
         serves_anonymous_routes,
     )
 
     if not serves_anonymous_routes(app):
         return _served_by_no_route
-    return routes_of(app).serves_publicly
+    return public_routes(app)
 
 
 def _served_by_no_route(route: Any, method: str, prefix: str) -> bool:  # noqa: ANN401, ARG001

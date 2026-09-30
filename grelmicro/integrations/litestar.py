@@ -18,13 +18,13 @@ from grelmicro.http import ErrorResponses, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     METADATA_MARKER,
-    arrived_path,
     document_operations,
     metadata_path_of,
     operation_authentication,
     refuse_routes_at_metadata,
     resource_metadata_of,
     serves_anonymous_routes,
+    template_under_root,
 )
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED, UNHANDLED_KEY
 from grelmicro.http._openapi import add_error_schema
@@ -359,7 +359,7 @@ def install_route_gate(
         wrapped = gate(
             asgi_app,
             declaration,
-            name=functools.partial(_template_under_root, declaration.path),
+            name=functools.partial(template_under_root, declaration.path),
         )
         gated[id(asgi_app)] = (asgi_app, wrapped)
         return wrapped
@@ -508,14 +508,6 @@ def _declaration(template: str, handler: Any) -> RouteDeclaration:  # noqa: ANN4
             for scope in declared_scopes(guard) or ()
         ),
     )
-
-
-def _template_under_root(template: str, scope: Scope) -> str:
-    """Return a handler's template, under the root path the request arrived at."""
-    root = scope.get("root_path", "").rstrip("/")
-    if root and arrived_path(scope).startswith(root):
-        return f"{root}{template}"
-    return template
 
 
 def _routes(app: Litestar, path: str) -> bool:
