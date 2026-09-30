@@ -10,7 +10,7 @@ import functools
 import itertools
 import re
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
 from pydantic import BeforeValidator
 from typing_extensions import Doc
@@ -24,6 +24,7 @@ __all__ = [
     "BARE_NAME_MESSAGE",
     "BARE_STRING_MESSAGE",
     "MALFORMED_JSON_MESSAGE",
+    "ROUTE_KEY",
     "FieldNames",
     "MethodNames",
     "PathPatterns",
@@ -91,6 +92,9 @@ Told apart from a bare string on purpose. An operator who wrote
 `["/livez"` did write a list, and answering that one is expected would
 send them looking for the mistake they did not make.
 """
+
+ROUTE_KEY: Final = "grelmicro.route"
+"""Where the route a refused request names is left, `None` when no route answers it."""
 
 
 def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
@@ -1322,6 +1326,9 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     records neither, so a plain Starlette app leaves it out rather than
     guessing a template from the values that filled it. Litestar's key is
     read only when the app in `scope["app"]` owns the handler in the scope.
+    On FastAPI, a route reached through included routers reads the
+    template with every router prefix. A refused request reads the route
+    its refusal named.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1329,6 +1336,8 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     prefix stays off, for the same reason: the two describe one request
     and have to agree.
     """
+    if ROUTE_KEY in scope:
+        return scope[ROUTE_KEY]
     template = (
         scope.get("path_template")
         if litestar_route_handler(scope) is not None
@@ -1336,6 +1345,11 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     )
     if not isinstance(template, str):
         route = scope.get("route")
+        fastapi = scope.get("fastapi")
+        if fastapi:
+            included = fastapi.get("effective_route_context")
+            if getattr(included, "original_route", None) is route:
+                route = included
         template = getattr(route, "path_format", None) or getattr(
             route, "path", None
         )

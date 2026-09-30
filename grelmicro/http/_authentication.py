@@ -1996,25 +1996,25 @@ class AuthenticatedRequestsMiddleware:
         A gate names the route it refused on, and a request no route took
         names none. Otherwise the route is read the way the router records
         it, and then off the routes the app declares, which is how a refusal
-        before routing is named. A refusal `check` or a route raised
+        before routing is named. The route is left in the scope for the
+        access record to name. A refusal `check` or a route raised
         names the `caller` its token verified. `authenticated` says the
         request already counted as one that authenticated.
         """
         found = refusal_of(error)
         if found is None:
             return
-        if ROUTE_KEY in scope:
-            template = scope[ROUTE_KEY]
-        else:
+        if ROUTE_KEY not in scope:
             template = route_template(scope, arrived_path(scope))
             public = self._public
             if template is None and public is not None:
                 template = public.template(scope)
+            scope[ROUTE_KEY] = template
         self._events.refused(
             scope,
             refusal=found[0],
             status=found[1],
-            template=template,
+            template=scope[ROUTE_KEY],
             subject=getattr(error, "subject", None) or subject_of(caller),
             authenticated=authenticated,
         )
