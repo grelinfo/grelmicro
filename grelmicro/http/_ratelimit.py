@@ -197,8 +197,10 @@ def _window_of(limiter: RateLimiter) -> int | None:
 def _seconds_until_reset(result: RateLimitResult) -> int:
     """Return the whole seconds until the quota is back.
 
-    The wait is rounded up, to the millisecond first, so a reset that
-    lands on a whole second within float rounding states that second.
+    The wait is rounded to the millisecond first, as `Retry-After` is,
+    then up to the second. A reset that lands on a whole second within
+    float rounding states that second, and a refusal states the same
+    wait in both headers.
     """
     return ceil(round(result.reset_after, 3))
 
