@@ -15,6 +15,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from fastapi import APIRouter, FastAPI
+from fastapi import WebSocket as FastAPIWebSocket
 from fastapi.testclient import TestClient
 from litestar import Litestar
 from litestar import get as litestar_get
@@ -30,6 +32,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from opentelemetry.trace import StatusCode
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
+from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import Grelmicro
 from grelmicro._caller import subject_of
@@ -47,9 +50,13 @@ from grelmicro.http import (
 from grelmicro.http._authentication import _PublicRoutes, refusal_of
 from grelmicro.http._kinds import classify
 from grelmicro.http._requirement import recorded
+from grelmicro.integrations.fastapi import (
+    Authenticated as FastAPIAuthenticated,
+)
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
 )
+from grelmicro.log import AccessLog
 from grelmicro.metrics import _hub
 from grelmicro.metrics._component import Metrics
 from grelmicro.security import (
@@ -80,7 +87,7 @@ from tests.test_authentication import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, MutableMapping
+    from collections.abc import Callable, Iterator, MutableMapping
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -386,6 +393,173 @@ class TestRoute:
 
         [record] = events
         assert field(record, "http.route") is None
+
+
+def orders() -> APIRouter:
+    """Return a router whose `/{order_id}` route needs `orders:write`."""
+    router = APIRouter()
+
+    @router.delete(
+        "/{order_id}",
+        dependencies=[FastAPIAuthenticated(scopes=["orders:write"])],
+    )
+    async def cancel(order_id: int) -> dict[str, int]:
+        return {"cancelled": order_id}  # pragma: no cover
+
+    return router
+
+
+def installed(app: FastAPI) -> FastAPI:
+    """Install the access log and authentication on `app`."""
+    Grelmicro(
+        uses=[ErrorResponses(), AccessLog(), AuthenticatedRequests(verifier())]
+    ).install(app)
+    return app
+
+
+def on_the_app() -> FastAPI:
+    """Return an app declaring its route directly."""
+    app = FastAPI()
+    app.router.routes.extend(orders().routes)
+    return installed(app)
+
+
+def versioned() -> FastAPI:
+    """Return an app including `/v1`, which includes `/orders`."""
+    v1 = APIRouter(prefix="/v1")
+    v1.include_router(orders(), prefix="/orders")
+    app = FastAPI()
+    app.include_router(v1)
+    return installed(app)
+
+
+def nested_prefixes() -> FastAPI:
+    """Return an app including routers that carry their own prefixes."""
+    v1 = APIRouter(prefix="/v1")
+    declared = APIRouter(prefix="/orders")
+    declared.include_router(orders())
+    v1.include_router(declared)
+    app = FastAPI()
+    app.include_router(v1)
+    return installed(app)
+
+
+def included_twice() -> FastAPI:
+    """Return an app including one router under `/a` and under `/b`."""
+    router = orders()
+    app = FastAPI()
+    app.include_router(router, prefix="/a")
+    app.include_router(router, prefix="/b")
+    return installed(app)
+
+
+def under_starlette() -> Starlette:
+    """Return a Starlette app mounting `versioned` at `/api`."""
+    return Starlette(routes=[Mount("/api", app=versioned())])
+
+
+def under_fastapi() -> FastAPI:
+    """Return a FastAPI app mounting `versioned` at `/api`."""
+    app = FastAPI()
+    app.mount("/api", versioned())
+    return app
+
+
+class TestIncludedRoute:
+    """The route FastAPI dispatched through the routers it was included by."""
+
+    @pytest.mark.parametrize(
+        ("build", "root_path", "path", "expected"),
+        [
+            (on_the_app, "", "/7", "/{order_id}"),
+            (nested_prefixes, "", "/v1/orders/7", "/v1/orders/{order_id}"),
+            (versioned, "", "/v1/orders/7", "/v1/orders/{order_id}"),
+            (included_twice, "", "/a/7", "/a/{order_id}"),
+            (included_twice, "", "/b/7", "/b/{order_id}"),
+            (
+                versioned,
+                "/api",
+                "/api/v1/orders/7",
+                "/api/v1/orders/{order_id}",
+            ),
+            (
+                under_starlette,
+                "",
+                "/api/v1/orders/7",
+                "/api/v1/orders/{order_id}",
+            ),
+            (
+                under_fastapi,
+                "",
+                "/api/v1/orders/7",
+                "/api/v1/orders/{order_id}",
+            ),
+        ],
+    )
+    def test_the_access_record_and_the_refusal_name_the_full_template(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        metrics: InMemoryMetricReader,
+        *,
+        build: Callable[[], Starlette],
+        root_path: str,
+        path: str,
+        expected: str,
+    ) -> None:
+        """Every prefix the route sits under is on the route both record."""
+        caplog.set_level(logging.INFO, logger="grelmicro.access")
+
+        TestClient(build(), root_path=root_path).delete(
+            path, headers=bearer(token())
+        )
+
+        [access] = [
+            record
+            for record in caplog.records
+            if record.name == "grelmicro.access"
+        ]
+        assert field(access, "http.route") == expected
+        assert points(metrics, "grelmicro.authorization.refusals") == [
+            (1, {"error.type": "insufficient-scope", "http.route": expected})
+        ]
+
+    def test_a_websocket_refusal_names_the_full_template(
+        self, metrics: InMemoryMetricReader
+    ) -> None:
+        """A handshake refused on an included route names its prefixes."""
+        live = APIRouter(prefix="/live")
+
+        @live.websocket(
+            "/{room}", dependencies=[FastAPIAuthenticated(scopes=["live:read"])]
+        )
+        async def follow(socket: FastAPIWebSocket) -> None:
+            await socket.accept()  # pragma: no cover
+
+        v1 = APIRouter(prefix="/v1")
+        v1.include_router(live)
+        app = FastAPI()
+        app.include_router(v1)
+        Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        ).install(app)
+
+        with (
+            pytest.raises(WebSocketDenialResponse),
+            TestClient(app).websocket_connect(
+                "/v1/live/7", headers=bearer(token())
+            ),
+        ):
+            pass  # pragma: no cover
+
+        assert points(metrics, "grelmicro.authorization.refusals") == [
+            (
+                1,
+                {
+                    "error.type": "insufficient-scope",
+                    "http.route": "/v1/live/{room}",
+                },
+            )
+        ]
 
 
 class TestAuthorization:

@@ -1322,6 +1322,9 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     records neither, so a plain Starlette app leaves it out rather than
     guessing a template from the values that filled it. Litestar's key is
     read only when the app in `scope["app"]` owns the handler in the scope.
+    A FastAPI route reached through included routers reads the template
+    of the include FastAPI dispatched it through, prefixes and all, when
+    that include belongs to the route in the scope.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1336,6 +1339,11 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     )
     if not isinstance(template, str):
         route = scope.get("route")
+        fastapi = scope.get("fastapi")
+        if fastapi:
+            included = fastapi.get("effective_route_context")
+            if getattr(included, "original_route", None) is route:
+                route = included
         template = getattr(route, "path_format", None) or getattr(
             route, "path", None
         )
