@@ -198,7 +198,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_diff DOUBLE PRECISION;
             v_remaining INT;
         BEGIN
-            v_increment := v_emission * p_cost;
+            v_increment := p_window * p_cost / p_limit;
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_key, {lock_namespace})
             );
@@ -207,7 +207,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                 v_tat := v_now;
             END IF;
             v_new_tat := GREATEST(v_tat, v_now) + v_increment;
-            v_diff := v_now - (v_new_tat - v_emission * p_limit);
+            v_diff := v_now - (v_new_tat - p_window);
             v_remaining := FLOOR(v_diff / v_emission + 0.5)::INT;
             IF v_remaining < 0 THEN
                 RETURN QUERY SELECT
@@ -224,7 +224,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
                     TRUE,
                     v_remaining,
                     0::double precision,
-                    v_new_tat - v_now;
+                    GREATEST(0::double precision, v_tat - v_now) + v_increment;
             END IF;
         END;
         $$ LANGUAGE plpgsql;

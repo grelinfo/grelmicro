@@ -359,7 +359,7 @@ class _MemoryGCRA(RateLimiterStrategy):
     ) -> RateLimitResult:
         """Async acquire (GCRA)."""
         now = monotonic()
-        increment = self._emission_interval * cost
+        increment = self._window * cost / self._limit
         with self._lock:
             self._maybe_evict(now)
             tat = self._state.get(key, now)
@@ -380,7 +380,7 @@ class _MemoryGCRA(RateLimiterStrategy):
                     reset_after=max(0.0, reset_after),
                 )
 
-            reset_after = new_tat - now
+            reset_after = max(0.0, tat - now) + increment
             self._state[key] = new_tat
             return RateLimitResult(
                 allowed=True,

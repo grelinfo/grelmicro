@@ -194,6 +194,19 @@ def _window_of(limiter: RateLimiter) -> int | None:
     return None
 
 
+def _seconds_until_reset(result: RateLimitResult) -> int:
+    """Return the whole seconds until the quota is back.
+
+    The wait is rounded to the millisecond first, as `Retry-After` is,
+    then up to the second. A reset that lands on a whole second within
+    float rounding states that second, and a refusal states the same
+    wait in both headers. A wait above zero states at least one second.
+    """
+    if result.reset_after <= 0:
+        return 0
+    return max(ceil(round(result.reset_after, 3)), 1)
+
+
 def _rate_limit_headers(
     seen: Sequence[tuple[RateLimiter, RateLimitResult]],
     *,
@@ -214,7 +227,7 @@ def _rate_limit_headers(
             b"ratelimit",
             ", ".join(
                 f'"{name}";r={max(result.remaining, 0)};'
-                f"t={ceil(result.reset_after)}"
+                f"t={_seconds_until_reset(result)}"
                 for name, result, _ in stated
             ).encode("latin-1"),
         )
@@ -234,7 +247,7 @@ def _rate_limit_headers(
                 (
                     str(result.limit).encode("latin-1"),
                     str(max(result.remaining, 0)).encode("latin-1"),
-                    str(ceil(result.reset_after)).encode("latin-1"),
+                    str(_seconds_until_reset(result)).encode("latin-1"),
                 ),
                 strict=True,
             )

@@ -161,8 +161,8 @@ class _RedisGCRA(RateLimiterStrategy):
         local cost = tonumber(ARGV[4])
 
         local emission_interval = period / rate
-        local increment = emission_interval * cost
-        local burst_offset = emission_interval * burst
+        local increment = period * cost / rate
+        local burst_offset = period * burst / rate
 
         -- Use Redis server time for cross-process consistency
         local now = redis.call("TIME")
@@ -188,7 +188,7 @@ class _RedisGCRA(RateLimiterStrategy):
             return {0, 0, tostring(retry_after), tostring(reset_after)}
         end
 
-        local reset_after = new_tat - now
+        local reset_after = math.max(0, tat - now) + increment
         redis.call("SET", key, new_tat, "EX", math.max(1, math.ceil(reset_after)))
         return {1, remaining, "0", tostring(reset_after)}
     """
