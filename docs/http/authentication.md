@@ -27,18 +27,9 @@ Two things say otherwise:
   Write `/public/*` for everything under it, or `/public` for that path alone.
 - `Anonymous()` declared on a route makes the credential optional there. It applies
   per method, so a public read keeps the writes on the same path
-  authenticated. A URL another route could also answer stays authenticated,
-  whichever route would serve it, so a declaration never opens a route it was
-  not written on. A mount or a `Host` answers every path under it, except the
-  public routes it holds. A route under a `Host` is served without one only
-  where a request the host turns away is answered `404`.
-  A mounted app with middleware of its own may change the path before it
-  routes it, so its public routes are served without a credential only when
-  every route it holds is public. A route or a mount that matches requests
-  other than by its path, with a `matches` or a regex of its own, may answer
-  any path. It is never public, and the public routes it could shadow stay
-  authenticated. Routes changed once the app started are read again before a
-  request is served without a credential.
+  authenticated. It is read off the route the router dispatches the request
+  to, so a declaration never opens a route it was not written on, whatever
+  URL both could answer.
 
 On an `Anonymous()` route, a request sending no token is served with a caller
 that is not authenticated. A bearer token that is sent is verified as on any
@@ -75,6 +66,34 @@ verified is routed, and the gate of the route it reaches checks its scopes.
   rebuilds the scope on the way.
 - A route shared by several apps is gated with each app's own `exclude` and
   error format. An app without `AuthenticatedRequests` gets `401` on it.
+
+### Decided at the route, on FastAPI
+
+On FastAPI, the gate sits where FastAPI hands a request to the route it
+matched, before the route reads the request body. A route declaring
+`Anonymous()` serves a caller with no credential, and the scopes of every
+`Authenticated` around it, on the route or on a router it was included with,
+are checked before the handler runs.
+
+- A request without a credential is routed when a route of the app declares
+  `Anonymous()`, and refused before routing otherwise. A URL no route
+  answers, a method no route serves and a trailing slash redirect get the
+  same `401` as a protected route.
+- A request a route refuses is answered before its body is read, so an
+  invalid body on a protected route gets `401`, not `422`.
+- A router included twice is gated under each include with what that include
+  adds. `include_router(router, dependencies=[Anonymous()])` makes its routes
+  public under that include alone. Websocket routes, Starlette routes, mounts
+  and frontend routes are gated too.
+- A mount holding no `Anonymous()` route refuses a request without a
+  credential before anything under it runs, its middleware included. A
+  mounted app holding one runs its own middleware, and each of its routes
+  decides. Its own CORS middleware answers a preflight.
+- A FastAPI app mounted under a Starlette app is gated route by route.
+- A route added later, to the app or to a router it includes, is gated as it
+  lands.
+- The rate limit, the response cache, idempotency and conditional requests run
+  once the route admitted the request, so a request it refuses spends nothing.
 
 ### Decided at the handler, on Litestar
 

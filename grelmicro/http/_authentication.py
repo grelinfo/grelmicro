@@ -203,6 +203,18 @@ def arrived_path(scope: Scope) -> str:
     return scope.get("path", "")
 
 
+def template_under_root(template: str, scope: Scope) -> str:
+    """Return a route's template, under the root path the request arrived at.
+
+    As the access log names the route: a root path the request's path
+    starts with goes on, and one a proxy stripped from it stays off.
+    """
+    root = scope.get("root_path", "").rstrip("/")
+    if root and arrived_path(scope).startswith(root):
+        return f"{root}{template}"
+    return template
+
+
 _ANONYMOUS_MARKER = "__grelmicro_anonymous__"
 """Set on the callable a route declares to be served without a credential."""
 
@@ -535,11 +547,9 @@ class _Routes:
         """Return whether the middleware serves this route without a credential.
 
         For a report or a schema, which describe a route rather than a URL.
-        The route is tried with a URL of its own whose parameters avoid the
-        literal paths other routes are declared with, so a route another one
-        covers is described as authenticated, as the middleware treats it.
-        `prefix` is the path of the mounts and routers above it, because one
-        route can be included under several.
+        The route is tried with a URL of its own, whichever other route
+        could answer that URL too. `prefix` is the path of the mounts and
+        routers above it, because one route can be included under several.
         """
         if self.litestar is not None:
             return _litestar_declares_public(route, method)
@@ -550,10 +560,7 @@ class _Routes:
         sample = _sample_url(template)
         if sample is None:
             return False
-        kind = next(iter(reach.kinds))
-        return reach.answers(kind, method, sample) and self._unrivalled(
-            reach, kind, method, sample, ""
-        )
+        return reach.answers(next(iter(reach.kinds)), method, sample)
 
 
 class _PublicRoutes:
@@ -2141,14 +2148,17 @@ class AuthenticatedRequestsMiddleware:
         What the app answers before a gate admitted or refused the request,
         such as a `404`, a `405`, a redirect or an exception, is answered
         with the `401` a protected route answers, recorded with no route.
-        A request the same app routed already is answered where it was routed.
+        A request the same app routed already is answered where it was
+        routed, and so is one an app it is mounted in routed and no gate
+        answered yet.
         """
         scope.setdefault("user", _ANONYMOUS)
         scope.setdefault("auth", _ANONYMOUS)
         scope[SCOPE_KEY] = self._record_unauthenticated
         routed_by = scope.get(GATE_KEY)
         self._pass_on(scope)
-        if UNANSWERED_KEY in scope and routed_by is scope[GATE_KEY]:
+        outer: Unanswered | None = scope.get(UNANSWERED_KEY)
+        if outer is not None and (outer.open or routed_by is scope[GATE_KEY]):
             await self._forward(scope, receive, send)
             return
         unanswered = scope[UNANSWERED_KEY] = Unanswered()

@@ -26,8 +26,14 @@ from starlette.routing import (
     WebSocketRoute,
 )
 
+from grelmicro.http._authentication import (
+    is_anonymous_declaration,
+    template_under_root,
+)
 from grelmicro.http._requirement import declared_scopes
+from grelmicro.http._response_cache import declared_cache
 from grelmicro.http._routes import RouteDeclaration
+from grelmicro.integrations import _fastapi_internals as fastapi
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, MutableMapping
@@ -59,6 +65,15 @@ _PREFIX_KEY: Final = "grelmicro.route_prefix"
 _HELD: Final = "_grelmicro_held"
 """Where a router, a mount or a host keeps what it was gated with."""
 
+_TARGET: Final = "_grelmicro_gated"
+"""Where a FastAPI route, or an include's context of it, keeps its gated handler."""
+
+_READS: Final = frozenset({"GET", "HEAD"})
+"""The methods whose responses may be cached."""
+
+_ROUTERS: Final = (Router, *fastapi.ROUTERS)
+"""The routers whose routes are read, of their framework's own class."""
+
 
 class _Visitor(Protocol):
     """What a walk hands each thing it finds."""
@@ -71,8 +86,11 @@ class _Visitor(Protocol):
         mount: Mount | Host,
         prefix: str,
         whole: RouteDeclaration | None,
-    ) -> None:
-        """Take a mount or a host, and the declaration it is gated as a whole with."""
+    ) -> _Visitor:
+        """Take a mount or a host, and the declaration it is gated as a whole with.
+
+        Returns what takes the routes under it.
+        """
 
     def app(self, app: Starlette, prefix: str) -> None:
         """Take a Starlette app a mount serves, found under `prefix`."""
@@ -86,6 +104,23 @@ class _Visitor(Protocol):
     ) -> None:
         """Take what `owner.attribute` dispatches to, and what it declares."""
 
+    def included(
+        self,
+        included: Any,  # noqa: ANN401
+        prefix: str,
+        *,
+        top: bool,
+    ) -> None:
+        """Take a router FastAPI included, found under `prefix`, before its routes."""
+
+    def contextual(
+        self,
+        route: Any,  # noqa: ANN401
+        context: Any,  # noqa: ANN401
+        declaration: RouteDeclaration,
+    ) -> None:
+        """Take a FastAPI route dispatched as itself, through `context` or directly."""
+
 
 def _walk_router(
     router: Router, prefix: str, visit: _Visitor, ancestry: frozenset[int]
@@ -94,10 +129,14 @@ def _walk_router(
     if id(router) in ancestry:
         return
     ancestry |= {id(router)}
+    if isinstance(router, fastapi.ROUTERS):
+        fastapi.require()
     visit.router(router, prefix)
     for route in list(router.routes):
         _walk_route(route, prefix, visit, ancestry)
     _walk_default(router, prefix, visit)
+    for route in list(fastapi.low_priority_routes(router)):
+        _walk_route(route, prefix, visit, ancestry)
 
 
 def _walk_route(
@@ -115,15 +154,81 @@ def _walk_route(
     if isinstance(route, Mount | Host):
         under = f"{prefix}{route.path}" if isinstance(route, Mount) else prefix
         inner, app = _inner_router(route.app)
-        whole = None if inner is route.app else RouteDeclaration(under or "/")
-        visit.mount(route, prefix, whole)
+        whole = (
+            None
+            if inner is route.app
+            or (inner is not None and _opens(inner, under, ancestry))
+            else RouteDeclaration(under or "/")
+        )
+        within = visit.mount(route, prefix, whole)
         if app is not None:
-            visit.app(app, under)
+            within.app(app, under)
         if inner is not None:
-            _walk_router(inner, under, visit, ancestry)
+            _walk_router(inner, under, within, ancestry)
         return
     path = f"{prefix}{getattr(route, 'path', '')}" or "/"
+    if fastapi.is_included(route):
+        _walk_included(route, prefix, visit, ancestry, top=True)
+        return
+    if fastapi.is_dispatched_as_itself(route):
+        visit.contextual(route, None, _dependant_declaration(route, path))
+        return
+    if fastapi.is_websocket_route(route):
+        visit.route(
+            route, "handle", path, [_dependant_declaration(route, path)]
+        )
+        return
     visit.route(route, "handle", path, _declarations(route, path))
+
+
+def _walk_included(
+    included: Any,  # noqa: ANN401
+    prefix: str,
+    visit: _Visitor,
+    ancestry: frozenset[int],
+    *,
+    top: bool,
+) -> None:
+    """Walk what FastAPI dispatches to through an included router.
+
+    A `top` include, one a router holds itself, is walked with its
+    frontend routes.
+    """
+    visit.included(included, prefix, top=top)
+    for candidate in fastapi.candidates(included, top=top):
+        _walk_candidate(candidate, prefix, visit, ancestry)
+
+
+def _walk_candidate(
+    candidate: Any,  # noqa: ANN401
+    prefix: str,
+    visit: _Visitor,
+    ancestry: frozenset[int],
+) -> None:
+    """Walk one context FastAPI built for an include, or an include within it."""
+    if fastapi.is_included(candidate):
+        _walk_included(candidate, prefix, visit, ancestry, top=False)
+        return
+    copy = fastapi.copy_of(candidate)
+    if copy is not None:
+        _walk_route(copy, prefix, visit, ancestry)
+        return
+    path = f"{prefix}{fastapi.path_of(candidate)}" or "/"
+    visit.contextual(
+        fastapi.original_of(candidate),
+        candidate,
+        _dependant_declaration(candidate, path),
+    )
+
+
+def _opens(router: Router, prefix: str, ancestry: frozenset[int]) -> bool:
+    """Return whether a route under `router` serves a caller with no credential.
+
+    The routers in `ancestry` are not walked again.
+    """
+    listing = _Listing()
+    _walk_router(router, prefix, listing, ancestry)
+    return any(declaration.anonymous for declaration in listing.found)
 
 
 def _walk_default(router: Router, prefix: str, visit: _Visitor) -> None:
@@ -149,11 +254,11 @@ def _inner_router(
     seen: set[int] = set()
     while app is not None and id(app) not in seen:
         seen.add(id(app))
-        if type(app) is Router:
+        if type(app) in _ROUTERS:
             return app, None
         if isinstance(app, Starlette):
             router = app.router
-            return (router if type(router) is Router else None), app
+            return (router if type(router) in _ROUTERS else None), app
         if isinstance(app, BaseRoute | Router):
             return None, None
         app = getattr(app, "app", None)
@@ -211,6 +316,47 @@ def _scopes(target: object) -> frozenset[str]:
     return frozenset(declared_scopes(target) or ())
 
 
+def _dependant_declaration(owner: Any, path: str) -> RouteDeclaration:  # noqa: ANN401
+    """Return what a FastAPI route declares through the dependencies it runs.
+
+    It is anonymous when one of its own dependencies is `Anonymous()`, and
+    requires the scopes of every `Security` around each dependency that
+    reads the caller. Any other dependency is a check of its own. A
+    `CachedResponse()` caches a read that runs no check of its own.
+    """
+    declared = owner.dependant.dependencies  # codespell:ignore
+    anonymous = any(
+        is_anonymous_declaration(dependency.call) for dependency in declared
+    )
+    scopes: set[str] = set()
+    own_checks = False
+    cache: bool | float = False
+    pending = list(declared)
+    while pending:
+        dependency = pending.pop()
+        pending.extend(dependency.dependencies)
+        call = dependency.call
+        if declared_scopes(call) is not None:
+            scopes.update(dependency.parent_oauth_scopes or ())
+            scopes.update(dependency.own_oauth_scopes or ())
+        kept = declared_cache(call)
+        if kept is not False:
+            cache = kept
+        elif not is_anonymous_declaration(call):
+            own_checks = True
+    methods = frozenset(getattr(owner, "methods", None) or ()) or None
+    if own_checks or methods is None or not methods <= _READS:
+        cache = False
+    return RouteDeclaration(
+        path,
+        methods=methods,
+        anonymous=anonymous,
+        scopes=frozenset(scopes),
+        own_checks=own_checks,
+        cache=cache,
+    )
+
+
 class _Listing:
     """Collects every declaration a walk finds."""
 
@@ -226,10 +372,11 @@ class _Listing:
         mount: Mount | Host,  # noqa: ARG002
         prefix: str,  # noqa: ARG002
         whole: RouteDeclaration | None,
-    ) -> None:
+    ) -> _Listing:
         """List the declaration a mount is gated as a whole with, if any."""
         if whole is not None:
             self.found.append(whole)
+        return self
 
     def app(self, app: Starlette, prefix: str) -> None:
         """List nothing for an app, whose router is listed on its own."""
@@ -243,6 +390,24 @@ class _Listing:
     ) -> None:
         """List what one route declares, or the default a router answers with."""
         self.found.extend(declarations or [RouteDeclaration(path)])
+
+    def included(
+        self,
+        included: Any,  # noqa: ANN401
+        prefix: str,
+        *,
+        top: bool,
+    ) -> None:
+        """List nothing for an include, whose routes are listed on their own."""
+
+    def contextual(
+        self,
+        route: Any,  # noqa: ANN401, ARG002
+        context: Any,  # noqa: ANN401, ARG002
+        declaration: RouteDeclaration,
+    ) -> None:
+        """List what a FastAPI route declares where it is dispatched."""
+        self.found.append(declaration)
 
 
 def declarations_of(app: Starlette) -> list[RouteDeclaration]:
@@ -264,12 +429,15 @@ class _Held:
         "prefixes",
         "router",
         "routes",
+        "within",
     )
 
     def __init__(self, handle: Any) -> None:  # noqa: ANN401
         """Hold nothing yet, keeping the `handle` it dispatched with."""
         self.gates: list[Gate] = []
         self.prefixes: list[str] = []
+        self.within: list[_Held] = []
+        """The mounts it sits under, each opened by an anonymous route landing there."""
         self.handle = handle
         self.door: Any = None
         self.routes: Any = None
@@ -281,9 +449,13 @@ class _Held:
 class _Gating:
     """Wraps what each route dispatches to with its gates, and holds each router."""
 
-    def __init__(self, gates: list[Gate]) -> None:
-        """Gate with every gate in `gates`, the first wrapping and the others counting."""
+    def __init__(self, gates: list[Gate], within: Iterable[_Held] = ()) -> None:
+        """Gate with every gate in `gates`, the first wrapping and the others counting.
+
+        `within` is each mount the routes sit under.
+        """
         self.gates = gates
+        self.within = tuple(within)
 
     def _hold(self, owner: Any, prefix: str) -> tuple[_Held, bool]:  # noqa: ANN401
         """Return what `owner` is held with, and whether it was held just now."""
@@ -296,21 +468,29 @@ class _Gating:
                 held.gates.append(gate)
         if prefix not in held.prefixes:
             held.prefixes.append(prefix)
+        held.within.extend(
+            mount for mount in self.within if mount not in held.within
+        )
         return held, new
+
+    def _open(self, declarations: Iterable[RouteDeclaration]) -> None:
+        """Open each mount the routes sit under, when one of them is anonymous."""
+        if any(declaration.anonymous for declaration in declarations):
+            for mount in self.within:
+                mount.door = mount.handle
 
     def _gated(
         self,
         app: ASGIApp,
         declarations: list[RouteDeclaration],
-        own: str,
+        name: Callable[[Scope], str],
         *,
         door: bool = False,
     ) -> ASGIApp:
-        """Return `app` gated by every gate, named by `own` under its mounts.
+        """Return `app` gated by every gate, its refusals named by `name`.
 
         A door runs no lane.
         """
-        name = functools.partial(_path_under_mounts, own)
         for gate in self.gates:
             app = gate(app, *declarations, name=name, door=door)
         return app
@@ -320,6 +500,10 @@ class _Gating:
         held, new = self._hold(router, prefix)
         held.routes = _own_routes(router)
         held.default = router.default
+        if isinstance(router, fastapi.ROUTERS):
+            low = fastapi.low_priority_routes(router)
+            if not isinstance(low, _GatedRoutes):
+                fastapi.gate_low_priority(router, _GatedRoutes(low, router))
         if new:
             router.middleware_stack = _guarded_router(  # type: ignore[assignment]
                 router, held, router.middleware_stack
@@ -330,21 +514,29 @@ class _Gating:
         mount: Mount | Host,
         prefix: str,
         whole: RouteDeclaration | None,
-    ) -> None:
-        """Hold `mount`, checking its app on each request, gated as a whole if asked."""
+    ) -> _Gating:
+        """Hold `mount`, checking its app on each request, gated as a whole if asked.
+
+        Returns what gates the routes under it, which opens the mount
+        when one of them is anonymous.
+        """
         held, _ = self._hold(mount, prefix)
+        within = _Gating(self.gates, (*self.within, held))
         opaque = _inner_router(mount.app)[0] is None
         if held.app is mount.app:
             if whole is not None:
-                self._gated(held.door, [whole], "", door=not opaque)
-            return
+                self._gated(held.door, [whole], _UNDER_MOUNTS, door=not opaque)
+            return within
         held.app = mount.app
         held.door = (
             held.handle
             if whole is None
-            else self._gated(held.handle, [whole], "", door=not opaque)
+            else self._gated(
+                held.handle, [whole], _UNDER_MOUNTS, door=not opaque
+            )
         )
         mount.handle = _guarded_mount(mount, held)  # type: ignore[method-assign,assignment]  # ty: ignore[invalid-assignment]
+        return within
 
     def app(self, app: Starlette, prefix: str) -> None:
         """Hold a mounted Starlette app, gating the router it builds its stack with.
@@ -361,7 +553,7 @@ class _Gating:
 
         def build_middleware_stack() -> ASGIApp:
             if app.router is not held.router:
-                gating = _Gating(held.gates)
+                gating = _Gating(held.gates, held.within)
                 for under in tuple(held.prefixes):
                     _walk_router(app.router, under, gating, frozenset())
                 held.router = app.router
@@ -389,11 +581,52 @@ class _Gating:
             self._gated(
                 getattr(owner, attribute),
                 declarations or [RouteDeclaration(path)],
-                own,
+                functools.partial(_path_under_mounts, own),
             ),
         )
         if attribute == "default":
             owner.__dict__[_HELD].default = owner.default
+        self._open(declarations)
+
+    def included(
+        self,
+        included: Any,  # noqa: ANN401
+        prefix: str,
+        *,
+        top: bool,
+    ) -> None:
+        """Hold an include, gating each list of contexts FastAPI builds for it later."""
+        held, new = self._hold(included, prefix)
+        if new:
+            fastapi.watch(
+                included,
+                top=top,
+                changed=functools.partial(_regate_candidates, held),
+            )
+
+    def contextual(
+        self,
+        route: Any,  # noqa: ANN401
+        context: Any,  # noqa: ANN401
+        declaration: RouteDeclaration,
+    ) -> None:
+        """Gate a FastAPI route where it is dispatched, directly or through `context`.
+
+        The route dispatches each request to the gated handler of the
+        context FastAPI routed it through, or of the route itself. A
+        refusal names the route by its own path, under the root path the
+        request arrived at, as the access log does.
+        """
+        held, new = self._hold(route, "")
+        if new:
+            route.handle = _chosen(route, held)
+        owner = route if context is None else context
+        owner.__dict__[_TARGET] = self._gated(
+            owner.__dict__.get(_TARGET, held.handle),
+            [declaration],
+            functools.partial(template_under_root, _own_path(route, context)),
+        )
+        self._open((declaration,))
 
 
 def gate_routes(app: Starlette, gate: Gate) -> None:
@@ -428,9 +661,13 @@ def _path_under_mounts(own: str, scope: Scope) -> str:
     return f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
 
 
+_UNDER_MOUNTS: Final = functools.partial(_path_under_mounts, "")
+"""Names a mount's refusal by the mounts the request came through."""
+
+
 def _regate(owner: Any, held: _Held) -> None:  # noqa: ANN401
     """Gate again what `owner` holds now, at every path it sits under."""
-    gating = _Gating(held.gates)
+    gating = _Gating(held.gates, held.within)
     for prefix in tuple(held.prefixes):
         if isinstance(owner, Router):
             _walk_router(owner, prefix, gating, frozenset())
@@ -459,7 +696,6 @@ def _guarded_mount(mount: Mount | Host, held: _Held) -> ASGIApp:
     refusal names its route by.
     """
     own = mount.path if isinstance(mount, Mount) else ""
-    door = held.door
 
     def guarded(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
         if mount.app is not held.app:
@@ -467,9 +703,49 @@ def _guarded_mount(mount: Mount | Host, held: _Held) -> ASGIApp:
             return mount.handle(scope, receive, send)
         if own:
             scope[_PREFIX_KEY] = f"{scope.get(_PREFIX_KEY, '')}{own}"
-        return door(scope, receive, send)
+        return held.door(scope, receive, send)
 
     return guarded
+
+
+def _regate_candidates(held: _Held, found: list[Any]) -> None:
+    """Gate the contexts FastAPI built anew for an include, at every path it sits under."""
+    gating = _Gating(held.gates, held.within)
+    for prefix in tuple(held.prefixes):
+        for candidate in found:
+            _walk_candidate(candidate, prefix, gating, frozenset())
+
+
+def _chosen(route: Any, held: _Held) -> ASGIApp:  # noqa: ANN401
+    """Return what a FastAPI route dispatches to: the gated handler of the request's context.
+
+    That of the context FastAPI routed the request through, or of the
+    route itself. One neither was gated for, reached from an app no walk
+    gated, is gated where it is met, with no path above its own.
+    """
+
+    def chosen(scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
+        context = fastapi.context_of(scope, route)
+        owner = route if context is None else context
+        target = owner.__dict__.get(_TARGET)
+        if target is None:
+            path = _own_path(route, context) or "/"
+            _Gating(held.gates, held.within).contextual(
+                route, context, _dependant_declaration(owner, path)
+            )
+            target = owner.__dict__[_TARGET]
+        return target(scope, receive, send)
+
+    return chosen
+
+
+def _own_path(route: Any, context: Any) -> str:  # noqa: ANN401
+    """Return a FastAPI route's own path, under the include `context` dispatches it through."""
+    return (
+        getattr(route, "path", "")
+        if context is None
+        else fastapi.path_of(context)
+    )
 
 
 def _own_routes(router: Router) -> _GatedRoutes:
@@ -496,7 +772,7 @@ class _GatedRoutes(list[Any]):
         """Gate `routes` at every path the router sits under."""
         owner = self.owner
         held: _Held = owner.__dict__[_HELD]
-        gating = _Gating(held.gates)
+        gating = _Gating(held.gates, held.within)
         for prefix in tuple(held.prefixes):
             for route in routes:
                 _walk_route(route, prefix, gating, frozenset({id(owner)}))

@@ -867,6 +867,60 @@ class TestUngated:
         assert client.get("/catalog").json() == {"open": True}
         assert client.get("/nowhere").status_code == UNAUTHORIZED
 
+    def test_an_integration_without_hooks_serves_a_public_route_nothing_rivals(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Decided before routing, from the routes it reads off the app."""
+        monkeypatch.setattr(
+            "grelmicro._app.load_integration",
+            lambda app: fake_integration(gates=False, listed=()),  # noqa: ARG005
+        )
+        app = public_catalog()
+
+        @app.get("/items/featured", dependencies=[Anonymous()])
+        async def featured() -> dict[str, bool]:
+            return {"featured": True}  # pragma: no cover
+
+        @app.get("/items/{item_id}")
+        async def item(item_id: str) -> dict[str, str]:
+            return {"item": item_id}  # pragma: no cover
+
+        @app.get("/shelf/", dependencies=[Anonymous()])
+        async def shelf() -> dict[str, bool]:
+            return {"shelf": True}
+
+        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+        with TestClient(app) as client:
+            rivalled = client.get("/items/featured")
+            redirected = client.get("/shelf", follow_redirects=False)
+            root = client.get("/")
+
+            app.router.redirect_slashes = False
+            reread = client.get("/catalog")
+
+        assert rivalled.status_code == UNAUTHORIZED
+        assert redirected.status_code == REDIRECT
+        assert root.status_code == UNAUTHORIZED
+        assert reread.json() == {"open": True}
+
+    def test_an_integration_without_hooks_refuses_an_app_with_no_public_route(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Before routing, whatever the URL."""
+        monkeypatch.setattr(
+            "grelmicro._app.load_integration",
+            lambda app: fake_integration(gates=False, listed=()),  # noqa: ARG005
+        )
+        app = FastAPI(openapi_url=None)
+
+        @app.get("/orders")
+        async def orders() -> list[str]:
+            return []  # pragma: no cover
+
+        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+
+        assert TestClient(app).get("/orders").status_code == UNAUTHORIZED
+
     def test_without_authentication_no_route_is_gated(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1711,6 +1765,17 @@ class TestDeclarations:
             RouteDeclaration("/wrapped/b", methods=frozenset({"POST"})),
             RouteDeclaration("/static"),
             RouteDeclaration("/fastapi"),
+            *(
+                RouteDeclaration(
+                    f"/fastapi{path}", methods=frozenset({"GET", "HEAD"})
+                )
+                for path in (
+                    "/openapi.json",
+                    "/docs",
+                    "/docs/oauth2-redirect",
+                    "/redoc",
+                )
+            ),
             RouteDeclaration("/h", methods=frozenset({"GET", "HEAD"})),
             RouteDeclaration("/"),
             RouteDeclaration("/asgi"),
@@ -1785,22 +1850,6 @@ class TestOpaque:
         assert refused.status_code == UNAUTHORIZED
         assert served_file.text == "counted"
         assert counted.calls == 1
-
-    def test_a_mounted_fastapi_app_is_one_protected_route(self) -> None:
-        """Its routes are not Starlette's own, so `Anonymous()` is not read."""
-        sub = FastAPI(openapi_url=None)
-
-        @sub.get("/open", dependencies=[Anonymous()])
-        async def opened() -> dict[str, bool]:
-            return {"open": True}
-
-        app = installed(Starlette(routes=[Mount("/api", app=sub)]))
-        client = TestClient(app)
-
-        assert client.get("/api/open").status_code == UNAUTHORIZED
-        assert client.get("/api/open", headers=bearer(token())).json() == {
-            "open": True
-        }
 
     def test_a_mount_dispatching_past_its_router_is_one_protected_route(
         self,

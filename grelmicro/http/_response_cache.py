@@ -279,6 +279,19 @@ def declare_cached(
     return cached_response
 
 
+def declared_cache(call: object) -> bool | float:
+    """Return what a dependency declares of its route's response cache.
+
+    `False` for one that is not `CachedResponse()`, `True` for one keeping
+    the response for the component's TTL, and the seconds of its own TTL
+    otherwise.
+    """
+    ttl = getattr(call, _MARKER, _UNMARKED)
+    if ttl is _UNMARKED:
+        return False
+    return True if ttl is None else ttl
+
+
 class _Unset:
     """Stands for an argument the caller did not pass.
 
