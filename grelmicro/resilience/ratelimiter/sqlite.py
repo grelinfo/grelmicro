@@ -353,7 +353,7 @@ class _SQLiteGCRA(RateLimiterStrategy):
         """Async acquire (GCRA)."""
         full_key = f"{self._key_prefix}{key}"
         now = time()
-        increment = self._emission_interval * cost
+        increment = self._window * cost / self._limit
         async with self._lock:
             await self._conn.execute("BEGIN IMMEDIATE;")
             try:

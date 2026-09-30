@@ -104,7 +104,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
-* 🐛 The seconds until a sliding window resets no longer come out one second too many when the clock sits just below a power of two. A `20` second window could report `t=21` in the `RateLimit` header. ([#950](https://github.com/grelinfo/grelmicro/issues/950))
+* 🐛 The `RateLimit` and `X-RateLimit-Reset` headers no longer state one second too many until the quota is back. A `20` second window could report `t=21`. ([#950](https://github.com/grelinfo/grelmicro/issues/950))
 * 🐛 On FastAPI, `http.route` in the access log and the authentication metrics carries the prefixes of the routers a route is included by. A request authentication refuses names the same `http.route` in the access log as in the authentication metrics, on every framework. ([#953](https://github.com/grelinfo/grelmicro/issues/953))
 * 🐛 A FastAPI app mounted in an app that `micro.install(app)` protects answers `403` for a missing scope, not `500`. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 🐛 A Litestar app mounted under another Litestar app serves its routes with idempotency, the response cache, rate limiting and conditional requests installed, and records no `http.route` for a URL it has no route for. ([#947](https://github.com/grelinfo/grelmicro/issues/947))
