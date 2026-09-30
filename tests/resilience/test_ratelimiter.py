@@ -683,8 +683,8 @@ async def test_sliding_window_strategy_evicts_expired_keys(
         backend=backend,
     )
     # Seed two fully-expired GCRA entries (TAT in the distant past).
-    backend._gcra_state["evict:stale_a"] = 0.0
-    backend._gcra_state["evict:stale_b"] = 0.0
+    backend._gcra_state["evict:stale_a"] = 0
+    backend._gcra_state["evict:stale_b"] = 0
 
     # Act: next acquire pushes past the threshold and evicts.
     await limiter.acquire(key="active")

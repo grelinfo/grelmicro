@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import re
 from time import time
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
@@ -18,7 +17,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
-from grelmicro.resilience.ratelimiter._base import CLOCK_TOLERANCE
+from grelmicro.resilience.ratelimiter import _gcra
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -315,13 +314,14 @@ class _SQLiteTokenBucket(RateLimiterStrategy):
 class _SQLiteGCRA(RateLimiterStrategy):
     """SQLite GCRA strategy. Private.
 
-    Stores the theoretical arrival time (TAT) in the `tokens` column.
+    Stores the theoretical arrival time (TAT), in microseconds, in the
+    `tokens` column.
     Prepends a per-algorithm discriminator to every key so a GCRA
     limiter and a token-bucket limiter sharing the same name cannot
     collide on the shared `{table_name}` table.
     """
 
-    _ALGO_PREFIX = "gcra:"
+    _ALGO_PREFIX = "gcra_us:"
 
     _SQL_SELECT = "SELECT tokens FROM {table_name} WHERE key = ?;"
     _SQL_UPSERT = """
@@ -347,14 +347,13 @@ class _SQLiteGCRA(RateLimiterStrategy):
         self._upsert_sql = self._SQL_UPSERT.format(table_name=table_name)
         self._delete_sql = self._SQL_DELETE.format(table_name=table_name)
         self._limit = config.limit
-        self._window = config.window
-        self._emission_interval = config.window / config.limit
+        self._emission = _gcra.emission_interval(config.window, config.limit)
 
     async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
         """Async acquire (GCRA)."""
         full_key = f"{self._key_prefix}{key}"
-        now = time()
-        increment = self._window * cost / self._limit
+        seconds = time()
+        now = _gcra.to_microseconds(seconds)
         async with self._lock:
             await self._conn.execute("BEGIN IMMEDIATE;")
             try:
@@ -362,70 +361,37 @@ class _SQLiteGCRA(RateLimiterStrategy):
                     self._select_sql, (full_key,)
                 ) as cursor:
                     row = await cursor.fetchone()
-                tat = now if row is None else row[0]
-                gap = max(0.0, tat - now)
-                reset_after = gap + increment
-                diff = self._window - reset_after
-                remaining = math.floor(
-                    (diff + CLOCK_TOLERANCE) / self._emission_interval
+                decision = _gcra.acquire(
+                    tat=now if row is None else int(row[0]),
+                    now=now,
+                    cost=cost,
+                    limit=self._limit,
+                    emission=self._emission,
                 )
-                if remaining < 0:
-                    await self._conn.execute("COMMIT;")
-                    return RateLimitResult(
-                        allowed=False,
-                        limit=self._limit,
-                        remaining=0,
-                        retry_after=max(0.0, -diff),
-                        reset_after=gap,
+                if decision.tat is not None:
+                    await self._conn.execute(
+                        self._upsert_sql, (full_key, decision.tat, seconds)
                     )
-                await self._conn.execute(
-                    self._upsert_sql,
-                    (full_key, max(tat, now) + increment, now),
-                )
                 await self._conn.execute("COMMIT;")
             except BaseException:
                 await self._conn.execute("ROLLBACK;")
                 raise
-            return RateLimitResult(
-                allowed=True,
-                limit=self._limit,
-                remaining=remaining,
-                retry_after=0.0,
-                reset_after=reset_after,
-            )
+            return decision.result
 
     async def peek(self, *, key: str) -> RateLimitResult:
         """Async peek (GCRA)."""
         full_key = f"{self._key_prefix}{key}"
-        now = time()
+        now = _gcra.to_microseconds(time())
         async with (
             self._lock,
             self._conn.execute(self._select_sql, (full_key,)) as cursor,
         ):
             row = await cursor.fetchone()
-        tat = now if row is None else row[0]
-        gap = max(0.0, tat - now)
-        diff = self._window - gap
-        remaining = math.floor(
-            (diff + CLOCK_TOLERANCE) / self._emission_interval
-        )
-        if remaining <= 0:
-            retry_after = (
-                -diff if remaining < 0 else self._emission_interval - diff
-            )
-            return RateLimitResult(
-                allowed=False,
-                limit=self._limit,
-                remaining=0,
-                retry_after=max(0.0, retry_after),
-                reset_after=gap,
-            )
-        return RateLimitResult(
-            allowed=True,
+        return _gcra.peek(
+            tat=now if row is None else int(row[0]),
+            now=now,
             limit=self._limit,
-            remaining=remaining,
-            retry_after=0.0,
-            reset_after=gap,
+            emission=self._emission,
         )
 
     async def reset(self, *, key: str) -> None:

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 💥 A sliding window counts time in whole microseconds, on every backend, so each decision is exact. Its stored state moves to new keys (`gcra_us:`) and new Postgres functions, so limits start empty after the upgrade. A slot is its window divided by the limit, truncated to the microsecond. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))

@@ -244,21 +244,17 @@ async def test_sliding_window_reset_after_exact_below_power_of_two() -> None:
 
 
 @pytest.mark.usefixtures("clock")
-async def test_sliding_window_reset_after_exact_when_cost_spends_the_limit() -> (
-    None
-):
-    """Acquire spending the whole limit reports exactly the window."""
-    window = 3.0
+async def test_sliding_window_reset_after_whole_limit_stays_in_window() -> None:
+    """Acquire spending the whole limit reports its whole-microsecond slots."""
     limit = 187
-    # window / limit * limit rounds to 3.0000000000000004.
-    rl = RateLimiter.sliding_window(
-        "sw-whole-limit", limit=limit, window=window
-    )
+    # 187 slots of 3_000_000 // 187 = 16_042 microseconds each.
+    expected_reset = 2.999854
+    rl = RateLimiter.sliding_window("sw-whole-limit", limit=limit, window=3.0)
 
     result = await rl.acquire(cost=limit)
 
     assert result.allowed is True
-    assert result.reset_after == window
+    assert result.reset_after == expected_reset
 
 
 async def test_sliding_window_refuses_a_request_before_its_slot(

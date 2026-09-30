@@ -5,13 +5,6 @@ from typing import Annotated
 from pydantic import BaseModel
 from typing_extensions import Doc
 
-CLOCK_TOLERANCE = 1e-6
-"""Seconds a sliding window forgives for float rounding.
-
-A request this close to its slot is admitted, and `remaining` counts a
-slot this close to opening.
-"""
-
 
 class _BaseRateLimiterConfig(BaseModel, frozen=True, extra="forbid"):
     """Common fields shared by every rate-limiter algorithm config.

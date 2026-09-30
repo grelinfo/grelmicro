@@ -20,16 +20,17 @@ from [Upstash Ratelimit](https://github.com/upstash/ratelimit):
 
 - `_RedisTokenBucket._LUA_ACQUIRE` and `_LUA_PEEK`: hash-based
   storage pattern (`HMGET` / `HSET` with `tokens` and `last`
-  fields) and overall structural shape.
+  fields), overall structural shape, and the Jan 1 2017 timestamp
+  offset used to preserve double-precision accuracy in Redis
+  server-time arithmetic.
 - `_RedisGCRA._LUA_ACQUIRE` and `_LUA_PEEK`: GCRA formulation
-  (emission interval, TAT, burst offset) and the Jan 1 2017
-  timestamp offset used to preserve double-precision accuracy in
-  Redis server-time arithmetic.
+  (emission interval, TAT, burst offset).
 
 Adaptations for grelmicro:
 
 - Server-side `redis.call("TIME")` for cross-process clock
   consistency.
+- GCRA arithmetic in whole microseconds, so every comparison is exact.
 - Continuous token-bucket refill by `refill_rate` (tokens per
   second) rather than Upstash's discrete-interval refills.
 - Result payload shaped to match grelmicro's `RateLimitResult`
