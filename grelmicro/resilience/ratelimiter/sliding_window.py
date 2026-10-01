@@ -1,10 +1,11 @@
 """Sliding-window rate-limiter configuration."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import PositiveFloat, PositiveInt
+from pydantic import PositiveFloat, PositiveInt, model_validator
 from typing_extensions import Doc
 
+from grelmicro.resilience.ratelimiter import _gcra
 from grelmicro.resilience.ratelimiter._base import _BaseRateLimiterConfig
 
 
@@ -43,5 +44,20 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
 
     window: Annotated[
         PositiveFloat,
-        Doc("Window duration in seconds."),
+        Doc(
+            """
+            Window duration in seconds, counted in whole microseconds.
+
+            Each request gets `window / limit`, truncated to the
+            microsecond, and must get at least one microsecond.
+            """
+        ),
     ]
+
+    @model_validator(mode="after")
+    def _check_slot(self) -> Self:
+        """Refuse a window that gives each request under a microsecond."""
+        if _gcra.to_microseconds(self.window) < self.limit:
+            msg = "window / limit must be at least one microsecond"
+            raise ValueError(msg)
+        return self

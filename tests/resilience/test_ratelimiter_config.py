@@ -135,3 +135,16 @@ def test_bare_constructor_names_the_three_doors() -> None:
     assert "token_bucket" in message
     assert "sliding_window" in message
     assert "from_config" in message
+
+
+def test_sliding_window_slot_under_a_microsecond_is_refused() -> None:
+    """A window that gives each request less than a microsecond is refused."""
+    with pytest.raises(ValueError, match="at least one microsecond"):
+        SlidingWindowConfig(limit=10, window=0.000001)
+
+
+def test_sliding_window_slot_of_a_microsecond_is_accepted() -> None:
+    """A window that gives each request one microsecond is accepted."""
+    config = SlidingWindowConfig(limit=10, window=0.00001)
+
+    assert config.limit == LIMIT

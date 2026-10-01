@@ -21,8 +21,8 @@ def to_microseconds(seconds: float) -> int:
 
 
 def emission_interval(window: float, limit: int) -> int:
-    """Return the microseconds one request spends, truncated, at least one."""
-    return max(1, to_microseconds(window) // limit)
+    """Return the microseconds one request spends, truncated."""
+    return to_microseconds(window) // limit
 
 
 class Decision(NamedTuple):
