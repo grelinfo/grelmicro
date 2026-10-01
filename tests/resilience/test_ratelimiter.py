@@ -36,7 +36,7 @@ async def checkpoint() -> None:
 pytestmark = [pytest.mark.timeout(1)]
 
 LIMIT = 5
-WINDOW = 60.0
+WINDOW = 60
 CAPACITY = 5
 REFILL_RATE = 1.0
 

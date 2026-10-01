@@ -35,6 +35,10 @@ from grelmicro.http._component import ErrorResponses, send_error
 from grelmicro.resilience._protocol import RateLimitResult
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter import _config_limit, _validate_cost
+from grelmicro.resilience.ratelimiter._gcra import (
+    MICROSECONDS,
+    window_microseconds,
+)
 from grelmicro.resilience.ratelimiter.sliding_window import (
     SlidingWindowConfig,
 )
@@ -189,9 +193,12 @@ def _window_of(limiter: RateLimiter) -> int | None:
     client to pace itself faster than the limiter allows.
     """
     config = limiter._state.config  # noqa: SLF001
-    if isinstance(config, SlidingWindowConfig) and config.window >= 1:
-        return ceil(config.window)
-    return None
+    if not isinstance(config, SlidingWindowConfig):
+        return None
+    window = window_microseconds(config.window)
+    if window < MICROSECONDS:
+        return None
+    return -(-window // MICROSECONDS)
 
 
 def _seconds_until_reset(result: RateLimitResult) -> int:

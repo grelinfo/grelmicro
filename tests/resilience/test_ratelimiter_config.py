@@ -1,5 +1,7 @@
 """Tests for RateLimiter configuration paths."""
 
+from datetime import timedelta
+
 import pytest
 from pydantic import TypeAdapter
 
@@ -12,7 +14,7 @@ from grelmicro.resilience.ratelimiter import (
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 
 LIMIT = 10
-WINDOW = 60.0
+WINDOW = 60
 CAPACITY = 5
 REFILL_RATE = 1.0
 
@@ -137,20 +139,52 @@ def test_bare_constructor_names_the_three_doors() -> None:
     assert "from_config" in message
 
 
+@pytest.mark.parametrize("window", [1.5, 60.0, True])
+def test_sliding_window_refuses_a_float_window(window: object) -> None:
+    """A window is whole seconds or a timedelta, never a float."""
+    with pytest.raises(ValueError, match="whole seconds or a timedelta"):
+        SlidingWindowConfig(limit=LIMIT, window=window)
+
+
+@pytest.mark.parametrize("window", [0, -1, timedelta(0), timedelta(seconds=-1)])
+def test_sliding_window_refuses_a_window_that_is_not_positive(
+    window: int | timedelta,
+) -> None:
+    """A window of zero or less is refused."""
+    with pytest.raises(ValueError, match="greater than zero"):
+        SlidingWindowConfig(limit=LIMIT, window=window)
+
+
+def test_sliding_window_takes_a_timedelta_under_a_second() -> None:
+    """A sub-second window is a timedelta."""
+    config = SlidingWindowConfig(
+        limit=LIMIT, window=timedelta(milliseconds=500)
+    )
+
+    assert config.window == timedelta(milliseconds=500)
+
+
+@pytest.mark.parametrize(
+    ("raw", "window"),
+    [("60", 60), ("PT0.5S", timedelta(milliseconds=500))],
+)
+def test_sliding_window_reads_a_window_from_text(
+    raw: str, window: int | timedelta
+) -> None:
+    """Text from the environment is whole seconds or an ISO 8601 duration."""
+    config = SlidingWindowConfig.model_validate({"limit": LIMIT, "window": raw})
+
+    assert config.window == window
+
+
 def test_sliding_window_slot_under_a_microsecond_is_refused() -> None:
     """A window that gives each request less than a microsecond is refused."""
     with pytest.raises(ValueError, match="at least one microsecond"):
-        SlidingWindowConfig(limit=10, window=0.000001)
+        SlidingWindowConfig(limit=10, window=timedelta(microseconds=9))
 
 
 def test_sliding_window_slot_of_a_microsecond_is_accepted() -> None:
     """A window that gives each request one microsecond is accepted."""
-    config = SlidingWindowConfig(limit=10, window=0.00001)
+    config = SlidingWindowConfig(limit=10, window=timedelta(microseconds=10))
 
     assert config.limit == LIMIT
-
-
-def test_sliding_window_slot_rounding_up_to_a_microsecond_is_refused() -> None:
-    """A window just under a microsecond per request is refused, not rounded up."""
-    with pytest.raises(ValueError, match="at least one microsecond"):
-        SlidingWindowConfig(limit=10, window=0.0000096)

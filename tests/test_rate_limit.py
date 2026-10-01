@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import replace
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import anyio
@@ -49,7 +50,9 @@ PROXIES = ("10.0.0.0/8",)
 TWO_METERS = 2
 
 
-def _limiter(name: str, limit: int, window: float = WINDOW) -> RateLimiter:
+def _limiter(
+    name: str, limit: int, window: int | timedelta = WINDOW
+) -> RateLimiter:
     """Return a limiter over a backend of its own."""
     return RateLimiter.sliding_window(
         name, limit=limit, window=window, backend=MemoryRateLimiterAdapter()
@@ -761,7 +764,7 @@ def test_a_reset_is_rounded_up() -> None:
 def test_a_window_is_never_published_shorter_than_it_is() -> None:
     """Published short, it invites a pace the limiter refuses."""
     # Arrange
-    app = _app(_limiter("api", 10, window=1.4))
+    app = _app(_limiter("api", 10, window=timedelta(milliseconds=1400)))
     client = TestClient(app, client=CALLER)
 
     # Act
@@ -883,7 +886,7 @@ def test_the_superseded_fields_carry_the_meter_that_refuses_first() -> None:
 def test_a_window_shorter_than_a_second_states_no_policy() -> None:
     """A whole second would publish half the rate it enforces."""
     # Arrange
-    app = _app(_limiter("api", 100, window=0.5))
+    app = _app(_limiter("api", 100, window=timedelta(milliseconds=500)))
     client = TestClient(app, client=CALLER)
 
     # Act
@@ -1240,7 +1243,7 @@ async def test_a_burst_that_spends_the_quota_is_told_the_window() -> None:
     """A same-instant burst learns the quota comes back after the window."""
     # Arrange
     limit = 10
-    window = 1.0
+    window = 1
     limiter = _limiter("api", limit, window)
     app = _app(limiter, legacy_headers=True)
     transport = httpx.ASGITransport(app=app, client=CALLER)
@@ -1264,7 +1267,7 @@ async def test_a_burst_that_spends_the_quota_is_told_the_window() -> None:
 async def test_a_refusal_states_the_same_wait_in_every_header() -> None:
     """`Retry-After` and the quota reset state the same whole seconds."""
     # Arrange
-    window = 3.0
+    window = 3
     app = _app(_limiter("api", 1, window), legacy_headers=True)
     transport = httpx.ASGITransport(app=app, client=CALLER)
 

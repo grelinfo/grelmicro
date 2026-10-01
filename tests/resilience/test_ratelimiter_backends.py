@@ -28,7 +28,7 @@ from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 pytestmark = [pytest.mark.timeout(30)]
 
 LIMIT = 5
-WINDOW = 60.0
+WINDOW = 60
 CAPACITY = 5
 REFILL_RATE = 0.1  # slow enough to not refill between assertions
 
@@ -265,7 +265,7 @@ async def test_reset_only_affects_given_key(
 
 # --- Sliding window arithmetic (every backend, independent of timing) ---
 
-HOUR = 3600.0
+HOUR = 3600
 HALF_HOUR = 1800.0
 SLOW = 1.0
 """Seconds a test may take between two calls without changing its result."""
@@ -277,7 +277,7 @@ async def test_sliding_window_whole_limit_reports_its_slots(
     """Spending the whole limit reports the slots, truncated to microseconds."""
     # Arrange: 187 slots of 3_000_000 // 187 = 16_042 microseconds each.
     limit = 187
-    strategy = backend.bind(SlidingWindowConfig(limit=limit, window=3.0))
+    strategy = backend.bind(SlidingWindowConfig(limit=limit, window=3))
 
     # Act
     result = await strategy.acquire(key="sw_slots", cost=limit)

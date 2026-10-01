@@ -30,7 +30,7 @@ assert_type(Shield.slow("slow"), Shield)
 assert_type(
     RateLimiter.token_bucket("rl", capacity=10, refill_rate=1.0), RateLimiter
 )
-assert_type(RateLimiter.sliding_window("rl", limit=10, window=1.0), RateLimiter)
+assert_type(RateLimiter.sliding_window("rl", limit=10, window=1), RateLimiter)
 
 
 # --- Decorating preserves the wrapped signature ---

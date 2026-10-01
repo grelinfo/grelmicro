@@ -7,7 +7,8 @@ steps.
 
 from __future__ import annotations
 
-from decimal import Decimal
+import math
+from datetime import timedelta
 from typing import NamedTuple
 
 from grelmicro.resilience._protocol import RateLimitResult
@@ -15,23 +16,24 @@ from grelmicro.resilience._protocol import RateLimitResult
 MICROSECONDS = 1_000_000
 """Microseconds in a second."""
 
+_ONE_MICROSECOND = timedelta(microseconds=1)
+
 
 def to_microseconds(seconds: float) -> int:
-    """Return `seconds` as whole microseconds, rounded to the nearest."""
-    return round(seconds * MICROSECONDS)
+    """Return the clock reading `seconds` as whole microseconds, floored."""
+    return math.floor(seconds * MICROSECONDS)
 
 
-def whole_microseconds(seconds: float) -> int:
-    """Return the whole microseconds in the duration `seconds` as written.
+def window_microseconds(window: int | timedelta) -> int:
+    """Return `window`, whole seconds or a timedelta, in microseconds."""
+    if isinstance(window, timedelta):
+        return window // _ONE_MICROSECOND
+    return window * MICROSECONDS
 
-    The decimal value is floored, so `1.001` is 1_001_000 and `9.6e-6` is 9.
-    """
-    return int(Decimal(repr(seconds)) * MICROSECONDS)
 
-
-def emission_interval(window: float, limit: int) -> int:
+def emission_interval(window: int | timedelta, limit: int) -> int:
     """Return the microseconds one request spends, truncated."""
-    return whole_microseconds(window) // limit
+    return window_microseconds(window) // limit
 
 
 class Decision(NamedTuple):
