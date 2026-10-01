@@ -52,7 +52,8 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
             A float is refused. Use a `timedelta` for a window under a
             second, such as `timedelta(milliseconds=500)`. From text,
             such as an environment variable, it reads whole seconds
-            (`"60"`) or an ISO 8601 duration (`"PT0.5S"`).
+            (`"60"`) or a duration such as ISO 8601 `"PT0.5S"`. A
+            decimal number of seconds, such as `"1.5"`, is refused.
 
             Each request gets `window / limit`, truncated to the
             microsecond, and must get at least one microsecond. The

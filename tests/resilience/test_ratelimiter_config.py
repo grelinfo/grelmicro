@@ -206,3 +206,9 @@ def test_sliding_window_takes_a_window_of_a_hundred_years() -> None:
     config = SlidingWindowConfig(limit=LIMIT, window=timedelta(days=36_500))
 
     assert config.window == timedelta(days=36_500)
+
+
+def test_sliding_window_refuses_decimal_seconds_from_text() -> None:
+    """Text with a decimal number of seconds is refused, as a float is."""
+    with pytest.raises(ValueError, match="window"):
+        SlidingWindowConfig.model_validate({"limit": LIMIT, "window": "1.5"})
