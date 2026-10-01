@@ -18,6 +18,9 @@ MICROSECONDS = 1_000_000
 
 _ONE_MICROSECOND = timedelta(microseconds=1)
 
+MAX_WINDOW = timedelta(days=36_500)
+"""Longest sliding window, a hundred years."""
+
 
 def to_microseconds(seconds: float) -> int:
     """Return the clock reading `seconds` as whole microseconds, floored."""

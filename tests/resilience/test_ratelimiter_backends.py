@@ -308,3 +308,19 @@ async def test_sliding_window_refusal_waits_for_the_next_slot(
     assert peeked.allowed is False
     assert HALF_HOUR - SLOW < peeked.retry_after <= HALF_HOUR
     assert HOUR - SLOW < peeked.reset_after <= HOUR
+
+
+async def test_sliding_window_counts_a_limit_past_32_bits(
+    backend: RateLimiterBackend,
+) -> None:
+    """A limit past 2**31 reports its remaining requests exactly."""
+    # Arrange: three billion per hour, slots of 1_200 nanoseconds.
+    limit = 3_000_000_000
+    strategy = backend.bind(SlidingWindowConfig(limit=limit, window=HOUR))
+
+    # Act
+    result = await strategy.acquire(key="sw_wide", cost=1)
+
+    # Assert
+    assert result.allowed is True
+    assert result.remaining == limit - 1

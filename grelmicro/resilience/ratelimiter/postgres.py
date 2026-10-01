@@ -186,7 +186,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             p_cost BIGINT
         ) RETURNS TABLE(
             allowed BOOLEAN,
-            remaining INT,
+            remaining BIGINT,
             retry_after BIGINT,
             reset_after BIGINT
         ) AS $$
@@ -206,14 +206,14 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_reset := v_gap + p_emission * p_cost;
             v_diff := p_emission * p_limit - v_reset;
             IF v_diff < 0 THEN
-                RETURN QUERY SELECT FALSE, 0, -v_diff, v_gap;
+                RETURN QUERY SELECT FALSE, 0::BIGINT, -v_diff, v_gap;
             ELSE
                 INSERT INTO {table_name} (key, tokens, updated_at)
                 VALUES (p_key, v_now + v_reset, clock_timestamp())
                 ON CONFLICT (key) DO UPDATE
                     SET tokens = EXCLUDED.tokens, updated_at = EXCLUDED.updated_at;
                 RETURN QUERY SELECT
-                    TRUE, (v_diff / p_emission)::INT, 0::BIGINT, v_reset;
+                    TRUE, v_diff / p_emission, 0::BIGINT, v_reset;
             END IF;
         END;
         $$ LANGUAGE plpgsql;
@@ -226,7 +226,7 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             p_emission BIGINT
         ) RETURNS TABLE(
             allowed BOOLEAN,
-            remaining INT,
+            remaining BIGINT,
             retry_after BIGINT,
             reset_after BIGINT
         ) AS $$
@@ -241,10 +241,10 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
             v_gap := GREATEST(0, COALESCE(v_tat, v_now) - v_now);
             v_diff := p_emission * p_limit - v_gap;
             IF v_diff < p_emission THEN
-                RETURN QUERY SELECT FALSE, 0, p_emission - v_diff, v_gap;
+                RETURN QUERY SELECT FALSE, 0::BIGINT, p_emission - v_diff, v_gap;
             ELSE
                 RETURN QUERY SELECT
-                    TRUE, (v_diff / p_emission)::INT, 0::BIGINT, v_gap;
+                    TRUE, v_diff / p_emission, 0::BIGINT, v_gap;
             END IF;
         END;
         $$ LANGUAGE plpgsql;

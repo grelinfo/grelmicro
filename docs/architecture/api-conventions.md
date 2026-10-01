@@ -126,5 +126,8 @@ integers and every decision is exact. A float such as `1.001` is
 guess what was meant. From text, such as an environment variable, a window
 reads whole seconds (`"60"`) or an ISO 8601 duration (`"PT0.5S"`).
 
+A window is at most 100 years, so the time a backend stores stays an exact
+integer in every backend.
+
 A wait or a timeout passed to I/O stays a float of seconds, the type
 `asyncio` and HTTP clients take.

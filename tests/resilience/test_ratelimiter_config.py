@@ -188,3 +188,21 @@ def test_sliding_window_slot_of_a_microsecond_is_accepted() -> None:
     config = SlidingWindowConfig(limit=10, window=timedelta(microseconds=10))
 
     assert config.limit == LIMIT
+
+
+@pytest.mark.parametrize(
+    "window", [timedelta.max, timedelta(days=36_501), 36_501 * 86_400]
+)
+def test_sliding_window_refuses_a_window_over_a_hundred_years(
+    window: int | timedelta,
+) -> None:
+    """A window over a hundred years is refused."""
+    with pytest.raises(ValueError, match="at most 100 years"):
+        SlidingWindowConfig(limit=LIMIT, window=window)
+
+
+def test_sliding_window_takes_a_window_of_a_hundred_years() -> None:
+    """A window of a hundred years is accepted."""
+    config = SlidingWindowConfig(limit=LIMIT, window=timedelta(days=36_500))
+
+    assert config.window == timedelta(days=36_500)

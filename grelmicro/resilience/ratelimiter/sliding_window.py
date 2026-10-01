@@ -55,7 +55,8 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
             (`"60"`) or an ISO 8601 duration (`"PT0.5S"`).
 
             Each request gets `window / limit`, truncated to the
-            microsecond, and must get at least one microsecond.
+            microsecond, and must get at least one microsecond. The
+            window is at most 100 years.
             """
         ),
     ]
@@ -71,10 +72,13 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
 
     @model_validator(mode="after")
     def _check_slot(self) -> Self:
-        """Refuse a window of zero or less, or under a microsecond a request."""
+        """Refuse a window out of range, or under a microsecond a request."""
         window = _gcra.window_microseconds(self.window)
         if window <= 0:
             msg = "window must be greater than zero"
+            raise ValueError(msg)
+        if window > _gcra.window_microseconds(_gcra.MAX_WINDOW):
+            msg = "window must be at most 100 years"
             raise ValueError(msg)
         if window < self.limit:
             msg = "window / limit must be at least one microsecond"
