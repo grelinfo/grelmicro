@@ -103,3 +103,31 @@ middleware requires is part of your contract.
 Two words because they are two operations. Adding a route to the schema and
 annotating someone else's are not the same act, and a component that serves
 no route has nothing to include.
+
+## A quota window is whole seconds or a `timedelta`
+
+A window that defines a quota takes an `int` of seconds or a `timedelta`,
+never a float. `RateLimiter.sliding_window("api", limit=100, window=60)` is
+the common case, and `window=timedelta(milliseconds=500)` covers a window
+under a second.
+
+```python
+from datetime import timedelta
+
+from grelmicro.resilience import RateLimiter
+
+RateLimiter.sliding_window("api", limit=100, window=60)
+RateLimiter.sliding_window("burst", limit=10, window=timedelta(milliseconds=500))
+```
+
+Both are whole microseconds from the start, so the limiter compares
+integers and every decision is exact. A float such as `1.001` is
+`1000999.9999999999` microseconds, and a limiter that took it would have to
+guess what was meant. From text, such as an environment variable, a window
+reads whole seconds (`"60"`) or an ISO 8601 duration (`"PT0.5S"`).
+
+A window is at most 100 years, so the time a backend stores stays an exact
+integer in every backend.
+
+A wait or a timeout passed to I/O stays a float of seconds, the type
+`asyncio` and HTTP clients take.

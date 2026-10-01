@@ -28,7 +28,7 @@ from grelmicro.resilience.ratelimiter.redis import RedisRateLimiterAdapter
 pytestmark = [pytest.mark.timeout(30)]
 
 LIMIT = 5
-WINDOW = 60.0
+WINDOW = 60
 CAPACITY = 5
 REFILL_RATE = 0.1  # slow enough to not refill between assertions
 
@@ -261,3 +261,66 @@ async def test_reset_only_affects_given_key(
     result_b = await strategy.peek(key="reset_iso_b")
     assert result_a.remaining == LIMIT
     assert result_b.remaining == LIMIT - 1
+
+
+# --- Sliding window arithmetic (every backend, independent of timing) ---
+
+HOUR = 3600
+HALF_HOUR = 1800.0
+SLOW = 1.0
+"""Seconds a test may take between two calls without changing its result."""
+
+
+async def test_sliding_window_whole_limit_reports_its_slots(
+    backend: RateLimiterBackend,
+) -> None:
+    """Spending the whole limit reports the slots, truncated to microseconds."""
+    # Arrange: 187 slots of 3_000_000 // 187 = 16_042 microseconds each.
+    limit = 187
+    strategy = backend.bind(SlidingWindowConfig(limit=limit, window=3))
+
+    # Act
+    result = await strategy.acquire(key="sw_slots", cost=limit)
+
+    # Assert
+    assert result.allowed is True
+    assert result.remaining == 0
+    assert result.reset_after == 2.999854  # noqa: PLR2004
+
+
+async def test_sliding_window_refusal_waits_for_the_next_slot(
+    backend: RateLimiterBackend,
+) -> None:
+    """A refusal waits for the next slot and reports the window's reset."""
+    # Arrange: two slots of half an hour, both spent.
+    strategy = backend.bind(SlidingWindowConfig(limit=2, window=HOUR))
+    spent = await strategy.acquire(key="sw_refusal", cost=2)
+
+    # Act
+    refused = await strategy.acquire(key="sw_refusal", cost=1)
+    peeked = await strategy.peek(key="sw_refusal")
+
+    # Assert
+    assert spent.reset_after == HOUR
+    assert refused.allowed is False
+    assert HALF_HOUR - SLOW < refused.retry_after <= HALF_HOUR
+    assert HOUR - SLOW < refused.reset_after <= HOUR
+    assert peeked.allowed is False
+    assert HALF_HOUR - SLOW < peeked.retry_after <= HALF_HOUR
+    assert HOUR - SLOW < peeked.reset_after <= HOUR
+
+
+async def test_sliding_window_counts_a_limit_past_32_bits(
+    backend: RateLimiterBackend,
+) -> None:
+    """A limit past 2**31 reports its remaining requests exactly."""
+    # Arrange: three billion per hour, slots of 1_200 nanoseconds.
+    limit = 3_000_000_000
+    strategy = backend.bind(SlidingWindowConfig(limit=limit, window=HOUR))
+
+    # Act
+    result = await strategy.acquire(key="sw_wide", cost=1)
+
+    # Assert
+    assert result.allowed is True
+    assert result.remaining == limit - 1

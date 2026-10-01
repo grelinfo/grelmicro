@@ -42,7 +42,7 @@ pytestmark = [pytest.mark.timeout(5)]
 @get("/limited")
 async def limited() -> dict[str, bool]:
     """Resolve a rate limiter ambiently, with no explicit backend."""
-    limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+    limiter = RateLimiter.sliding_window("api", limit=10, window=1)
     result = await limiter.acquire(key="client")
     return {"allowed": result.allowed}
 

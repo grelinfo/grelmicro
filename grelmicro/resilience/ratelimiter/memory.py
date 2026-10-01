@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from threading import Lock
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
@@ -15,6 +14,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
+from grelmicro.resilience.ratelimiter import _gcra
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -198,7 +198,7 @@ class MemoryRateLimiterAdapter(RateLimiterBackend):
         # Separate per-algorithm state maps so keys never alias
         # across algorithms.
         self._token_bucket_state: dict[str, tuple[float, float]] = {}
-        self._gcra_state: dict[str, float] = {}
+        self._gcra_state: dict[str, int] = {}
         self._lock = Lock()
 
     async def __aenter__(self) -> Self:
@@ -334,17 +334,16 @@ class _MemoryGCRA(RateLimiterStrategy):
 
     def __init__(
         self,
-        state: dict[str, float],
+        state: dict[str, int],
         lock: Lock,
         config: SlidingWindowConfig,
     ) -> None:
         self._state = state
         self._lock = lock
         self._limit = config.limit
-        self._window = config.window
-        self._emission_interval = config.window / config.limit
+        self._emission = _gcra.emission_interval(config.window, config.limit)
 
-    def _maybe_evict(self, now: float) -> None:
+    def _maybe_evict(self, now: int) -> None:
         if len(self._state) <= _EVICTION_THRESHOLD:
             return
         to_remove = [k for k, tat in self._state.items() if tat < now]
@@ -358,68 +357,29 @@ class _MemoryGCRA(RateLimiterStrategy):
         cost: int,
     ) -> RateLimitResult:
         """Async acquire (GCRA)."""
-        now = monotonic()
-        increment = self._window * cost / self._limit
+        now = _gcra.to_microseconds(monotonic())
         with self._lock:
             self._maybe_evict(now)
-            tat = self._state.get(key, now)
-
-            new_tat = max(tat, now) + increment
-            allow_at = new_tat - self._window
-            diff = now - allow_at
-            remaining = math.floor(diff / self._emission_interval + 0.5)
-
-            if remaining < 0:
-                reset_after = tat - now
-                retry_after = -diff
-                return RateLimitResult(
-                    allowed=False,
-                    limit=self._limit,
-                    remaining=0,
-                    retry_after=max(0.0, retry_after),
-                    reset_after=max(0.0, reset_after),
-                )
-
-            reset_after = max(0.0, tat - now) + increment
-            self._state[key] = new_tat
-            return RateLimitResult(
-                allowed=True,
+            decision = _gcra.acquire(
+                tat=self._state.get(key, now),
+                now=now,
+                cost=cost,
                 limit=self._limit,
-                remaining=remaining,
-                retry_after=0.0,
-                reset_after=reset_after,
+                emission=self._emission,
             )
+            if decision.tat is not None:
+                self._state[key] = decision.tat
+            return decision.result
 
     async def peek(self, *, key: str) -> RateLimitResult:
         """Async peek (GCRA)."""
-        now = monotonic()
+        now = _gcra.to_microseconds(monotonic())
         with self._lock:
-            tat = self._state.get(key, now)
-
-            new_tat = max(tat, now)
-            allow_at = new_tat - self._window
-            diff = now - allow_at
-            remaining = math.floor(diff / self._emission_interval + 0.5)
-
-            if remaining <= 0:
-                reset_after = tat - now
-                retry_after = (
-                    -diff if remaining < 0 else self._emission_interval - diff
-                )
-                return RateLimitResult(
-                    allowed=False,
-                    limit=self._limit,
-                    remaining=0,
-                    retry_after=max(0.0, retry_after),
-                    reset_after=max(0.0, reset_after),
-                )
-
-            return RateLimitResult(
-                allowed=True,
+            return _gcra.peek(
+                tat=self._state.get(key, now),
+                now=now,
                 limit=self._limit,
-                remaining=remaining,
-                retry_after=0.0,
-                reset_after=max(0.0, new_tat - now),
+                emission=self._emission,
             )
 
     async def reset(self, *, key: str) -> None:

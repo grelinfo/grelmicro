@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from datetime import timedelta
 from time import monotonic
 from typing import TYPE_CHECKING
 
@@ -163,13 +164,13 @@ def test_strategy_token_bucket_retry_after_non_negative(
 
 @given(
     limit=st.integers(min_value=1, max_value=100),
-    window=st.floats(
-        min_value=0.1, max_value=600.0, allow_nan=False, allow_infinity=False
+    window=st.timedeltas(
+        min_value=timedelta(milliseconds=100), max_value=timedelta(minutes=10)
     ),
 )
 @settings(max_examples=100, deadline=None)
 def test_strategy_gcra_burst_never_exceeds_limit(
-    limit: int, window: float
+    limit: int, window: timedelta
 ) -> None:
     """A fresh GCRA key allows exactly `limit` requests in a burst."""
 
@@ -200,12 +201,14 @@ def test_strategy_gcra_burst_never_exceeds_limit(
 
 @given(
     limit=st.integers(min_value=1, max_value=50),
-    window=st.floats(
-        min_value=0.1, max_value=60.0, allow_nan=False, allow_infinity=False
+    window=st.timedeltas(
+        min_value=timedelta(milliseconds=100), max_value=timedelta(minutes=1)
     ),
 )
 @settings(max_examples=100, deadline=None)
-def test_strategy_gcra_peek_does_not_mutate(limit: int, window: float) -> None:
+def test_strategy_gcra_peek_does_not_mutate(
+    limit: int, window: timedelta
+) -> None:
     """`peek` does not consume tokens."""
 
     async def run() -> None:

@@ -15,13 +15,14 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
+from grelmicro.resilience.ratelimiter import _gcra
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-    from asyncpg import Pool
+    from asyncpg import Pool, Record
 
     from grelmicro.types import BackendScope
 
@@ -178,102 +179,72 @@ class PostgresRateLimiterAdapter(RateLimiterBackend):
     """
 
     _SQL_CREATE_FN_GCRA_ACQUIRE = """
-        CREATE OR REPLACE FUNCTION {table_name}_gcra_acquire(
+        CREATE OR REPLACE FUNCTION {table_name}_gcra_us_acquire(
             p_key TEXT,
-            p_limit DOUBLE PRECISION,
-            p_window DOUBLE PRECISION,
-            p_cost DOUBLE PRECISION
+            p_limit BIGINT,
+            p_emission BIGINT,
+            p_cost BIGINT
         ) RETURNS TABLE(
             allowed BOOLEAN,
-            remaining INT,
-            retry_after DOUBLE PRECISION,
-            reset_after DOUBLE PRECISION
+            remaining BIGINT,
+            retry_after BIGINT,
+            reset_after BIGINT
         ) AS $$
         DECLARE
-            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
-            v_emission DOUBLE PRECISION := p_window / p_limit;
-            v_increment DOUBLE PRECISION;
-            v_tat DOUBLE PRECISION;
-            v_new_tat DOUBLE PRECISION;
-            v_diff DOUBLE PRECISION;
-            v_remaining INT;
+            v_now BIGINT :=
+                (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::BIGINT;
+            v_tat BIGINT;
+            v_gap BIGINT;
+            v_reset BIGINT;
+            v_diff BIGINT;
         BEGIN
-            v_increment := p_window * p_cost / p_limit;
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_key, {lock_namespace})
             );
-            SELECT tokens INTO v_tat FROM {table_name} WHERE key = p_key;
-            IF v_tat IS NULL THEN
-                v_tat := v_now;
-            END IF;
-            v_new_tat := GREATEST(v_tat, v_now) + v_increment;
-            v_diff := v_now - (v_new_tat - p_window);
-            v_remaining := FLOOR(v_diff / v_emission + 0.5)::INT;
-            IF v_remaining < 0 THEN
-                RETURN QUERY SELECT
-                    FALSE,
-                    0,
-                    GREATEST(0::double precision, -v_diff),
-                    GREATEST(0::double precision, v_tat - v_now);
+            SELECT tokens::BIGINT INTO v_tat FROM {table_name} WHERE key = p_key;
+            v_gap := GREATEST(0, COALESCE(v_tat, v_now) - v_now);
+            v_reset := v_gap + p_emission * p_cost;
+            v_diff := p_emission * p_limit - v_reset;
+            IF v_diff < 0 THEN
+                RETURN QUERY SELECT FALSE, 0::BIGINT, -v_diff, v_gap;
             ELSE
                 INSERT INTO {table_name} (key, tokens, updated_at)
-                VALUES (p_key, v_new_tat, clock_timestamp())
+                VALUES (p_key, v_now + v_reset, clock_timestamp())
                 ON CONFLICT (key) DO UPDATE
                     SET tokens = EXCLUDED.tokens, updated_at = EXCLUDED.updated_at;
                 RETURN QUERY SELECT
-                    TRUE,
-                    v_remaining,
-                    0::double precision,
-                    GREATEST(0::double precision, v_tat - v_now) + v_increment;
+                    TRUE, v_diff / p_emission, 0::BIGINT, v_reset;
             END IF;
         END;
         $$ LANGUAGE plpgsql;
     """
 
     _SQL_CREATE_FN_GCRA_PEEK = """
-        CREATE OR REPLACE FUNCTION {table_name}_gcra_peek(
+        CREATE OR REPLACE FUNCTION {table_name}_gcra_us_peek(
             p_key TEXT,
-            p_limit DOUBLE PRECISION,
-            p_window DOUBLE PRECISION
+            p_limit BIGINT,
+            p_emission BIGINT
         ) RETURNS TABLE(
             allowed BOOLEAN,
-            remaining INT,
-            retry_after DOUBLE PRECISION,
-            reset_after DOUBLE PRECISION
+            remaining BIGINT,
+            retry_after BIGINT,
+            reset_after BIGINT
         ) AS $$
         DECLARE
-            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
-            v_emission DOUBLE PRECISION := p_window / p_limit;
-            v_tat DOUBLE PRECISION;
-            v_new_tat DOUBLE PRECISION;
-            v_diff DOUBLE PRECISION;
-            v_remaining INT;
-            v_retry DOUBLE PRECISION;
+            v_now BIGINT :=
+                (EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::BIGINT;
+            v_tat BIGINT;
+            v_gap BIGINT;
+            v_diff BIGINT;
         BEGIN
-            SELECT tokens INTO v_tat FROM {table_name} WHERE key = p_key;
-            IF v_tat IS NULL THEN
-                v_tat := v_now;
-            END IF;
-            v_new_tat := GREATEST(v_tat, v_now);
-            v_diff := v_now - (v_new_tat - p_window);
-            v_remaining := FLOOR(v_diff / v_emission + 0.5)::INT;
-            IF v_remaining <= 0 THEN
-                IF v_remaining < 0 THEN
-                    v_retry := -v_diff;
-                ELSE
-                    v_retry := v_emission - v_diff;
-                END IF;
-                RETURN QUERY SELECT
-                    FALSE,
-                    0,
-                    GREATEST(0::double precision, v_retry),
-                    GREATEST(0::double precision, v_tat - v_now);
+            SELECT tokens::BIGINT INTO v_tat FROM {table_name} WHERE key = p_key;
+            v_gap := GREATEST(0, COALESCE(v_tat, v_now) - v_now);
+            v_diff := p_emission * p_limit - v_gap;
+            IF v_diff < p_emission THEN
+                RETURN QUERY SELECT FALSE, 0::BIGINT, p_emission - v_diff, v_gap;
             ELSE
                 RETURN QUERY SELECT
-                    TRUE,
-                    v_remaining,
-                    0::double precision,
-                    GREATEST(0::double precision, v_new_tat - v_now);
+                    TRUE, v_diff / p_emission, 0::BIGINT, v_gap;
             END IF;
         END;
         $$ LANGUAGE plpgsql;
@@ -440,10 +411,10 @@ class _PostgresGCRA(RateLimiterStrategy):
     collide on the shared `{table_name}` table.
     """
 
-    _ALGO_PREFIX = "gcra:"
+    _ALGO_PREFIX = "gcra_us:"
 
-    _SQL_ACQUIRE = "SELECT * FROM {table_name}_gcra_acquire($1, $2, $3, $4);"
-    _SQL_PEEK = "SELECT * FROM {table_name}_gcra_peek($1, $2, $3);"
+    _SQL_ACQUIRE = "SELECT * FROM {table_name}_gcra_us_acquire($1, $2, $3, $4);"
+    _SQL_PEEK = "SELECT * FROM {table_name}_gcra_us_peek($1, $2, $3);"
     _SQL_DELETE = "DELETE FROM {table_name} WHERE key = $1;"
 
     def __init__(
@@ -459,39 +430,37 @@ class _PostgresGCRA(RateLimiterStrategy):
         self._peek_sql = self._SQL_PEEK.format(table_name=table_name)
         self._delete_sql = self._SQL_DELETE.format(table_name=table_name)
         self._limit = config.limit
-        self._window = config.window
+        self._emission = _gcra.emission_interval(config.window, config.limit)
 
     async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
         """Async acquire (GCRA)."""
         row = await self._pool.fetchrow(
             self._acquire_sql,
             f"{self._key_prefix}{key}",
-            float(self._limit),
-            float(self._window),
-            float(cost),
+            self._limit,
+            self._emission,
+            cost,
         )
-        return RateLimitResult(
-            allowed=bool(row["allowed"]),
-            limit=self._limit,
-            remaining=int(row["remaining"]),
-            retry_after=float(row["retry_after"]),
-            reset_after=float(row["reset_after"]),
-        )
+        return self._result(row)
 
     async def peek(self, *, key: str) -> RateLimitResult:
         """Async peek (GCRA)."""
         row = await self._pool.fetchrow(
             self._peek_sql,
             f"{self._key_prefix}{key}",
-            float(self._limit),
-            float(self._window),
+            self._limit,
+            self._emission,
         )
+        return self._result(row)
+
+    def _result(self, row: Record) -> RateLimitResult:
+        """Return the result a function returned, its times in microseconds."""
         return RateLimitResult(
             allowed=bool(row["allowed"]),
             limit=self._limit,
             remaining=int(row["remaining"]),
-            retry_after=float(row["retry_after"]),
-            reset_after=float(row["reset_after"]),
+            retry_after=row["retry_after"] / _gcra.MICROSECONDS,
+            reset_after=row["reset_after"] / _gcra.MICROSECONDS,
         )
 
     async def reset(self, *, key: str) -> None:

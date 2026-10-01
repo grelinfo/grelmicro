@@ -44,13 +44,13 @@ def _build_starlette_app(
     micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     async def limited(request: Request) -> JSONResponse:  # noqa: ARG001
-        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1)
         result = await limiter.acquire(key="client")
         return JSONResponse({"allowed": result.allowed})
 
     async def ws_limited(websocket: WebSocket) -> None:
         await websocket.accept()
-        limiter = RateLimiter.sliding_window("ws", limit=5, window=1.0)
+        limiter = RateLimiter.sliding_window("ws", limit=5, window=1)
         result = await limiter.acquire(key="client")
         await websocket.send_json({"allowed": result.allowed})
         await websocket.close()
@@ -130,7 +130,7 @@ def test_starlette_install_wires_lifecycle_and_binding() -> None:
     micro = Grelmicro(uses=[RateLimiterComponent(MemoryRateLimiterAdapter())])
 
     async def limited(request: Request) -> JSONResponse:  # noqa: ARG001
-        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1)
         result = await limiter.acquire(key="client")
         return JSONResponse({"allowed": result.allowed})
 
@@ -160,7 +160,7 @@ def _build_litestar_app(*, with_middleware: bool) -> tuple[Litestar, Grelmicro]:
 
     @get("/limited")
     async def handler() -> dict[str, bool]:
-        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1)
         result = await limiter.acquire(key="client")
         return {"allowed": result.allowed}
 
