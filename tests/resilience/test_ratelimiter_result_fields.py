@@ -303,3 +303,15 @@ async def test_sliding_window_refuses_a_request_before_a_long_slot(
     assert early.allowed is False
     assert on_time.allowed is True
     assert on_time.reset_after == window
+
+
+@pytest.mark.usefixtures("clock")
+async def test_sliding_window_reports_the_window_as_written() -> None:
+    """A window whose float is just under its decimal keeps every microsecond."""
+    # 1.001 * 1_000_000 is 1000999.9999999999 as a float.
+    window = 1.001
+    rl = RateLimiter.sliding_window("sw-as-written", limit=1, window=window)
+
+    result = await rl.acquire(cost=1)
+
+    assert result.reset_after == window

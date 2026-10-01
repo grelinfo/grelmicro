@@ -148,3 +148,9 @@ def test_sliding_window_slot_of_a_microsecond_is_accepted() -> None:
     config = SlidingWindowConfig(limit=10, window=0.00001)
 
     assert config.limit == LIMIT
+
+
+def test_sliding_window_slot_rounding_up_to_a_microsecond_is_refused() -> None:
+    """A window just under a microsecond per request is refused, not rounded up."""
+    with pytest.raises(ValueError, match="at least one microsecond"):
+        SlidingWindowConfig(limit=10, window=0.0000096)

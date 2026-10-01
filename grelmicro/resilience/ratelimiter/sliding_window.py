@@ -57,7 +57,7 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     @model_validator(mode="after")
     def _check_slot(self) -> Self:
         """Refuse a window that gives each request under a microsecond."""
-        if _gcra.to_microseconds(self.window) < self.limit:
+        if _gcra.whole_microseconds(self.window) < self.limit:
             msg = "window / limit must be at least one microsecond"
             raise ValueError(msg)
         return self
