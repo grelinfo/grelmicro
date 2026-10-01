@@ -418,8 +418,10 @@ sending forged tokens therefore buys real work per request. `ClientBans`
 counts those failures and refuses the caller for a while, which turns that
 cost into a dictionary lookup.
 
-It is off unless you ask for it. Check the table before verifying, and record
-a rejection after:
+It is off unless you ask for it, because a ban counted against the wrong
+address refuses innocent callers. [Bans are
+opt-in](../architecture/jwt.md#bans-are-opt-in) explains when to turn it on.
+Check the table before verifying, and record a rejection after:
 
 ```python
 from grelmicro.security import ClientBannedError, ClientBans, TokenRejectedError
@@ -473,6 +475,10 @@ A limiter in front of verification charges every honest request to shed
 traffic that is usually not there, and a distributed one charges twenty times
 what the verification it protects costs. Counting failures charges nothing
 until a caller has already proven itself, and then charges 88 ns to refuse it.
+
+A rate limit belongs after verification. The
+[flood limit](../http/rate-limit.md#limiting-floods-before-routing) runs there,
+for the requests that pass authentication and reach no route.
 
 ### What counts as abuse
 

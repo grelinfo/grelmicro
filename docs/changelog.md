@@ -65,6 +65,7 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `RateLimitedRequests(flood=...)` limits every request before routing, a URL no route answers included, with a budget of its own. A request a route refuses spends no route limit. ([#943](https://github.com/grelinfo/grelmicro/issues/943))
 * ✨ The FastAPI integration ships `install_route_gate(app, gate)` and `route_declarations(app)`. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * ✨ On FastAPI, a route is gated under each include with what that include adds, and so are frontend routes, websocket routes and the routes an include copies. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * ✨ On FastAPI, a route added after install, to the app or to a router it includes, is gated as it lands. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -146,6 +147,7 @@
 * ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 
 ### Docs
+* 📝 What each kind of flood meets, and why client bans are opt-in. ([#943](https://github.com/grelinfo/grelmicro/issues/943))
 * 📝 The snippet files run and show something: a FastAPI app answers requests, a snippet that defines `main()` calls it, and the logging examples print what the page shows. A block that only runs inside an `async` function is labelled `fragment`. ([#888](https://github.com/grelinfo/grelmicro/pull/888))
 * ✅ The snippet tests exercise each FastAPI snippet's routes, run the snippets that need no service, and compare a page's output block with what the snippet prints. ([#888](https://github.com/grelinfo/grelmicro/pull/888))
 * 📝 The [Authentication](https://grelmicro.grel.info/http/authentication/) page covers `AuthenticatedRequests`, and Where a rule applies counts it among the HTTP components. ([#839](https://github.com/grelinfo/grelmicro/issues/839))

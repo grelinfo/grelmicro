@@ -342,9 +342,32 @@ answered `429` before its next token is verified. Only a forged signature or
 algorithm counts, never an expired token or a key the provider is rotating.
 
 `trusted=` is required with `bans`. A ban counted against an address the caller
-can choose would refuse somebody else. Read
+can choose would refuse somebody else. Bans stay off unless `bans=` is given,
+and [Bans are opt-in](../architecture/jwt.md#bans-are-opt-in) says why. Read
 [Shedding a caller that keeps forging](../security/jwt.md#shedding-a-caller-that-keeps-forging)
 for the thresholds.
+
+## What each flood meets
+
+There is nothing to guess. grelmicro verifies tokens and issues none, so no
+password or login is exposed, and a signature cannot be forged by trying. A
+flood can only cost the service work, and each kind meets its own guard:
+
+| A flood of requests | Meets | Cost of each |
+|---|---|---|
+| Without a token | `401` before routing | almost nothing |
+| With a malformed token | `401` before the signature is checked | under a microsecond |
+| With a forged signature | `bans=`, `429` before verifying again | one lookup once banned |
+| With an expired or misdirected token | `401` after verifying | about 12 microseconds |
+| With a valid token, to URLs no route answers | [`flood=`](rate-limit.md#limiting-floods-before-routing) | one limiter check |
+| With a valid token, to routes | [the route limits](rate-limit.md) | one limiter check |
+
+On an app with a public route, a request without a token is routed to find
+out whether that route serves it, so it spends `flood=` too.
+
+`bans=` and `flood=` are both off unless given. A flood spread over many
+addresses gets past anything counted per address, so it is for the ingress
+in front of the service to absorb.
 
 ## Security events
 

@@ -588,11 +588,18 @@ def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  #
 
     def read(endpoint: _Endpoint) -> str | None:
         config = component.config
-        reach = _selected(config, endpoint)
-        if reach is None:
-            return None
-        named = ", ".join(limiter.name for limiter in component.limiters)
-        return f"rate-limit {named}{reach}"
+        parts = []
+        route_reach = _selected(config, endpoint)
+        if route_reach is not None:
+            named = ", ".join(limiter.name for limiter in component.limiters)
+            parts.append(f"{named}{route_reach}")
+        flood = component.flood
+        if flood is not None:
+            # Only `exclude` narrows the flood limit, which runs before routing.
+            flood_reach = _reach(endpoint, (), tuple(config.exclude))
+            if flood_reach is not None:
+                parts.append(f"flood={flood.name}{flood_reach}")
+        return f"rate-limit {', '.join(parts)}" if parts else None
 
     return read
 
