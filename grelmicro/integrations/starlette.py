@@ -231,25 +231,24 @@ def _refuse_replaced_flood(
     """Refuse a flood limit the app's own rate limit would stand in for.
 
     A middleware the app added itself is kept, and the component's is not
-    added beside it, so its flood limit would never run. One a component
-    added, on an install that failed later, carries the component's cell
+    added beside it, so its flood limit would never run. One any component
+    added, on an install that failed later, carries that component's cell
     and is not the app's.
 
     Raises:
         TypeError: If the app added `RateLimitMiddleware` and a component
             carries a flood limit.
     """
-    flooding = [
+    limiting = [
         options
         for middleware, options in (
             component.asgi_middleware() for component in components
         )
         if middleware is RateLimitMiddleware
-        and options.get("flood") is not None
     ]
-    if not flooding:
+    if not any(options.get("flood") is not None for options in limiting):
         return
-    ours = {id(options.get("live")) for options in flooding}
+    ours = {id(options.get("live")) for options in limiting}
     if any(
         entry.cls is RateLimitMiddleware
         and id(entry.kwargs.get("live")) not in ours

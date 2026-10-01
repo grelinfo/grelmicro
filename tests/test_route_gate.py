@@ -1775,13 +1775,30 @@ class TestFloodLimit:
 
         assert app.user_middleware == stack
 
+    @pytest.mark.parametrize("second", [False, True])
     def test_a_failed_install_with_a_flood_limit_can_be_retried(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, *, second: bool
     ) -> None:
         """The middleware the first attempt added is not taken for the app's own."""
         app = Starlette(routes=[Route("/orders", served)])
+        others = (
+            [
+                RateLimitedRequests(
+                    RateLimiter.sliding_window(
+                        "other",
+                        limit=100,
+                        window=60,
+                        backend=MemoryRateLimiterAdapter(),
+                    ),
+                    trusted=TrustedProxies(["10.0.0.0/8"]),
+                    name="other",
+                )
+            ]
+            if second
+            else []
+        )
         micro = Grelmicro(
-            uses=[ErrorResponses(), authenticated(), flooded(flood=1)]
+            uses=[ErrorResponses(), authenticated(), flooded(flood=1), *others]
         )
 
         def refused(*_: object) -> None:
