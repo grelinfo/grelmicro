@@ -856,6 +856,33 @@ class TestAuthenticationInTheApp:
         with pytest.raises(TypeError, match="flood="):
             Grelmicro(uses=[ErrorResponses()]).install(app)
 
+    def test_a_flood_limit_skipped_for_the_app_rate_limit_fails_install(
+        self,
+    ) -> None:
+        """The app's own rate limit stands in for the component, flood and all."""
+
+        @get("/orders")
+        async def orders() -> str:
+            return "orders"  # pragma: no cover
+
+        app = Litestar(
+            [orders],
+            middleware=[
+                DefineMiddleware(
+                    cast("Any", RateLimitMiddleware),
+                    limiters=[
+                        RateLimiter.sliding_window(
+                            "burst", limit=100, window=60
+                        )
+                    ],
+                    key=lambda scope: ADDRESS[0],  # noqa: ARG005
+                )
+            ],
+        )
+
+        with pytest.raises(TypeError, match="flood="):
+            Grelmicro(uses=[ErrorResponses(), flooded()]).install(app)
+
     def test_a_flood_option_of_another_middleware_installs(self) -> None:
         """Only a grelmicro rate limit is a flood limit."""
 

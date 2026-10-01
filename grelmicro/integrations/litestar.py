@@ -244,7 +244,7 @@ def install_middleware(
         authenticates(component) and _declared_by_app(app, component)
         for component in ordered
     )
-    _refuse_flood(wrapping, behind=behind)
+    _refuse_flood(app, wrapping, behind=behind)
     for component in wrapping:
         middleware, options = component.asgi_middleware()
         watching = observes(component)
@@ -294,13 +294,23 @@ _FLOOD_BEHIND_ROUTER = (
 """Why a flood limit behind Litestar's router is refused."""
 
 
-def _refuse_flood(components: Sequence[Any], *, behind: bool) -> None:
-    """Refuse a flood limit when authentication runs behind the router.
+def _refuse_flood(
+    app: Litestar, components: Sequence[Any], *, behind: bool
+) -> None:
+    """Refuse a flood limit that would end up behind the router, or nowhere.
+
+    Behind the router when authentication runs there. Nowhere when the app
+    passed its own `RateLimitMiddleware` to `Litestar(middleware=[...])`,
+    which stands in for the component's.
 
     Raises:
-        TypeError: If `behind` and a component carries a flood limit.
+        TypeError: If a component carrying a flood limit is in either case.
     """
-    if not behind:
+    passed = any(
+        declared_class is RateLimitMiddleware
+        for declared_class, _ in _routed_middleware(app)
+    )
+    if not (behind or passed):
         return
     for component in components:
         middleware, options = component.asgi_middleware()
