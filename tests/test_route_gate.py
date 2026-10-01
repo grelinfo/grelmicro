@@ -1749,6 +1749,58 @@ class TestFloodLimit:
 
         assert answered.status_code == OK
 
+    @pytest.mark.parametrize("framework", [Starlette, FastAPI])
+    def test_a_flood_limit_the_app_rate_limit_replaces_fails_install(
+        self, framework: type[Starlette]
+    ) -> None:
+        """Before install changes anything."""
+        app = framework(
+            routes=[Route("/orders", served)],
+            middleware=[
+                Middleware(
+                    RateLimitMiddleware,
+                    limiters=[
+                        RateLimiter.sliding_window(
+                            "burst", limit=100, window=60
+                        )
+                    ],
+                    trusted=TrustedProxies(["10.0.0.0/8"]),
+                )
+            ],
+        )
+        stack = list(app.user_middleware)
+
+        with pytest.raises(TypeError, match="flood="):
+            Grelmicro(uses=[ErrorResponses(), flooded()]).install(app)
+
+        assert app.user_middleware == stack
+
+    def test_the_app_rate_limit_stands_in_for_one_without_a_flood_limit(
+        self,
+    ) -> None:
+        """Installed as before, with the app's own middleware kept."""
+        app = Starlette(
+            routes=[Route("/orders", served)],
+            middleware=[
+                Middleware(
+                    RateLimitMiddleware,
+                    limiters=[
+                        RateLimiter.sliding_window(
+                            "burst",
+                            limit=100,
+                            window=60,
+                            backend=MemoryRateLimiterAdapter(),
+                        )
+                    ],
+                    trusted=TrustedProxies(["10.0.0.0/8"]),
+                )
+            ],
+        )
+        Grelmicro(uses=[ErrorResponses(), limited()]).install(app)
+        client = TestClient(app, client=ADDRESS)
+
+        assert client.get("/orders").status_code == OK
+
     def test_a_flood_limit_named_as_a_route_limit_is_refused(self) -> None:
         """The two would read as one policy in the `RateLimit` fields."""
         burst = RateLimiter.sliding_window("burst", limit=100, window=60)

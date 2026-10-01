@@ -152,6 +152,11 @@ does not name. It spends one token and never waits, whatever `cost=` and
 `max_wait=` say. Like the route limits, it meters HTTP requests and leaves
 websocket handshakes alone.
 
+An app that adds its own `RateLimitMiddleware` keeps it, and the registered
+one is not added beside it. `install` then refuses a registered `flood=`,
+which would never run. On Starlette and FastAPI, pass `flood=` to the one the
+app added instead.
+
 On Litestar, register both components with `Grelmicro(uses=[...])`. A
 middleware passed to `Litestar(middleware=[...])` runs behind the router, so
 `install` refuses `flood=` when either one is passed there.

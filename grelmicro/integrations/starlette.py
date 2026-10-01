@@ -16,7 +16,7 @@ from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
 from grelmicro._wrapping import refuse_registered
-from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._requirement import (
     AUTHENTICATED,
@@ -96,7 +96,19 @@ def install(
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
+
+    Raises:
+        TypeError: If the app's own `RateLimitMiddleware` would stand in for
+            a registered flood limit, before anything is wired.
     """
+    _refuse_replaced_flood(
+        app,
+        [
+            component
+            for component in micro.components
+            if hasattr(component, "asgi_middleware")
+        ],
+    )
     previous = app.router.lifespan_context
 
     @asynccontextmanager
@@ -213,6 +225,37 @@ def install_error_responses(
             app.add_exception_handler(klass, handler)
 
 
+def _refuse_replaced_flood(
+    app: "Starlette", components: "Sequence[Any]"
+) -> None:
+    """Refuse a flood limit the app's own rate limit would stand in for.
+
+    A middleware the app added itself is kept, and the component's is not
+    added beside it, so its flood limit would never run.
+
+    Raises:
+        TypeError: If the app added `RateLimitMiddleware` and a component
+            carries a flood limit.
+    """
+    if not any(
+        entry.cls is RateLimitMiddleware for entry in app.user_middleware
+    ):
+        return
+    for component in components:
+        middleware, options = component.asgi_middleware()
+        if (
+            middleware is RateLimitMiddleware
+            and options.get("flood") is not None
+        ):
+            msg = (
+                "RateLimitedRequests(flood=...) is not added: the app passed "
+                "its own RateLimitMiddleware to its middleware list, which "
+                "stands in for the registered one. Pass flood= to that one, "
+                "or remove it and keep the registered component."
+            )
+            raise TypeError(msg)
+
+
 def install_middleware(
     app: Annotated[
         "Starlette",
@@ -247,8 +290,15 @@ def install_middleware(
 
     `micro.install(app)` calls this with the components it found, so a
     direct call is only for an app that never goes through `install`.
+
+    Raises:
+        RuntimeError: If the app already started serving.
+        TypeError: If the app's own `RateLimitMiddleware` would stand in for
+            a registered flood limit.
     """
     from starlette.middleware import Middleware  # noqa: PLC0415
+
+    _refuse_replaced_flood(app, components)
 
     if getattr(app, "middleware_stack", None) is not None:
         # The framework built its stack, so the list this edits is no
