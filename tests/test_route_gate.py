@@ -1702,6 +1702,35 @@ class TestFloodLimit:
             f'"{refused_by}";q=1;'
         )
 
+    def test_a_request_with_no_caller_to_meter_spends_nothing(self) -> None:
+        """A `key` returning `None` leaves it unmetered, as at the route."""
+        app = installed(
+            Starlette(routes=[Route("/orders", served)]),
+            RateLimitedRequests(
+                RateLimiter.sliding_window(
+                    "burst",
+                    limit=100,
+                    window=60,
+                    backend=MemoryRateLimiterAdapter(),
+                ),
+                flood=RateLimiter.sliding_window(
+                    "flood",
+                    limit=1,
+                    window=60,
+                    backend=MemoryRateLimiterAdapter(),
+                ),
+                key=lambda scope: None,  # noqa: ARG005
+            ),
+        )
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        statuses = [
+            client.get("/nowhere", headers=caller).status_code for _ in range(3)
+        ]
+
+        assert statuses == [NOT_FOUND] * 3
+
     def test_a_websocket_handshake_spends_nothing(self) -> None:
         """As with the route limits, only HTTP requests are metered."""
         app = installed(

@@ -381,7 +381,9 @@ class RateLimitMiddleware:
                 "routing, a URL no route answers included. Behind "
                 "`AuthenticatedRequests`, it runs once authentication "
                 "passed the request on, and `limiters` run at the route. "
-                "Only `exclude` applies to it."
+                "Only `exclude` applies to it. It meters the requests that "
+                "reach this middleware, so one added to a single route or "
+                "router sees only the requests routed there."
             ),
         ] = None,
         trusted: Annotated[

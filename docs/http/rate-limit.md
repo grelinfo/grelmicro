@@ -116,8 +116,8 @@ silence.
 
 ## Limiting floods before routing
 
-A scan of URLs no route answers spends nothing of the route limits. Give a
-flood limit to cap it:
+With `AuthenticatedRequests`, the route limits run at the route, so a scan of
+URLs no route answers spends nothing of them. Give a flood limit to cap it:
 
 ```python
 --8<-- "http/rate_limit_flood.py"
@@ -128,13 +128,15 @@ answers included. `burst` is still spent at the route, so the two budgets
 never mix: a request a route refuses spends `flood` and leaves `burst`
 whole.
 
-With `AuthenticatedRequests`, the flood limit runs once authentication passed
-the request on. A token that does not verify is refused before it, and so is a
+The flood limit runs once authentication passed the request on. A token that does not verify is refused before it, and so is a
 request without a token, unless the app has a public route and has to route it
 to know. Authentication goes first because it is the cheaper check: a token
 verifies in about 12 microseconds, and a limiter over Redis takes a round trip.
 [What each flood meets](authentication.md#what-each-flood-meets) says what
 stops the others.
+
+Without `AuthenticatedRequests`, both run before routing, `flood` first, so
+a request spends both wherever it goes.
 
 The flood limit is keyed like the route limits, by `trusted=` or `key=`. Size
 it as a ceiling for one address, since every caller behind it shares it.

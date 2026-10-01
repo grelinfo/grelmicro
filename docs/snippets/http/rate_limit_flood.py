@@ -1,10 +1,14 @@
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.http import ErrorResponses, RateLimitedRequests
+from grelmicro.http import (
+    AuthenticatedRequests,
+    ErrorResponses,
+    RateLimitedRequests,
+)
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
-from grelmicro.security import TrustedProxies
+from grelmicro.security import JWTVerifier, TrustedProxies
 
 redis = RedisProvider("redis://localhost:6379/0")
 
@@ -15,6 +19,12 @@ micro = Grelmicro(
     uses=[
         RateLimiterComponent(redis),
         ErrorResponses(),
+        AuthenticatedRequests(
+            JWTVerifier.discover(
+                "https://auth.example.com/", audience="orders-api"
+            ),
+            exclude=("/livez", "/readyz"),
+        ),
         RateLimitedRequests(
             burst,
             flood=flood,
