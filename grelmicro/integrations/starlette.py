@@ -231,29 +231,37 @@ def _refuse_replaced_flood(
     """Refuse a flood limit the app's own rate limit would stand in for.
 
     A middleware the app added itself is kept, and the component's is not
-    added beside it, so its flood limit would never run.
+    added beside it, so its flood limit would never run. One a component
+    added, on an install that failed later, carries the component's cell
+    and is not the app's.
 
     Raises:
         TypeError: If the app added `RateLimitMiddleware` and a component
             carries a flood limit.
     """
-    if not any(
-        entry.cls is RateLimitMiddleware for entry in app.user_middleware
-    ):
+    flooding = [
+        options
+        for middleware, options in (
+            component.asgi_middleware() for component in components
+        )
+        if middleware is RateLimitMiddleware
+        and options.get("flood") is not None
+    ]
+    if not flooding:
         return
-    for component in components:
-        middleware, options = component.asgi_middleware()
-        if (
-            middleware is RateLimitMiddleware
-            and options.get("flood") is not None
-        ):
-            msg = (
-                "RateLimitedRequests(flood=...) is not added: the app passed "
-                "its own RateLimitMiddleware to its middleware list, which "
-                "stands in for the registered one. Pass flood= to that one, "
-                "or remove it and keep the registered component."
-            )
-            raise TypeError(msg)
+    ours = {id(options.get("live")) for options in flooding}
+    if any(
+        entry.cls is RateLimitMiddleware
+        and id(entry.kwargs.get("live")) not in ours
+        for entry in app.user_middleware
+    ):
+        msg = (
+            "RateLimitedRequests(flood=...) is not added: the app passed "
+            "its own RateLimitMiddleware to its middleware list, which "
+            "stands in for the registered one. Pass flood= to that one, "
+            "or remove it and keep the registered component."
+        )
+        raise TypeError(msg)
 
 
 def install_middleware(

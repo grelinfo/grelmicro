@@ -1775,6 +1775,33 @@ class TestFloodLimit:
 
         assert app.user_middleware == stack
 
+    def test_a_failed_install_with_a_flood_limit_can_be_retried(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The middleware the first attempt added is not taken for the app's own."""
+        app = Starlette(routes=[Route("/orders", served)])
+        micro = Grelmicro(
+            uses=[ErrorResponses(), authenticated(), flooded(flood=1)]
+        )
+
+        def refused(*_: object) -> None:
+            msg = "wiring refused"
+            raise RuntimeError(msg)
+
+        with monkeypatch.context() as patched:
+            patched.setattr(Grelmicro, "_install_route_gate", refused)
+            with pytest.raises(RuntimeError, match="wiring refused"):
+                micro.install(app)
+        micro.install(app)
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        statuses = [
+            client.get("/nowhere", headers=caller).status_code for _ in range(2)
+        ]
+
+        assert statuses == [NOT_FOUND, TOO_MANY_REQUESTS]
+
     def test_the_app_rate_limit_stands_in_for_one_without_a_flood_limit(
         self,
     ) -> None:
