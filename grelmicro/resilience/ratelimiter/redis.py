@@ -173,10 +173,8 @@ class _RedisGCRA(RateLimiterStrategy):
             return {0, 0, -diff, gap}
         end
 
-        -- A number argument is written with 14 digits, too few for the time.
         redis.call(
-            "SET", key, string.format("%.0f", now + reset),
-            "PX", math.max(1, math.ceil(reset / 1000))
+            "SET", key, now + reset, "PX", math.max(1, math.ceil(reset / 1000))
         )
         return {1, math.floor(diff / emission), 0, reset}
     """
