@@ -127,8 +127,8 @@ def install(
     and calls this for you.
 
     Raises:
-        TypeError: If a `RateLimitMiddleware` passed to
-            `Litestar(middleware=[...])` carries a flood limit.
+        TypeError: If a flood limit would run behind the router, before
+            anything is wired.
     """
     if any(
         declared_class is RateLimitMiddleware
@@ -136,6 +136,14 @@ def install(
         for declared_class, arguments in _routed_middleware(app)
     ):
         raise TypeError(_FLOOD_BEHIND_ROUTER)
+    _refuse_flood(
+        app,
+        [
+            component
+            for component in micro.components
+            if hasattr(component, "asgi_middleware")
+        ],
+    )
 
     async def _open_micro() -> None:
         await micro.__aenter__()
@@ -224,9 +232,13 @@ def install_middleware(
     stack at construction time. `micro.install(app)` calls this with the
     components it found, so a direct call is only for an app that never goes
     through `install`.
+
+    Raises:
+        TypeError: If a flood limit would run behind the router.
     """
     # Authentication first, whatever order it was registered in. Stable, so
     # registration order holds among the rest.
+    _refuse_flood(app, components)
     ordered = sorted(
         components, key=lambda component: not authenticates(component)
     )
@@ -244,7 +256,6 @@ def install_middleware(
         authenticates(component) and _declared_by_app(app, component)
         for component in ordered
     )
-    _refuse_flood(app, wrapping, behind=behind)
     for component in wrapping:
         middleware, options = component.asgi_middleware()
         watching = observes(component)
@@ -294,18 +305,20 @@ _FLOOD_BEHIND_ROUTER = (
 """Why a flood limit behind Litestar's router is refused."""
 
 
-def _refuse_flood(
-    app: Litestar, components: Sequence[Any], *, behind: bool
-) -> None:
+def _refuse_flood(app: Litestar, components: Sequence[Any]) -> None:
     """Refuse a flood limit that would end up behind the router, or nowhere.
 
-    Behind the router when authentication runs there. Nowhere when the app
-    passed its own `RateLimitMiddleware` to `Litestar(middleware=[...])`,
-    which stands in for the component's.
+    Behind the router when the app passed authentication to
+    `Litestar(middleware=[...])`. Nowhere when it passed its own
+    `RateLimitMiddleware` there, which stands in for the component's.
 
     Raises:
         TypeError: If a component carrying a flood limit is in either case.
     """
+    behind = any(
+        authenticates(component) and _declared_by_app(app, component)
+        for component in components
+    )
     passed = any(
         declared_class is RateLimitMiddleware
         for declared_class, _ in _routed_middleware(app)

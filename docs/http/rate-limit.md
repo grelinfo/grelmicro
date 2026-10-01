@@ -139,7 +139,9 @@ Without `AuthenticatedRequests`, both run before routing, `flood` first, so
 a request spends both wherever it goes.
 
 The flood limit is keyed like the route limits, by `trusted=` or `key=`. Size
-it as a ceiling for one address, since every caller behind it shares it.
+it as a ceiling for one address, since every caller behind it shares it. A
+`key=` is then called before routing too, so build it from the caller, never
+from the route: path parameters are not there yet.
 
 A flood refusal is the same `429`, stating the flood policy alone. An allowed
 response states the route policies and leaves the flood one out, since a

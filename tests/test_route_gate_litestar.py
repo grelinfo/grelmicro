@@ -916,11 +916,16 @@ class TestAuthenticationInTheApp:
         app = Litestar(
             [private], middleware=[DefineMiddleware(middleware, **options)]
         )
+        handler = app.asgi_handler
+        hooks = list(app.on_startup)
 
         with pytest.raises(TypeError, match="flood="):
             Grelmicro(uses=[ErrorResponses(), component, flooded()]).install(
                 app
             )
+
+        assert app.asgi_handler is handler
+        assert list(app.on_startup) == hooks
 
 
 def test_a_litestar_router_without_the_seam_fails_install(
