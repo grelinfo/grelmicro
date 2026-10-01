@@ -32,6 +32,7 @@ from grelmicro._paths import (
     selects,
 )
 from grelmicro.http._component import ErrorResponses, send_error
+from grelmicro.http._gate import answered
 from grelmicro.resilience._protocol import RateLimitResult
 from grelmicro.resilience.errors import RateLimitExceededError
 from grelmicro.resilience.ratelimiter import _config_limit, _validate_cost
@@ -68,6 +69,9 @@ logger = getLogger("grelmicro.http.ratelimit")
 
 _STATED = "grelmicro_rate_limit_stated"
 """Where a route leaves what it metered, for the middleware to state."""
+
+_FLOODED = "grelmicro.flooded"
+"""Where a request keeps the flood limiters it already spent."""
 
 _REMAINING_HEADER = b"x-ratelimit-remaining"
 """The superseded field the two meters are compared on."""
@@ -356,7 +360,7 @@ class RateLimitMiddleware:
     other scope through untouched.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         app: Annotated[
             ASGIApp,
@@ -370,6 +374,19 @@ class RateLimitMiddleware:
                 "of them or is refused by the first that says no."
             ),
         ],
+        flood: Annotated[
+            RateLimiter | None,
+            Doc(
+                "A limiter every request spends one token of before "
+                "routing, a URL no route answers included. Behind "
+                "`AuthenticatedRequests`, it runs once authentication "
+                "passed the request on, and `limiters` run at the route. "
+                "Only `exclude` applies to it, and `key` builds its bucket "
+                "before routing. It meters the requests that reach this "
+                "middleware, so one added to a single route or router sees "
+                "only the requests routed there."
+            ),
+        ] = None,
         trusted: Annotated[
             TrustedProxies | None,
             Doc(
@@ -440,8 +457,9 @@ class RateLimitMiddleware:
             TypeError: If no limiter is given, or the caller cannot be
                 resolved because neither `trusted` nor `key` was given.
             ValueError: If a limiter is named something a `RateLimit`
-                header cannot carry, or `cost` is more than one of them
-                can ever serve.
+                header cannot carry, `flood` is named as one of
+                `limiters`, or `cost` is more than one of them can ever
+                serve.
         """
         self.app = app
         self._limiters = tuple(limiters)
@@ -460,6 +478,7 @@ class RateLimitMiddleware:
                 "which is the ingress rather than the caller behind it."
             )
             raise TypeError(msg)
+        self._flood = flood
         self._trusted = trusted
         self._key = key
         self._reported = False
@@ -487,6 +506,16 @@ class RateLimitMiddleware:
                 self._live.state.config.cost,
                 _config_limit(limiter._state.config),  # noqa: SLF001
             )
+        if flood is not None:
+            name = _policy_name(flood)
+            if name in {_policy_name(limiter) for limiter in self._limiters}:
+                msg = (
+                    f"RateLimitMiddleware takes flood= named {name!r}, the "
+                    "name of one of its limiters. Both would be stated as "
+                    "one policy in the RateLimit fields, so give the flood "
+                    "limit a name of its own."
+                )
+                raise ValueError(msg)
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -495,6 +524,13 @@ class RateLimitMiddleware:
         # One read, at the top, for the whole request.
         state = self._live.state
         config = state.config
+        flood = self._flood
+        if (
+            flood is not None
+            and scope["type"] == "http"
+            and await self._flooded(flood, scope, send, config)
+        ):
+            return
         if scope["type"] != "http" or (
             state.filtering
             and not selects(
@@ -527,6 +563,63 @@ class RateLimitMiddleware:
                 scope,
             ),
         )
+
+    def before_routing(self, app: ASGIApp) -> ASGIApp:
+        """Return `app` behind the flood limit, for where authentication hands a request on.
+
+        The limiters run at the route reached, and the flood limit runs
+        here, for every request that crossed authentication. Without a
+        flood limit, `app` is returned as it is.
+        """
+        flood = self._flood
+        if flood is None:
+            return app
+
+        async def flooding(scope: Scope, receive: Receive, send: Send) -> None:
+            if scope["type"] == "http" and await self._flooded(
+                flood, scope, send, self._live.state.config
+            ):
+                return
+            await app(scope, receive, send)
+
+        return flooding
+
+    async def _flooded(
+        self,
+        flood: RateLimiter,
+        scope: Scope,
+        send: Send,
+        config: RateLimitedRequestsConfig,
+    ) -> bool:
+        """Spend one token of `flood`, and answer `429` when it says no.
+
+        A request spends it once. On an app whose routes carry a gate, the
+        edge spends it, and the copy of this middleware built for the route
+        the request reached skips it. Return whether the request was
+        answered.
+        """
+        if config.exclude and not selects(
+            route_path(scope), include=(), exclude=config.exclude
+        ):
+            return False
+        spent: set[RateLimiter] | None = scope.get(_FLOODED)
+        if spent is None:
+            scope[_FLOODED] = {flood}
+        elif flood in spent:
+            return False
+        else:
+            spent.add(flood)
+        key = self._key_of(scope)
+        if key is None:
+            return False
+        result = await spend_one(flood, key, cost=1, max_wait=0.0)
+        if result.allowed:
+            return False
+        answered(scope)
+        await self._refuse(
+            scope, send, key=key, seen=[(flood, result)], config=config
+        )
+        return True
 
     async def _spend(
         self,
@@ -928,6 +1021,14 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             RateLimiter,
             Doc("The limiters every request spends, in the order given."),
         ],
+        flood: Annotated[
+            RateLimiter | None,
+            Doc(
+                "A limiter every request spends one token of before "
+                "routing, a URL no route answers included. Only `exclude` "
+                "applies to it."
+            ),
+        ] = None,
         trusted: Annotated[
             TrustedProxies | None,
             Doc(
@@ -1002,7 +1103,8 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             TypeError: If no limiter is given, or neither `trusted` nor
                 `key` says how to key the buckets.
             ValueError: If a limiter is named something a `RateLimit`
-                header cannot carry.
+                header cannot carry, or `flood` is named as one of
+                `limiters`.
         """
         resolved_env_prefix, kind_prefix = env_prefixes(
             "RATE_LIMITED_REQUESTS", name, env_prefix
@@ -1025,6 +1127,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             config,
             name=name,
             limiters=limiters,
+            flood=flood,
             trusted=trusted,
             key=key,
             openapi=openapi,
@@ -1046,6 +1149,10 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             str,
             Doc("Registration name, for a second set of rules on one app."),
         ] = "default",
+        flood: Annotated[
+            RateLimiter | None,
+            Doc("A limiter every request spends one token of before routing."),
+        ] = None,
         trusted: Annotated[
             TrustedProxies | None,
             Doc("The proxies whose forwarded entries may be believed."),
@@ -1072,6 +1179,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
             config,
             name=name,
             limiters=limiters,
+            flood=flood,
             trusted=trusted,
             key=key,
             openapi=openapi,
@@ -1084,6 +1192,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         *,
         name: str,
         limiters: tuple[RateLimiter, ...],
+        flood: RateLimiter | None,
         trusted: TrustedProxies | None,
         key: Callable[[Scope], str | None] | None,
         openapi: bool,
@@ -1092,6 +1201,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         self._name = name
         self._openapi = openapi
         self._limiters = limiters
+        self._flood = flood
         self._trusted = trusted
         self._key = key
         self._config = config
@@ -1102,6 +1212,7 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         RateLimitMiddleware(
             _nothing,
             limiters=limiters,
+            flood=flood,
             trusted=trusted,
             key=key,
             live=self._live,
@@ -1133,10 +1244,16 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         """Return the limiters every request spends."""
         return self._limiters
 
+    @property
+    def flood(self) -> RateLimiter | None:
+        """Return the limiter every request spends before routing, if any."""
+        return self._flood
+
     def asgi_middleware(self) -> tuple[type[Any], dict[str, Any]]:
         """Return the middleware class and the arguments to build it with."""
         return RateLimitMiddleware, {
             "limiters": self._limiters,
+            "flood": self._flood,
             "trusted": self._trusted,
             "key": self._key,
             "live": self._live,

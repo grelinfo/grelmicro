@@ -54,6 +54,7 @@ from grelmicro.http import (
     ErrorResponses,
     IdempotentRequests,
     RateLimitedRequests,
+    RateLimitMiddleware,
     RouteDeclaration,
 )
 from grelmicro.http._routes import refuse_impossible
@@ -1516,6 +1517,387 @@ class TestAnsweringMiddleware:
             )
 
         assert response.status_code == INTERNAL_SERVER_ERROR
+
+
+def flooded(
+    flood: int = 3,
+    burst: int = 100,
+    **options: Any,  # noqa: ANN401
+) -> RateLimitedRequests:
+    """Return a route limit beside a flood limit, a minute each."""
+    return RateLimitedRequests(
+        RateLimiter.sliding_window(
+            "burst", limit=burst, window=60, backend=MemoryRateLimiterAdapter()
+        ),
+        flood=RateLimiter.sliding_window(
+            "flood", limit=flood, window=60, backend=MemoryRateLimiterAdapter()
+        ),
+        trusted=TrustedProxies(["10.0.0.0/8"]),
+        **options,
+    )
+
+
+class TestFloodLimit:
+    """The flood limit runs before routing, with a budget of its own."""
+
+    def test_a_flood_no_route_answers_is_refused(self) -> None:
+        """With a token, once the flood budget is spent."""
+        app = installed(Starlette(routes=[Route("/orders", served)]), flooded())
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        statuses = [
+            client.get("/nowhere", headers=caller).status_code for _ in range(4)
+        ]
+
+        assert statuses == [NOT_FOUND] * 3 + [TOO_MANY_REQUESTS]
+
+    def test_a_request_without_a_token_spends_nothing(self) -> None:
+        """Authentication answers it `401` before the flood limit."""
+        app = installed(Starlette(routes=[Route("/orders", served)]), flooded())
+        client = TestClient(app, client=ADDRESS)
+
+        refused = [client.get("/nowhere").status_code for _ in range(5)]
+        unrouted = client.get("/nowhere", headers=bearer(token()))
+
+        assert refused == [UNAUTHORIZED] * 5
+        assert unrouted.status_code == NOT_FOUND
+
+    def test_a_forged_token_spends_nothing(self) -> None:
+        """Authentication refuses it before the flood limit."""
+        app = installed(Starlette(routes=[Route("/orders", served)]), flooded())
+        client = TestClient(app, client=ADDRESS)
+        forged = {"authorization": f"Bearer {token()[:-4]}AAAA"}
+
+        refused = [
+            client.get("/nowhere", headers=forged).status_code for _ in range(5)
+        ]
+        unrouted = client.get("/nowhere", headers=bearer(token()))
+
+        assert refused == [UNAUTHORIZED] * 5
+        assert unrouted.status_code == NOT_FOUND
+
+    def test_a_request_a_route_refuses_spends_the_flood_budget_only(
+        self,
+    ) -> None:
+        """The route's bucket is left whole, the flood one is not."""
+        app = installed(
+            Starlette(
+                routes=[
+                    Route("/orders", served),
+                    Route("/orders/{order_id}", written, methods=["DELETE"]),
+                ]
+            ),
+            flooded(flood=4, burst=2),
+        )
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        refused = [
+            client.delete("/orders/1", headers=caller).status_code
+            for _ in range(3)
+        ]
+        answered = client.get("/orders", headers=caller)
+        turned_away = client.get("/orders", headers=caller)
+
+        assert refused == [FORBIDDEN] * 3
+        assert answered.status_code == OK
+        assert answered.headers["ratelimit"].startswith('"burst";r=1;')
+        assert turned_away.status_code == TOO_MANY_REQUESTS
+
+    def test_each_answer_states_the_budget_that_metered_it(self) -> None:
+        """A served request states the route's, a flood refusal the flood one."""
+        app = installed(
+            Starlette(routes=[Route("/orders", served)]), flooded(flood=1)
+        )
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        answered = client.get("/orders", headers=caller)
+        turned_away = client.get("/orders", headers=caller)
+
+        assert answered.headers["ratelimit"].startswith('"burst";r=99;')
+        assert answered.headers["ratelimit-policy"] == '"burst";q=100;w=60'
+        assert turned_away.status_code == TOO_MANY_REQUESTS
+        assert turned_away.headers["ratelimit"].startswith('"flood";r=0;')
+        assert turned_away.headers["ratelimit-policy"] == '"flood";q=1;w=60'
+        assert "retry-after" in turned_away.headers
+
+    def test_an_excluded_path_spends_nothing(self) -> None:
+        """A probe polled forever never spends a caller's flood budget."""
+        app = installed(
+            Starlette(
+                routes=[Route("/livez", served), Route("/orders", served)]
+            ),
+            flooded(flood=1, exclude=("/livez",)),
+        )
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        probes = [
+            client.get("/livez", headers=caller).status_code for _ in range(3)
+        ]
+        answered = client.get("/orders", headers=caller)
+
+        assert probes == [OK] * 3
+        assert answered.status_code == OK
+
+    def test_include_does_not_narrow_it(self) -> None:
+        """A URL outside `include` still spends the flood budget."""
+        app = installed(
+            Starlette(routes=[Route("/orders", served)]),
+            flooded(flood=1, include=("/orders",)),
+        )
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        statuses = [
+            client.get("/nowhere", headers=caller).status_code for _ in range(2)
+        ]
+
+        assert statuses == [NOT_FOUND, TOO_MANY_REQUESTS]
+
+    @pytest.mark.parametrize(
+        ("outer", "inner", "refused_by"), [(1, 5, "outer"), (5, 1, "inner")]
+    )
+    def test_an_app_installed_under_another_spends_each_flood_limit(
+        self, outer: int, inner: int, refused_by: str
+    ) -> None:
+        """Once each, whichever is spent first."""
+
+        def flood_of(name: str, limit: int) -> RateLimitedRequests:
+            return RateLimitedRequests(
+                RateLimiter.sliding_window(
+                    f"{name}-burst",
+                    limit=100,
+                    window=60,
+                    backend=MemoryRateLimiterAdapter(),
+                ),
+                flood=RateLimiter.sliding_window(
+                    name,
+                    limit=limit,
+                    window=60,
+                    backend=MemoryRateLimiterAdapter(),
+                ),
+                trusted=TrustedProxies(["10.0.0.0/8"]),
+            )
+
+        inner_app = installed(
+            Starlette(routes=[Route("/orders", served)]),
+            flood_of("inner", inner),
+        )
+        outer_app = installed(
+            Starlette(routes=[Mount("/svc", app=inner_app)]),
+            flood_of("outer", outer),
+        )
+        client = TestClient(outer_app, client=ADDRESS)
+        caller = bearer(token())
+
+        answered = client.get("/svc/orders", headers=caller)
+        turned_away = client.get("/svc/orders", headers=caller)
+
+        assert answered.status_code == OK
+        assert turned_away.status_code == TOO_MANY_REQUESTS
+        assert turned_away.headers["ratelimit-policy"].startswith(
+            f'"{refused_by}";q=1;'
+        )
+
+    def test_a_request_with_no_caller_to_meter_spends_nothing(self) -> None:
+        """A `key` returning `None` leaves it unmetered, as at the route."""
+        app = installed(
+            Starlette(routes=[Route("/orders", served)]),
+            RateLimitedRequests(
+                RateLimiter.sliding_window(
+                    "burst",
+                    limit=100,
+                    window=60,
+                    backend=MemoryRateLimiterAdapter(),
+                ),
+                flood=RateLimiter.sliding_window(
+                    "flood",
+                    limit=1,
+                    window=60,
+                    backend=MemoryRateLimiterAdapter(),
+                ),
+                key=lambda scope: None,  # noqa: ARG005
+            ),
+        )
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        statuses = [
+            client.get("/nowhere", headers=caller).status_code for _ in range(3)
+        ]
+
+        assert statuses == [NOT_FOUND] * 3
+
+    def test_a_websocket_handshake_spends_nothing(self) -> None:
+        """As with the route limits, only HTTP requests are metered."""
+        app = installed(
+            Starlette(
+                routes=[Route("/orders", served), WebSocketRoute("/ws", accept)]
+            ),
+            flooded(flood=1),
+        )
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        for _ in range(3):
+            with client.websocket_connect("/ws", headers=caller):
+                pass
+        answered = client.get("/orders", headers=caller)
+
+        assert answered.status_code == OK
+
+    @pytest.mark.parametrize("framework", [Starlette, FastAPI])
+    def test_a_flood_limit_the_app_rate_limit_replaces_fails_install(
+        self, framework: type[Starlette]
+    ) -> None:
+        """Before install changes anything."""
+        app = framework(
+            routes=[Route("/orders", served)],
+            middleware=[
+                Middleware(
+                    RateLimitMiddleware,
+                    limiters=[
+                        RateLimiter.sliding_window(
+                            "burst", limit=100, window=60
+                        )
+                    ],
+                    trusted=TrustedProxies(["10.0.0.0/8"]),
+                )
+            ],
+        )
+        stack = list(app.user_middleware)
+
+        with pytest.raises(TypeError, match="flood="):
+            Grelmicro(uses=[ErrorResponses(), flooded()]).install(app)
+
+        assert app.user_middleware == stack
+
+    @pytest.mark.parametrize("second", [False, True])
+    def test_a_failed_install_with_a_flood_limit_can_be_retried(
+        self, monkeypatch: pytest.MonkeyPatch, *, second: bool
+    ) -> None:
+        """The middleware the first attempt added is not taken for the app's own."""
+        app = Starlette(routes=[Route("/orders", served)])
+        others = (
+            [
+                RateLimitedRequests(
+                    RateLimiter.sliding_window(
+                        "other",
+                        limit=100,
+                        window=60,
+                        backend=MemoryRateLimiterAdapter(),
+                    ),
+                    trusted=TrustedProxies(["10.0.0.0/8"]),
+                    name="other",
+                )
+            ]
+            if second
+            else []
+        )
+        micro = Grelmicro(
+            uses=[ErrorResponses(), authenticated(), flooded(flood=1), *others]
+        )
+
+        def refused(*_: object) -> None:
+            msg = "wiring refused"
+            raise RuntimeError(msg)
+
+        with monkeypatch.context() as patched:
+            patched.setattr(Grelmicro, "_install_route_gate", refused)
+            with pytest.raises(RuntimeError, match="wiring refused"):
+                micro.install(app)
+        micro.install(app)
+        client = TestClient(app, client=ADDRESS)
+        caller = bearer(token())
+
+        statuses = [
+            client.get("/nowhere", headers=caller).status_code for _ in range(2)
+        ]
+
+        assert statuses == [NOT_FOUND, TOO_MANY_REQUESTS]
+
+    def test_the_app_rate_limit_stands_in_for_one_without_a_flood_limit(
+        self,
+    ) -> None:
+        """Installed as before, with the app's own middleware kept."""
+        app = Starlette(
+            routes=[Route("/orders", served)],
+            middleware=[
+                Middleware(
+                    RateLimitMiddleware,
+                    limiters=[
+                        RateLimiter.sliding_window(
+                            "burst",
+                            limit=100,
+                            window=60,
+                            backend=MemoryRateLimiterAdapter(),
+                        )
+                    ],
+                    trusted=TrustedProxies(["10.0.0.0/8"]),
+                )
+            ],
+        )
+        Grelmicro(uses=[ErrorResponses(), limited()]).install(app)
+        client = TestClient(app, client=ADDRESS)
+
+        assert client.get("/orders").status_code == OK
+
+    def test_a_flood_limit_named_as_a_route_limit_is_refused(self) -> None:
+        """The two would read as one policy in the `RateLimit` fields."""
+        burst = RateLimiter.sliding_window("burst", limit=100, window=60)
+
+        with pytest.raises(ValueError, match="flood="):
+            RateLimitedRequests(
+                burst,
+                flood=RateLimiter.sliding_window("burst", limit=600, window=60),
+                trusted=TrustedProxies(["10.0.0.0/8"]),
+            )
+
+    @pytest.mark.parametrize("wiring", ["registered", "by hand"])
+    def test_without_authentication_it_is_spent_first(
+        self, wiring: str
+    ) -> None:
+        """Before routing, ahead of the limiters, registered or added by hand."""
+        if wiring == "registered":
+            app = Starlette(routes=[Route("/orders", served)])
+            Grelmicro(
+                uses=[ErrorResponses(), flooded(flood=1, burst=1)]
+            ).install(app)
+        else:
+            app = Starlette(
+                routes=[Route("/orders", served)],
+                middleware=[
+                    Middleware(
+                        RateLimitMiddleware,
+                        limiters=[
+                            RateLimiter.sliding_window(
+                                "burst",
+                                limit=1,
+                                window=60,
+                                backend=MemoryRateLimiterAdapter(),
+                            )
+                        ],
+                        flood=RateLimiter.sliding_window(
+                            "flood",
+                            limit=1,
+                            window=60,
+                            backend=MemoryRateLimiterAdapter(),
+                        ),
+                        trusted=TrustedProxies(["10.0.0.0/8"]),
+                    )
+                ],
+            )
+        client = TestClient(app, client=ADDRESS)
+
+        unrouted = client.get("/nowhere")
+        turned_away = client.get("/orders")
+
+        assert unrouted.status_code == NOT_FOUND
+        assert turned_away.status_code == TOO_MANY_REQUESTS
+        assert turned_away.headers["ratelimit-policy"] == '"flood";q=1;w=60'
 
 
 class TestAnExcludedPath:

@@ -69,6 +69,7 @@ __all__ = [
     "GatePolicy",
     "RouteGate",
     "Unanswered",
+    "answered",
     "crossed",
     "deny_websocket",
     "edge_of",
@@ -157,9 +158,13 @@ def edge_of(app: ASGIApp, policy: GatePolicy) -> Edge:
     policy's answering middleware, in the order they were placed. The
     first that is not ends the walk, and everything from it on serves the
     request as the app's own code.
+
+    A middleware skipped there that carries `before_routing(app)` runs
+    what that returns at the edge instead, outermost first.
     """
     remaining = list(policy.answering)
     found: list[tuple[type[Any], dict[str, Any]]] = []
+    skipped: list[Any] = []
     node: Any = app
     while True:
         index = next(
@@ -171,10 +176,16 @@ def edge_of(app: ASGIApp, policy: GatePolicy) -> Edge:
             None,
         )
         if index is None:
-            return Edge(node, tuple(found))
+            break
         found.append(remaining[index])
+        skipped.append(node)
         del remaining[: index + 1]
         node = node.app
+    for middleware in reversed(skipped):
+        before_routing = getattr(middleware, "before_routing", None)
+        if before_routing is not None:
+            node = before_routing(node)
+    return Edge(node, tuple(found))
 
 
 UNANSWERED_KEY: Final = "grelmicro.unanswered"
@@ -195,8 +206,13 @@ class Unanswered:
         self.open = True
 
 
-def _answered(scope: Scope) -> None:
-    """Mark the request as answered by a gate, when it was routed without a credential."""
+def answered(scope: Scope) -> None:
+    """Mark the request as answered, when it was routed without a credential.
+
+    A gate marks what it admitted or refused, and a flood limit what it
+    refused before routing, so neither answer becomes the `401` of a
+    request nothing answered.
+    """
     unanswered = scope.get(UNANSWERED_KEY)
     if unanswered is not None:
         unanswered.open = False
@@ -501,7 +517,7 @@ def _anonymous(template: str) -> _Check:
     def check(scope: Scope) -> _Refusal | None:
         if GATE_KEY not in scope:
             return unvouched
-        _answered(scope)
+        answered(scope)
         return None
 
     return check
@@ -602,7 +618,7 @@ def _admission(
         refusal = pick(scope.get("method"), otherwise)(scope)
         if refusal is None:
             return None
-        _answered(scope)
+        answered(scope)
         if name is not None:
             scope[ROUTE_KEY] = name(scope)
         return refusal

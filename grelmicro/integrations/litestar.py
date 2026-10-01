@@ -14,7 +14,7 @@ from grelmicro._component import authenticates, observes
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
-from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     METADATA_MARKER,
@@ -125,7 +125,25 @@ def install(
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
+
+    Raises:
+        TypeError: If a flood limit would run behind the router, before
+            anything is wired.
     """
+    if any(
+        declared_class is RateLimitMiddleware
+        and arguments.get("flood") is not None
+        for declared_class, arguments in _routed_middleware(app)
+    ):
+        raise TypeError(_FLOOD_BEHIND_ROUTER)
+    _refuse_flood(
+        app,
+        [
+            component
+            for component in micro.components
+            if hasattr(component, "asgi_middleware")
+        ],
+    )
 
     async def _open_micro() -> None:
         await micro.__aenter__()
@@ -214,9 +232,13 @@ def install_middleware(
     stack at construction time. `micro.install(app)` calls this with the
     components it found, so a direct call is only for an app that never goes
     through `install`.
+
+    Raises:
+        TypeError: If a flood limit would run behind the router.
     """
     # Authentication first, whatever order it was registered in. Stable, so
     # registration order holds among the rest.
+    _refuse_flood(app, components)
     ordered = sorted(
         components, key=lambda component: not authenticates(component)
     )
@@ -272,6 +294,44 @@ def install_middleware(
             _route_resource_metadata(app, component)
             component.read_routes(app)
             component.document_openapi(app)
+
+
+_FLOOD_BEHIND_ROUTER = (
+    "A flood= limit runs before routing, and a middleware passed to "
+    "Litestar(middleware=[...]) runs behind the router, where a URL no "
+    "handler answers never reaches it. Register RateLimitedRequests and "
+    "AuthenticatedRequests with Grelmicro(uses=[...]) instead, or drop flood=."
+)
+"""Why a flood limit behind Litestar's router is refused."""
+
+
+def _refuse_flood(app: Litestar, components: Sequence[Any]) -> None:
+    """Refuse a flood limit that would end up behind the router, or nowhere.
+
+    Behind the router when the app passed authentication to
+    `Litestar(middleware=[...])`. Nowhere when it passed its own
+    `RateLimitMiddleware` there, which stands in for the component's.
+
+    Raises:
+        TypeError: If a component carrying a flood limit is in either case.
+    """
+    behind = any(
+        authenticates(component) and _declared_by_app(app, component)
+        for component in components
+    )
+    passed = any(
+        declared_class is RateLimitMiddleware
+        for declared_class, _ in _routed_middleware(app)
+    )
+    if not (behind or passed):
+        return
+    for component in components:
+        middleware, options = component.asgi_middleware()
+        if (
+            middleware is RateLimitMiddleware
+            and options.get("flood") is not None
+        ):
+            raise TypeError(_FLOOD_BEHIND_ROUTER)
 
 
 def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: ANN401

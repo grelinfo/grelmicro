@@ -404,6 +404,47 @@ async def test_the_endpoint_report_says_what_happens_to_one_route() -> None:
     assert rows[("GET", "/livez")] == ()
 
 
+async def test_the_endpoint_report_names_the_flood_limit() -> None:
+    """Every endpoint it reaches, whatever `include` says."""
+    # Arrange
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    micro = Grelmicro(
+        uses=[
+            ErrorResponses(),
+            RateLimitedRequests(
+                _limiter(),
+                flood=RateLimiter.sliding_window("flood", limit=600, window=60),
+                trusted=TrustedProxies(["10.0.0.0/8"]),
+                include=("/orders",),
+                exclude=("/livez",),
+            ),
+        ]
+    )
+
+    @app.post("/orders")
+    async def order() -> dict[str, str]:
+        return {}  # pragma: no cover
+
+    @app.get("/products")
+    async def products() -> list[str]:
+        return []  # pragma: no cover
+
+    @app.get("/livez")
+    async def livez() -> dict[str, str]:
+        return {}  # pragma: no cover
+
+    micro.install(app)
+
+    # Act
+    report = micro.describe(app)
+    rows = {(row.method, row.path): row.applies for row in report.endpoints}
+
+    # Assert
+    assert rows[("POST", "/orders")] == ("rate-limit burst, flood=flood",)
+    assert rows[("GET", "/products")] == ("rate-limit flood=flood",)
+    assert rows[("GET", "/livez")] == ()
+
+
 async def test_the_endpoint_report_is_empty_without_an_app() -> None:
     """The routes are read off the application, so it has to be given one."""
     # Arrange

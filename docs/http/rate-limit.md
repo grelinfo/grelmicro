@@ -15,9 +15,10 @@ Every request spends one token of every limiter listed. A burst limit stands
 beside a daily one, and a request passes both or is turned away by the first
 that says no.
 
-With [`AuthenticatedRequests`](authentication.md) on Starlette or Litestar, a
-request spends its tokens once its route admitted it. A request the route
-refuses, and one no route answers, spends none.
+With [`AuthenticatedRequests`](authentication.md), a request spends its
+tokens once its route admitted it. A request the route refuses, and one no
+route answers, spends none. A [flood limit](#limiting-floods-before-routing)
+covers those.
 
 ## What the caller is told
 
@@ -113,6 +114,53 @@ than failing every request, on the route and on the app alike. A route that
 finds no caller to meter says so once rather than metering nothing in
 silence.
 
+## Limiting floods before routing
+
+With `AuthenticatedRequests`, the route limits run at the route, so a scan of
+URLs no route answers spends nothing of them. Give a flood limit to cap it:
+
+```python
+--8<-- "http/rate_limit_flood.py"
+```
+
+Every request spends one token of `flood` before routing, a URL no route
+answers included. `burst` is still spent at the route, so the two budgets
+never mix: a request a route refuses spends `flood` and leaves `burst`
+whole.
+
+The flood limit runs once authentication passed the request on. A token that does not verify is refused before it, and so is a
+request without a token, unless the app has a public route and has to route it
+to know. Authentication goes first because it is the cheaper check: a token
+verifies in about 12 microseconds, and a limiter over Redis takes a round trip.
+[What each flood meets](authentication.md#what-each-flood-meets) says what
+stops the others.
+
+Without `AuthenticatedRequests`, both run before routing, `flood` first, so
+a request spends both wherever it goes.
+
+The flood limit is keyed like the route limits, by `trusted=` or `key=`. Size
+it as a ceiling for one address, since every caller behind it shares it. A
+`key=` is then called before routing too, so build it from the caller, never
+from the route: path parameters are not there yet.
+
+A flood refusal is the same `429`, stating the flood policy alone. An allowed
+response states the route policies and leaves the flood one out, since a
+client paces itself off the route's budget.
+
+Only `exclude=` applies to it, since a flood is made of the URLs `include=`
+does not name. It spends one token and never waits, whatever `cost=` and
+`max_wait=` say. Like the route limits, it meters HTTP requests and leaves
+websocket handshakes alone.
+
+An app that adds its own `RateLimitMiddleware` keeps it, and the registered
+one is not added beside it. `install` then refuses a registered `flood=`,
+which would never run. On Starlette and FastAPI, pass `flood=` to the one the
+app added instead.
+
+On Litestar, register both components with `Grelmicro(uses=[...])`. A
+middleware passed to `Litestar(middleware=[...])` runs behind the router, so
+`install` refuses `flood=` when either one is passed there.
+
 ## Waiting instead of refusing
 
 `max_wait=0.0` refuses as soon as the budget is spent, which is the default,
@@ -195,6 +243,7 @@ same.
 | Option | What it does |
 |---|---|
 | `*limiters` | the limiters every request spends |
+| `flood` | the limiter every request spends before routing |
 | `trusted` | the proxies whose forwarded entries may be believed |
 | `key` | builds the bucket key itself |
 | `cost` | tokens one request spends of each |

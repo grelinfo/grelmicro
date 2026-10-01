@@ -80,6 +80,7 @@ ACCEPTED = 101
 """A websocket handshake the handler accepted."""
 UNAUTHORIZED = 401
 FORBIDDEN = 403
+NOT_FOUND = 404
 UNPROCESSABLE = 422
 TOO_MANY_REQUESTS = 429
 ORIGIN = "https://app.example"
@@ -981,6 +982,68 @@ class TestAnAnonymousRoute:
         assert response.text == "ab"
         assert response.headers["ratelimit"] == '"burst";r=2;t=20'
         assert ran == ["after"]
+
+
+def flooded(flood: int = 3, burst: int = 100) -> RateLimitedRequests:
+    """Return a route limit beside a flood limit, both keyed by one address."""
+    return RateLimitedRequests(
+        RateLimiter.sliding_window(
+            "burst", limit=burst, window=60, backend=MemoryRateLimiterAdapter()
+        ),
+        flood=RateLimiter.sliding_window(
+            "flood", limit=flood, window=60, backend=MemoryRateLimiterAdapter()
+        ),
+        key=lambda scope: ADDRESS[0],  # noqa: ARG005
+    )
+
+
+class TestFloodLimit:
+    """The flood limit runs before routing, with a budget of its own."""
+
+    def test_a_flood_no_route_answers_is_refused(self) -> None:
+        """With a token, once the flood budget is spent."""
+        app = catalog(Calls(), flooded())
+        with TestClient(app) as client:
+            statuses = [
+                client.get("/nowhere", headers=bearer(token())).status_code
+                for _ in range(4)
+            ]
+
+        assert statuses == [NOT_FOUND] * 3 + [TOO_MANY_REQUESTS]
+
+    def test_a_flood_without_a_token_is_refused(self) -> None:
+        """An app with a public route routes it, so it spends the flood budget."""
+        app = catalog(Calls(), flooded())
+        with TestClient(app) as client:
+            statuses = [client.get("/nowhere").status_code for _ in range(4)]
+
+        assert statuses == [UNAUTHORIZED] * 3 + [TOO_MANY_REQUESTS]
+
+    def test_a_request_a_route_refuses_spends_the_flood_budget_only(
+        self,
+    ) -> None:
+        """The route's bucket is left whole, the flood one is not."""
+        app = catalog(Calls(), flooded(flood=4, burst=2))
+        with TestClient(app) as client:
+            refused = [client.post("/items/7").status_code for _ in range(3)]
+            answered = client.post("/items/7", headers=bearer(token()))
+            turned_away = client.post("/items/7", headers=bearer(token()))
+
+        assert refused == [UNAUTHORIZED] * 3
+        assert answered.status_code == CREATED
+        assert answered.headers["ratelimit"].startswith('"burst";r=1;')
+        assert turned_away.status_code == TOO_MANY_REQUESTS
+
+    def test_each_answer_states_the_budget_that_metered_it(self) -> None:
+        """A served request states the route's, a flood refusal the flood one."""
+        app = catalog(Calls(), flooded(flood=1))
+        with TestClient(app) as client:
+            answered = client.get("/items/7")
+            turned_away = client.get("/items/7")
+
+        assert answered.headers["ratelimit-policy"] == '"burst";q=100;w=60'
+        assert turned_away.status_code == TOO_MANY_REQUESTS
+        assert turned_away.headers["ratelimit-policy"] == '"flood";q=1;w=60'
 
 
 orders = APIRouter()
