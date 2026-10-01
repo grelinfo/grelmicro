@@ -856,6 +856,27 @@ class TestAuthenticationInTheApp:
         with pytest.raises(TypeError, match="flood="):
             Grelmicro(uses=[ErrorResponses()]).install(app)
 
+    def test_a_flood_option_of_another_middleware_installs(self) -> None:
+        """Only a grelmicro rate limit is a flood limit."""
+
+        class Shield(Passing):
+            def __init__(self, app: ASGIApp, *, flood: bool) -> None:
+                super().__init__(app)
+                self.flood = flood
+
+        @get("/orders")
+        async def orders() -> str:
+            return "orders"
+
+        app = Litestar(
+            [orders],
+            middleware=[DefineMiddleware(cast("Any", Shield), flood=True)],
+        )
+        Grelmicro(uses=[ErrorResponses()]).install(app)
+
+        with TestClient(app) as client:
+            assert client.get("/orders").status_code == OK
+
     def test_a_flood_limit_fails_install(self) -> None:
         """No point before routing has authenticated the request."""
         component = AuthenticatedRequests(verifier())

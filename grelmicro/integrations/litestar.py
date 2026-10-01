@@ -14,7 +14,7 @@ from grelmicro._component import authenticates, observes
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
-from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
     METADATA_MARKER,
@@ -127,12 +127,13 @@ def install(
     and calls this for you.
 
     Raises:
-        TypeError: If a middleware passed to `Litestar(middleware=[...])`
-            carries a flood limit.
+        TypeError: If a `RateLimitMiddleware` passed to
+            `Litestar(middleware=[...])` carries a flood limit.
     """
     if any(
-        arguments.get("flood") is not None
-        for _, arguments in _routed_middleware(app)
+        declared_class is RateLimitMiddleware
+        and arguments.get("flood") is not None
+        for declared_class, arguments in _routed_middleware(app)
     ):
         raise TypeError(_FLOOD_BEHIND_ROUTER)
 
@@ -302,8 +303,11 @@ def _refuse_flood(components: Sequence[Any], *, behind: bool) -> None:
     if not behind:
         return
     for component in components:
-        _, options = component.asgi_middleware()
-        if options.get("flood") is not None:
+        middleware, options = component.asgi_middleware()
+        if (
+            middleware is RateLimitMiddleware
+            and options.get("flood") is not None
+        ):
             raise TypeError(_FLOOD_BEHIND_ROUTER)
 
 
