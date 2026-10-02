@@ -109,7 +109,8 @@ def fastapi_pipelines(
 ) -> Iterator[list[object]]:
     """Return what FastAPI set up from the environment, and tear it down.
 
-    The global providers FastAPI installs are put back as they were.
+    FastAPI starts with no global providers, so it sets up its own, and the
+    ones before are put back.
     """
     for module, name, once in (
         (trace, "_TRACER_PROVIDER", trace._TRACER_PROVIDER_SET_ONCE),
@@ -124,8 +125,8 @@ def fastapi_pipelines(
             logs_internal._LOGGER_PROVIDER_SET_ONCE,
         ),
     ):
-        monkeypatch.setattr(module, name, getattr(module, name))
-        monkeypatch.setattr(once, "_done", once._done)
+        monkeypatch.setattr(module, name, None)
+        monkeypatch.setattr(once, "_done", False)
     yield _runtime._owned
     _runtime._shutdown()
     _runtime._configured.clear()
