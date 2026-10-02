@@ -7,6 +7,9 @@ the OpenAPI schema and the health router.
 
 import inspect
 import logging
+import os
+import re
+import weakref
 from collections.abc import Callable, Collection, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
@@ -26,6 +29,10 @@ try:
     from fastapi.security import (
         SecurityScopes as _SecurityScopes,
     )
+    from opentelemetry import trace as _otel_trace
+    from starlette.middleware import Middleware
+    from starlette.types import ASGIApp, Receive, Scope, Send
+    from starlette.websockets import WebSocketDisconnect as _WebSocketDisconnect
 
     HAS_FASTAPI = True
 except ImportError:  # pragma: no cover - the reimport test walks this
@@ -85,9 +92,11 @@ from grelmicro.http._requirement import (
 )
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.idempotency import Idempotency
+from grelmicro.integrations._fastapi_internals import telemetry_of
 from grelmicro.integrations._route_gate import declarations_of, gate_routes
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
+    _keep_watching_outside,
     error_response,
     is_bound,
 )
@@ -103,6 +112,7 @@ from grelmicro.resilience.ratelimiter import RateLimiter
 from grelmicro.security.clientip import TrustedProxies
 from grelmicro.security.jwt import JWTClaims
 from grelmicro.security.principal import Principal, VerifiedToken
+from grelmicro.trace._autoinstrument import is_selected
 from grelmicro.trace._component import Trace
 
 __all__ = [
@@ -158,14 +168,14 @@ def install(
 ) -> None:
     """Wire `micro` into a FastAPI app.
 
-    The Starlette wiring, plus OpenTelemetry auto-instrumentation when a
-    `Trace` component asks for it.
+    The Starlette wiring, plus FastAPI's request telemetry exported through
+    the `Trace` and `Metrics` components.
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
     """
     _install_starlette(app, micro, ambient=ambient)
-    _instrument_app(app, micro)
+    _wire_telemetry(app, micro)
 
 
 def install_error_responses(
@@ -273,48 +283,124 @@ def route_declarations(
     return declarations_of(app)
 
 
-def _instrument_app(app: FastAPI, micro: Grelmicro) -> None:
-    """Auto-instrument the FastAPI app per `Trace(instrument=...)`.
+def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:
+    """Hand FastAPI's request telemetry to grelmicro's export.
 
-    Runs at install time, before the app serves, because the framework builds
-    its middleware stack on first use and the request-span middleware must be
-    in place by then. With no explicit `TracerProvider`, OTel's proxy tracer
-    resolves to the provider `Trace` installs during the lifespan, so request
-    spans land in grelmicro's pipeline. It is a no-op without
-    `opentelemetry-instrumentation-fastapi` installed.
+    FastAPI records the request spans and the HTTP server metrics through
+    the global providers. When a `Trace` or `Metrics` component exports
+    them, FastAPI stops setting up exporters of its own from the
+    environment. A `Trace` that is off, or whose `instrument` leaves out
+    `fastapi`, turns the request spans off and keeps the metrics.
     """
-    from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
-        explicit_names,
-        is_selected,
-    )
+    settings = telemetry_of(app)
+    if app in _WIRED:
+        return
+    _WIRED.add(app)
+    kinds = {getattr(component, "kind", None) for component in micro.components}
+    if "trace" in kinds or "metrics" in kinds:
+        settings["auto_configure"] = False
+        settings["exclude"] = _excluding(settings["exclude"])
+    trace = next((c for c in micro.components if isinstance(c, Trace)), None)
+    if trace is None:
+        return
+    if not (trace.active and is_selected("fastapi", trace.instrument)):
+        settings["tracing"] = False
+    elif settings["tracing"] and _exceptions_on_spans():
+        entry = Middleware(_ExceptionEvents)
+        app.user_middleware.insert(0, entry)
+        _keep_watching_outside(app, [entry])
 
-    component = next(
-        (c for c in micro.components if getattr(c, "kind", None) == "trace"),
+
+_WIRED: Final[weakref.WeakSet[FastAPI]] = weakref.WeakSet()
+"""Apps whose telemetry is wired. The first `Grelmicro` installed wires it."""
+
+
+def _excluding(
+    app_exclude: Callable[[Scope], bool] | None,
+) -> Callable[[Scope], bool] | None:
+    """Return the app's `exclude`, also skipping URLs the environment names.
+
+    `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`, or `OTEL_PYTHON_EXCLUDED_URLS` when
+    it is unset, holds comma-separated regular expressions. A request whose
+    full URL one of them matches is neither traced nor measured.
+    """
+    listed = os.environ.get(
+        "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS",
+        os.environ.get("OTEL_PYTHON_EXCLUDED_URLS", ""),
+    )
+    patterns = [entry.strip() for entry in listed.split(",") if entry.strip()]
+    if not patterns:
+        return app_exclude
+    excluded = re.compile("|".join(patterns))
+
+    def exclude(scope: Scope) -> bool:
+        if app_exclude is not None and app_exclude(scope):
+            return True
+        return excluded.search(_url_of(scope)) is not None
+
+    return exclude
+
+
+def _url_of(scope: Scope) -> str:
+    """Return the request's full URL without its query, as it was sent."""
+    host = next(
+        (
+            value.decode("latin-1")
+            for name, value in scope["headers"]
+            if name == b"host"
+        ),
         None,
     )
-    if component is None:
-        return
-    trace = cast("Trace", component)
-    if not trace.active:
-        # Auto-disabled Trace installs no provider, so request spans would go
-        # nowhere. Skip instrumentation until an exporter endpoint is set.
-        return
-    directive = trace.instrument
-    if not is_selected("fastapi", directive):
-        return
-    try:
-        from opentelemetry.instrumentation.fastapi import (  # noqa: PLC0415
-            FastAPIInstrumentor,
-        )
-    except ImportError:  # pragma: no cover
-        names = explicit_names(directive)
-        if names is not None and "fastapi" in names:
-            _logger.warning(
-                "Trace named 'fastapi' for instrumentation but "
-                "opentelemetry-instrumentation-fastapi is not installed."
-            )
-        return
-    FastAPIInstrumentor.instrument_app(app)
+    if host is None:
+        address, port = scope.get("server") or _NO_SERVER
+        host = address if port == _HTTP_PORT else f"{address}:{port}"
+    return f"{scope.get('scheme', 'http')}://{host}{scope.get('path', '')}"
+
+
+_NO_SERVER: Final = ("0.0.0.0", 80)  # noqa: S104
+"""The server address a request without a `Host` header or a server reads as."""
+
+_HTTP_PORT: Final = 80
+"""The port a URL leaves out."""
+
+
+def _exceptions_on_spans() -> bool:
+    """Return whether exceptions go on spans, per `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN`.
+
+    `logs` moves them to the logs signal. `logs/dup` and no value keep them
+    on spans.
+    """
+    choice = os.environ.get("OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN", "")
+    return choice.strip().lower() != "logs"
+
+
+_NORMAL_CLOSE: Final = frozenset({1000, 1001})
+"""WebSocket close codes for a connection that ended as it should."""
+
+
+class _ExceptionEvents:
+    """Record an exception the app raised as an event on the request span.
+
+    Runs outside every middleware the app added and inside the server
+    error handler, while the request span is current. A WebSocket closed
+    normally records nothing.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        try:
+            await self.app(scope, receive, send)
+        except Exception as exc:
+            if not (
+                isinstance(exc, _WebSocketDisconnect)
+                and exc.code in _NORMAL_CLOSE
+            ):
+                _otel_trace.get_current_span().record_exception(exc)
+            raise
 
 
 def document_idempotency(

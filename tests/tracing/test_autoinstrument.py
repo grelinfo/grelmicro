@@ -1,7 +1,7 @@
 """Tests for `Trace(instrument=...)` auto-instrumentation.
 
-Covers the selection logic, the per-provider instrument hooks, the app-level
-provider pass, the FastAPI install pass, and an end-to-end request span.
+Covers the selection logic, the per-provider instrument hooks, and the
+app-level provider pass. FastAPI request spans are in `test_fastapi_telemetry.py`.
 """
 
 from __future__ import annotations
@@ -9,17 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-    InMemorySpanExporter,
-)
-from opentelemetry.trace import SpanKind
-from starlette.applications import Starlette
-from starlette.status import HTTP_200_OK
 
 from grelmicro import Grelmicro
 from grelmicro.errors import SettingsValidationError
@@ -256,7 +246,7 @@ def test_installed_instrumentors_includes_bundled_extras(
     """The test env installs the instrumentation extra, so these are present."""
     monkeypatch.undo()  # use real entry-point discovery, not the conftest stub
     names = installed_instrumentors()
-    assert {"fastapi", "redis", "asyncpg"} <= names
+    assert {"redis", "asyncpg"} <= names
 
 
 def test_instrument_libraries_sweeps_installed(
@@ -460,96 +450,3 @@ async def test_app_with_trace_no_providers() -> None:
     """A `Trace` with no providers enters cleanly."""
     async with Grelmicro(uses=[_none_trace()]):
         pass
-
-
-# --- FastAPI install pass ----------------------------------------------------
-
-
-def test_install_instruments_fastapi_by_default() -> None:
-    """`micro.install(app)` instruments a FastAPI app at install time."""
-    app = FastAPI()
-    Grelmicro(uses=[_none_trace()]).install(app)
-    try:
-        assert app._is_instrumented_by_opentelemetry is True  # ty: ignore[unresolved-attribute]
-    finally:
-        FastAPIInstrumentor.uninstrument_app(app)
-
-
-def test_install_instrument_false_skips_fastapi() -> None:
-    """`instrument=False` leaves the FastAPI app un-instrumented."""
-    app = FastAPI()
-    Grelmicro(uses=[_none_trace(instrument=False)]).install(app)
-    assert getattr(app, "_is_instrumented_by_opentelemetry", False) is False
-
-
-def test_install_skips_plain_starlette() -> None:
-    """A non-FastAPI Starlette app is skipped (FastAPI instrumentor only)."""
-    app = Starlette()
-    Grelmicro(uses=[_none_trace()]).install(app)
-    assert getattr(app, "_is_instrumented_by_opentelemetry", False) is False
-
-
-def test_install_without_trace_skips_fastapi() -> None:
-    """No `Trace` component means no FastAPI instrumentation."""
-    app = FastAPI()
-    Grelmicro(uses=[]).install(app)
-    assert getattr(app, "_is_instrumented_by_opentelemetry", False) is False
-
-
-def test_install_skips_fastapi_when_trace_auto_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An auto-disabled `Trace` (no endpoint) skips FastAPI instrumentation."""
-    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
-    app = FastAPI()
-    Grelmicro(uses=[Trace()]).install(app)
-    assert getattr(app, "_is_instrumented_by_opentelemetry", False) is False
-
-
-# --- end-to-end span ---------------------------------------------------------
-
-
-@pytest.fixture
-def _isolate_tracer_provider() -> Iterator[None]:
-    """Give the test a clean OTel global so the proxy resolves deterministically.
-
-    `instrument_app` runs at install time with the proxy tracer, which
-    resolves the process-global provider at request time. Other tests in the
-    suite leave a provider in that global, so reset it to the default proxy
-    here and restore it after.
-    """
-    from opentelemetry import trace as otel_trace  # noqa: PLC0415
-
-    saved = otel_trace._TRACER_PROVIDER
-    otel_trace._TRACER_PROVIDER = None
-    try:
-        yield
-    finally:
-        otel_trace._TRACER_PROVIDER = saved
-
-
-@pytest.mark.usefixtures("_isolate_tracer_provider")
-def test_fastapi_request_produces_server_span() -> None:
-    """A request through an instrumented app emits a SERVER span."""
-    exporter = InMemorySpanExporter()
-    micro = Grelmicro(uses=[_none_trace()])
-    app = FastAPI()
-
-    @app.get("/ping")
-    def ping() -> dict[str, bool]:
-        return {"ok": True}
-
-    micro.install(app)
-    try:
-        with TestClient(app) as client:
-            # The lifespan installed Trace's provider; the app's proxy tracer
-            # resolves to it, so capture spans from that exact provider.
-            micro.trace.provider.add_span_processor(
-                SimpleSpanProcessor(exporter)
-            )
-            assert client.get("/ping").status_code == HTTP_200_OK
-        spans = exporter.get_finished_spans()
-        assert any(span.kind is SpanKind.SERVER for span in spans)
-    finally:
-        FastAPIInstrumentor.uninstrument_app(app)

@@ -26,7 +26,7 @@ KNOWN_FRAMEWORKS = frozenset({"fastapi", "faststream"})
 """Framework integration names valid in an `instrument` directive.
 
 These are wired by `micro.install(app)` (not the library sweep): FastAPI request
-spans via `FastAPIInstrumentor`, FastStream message spans via the broker's
+spans recorded by FastAPI itself, FastStream message spans via the broker's
 OpenTelemetry telemetry middleware.
 """
 
