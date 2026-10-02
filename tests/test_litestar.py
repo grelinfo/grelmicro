@@ -121,10 +121,14 @@ def test_is_bound_finds_middleware_passed_to_the_constructor() -> None:
 
     assert is_bound(app)
 
-    handler = app.asgi_handler
     micro.install(app)
 
-    assert app.asgi_handler is handler
+    layers = []
+    handler = app.asgi_handler
+    while handler is not None and handler is not app and callable(handler):
+        layers.append(handler)
+        handler = getattr(handler, "app", None)
+    assert not any(isinstance(layer, GrelmicroMiddleware) for layer in layers)
 
 
 async def test_shutdown_before_startup_does_not_raise() -> None:

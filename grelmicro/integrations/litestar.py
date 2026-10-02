@@ -19,6 +19,8 @@ from typing_extensions import Doc
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
 from grelmicro._paths import (
+    ROUTE_OF_KEY,
+    Answered,
     litestar_mount,
     litestar_owned_handler,
     litestar_route_template,
@@ -65,7 +67,6 @@ if TYPE_CHECKING:
     from grelmicro import Grelmicro
     from grelmicro.http import Gate
     from grelmicro.http._kinds import Unhandled
-    from grelmicro.integrations._request_telemetry import Answered
     from grelmicro.security.principal import VerifiedToken
 
     Scope = MutableMapping[str, Any]
@@ -182,7 +183,47 @@ def install(
         app.asgi_handler = cast(
             "Any", GrelmicroMiddleware(handler, micro=micro)
         )
+    _wire_route_reading(app)
     _wire_request_telemetry(app, micro)
+
+
+class _RouteReading:
+    """Leave how `app` reads a request's route in the scope, with the request.
+
+    The access log and security events then read the route the request
+    spans read, even after an app mounted with a shared scope rewrote it.
+    An app mounted under another installed app leaves the outer one's.
+    """
+
+    def __init__(
+        self, app: ASGIApp, *, route: Callable[[Scope, Answered], str | None]
+    ) -> None:
+        self.app = app
+        self._route = route
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "lifespan" and ROUTE_OF_KEY not in scope:
+            scope[ROUTE_OF_KEY] = (
+                self._route,
+                Answered(scope.get("root_path", ""), scope["path"], None),
+            )
+        await self.app(scope, receive, send)
+
+
+def _wire_route_reading(app: Litestar) -> None:
+    """Read the route of a request to `app` the way its request spans do."""
+    if _wrapped_already(app.asgi_handler, _RouteReading):
+        return
+    options: dict[str, Any] = {"route": _route_of(app)}
+    binding = app.asgi_handler
+    if isinstance(binding, GrelmicroMiddleware):
+        _wrap_outside(binding, _RouteReading, options)
+    else:
+        app.asgi_handler = cast(
+            "Any", _RouteReading(cast("ASGIApp", binding), **options)
+        )
 
 
 def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:

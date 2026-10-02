@@ -10,7 +10,7 @@ import functools
 import itertools
 import re
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Annotated, Any, Final
+from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple
 
 from pydantic import BeforeValidator
 from typing_extensions import Doc
@@ -25,6 +25,8 @@ __all__ = [
     "BARE_STRING_MESSAGE",
     "MALFORMED_JSON_MESSAGE",
     "ROUTE_KEY",
+    "ROUTE_OF_KEY",
+    "Answered",
     "FieldNames",
     "MethodNames",
     "PathPatterns",
@@ -99,6 +101,20 @@ send them looking for the mistake they did not make.
 
 ROUTE_KEY: Final = "grelmicro.route"
 """Where the route a refused request names is left, `None` when no route answers it."""
+
+ROUTE_OF_KEY: Final = "grelmicro.route_of"
+"""Where an installed app leaves how to read a request's route, and the request as it arrived."""
+
+
+class Answered(NamedTuple):
+    """A request as it arrived, and the status it was answered with."""
+
+    root_path: str
+    """The root path the request arrived with."""
+    path: str
+    """The path the request arrived with."""
+    status: int | None
+    """The status of the answer, `None` before one started."""
 
 
 def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
@@ -1363,9 +1379,14 @@ def route_template(
     read only when the app in `scope["app"]` owns the handler in the scope.
     On FastAPI, a route reached through included routers reads the
     template with every router prefix. A refused request reads the route
-    its refusal named. Any other request that went through a Starlette
-    mount reads as `starlette_route` reads it, with the template of each
-    mount, and `status` names the route a slash redirect sends it to.
+    its refusal named. A request that arrived at an installed Litestar app
+    as `asked` reads as that app's request spans read it. A request that
+    went through a Starlette mount reads as `starlette_route` reads it,
+    with the template of each mount, and `status` names the route a slash
+    redirect sends it to. A Litestar app's own access log under such a
+    mount, which sees the path without the mount, reads Litestar's
+    template alone. A Litestar mount of an ASGI app reads as `{path}`
+    under the mount.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1375,19 +1396,25 @@ def route_template(
     """
     if ROUTE_KEY in scope:
         return scope[ROUTE_KEY]
+    reading = scope.get(ROUTE_OF_KEY)
+    if reading is not None and reading[1].path == asked:
+        route_of, arrived = reading
+        kept = asked.startswith(arrived.root_path.rstrip("/"))
+        return route_of(
+            scope, Answered(arrived.root_path if kept else "", asked, status)
+        )
     root = scope.get("root_path", "")
     router = scope.get("router")
-    template = (
-        scope.get("path_template")
-        if litestar_route_handler(scope) is not None
-        else None
-    )
-    if not isinstance(template, str) and "app_root_path" in scope and router:
+    template = _litestar_template(scope)
+    owned = isinstance(template, str)
+    if (
+        "app_root_path" in scope
+        and router is not None
+        and (not owned or asked.startswith(root.rstrip("/")))
+    ):
         root = scope["app_root_path"]
-        template = starlette_route(
-            router, scope, root, scope.get("path", ""), status
-        )
-    elif not isinstance(template, str):
+        template = starlette_route(router, scope, root, asked, status)
+    elif not owned:
         route = scope.get("route")
         template = getattr(
             _included(scope, route) or route, "path_format", None
@@ -1398,6 +1425,21 @@ def route_template(
     if not root or not asked.startswith(root):
         return template
     return f"{root}{template}"
+
+
+def _litestar_template(scope: MutableMapping[str, Any]) -> str | None:
+    """Return the template of the handler the serving Litestar app matched.
+
+    A mounted ASGI app reads as `{path}` under its mount.
+    """
+    handler = litestar_route_handler(scope)
+    if handler is None:
+        return None
+    if getattr(handler, "is_mount", False):
+        mount = litestar_mount(_serving_litestar(scope), handler)
+        return mount.rstrip("/") + "/{path}"
+    template = scope.get("path_template")
+    return template if isinstance(template, str) else None
 
 
 def _included(scope: MutableMapping[str, Any], route: object) -> Any | None:  # noqa: ANN401
@@ -1423,11 +1465,13 @@ def starlette_route(  # noqa: C901
     The template is each mount the request went through, then the route
     the innermost router matched. A request that went through no mount
     reads that route alone. One that did is matched again for the
-    template of each mount. When no router inside the last mount recorded
-    a route, the one matching again finds is read, else `{path}`. A
-    FastAPI route reached through included routers reads with every
-    prefix. A request a router redirects to add or drop a trailing slash
-    reads the route it is redirected to.
+    template of each mount, whether or not its router recorded the mount,
+    and through any middleware wrapping a mounted app. When no router
+    inside the last mount recorded a route, the one matching again finds
+    is read, then the template a mounted Litestar app wrote, else
+    `{path}`. A FastAPI route reached through included routers reads with
+    every prefix. A request a router redirects to add or drop a trailing
+    slash reads the route it is redirected to.
     """
     from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
     from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
@@ -1438,11 +1482,12 @@ def starlette_route(  # noqa: C901
 
     def through_mounts(
         routes: Sequence[Any], scope: MutableMapping[str, Any]
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str | None, str | None]:
         """Return the templates of the mounts `scope` goes through, and of its route.
 
         Matches as Starlette's router does: the first full match, else the
-        first partial one. The route is `None` when nothing inside the last
+        first partial one. The mounts are `None` when the request goes
+        through none. The route is `None` when nothing inside the last
         mount matches, or when that mount holds an app of another framework.
         """
         found = None
@@ -1454,22 +1499,24 @@ def starlette_route(  # noqa: C901
             if match is Match.PARTIAL and found is None:
                 found = candidate, child
         if found is None:
-            return "", None
+            return None, None
         candidate, child = found
         if not isinstance(candidate, (Mount, Host)):
-            return "", template(scope, candidate)
+            return None, template(scope, candidate)
         prefix = (
             candidate.path_format.removesuffix("/{path}")
             if isinstance(candidate, Mount)
             else ""
         )
-        inner = getattr(candidate, "routes", None)
+        inner = getattr(candidate, "routes", None) or getattr(
+            _routing_app(getattr(candidate, "app", None)), "routes", None
+        )
         if not inner or not all(
             isinstance(entry, BaseRoute) for entry in inner
         ):
             return prefix, None
         mounts, leaf = through_mounts(inner, {**scope, **child})
-        return prefix + mounts, leaf
+        return prefix + (mounts or ""), leaf
 
     def start(at: str) -> dict[str, Any]:
         return {**scope, "path": at, "root_path": root_path, "path_params": {}}
@@ -1480,16 +1527,19 @@ def starlette_route(  # noqa: C901
             return None
         toggled = path.removesuffix("/") if path.endswith("/") else path + "/"
         mounts, leaf = through_mounts(router.routes, start(toggled))
-        return None if leaf is None else mounts + leaf
+        return None if leaf is None else (mounts or "") + leaf
 
     matched = scope.get("route")
-    if matched is None:
-        return redirected()
-    if scope.get("root_path", "") == root_path:
+    route = matched is not None and not isinstance(matched, Mount)
+    if route and scope.get("root_path", "") == root_path:
         return template(scope, matched)
     mounts, walked = through_mounts(router.routes, start(path))
-    if not isinstance(matched, Mount):
+    if mounts is None:
+        return redirected() if matched is None else template(scope, matched)
+    if route:
         walked = template(scope, matched)
+    elif walked is None:
+        walked = _litestar_template(scope)
     if walked is not None:
         return mounts + walked
     return redirected() or mounts + "/{path}"
