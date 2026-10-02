@@ -1363,9 +1363,12 @@ def route_template(
     read only when the app in `scope["app"]` owns the handler in the scope.
     On FastAPI, a route reached through included routers reads the
     template with every router prefix. A refused request reads the route
-    its refusal named. Any other request that went through a Starlette
-    mount reads as `starlette_route` reads it, with the template of each
-    mount, and `status` names the route a slash redirect sends it to.
+    its refusal named. A request that went through a Starlette mount
+    reads as `starlette_route` reads it, with the template of each mount,
+    and `status` names the route a slash redirect sends it to. A Litestar
+    app's own access log under such a mount, which sees the path without
+    the mount, reads Litestar's template alone. A Litestar mount of an
+    ASGI app reads as `{path}` under the mount.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1377,17 +1380,16 @@ def route_template(
         return scope[ROUTE_KEY]
     root = scope.get("root_path", "")
     router = scope.get("router")
-    template = (
-        scope.get("path_template")
-        if litestar_route_handler(scope) is not None
-        else None
-    )
-    if not isinstance(template, str) and "app_root_path" in scope and router:
+    template = _litestar_template(scope)
+    owned = isinstance(template, str)
+    if (
+        "app_root_path" in scope
+        and router is not None
+        and (not owned or asked.startswith(root.rstrip("/")))
+    ):
         root = scope["app_root_path"]
-        template = starlette_route(
-            router, scope, root, scope.get("path", ""), status
-        )
-    elif not isinstance(template, str):
+        template = starlette_route(router, scope, root, asked, status)
+    elif not owned:
         route = scope.get("route")
         template = getattr(
             _included(scope, route) or route, "path_format", None
@@ -1398,6 +1400,21 @@ def route_template(
     if not root or not asked.startswith(root):
         return template
     return f"{root}{template}"
+
+
+def _litestar_template(scope: MutableMapping[str, Any]) -> str | None:
+    """Return the template of the handler the serving Litestar app matched.
+
+    A mounted ASGI app reads as `{path}` under its mount.
+    """
+    handler = litestar_route_handler(scope)
+    if handler is None:
+        return None
+    if getattr(handler, "is_mount", False):
+        mount = litestar_mount(_serving_litestar(scope), handler)
+        return mount.rstrip("/") + "/{path}"
+    template = scope.get("path_template")
+    return template if isinstance(template, str) else None
 
 
 def _included(scope: MutableMapping[str, Any], route: object) -> Any | None:  # noqa: ANN401
@@ -1423,11 +1440,13 @@ def starlette_route(  # noqa: C901
     The template is each mount the request went through, then the route
     the innermost router matched. A request that went through no mount
     reads that route alone. One that did is matched again for the
-    template of each mount. When no router inside the last mount recorded
-    a route, the one matching again finds is read, else `{path}`. A
-    FastAPI route reached through included routers reads with every
-    prefix. A request a router redirects to add or drop a trailing slash
-    reads the route it is redirected to.
+    template of each mount, whether or not its router recorded the mount,
+    and through any middleware wrapping a mounted app. When no router
+    inside the last mount recorded a route, the one matching again finds
+    is read, then the template a mounted Litestar app wrote, else
+    `{path}`. A FastAPI route reached through included routers reads with
+    every prefix. A request a router redirects to add or drop a trailing
+    slash reads the route it is redirected to.
     """
     from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
     from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
@@ -1463,7 +1482,9 @@ def starlette_route(  # noqa: C901
             if isinstance(candidate, Mount)
             else ""
         )
-        inner = getattr(candidate, "routes", None)
+        inner = getattr(candidate, "routes", None) or getattr(
+            _routing_app(getattr(candidate, "app", None)), "routes", None
+        )
         if not inner or not all(
             isinstance(entry, BaseRoute) for entry in inner
         ):
@@ -1483,13 +1504,14 @@ def starlette_route(  # noqa: C901
         return None if leaf is None else mounts + leaf
 
     matched = scope.get("route")
-    if matched is None:
-        return redirected()
     if scope.get("root_path", "") == root_path:
-        return template(scope, matched)
+        return redirected() if matched is None else template(scope, matched)
     mounts, walked = through_mounts(router.routes, start(path))
-    if not isinstance(matched, Mount):
+    if matched is not None and not isinstance(matched, Mount):
         walked = template(scope, matched)
+    elif walked is None and litestar_route_handler(scope) is not None:
+        owned = scope.get("path_template")
+        walked = owned if isinstance(owned, str) else None
     if walked is not None:
         return mounts + walked
     return redirected() or mounts + "/{path}"

@@ -975,8 +975,8 @@ def test_starlette_mounted_fastapi_route_reads_full_route() -> None:
     assert server.name == "GET /api/items/{item_id}"
 
 
-def test_starlette_mounted_litestar_reads_as_mount() -> None:
-    """Routes of another framework are not matched again, only the mount."""
+def test_starlette_mounted_litestar_reads_its_route_under_the_mount() -> None:
+    """The route a mounted Litestar app matched reads under the mount."""
     # Arrange
     micro = Grelmicro(uses=[_trace()])
     app = Starlette(
@@ -988,7 +988,7 @@ def test_starlette_mounted_litestar_reads_as_mount() -> None:
 
     # Assert
     [server] = _server_spans(spans)
-    assert server.name == "GET /shop/{path}"
+    assert server.name == "GET /shop/v1/items/{item_id}"
 
 
 def test_starlette_requests_in_a_row_record_one_span_each() -> None:

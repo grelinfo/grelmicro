@@ -652,6 +652,80 @@ async def test_litestar_under_a_mount_records_its_own_route_template(
     assert capture()[0].__dict__["http.route"] == "/items/{item_id}"
 
 
+def _wrapped_mount() -> Any:  # noqa: ANN401
+    inner = Starlette(routes=[Route("/docs/", ok)])
+    wrapped = CORSMiddleware(inner, allow_origins=["https://app.example"])
+    return Starlette(routes=[Mount("/t/{tenant}", app=wrapped)])
+
+
+def _fastapi_mounting(inner: Any) -> Any:  # noqa: ANN401
+    app = FastAPI()
+    app.mount("/t/{tenant}", inner)
+    return app
+
+
+def _litestar_shop() -> Any:  # noqa: ANN401
+    @get("/items/{item_id:int}")
+    async def item(item_id: Annotated[int, Parameter()]) -> int:
+        return item_id
+
+    return Litestar(route_handlers=[item], logging_config=None)
+
+
+def _litestar_files() -> Any:  # noqa: ANN401
+    @asgi("/files", is_mount=True, copy_scope=True)
+    async def files(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        await _file(scope, receive, send)
+
+    return Litestar(route_handlers=[files], logging_config=None)
+
+
+@pytest.mark.parametrize(
+    ("build", "path", "route"),
+    [
+        (_wrapped_mount, "/t/acme/docs", "/t/{tenant}/docs/"),
+        (
+            lambda: _fastapi_mounting(
+                Starlette(routes=[Route("/docs/{d}", ok)])
+            ),
+            "/t/acme/nowhere",
+            "/t/{tenant}/{path}",
+        ),
+        (
+            lambda: _fastapi_mounting(_file),
+            "/t/acme/a/b.txt",
+            "/t/{tenant}/{path}",
+        ),
+        (
+            lambda: Starlette(
+                routes=[Mount("/t/{tenant}", app=_litestar_shop())]
+            ),
+            "/t/acme/items/3",
+            "/t/{tenant}/items/{item_id}",
+        ),
+        (_litestar_files, "/files/a/b.txt", "/files/{path}"),
+    ],
+    ids=[
+        "app-wrapped-in-middleware",
+        "fastapi-unknown-path",
+        "fastapi-asgi-app",
+        "litestar-app",
+        "litestar-asgi-app",
+    ],
+)
+async def test_a_mounted_app_reads_as_the_mount_template(
+    capture: Callable[[], list[logging.LogRecord]],
+    build: Callable[[], Any],
+    path: str,
+    route: str,
+) -> None:
+    """A mount reads as its template, whatever it holds and whoever routed it."""
+    async with client_for(AccessLogMiddleware(build())) as client:
+        await client.get(path)
+
+    assert capture()[0].__dict__["http.route"] == route
+
+
 # --- The component -------------------------------------------------------
 
 
