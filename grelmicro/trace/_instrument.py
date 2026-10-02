@@ -96,7 +96,7 @@ def _make_extract_fields(
         try:
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return {}
         return {
             k: v

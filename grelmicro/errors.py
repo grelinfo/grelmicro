@@ -526,7 +526,7 @@ def _text_of(value: object) -> str:
         return str.__str__(cast("str", value))
     try:
         return str(value)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return ""
@@ -577,7 +577,7 @@ def _candidates_in(items: Callable[[], Any]) -> set[str]:
     try:
         for item in items():
             found |= _candidates(item)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return found

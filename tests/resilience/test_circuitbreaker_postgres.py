@@ -90,7 +90,7 @@ _INTEGRATION_TIMEOUT = pytest.mark.timeout(30)
 
 
 @pytest.fixture(scope="module")
-def container() -> Generator[PostgresContainer, None, None]:
+def container() -> Generator[PostgresContainer]:
     """Docker container running Postgres."""
     with PostgresContainer() as pg_container:
         yield pg_container

@@ -1,5 +1,7 @@
 """Task Router."""
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Literal
@@ -34,7 +36,7 @@ class TaskRouter:
         self,
         *,
         tasks: Annotated[
-            list["Task"] | None,
+            list[Task] | None,
             Doc(
                 """
                 A list of tasks to be scheduled.
@@ -70,7 +72,7 @@ class TaskRouter:
             self._add_task(task)
 
     @property
-    def tasks(self) -> list["Task"]:
+    def tasks(self) -> list[Task]:
         """List of scheduled tasks."""
         return self._tasks + [
             task for router in self._routers for task in router.tasks
@@ -86,7 +88,7 @@ class TaskRouter:
         """
         return self._timezone
 
-    def add_task(self, task: "Task") -> None:
+    def add_task(self, task: Task) -> None:
         """Add a task to the scheduler.
 
         Marks the function a task exposes as `function`, so a decorator
@@ -97,7 +99,7 @@ class TaskRouter:
         """
         self._add_task(task)
 
-    def _add_task(self, task: "Task") -> None:
+    def _add_task(self, task: Task) -> None:
         """Add a task without going through the overridable entry point.
 
         The constructor adds this way, because a subclass that overrides
@@ -109,7 +111,7 @@ class TaskRouter:
 
         try:
             function = getattr(task, "function", None)
-        except (KeyboardInterrupt, SystemExit):
+        except KeyboardInterrupt, SystemExit:
             raise
         except BaseException:  # noqa: BLE001
             function = None
@@ -159,7 +161,7 @@ class TaskRouter:
             ),
         ] = None,
         gate: Annotated[
-            'Literal["claim"] | TaskLock | LeaderElection | None',
+            Literal["claim"] | TaskLock | LeaderElection | None,
             Doc(
                 """
                 Which workers run each interval.
@@ -187,7 +189,7 @@ class TaskRouter:
             ),
         ] = None,
         sync: Annotated[
-            "LockPrimitive | None",
+            LockPrimitive | None,
             Doc(
                 """
                 Optional resource-level synchronization primitive.
@@ -294,7 +296,7 @@ class TaskRouter:
             ),
         ] = None,
         backend: Annotated[
-            "ScheduleBackend | None",
+            ScheduleBackend | None,
             Doc(
                 """
                 The durable schedule backend.
@@ -305,7 +307,7 @@ class TaskRouter:
             ),
         ] = None,
         gate: Annotated[
-            'Literal["claim"] | LeaderElection | None',
+            Literal["claim"] | LeaderElection | None,
             Doc(
                 """
                 Which workers run each fire.
@@ -325,7 +327,7 @@ class TaskRouter:
             ),
         ] = None,
         sync: Annotated[
-            "LockPrimitive | None",
+            LockPrimitive | None,
             Doc(
                 """
                 Optional resource-level synchronization primitive.
@@ -389,7 +391,7 @@ class TaskRouter:
 
         return decorator
 
-    def include_router(self, router: "TaskRouter") -> None:
+    def include_router(self, router: TaskRouter) -> None:
         """Include another router in this router.
 
         Raises:

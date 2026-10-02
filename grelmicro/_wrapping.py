@@ -19,7 +19,7 @@ def named(function: object) -> str:
     """Return the name of a decorated function, for a message."""
     try:
         return getattr(function, "__qualname__", None) or repr(function)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return "<unnameable>"

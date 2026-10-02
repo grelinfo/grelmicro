@@ -1,6 +1,6 @@
 """FastAPI Metrics Router."""
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from typing_extensions import Doc
 
@@ -11,9 +11,14 @@ from grelmicro.metrics._endpoints import (
     render_prometheus,
 )
 
-if TYPE_CHECKING:
+try:
     from fastapi import APIRouter
     from fastapi.params import Depends
+    from fastapi.responses import Response
+
+    HAS_FASTAPI = True
+except ImportError:  # pragma: no cover - the reimport test walks this
+    HAS_FASTAPI = False
 
 
 def metrics_router(
@@ -48,14 +53,14 @@ def metrics_router(
         ),
     ] = False,
     dependencies: Annotated[
-        "list[Depends] | None",
+        list[Depends] | None,
         Doc(
             "FastAPI dependencies applied to the metrics endpoint. A "
             "failing dependency blocks the endpoint (``401``/``403``). "
             "Use to gate ``/metrics`` behind authentication."
         ),
     ] = None,
-) -> "APIRouter":
+) -> APIRouter:
     """Create a FastAPI router that serves Prometheus metrics.
 
     Mounts ``GET {prefix}{path}`` (default ``GET /metrics``) returning the
@@ -67,22 +72,19 @@ def metrics_router(
     Raises:
         DependencyNotFoundError: If ``fastapi`` is not installed.
     """
-    try:
-        from fastapi import APIRouter as _APIRouter  # noqa: PLC0415
-        from fastapi.responses import Response  # noqa: PLC0415
-    except ImportError:
+    if not HAS_FASTAPI:
         from grelmicro.errors import (  # noqa: PLC0415
             DependencyNotFoundError,
         )
 
-        raise DependencyNotFoundError(module="fastapi")  # noqa: B904
+        raise DependencyNotFoundError(module="fastapi")
 
     from grelmicro._app import Grelmicro  # noqa: PLC0415
 
     def _resolve_component() -> Metrics:
         return component or Grelmicro.current().get("metrics", "default")
 
-    router = _APIRouter(
+    router = APIRouter(
         prefix=prefix, tags=["metrics"], include_in_schema=include_in_schema
     )
     deps = list(dependencies or ())

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pickle
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
 from pydantic import BaseModel
-from typing_extensions import TypedDict, TypeVar
+from typing_extensions import TypedDict
 
 from grelmicro.cache.serializers import (
     CacheSerializer,

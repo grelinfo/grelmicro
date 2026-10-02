@@ -117,7 +117,7 @@ def _owner(function: object) -> weakref.ref[object] | object | None:
     """
     try:
         instance = getattr(function, "__self__", None)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return UNNAMEABLE_OWNER
@@ -133,7 +133,7 @@ def _underlying(function: object) -> object:
     """Return what a bound method wraps, and never raise finding out."""
     try:
         return getattr(function, "__func__", function)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return function
@@ -181,7 +181,7 @@ def mark_registered(
                 and not _superseded(existing, kind, instance, registrar)
             )
             setattr(target, REGISTRATION, (*kept, fresh))
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001, S110
         pass
@@ -237,7 +237,7 @@ def _marks(target: object) -> tuple[Registration, ...]:
     """
     try:
         marks = vars(target).get(REGISTRATION, ())
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return ()
@@ -306,7 +306,7 @@ def registration_of(function: object) -> Registration | None:
         return None
     try:
         bound_to = getattr(function, "__self__", None)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return None

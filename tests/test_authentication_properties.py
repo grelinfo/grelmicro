@@ -378,7 +378,7 @@ def test_a_request_without_a_credential_reaches_only_a_public_endpoint(
             try:
                 with client.websocket_connect(f"ws://{host}{path}") as socket:
                     served = served_by_message(socket.receive_json())
-            except (WebSocketDenialResponse, WebSocketDisconnect):
+            except WebSocketDenialResponse, WebSocketDisconnect:
                 continue
             assert served is None or served in built.public, (
                 "websocket",

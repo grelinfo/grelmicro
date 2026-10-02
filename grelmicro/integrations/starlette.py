@@ -5,6 +5,8 @@ anything built from one. `grelmicro.integrations.fastapi` builds on it and
 adds what only FastAPI has, an OpenAPI schema and a health router.
 """
 
+from __future__ import annotations
+
 import functools
 import inspect
 from contextlib import asynccontextmanager
@@ -64,11 +66,11 @@ __all__ = [
 
 def install(
     app: Annotated[
-        "Starlette",
+        Starlette,
         Doc("The Starlette application to wire."),
     ],
     micro: Annotated[
-        "Grelmicro",
+        Grelmicro,
         Doc(
             "The `Grelmicro` app to open in the lifespan and bind per request."
         ),
@@ -112,7 +114,7 @@ def install(
     previous = app.router.lifespan_context
 
     @asynccontextmanager
-    async def lifespan(app: "Starlette") -> "AsyncIterator[Any]":
+    async def lifespan(app: Starlette) -> AsyncIterator[Any]:
         _check_binding_outermost(app)
         async with previous(app) as state, micro:
             yield state
@@ -129,7 +131,7 @@ def install(
 
 def install_error_responses(
     app: Annotated[
-        "Starlette",
+        Starlette,
         Doc("The Starlette application to wire."),
     ],
     errors: Annotated[
@@ -156,7 +158,7 @@ def install_error_responses(
     # answers in, rather than assuming RFC 9457.
     app.state.grelmicro_error_responses = errors
 
-    async def handler(request: "Request", exc: Exception) -> "Response":
+    async def handler(request: Request, exc: Exception) -> Response:
         """Render one rejection, taking the occurrence from the request path."""
         from starlette.responses import Response  # noqa: PLC0415
 
@@ -170,7 +172,7 @@ def install_error_responses(
             headers=merge_headers(rendered, getattr(exc, "headers", None)),
         )
 
-    async def http_error(request: "Request", exc: Exception) -> "Response":
+    async def http_error(request: Request, exc: Exception) -> Response:
         """Reshape the framework's own error into the registered format."""
         from starlette.responses import Response  # noqa: PLC0415
 
@@ -196,9 +198,9 @@ def install_error_responses(
         )
 
     async def validation_error(
-        request: "Request",
+        request: Request,
         exc: Exception,
-    ) -> "Response":
+    ) -> Response:
         """Reshape a request that did not match the endpoint's shape."""
         from starlette.responses import Response  # noqa: PLC0415
 
@@ -225,9 +227,7 @@ def install_error_responses(
             app.add_exception_handler(klass, handler)
 
 
-def _refuse_replaced_flood(
-    app: "Starlette", components: "Sequence[Any]"
-) -> None:
+def _refuse_replaced_flood(app: Starlette, components: Sequence[Any]) -> None:
     """Refuse a flood limit the app's own rate limit would stand in for.
 
     A middleware the app added itself is kept, and the component's is not
@@ -265,11 +265,11 @@ def _refuse_replaced_flood(
 
 def install_middleware(
     app: Annotated[
-        "Starlette",
+        Starlette,
         Doc("The Starlette application to wire."),
     ],
     components: Annotated[
-        "Sequence[Any]",
+        Sequence[Any],
         Doc("The registered components that carry an ASGI middleware."),
     ],
 ) -> None:
@@ -371,11 +371,11 @@ def install_middleware(
 
 def install_route_gate(
     app: Annotated[
-        "Starlette",
+        Starlette,
         Doc("The Starlette application whose routes to gate."),
     ],
     gate: Annotated[
-        "Gate",
+        Gate,
         Doc(
             "Returns the app to dispatch to in place of a route, given it "
             "and the route's declarations, refusing a declaration that "
@@ -407,10 +407,10 @@ def install_route_gate(
 
 def route_declarations(
     app: Annotated[
-        "Starlette",
+        Starlette,
         Doc("The Starlette application whose routes to list."),
     ],
-) -> "list[RouteDeclaration]":
+) -> list[RouteDeclaration]:
     """Return what every route of the app requires, as its gate reads it.
 
     One declaration per route, or per method set of an `HTTPEndpoint` whose
@@ -434,7 +434,7 @@ def _is_binding(middleware: object) -> bool:
     return getattr(middleware, "cls", None) is GrelmicroMiddleware
 
 
-def _check_binding_outermost(app: "Starlette") -> None:
+def _check_binding_outermost(app: Starlette) -> None:
     """Raise when a registered `GrelmicroMiddleware` is not the outermost one.
 
     Runs once the stack is built. Reading the order back turns a placement
@@ -458,7 +458,7 @@ def _check_binding_outermost(app: "Starlette") -> None:
         raise AmbientBindingError(msg)
 
 
-def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
+def _answer_for(app: Starlette, component: Any) -> None:  # noqa: ANN401
     """Register a handler for what this component answers itself.
 
     A component that carries `handled_exceptions()` names the rejections
@@ -478,7 +478,7 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
     if handled is None:
         return
 
-    async def handler(request: "Request", exc: Exception) -> "Response":
+    async def handler(request: Request, exc: Exception) -> Response:
         """Render one rejection in the format the app answers in."""
         from starlette.responses import Response  # noqa: PLC0415
 
@@ -502,9 +502,9 @@ def _answer_for(app: "Starlette", component: Any) -> None:  # noqa: ANN401
 
 
 def _binding_first(
-    entries: "Sequence[Any]",
-    watching: "Sequence[Any] | None" = None,
-) -> "list[Any]":
+    entries: Sequence[Any],
+    watching: Sequence[Any] | None = None,
+) -> list[Any]:
     """Return the entries with the binding first and any watcher next.
 
     The binding goes outside every other one, so a middleware resolving a
@@ -532,7 +532,7 @@ def _binding_first(
     ]
 
 
-def _keep_watching_outside(app: "Starlette", watching: "Sequence[Any]") -> None:
+def _keep_watching_outside(app: Starlette, watching: Sequence[Any]) -> None:
     """Keep a watcher outside middleware the app adds after `install`.
 
     `add_middleware` prepends, so a layer added later would otherwise wrap
@@ -542,14 +542,14 @@ def _keep_watching_outside(app: "Starlette", watching: "Sequence[Any]") -> None:
         return
     build = app.build_middleware_stack
 
-    def build_middleware_stack() -> "ASGIApp":
+    def build_middleware_stack() -> ASGIApp:
         app.user_middleware = _binding_first(app.user_middleware, watching)
         return build()
 
     app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
-def _keep_binding_outermost(app: "Starlette") -> None:
+def _keep_binding_outermost(app: Starlette) -> None:
     """Move `GrelmicroMiddleware` to the front of the stack as it is built.
 
     The framework builds its middleware stack once, on the first request or
@@ -559,7 +559,7 @@ def _keep_binding_outermost(app: "Starlette") -> None:
     """
     build = app.build_middleware_stack
 
-    def build_middleware_stack() -> "ASGIApp":
+    def build_middleware_stack() -> ASGIApp:
         app.user_middleware = _binding_first(app.user_middleware)
         return build()
 
@@ -568,7 +568,7 @@ def _keep_binding_outermost(app: "Starlette") -> None:
 
 def error_response(
     request: Annotated[
-        "Request",
+        Request,
         Doc("The request being answered, which knows its app."),
     ],
     *,
@@ -581,7 +581,7 @@ def error_response(
         dict[str, Any] | None,
         Doc("Extra members to carry, where the format has room for them."),
     ] = None,
-) -> "Response":
+) -> Response:
     """Answer from your own exception handler in the app's error format.
 
     Writing a handler of your own is how one error opts out of the shape
@@ -626,7 +626,7 @@ def error_response(
     )
 
 
-def _framework_errors() -> "list[tuple[type[Exception], bool]]":
+def _framework_errors() -> list[tuple[type[Exception], bool]]:
     """Return the framework's own errors, paired with whether they validate.
 
     Registering these is what makes the whole API answer in one shape. An
@@ -649,7 +649,7 @@ def _framework_errors() -> "list[tuple[type[Exception], bool]]":
     return errors
 
 
-def _is_framework_default(app: "Starlette", klass: type[Exception]) -> bool:
+def _is_framework_default(app: Starlette, klass: type[Exception]) -> bool:
     """Return whether the handler for `klass` is the one FastAPI installed.
 
     FastAPI registers its own handlers in the constructor, so "already
@@ -676,7 +676,7 @@ def _is_framework_default(app: "Starlette", klass: type[Exception]) -> bool:
     )
 
 
-def _field_errors(exc: Exception) -> "list[dict[str, Any]]":
+def _field_errors(exc: Exception) -> list[dict[str, Any]]:
     """Return the field errors of a validation failure, without the input.
 
     `loc`, `msg` and `type` tell a client which part of the request to fix.
@@ -696,9 +696,9 @@ _FIELD_KEYS = frozenset({"loc", "msg", "type"})
 
 
 def _install_framework_handlers(
-    app: "Starlette",
-    http_error: "Callable[..., Any]",
-    validation_error: "Callable[..., Any]",
+    app: Starlette,
+    http_error: Callable[..., Any],
+    validation_error: Callable[..., Any],
 ) -> None:
     """Reshape the framework's own errors into the registered format.
 
@@ -715,7 +715,7 @@ def _install_framework_handlers(
             app.state.grelmicro_validation_handler = handler
 
 
-def _structured_detail(detail: Any) -> "dict[str, Any] | None":  # noqa: ANN401
+def _structured_detail(detail: Any) -> dict[str, Any] | None:  # noqa: ANN401
     """Return the extension members a non-string `detail` becomes.
 
     FastAPI documents a dict or a list there, and dropping it would lose a
@@ -736,7 +736,7 @@ def _structured_detail(detail: Any) -> "dict[str, Any] | None":  # noqa: ANN401
 
 def is_bound(
     app: Annotated[
-        "Starlette",
+        Starlette,
         Doc("The Starlette or FastAPI application to inspect."),
     ],
 ) -> bool:
@@ -756,10 +756,10 @@ def is_bound(
 def Authenticated(  # noqa: N802
     *,
     scopes: Annotated[
-        "Sequence[str]",
+        Sequence[str],
         Doc("Scopes the caller must hold, every one of them."),
     ] = (),
-) -> "Callable[[Callable[..., Any]], Callable[..., Any]]":
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Require an authenticated caller holding every scope named.
 
     A decorator for a Starlette endpoint: a function, sync or async, a
@@ -787,7 +787,7 @@ def Authenticated(  # noqa: N802
     """
     own = Requirement(scopes).scopes
 
-    def decorate(endpoint: "Callable[..., Any]") -> "Callable[..., Any]":
+    def decorate(endpoint: Callable[..., Any]) -> Callable[..., Any]:
         refuse_registered(endpoint, "@Authenticated")
         name, position = _connection_argument(endpoint)
         # Stacked on another `@Authenticated`, it requires the scopes of both.
@@ -821,7 +821,7 @@ def Authenticated(  # noqa: N802
 
 def current_token(
     connection: Annotated[
-        "HTTPConnection",
+        HTTPConnection,
         Doc("The request or websocket the endpoint was handed."),
     ],
 ) -> VerifiedToken:
@@ -853,7 +853,7 @@ def current_token(
     return AUTHENTICATED.token(connection.scope)
 
 
-def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:
+def _connection_argument(endpoint: Callable[..., Any]) -> tuple[str, int]:
     """Return the name and position of the argument the connection arrives in.
 
     Raises:
@@ -871,7 +871,7 @@ def _connection_argument(endpoint: "Callable[..., Any]") -> tuple[str, int]:
     raise TypeError(msg)
 
 
-def _is_async(endpoint: "Callable[..., Any]") -> bool:
+def _is_async(endpoint: Callable[..., Any]) -> bool:
     """Return whether calling the endpoint returns a coroutine.
 
     A function declared `async`, or an object whose `__call__` is, which

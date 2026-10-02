@@ -216,7 +216,7 @@ def _config_of(component: object) -> Mapping[str, Any]:
         return {}
     try:
         fields = dump(mode="json")
-    except (TypeError, ValueError):  # pragma: no cover
+    except TypeError, ValueError:  # pragma: no cover
         return {}
     return {name: _mask(name, value) for name, value in fields.items()}
 

@@ -8,12 +8,12 @@ attempt count, and a stored `dedup_key` blocks a re-publish in any state.
 from __future__ import annotations
 
 from datetime import timedelta
+from uuid import uuid7
 
 import pytest
 
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._registry import OutboxRegistry
-from grelmicro.outbox._uuid import uuid7
 from grelmicro.outbox.errors import HandlerNotFoundError
 from grelmicro.outbox.memory import MemoryOutboxAdapter, _now
 

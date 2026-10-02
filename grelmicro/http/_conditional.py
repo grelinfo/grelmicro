@@ -267,7 +267,7 @@ def _canonical(value: object) -> bytes:
             ensure_ascii=False,
             default=_unsupported,
         ).encode()
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException as exc:
         # Serializing runs caller code: `__class__` on the way in, and
@@ -290,7 +290,7 @@ def _attribute(value: object, name: str) -> object | None:
     """
     try:
         return getattr(value, name, None)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return None

@@ -443,7 +443,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         return None
 
     @property
-    def from_thread(self) -> "ThreadTaskLockAdapter":
+    def from_thread(self) -> ThreadTaskLockAdapter:
         """Return the task lock adapter for worker thread."""
         if self._from_thread is None:
             self._from_thread = ThreadTaskLockAdapter(task_lock=self)

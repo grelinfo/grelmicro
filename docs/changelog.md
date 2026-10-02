@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Breaking
+* 💥 grelmicro and `grelmicro-core` require Python 3.14. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* 💥 Raise the dependency floors: Pydantic 2.12.4, pydantic-settings 2.12.0, FastDepends 3.0.5, Starlette 1.0, lightkube 1.0, redis 6.0, asyncpg 0.31, orjson 3.11.1, uvloop 0.22.1, PyYAML 6.0.3, OpenTelemetry 1.33 and its instrumentations 0.54b0. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 💥 A sliding window counts time in whole microseconds, on every backend, so each decision is exact. Its stored state moves to new keys (`gcra_us:`) and new Postgres functions, so limits start empty after the upgrade. A slot is its window divided by the limit, truncated to the microsecond, and a window that gives each request less than a microsecond is refused. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
 * 💥 A sliding window `window` takes whole seconds or a `timedelta`, up to 100 years. A float is refused. Write `window=timedelta(milliseconds=500)` for a window under a second. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -107,6 +109,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 The published floors install and work. pydantic-settings 2.5 failed at import, the Redis instrumentation crashed before 0.54b0, and Pydantic 2.12.0 to 2.12.3 read some environment variables in the wrong order and percent-encoded URL credentials. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 A sliding window refuses a request that arrives before its slot. With 10 per second, an 11th request was admitted up to 50 ms early. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
 * 🐛 The `RateLimit` and `X-RateLimit-Reset` headers no longer state one second too many until the quota is back. A `20` second window could report `t=21`. ([#950](https://github.com/grelinfo/grelmicro/issues/950))
 * 🐛 On FastAPI, `http.route` in the access log and the authentication metrics carries the prefixes of the routers a route is included by. A request authentication refuses names the same `http.route` in the access log as in the authentication metrics, on every framework. ([#953](https://github.com/grelinfo/grelmicro/issues/953))
@@ -163,6 +166,7 @@
 * 📝 The README describes the Task Scheduler as it behaves: every worker runs a task unless `gate=` picks one. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 
 ### Internal
+* 👷 CI runs the tests on the oldest version of every dependency grelmicro allows. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 👷 One release ships `grelmicro` and `grelmicro-core`. When PyPI lacks the crate version, the release builds the core and publishes it first, so `grelmicro[jwt]` always resolves. A `jwt` pin that names another version, or a crate changed after its version was published, fails the pull request. ([#875](https://github.com/grelinfo/grelmicro/issues/875))
 
 ## 0.41.1 - 2026-09-12

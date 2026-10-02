@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Generic, Self, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Generic,
+    Self,
+    TypeVar,
+    cast,
+)
 
-from typing_extensions import Doc, TypeVar
+from typing_extensions import Doc
 
 from grelmicro._config import (
     Reconfigurable,

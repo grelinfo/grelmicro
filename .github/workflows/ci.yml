@@ -209,7 +209,7 @@ jobs:
     name: Tests
     needs: changes
     if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.rust == 'true' || github.event_name != 'pull_request' }}
-    # PRs and pushes to main run the unit tier on Python 3.12, plus the slow
+    # PRs and pushes to main run the unit tier on Python 3.14, plus the slow
     # and integration tiers whenever Python changed, because the 100%
     # coverage total is only measurable once all three have run. A change to
     # the Rust core alone runs the unit tier, which holds the security suite

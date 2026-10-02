@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def span(name: str, **fields: object) -> Generator[None, None, None]:
+def span(name: str, **fields: object) -> Generator[None]:
     """Create a span that enriches both OTel and logging context.
 
     Use for mid-function instrumentation when ``@instrument`` is not enough.

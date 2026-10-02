@@ -156,9 +156,7 @@ class CachedStream(Protocol[P, T]):
     __name__: str
     """The undecorated producer's name."""
 
-    def __call__(
-        self, *args: P.args, **kwargs: P.kwargs
-    ) -> AsyncGenerator[T, None]:
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> AsyncGenerator[T]:
         """Stream the items, producing them on a miss."""
         ...
 
@@ -700,7 +698,7 @@ async def _read_meta(cache: TTLCache, key: str) -> tuple[float, float] | None:
     try:
         data = json.loads(raw)
         return float(data["w"]), float(data["d"])
-    except (ValueError, KeyError, TypeError):  # pragma: no cover - corrupt
+    except ValueError, KeyError, TypeError:  # pragma: no cover - corrupt
         return None
 
 

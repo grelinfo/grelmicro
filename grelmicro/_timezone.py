@@ -70,7 +70,7 @@ def normalize_timezone_name(value: str) -> str:
     # the database is missing entirely.
     try:
         ZoneInfo(name)
-    except (ValueError, ZoneInfoNotFoundError):
+    except ValueError, ZoneInfoNotFoundError:
         msg = f"unknown timezone name, {_TZDATA_HINT}"
         raise ValueError(msg) from None
     return name

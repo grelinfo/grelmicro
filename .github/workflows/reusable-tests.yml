@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python: ${{ fromJSON(inputs.full && '["3.12","3.13","3.14"]' || '["3.12"]') }}
+        python: ["3.14"]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -109,13 +109,42 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Enforce Combined Coverage
         # The 100% claim is about unit + slow + integration together, so only
-        # the full path can check it. It is also pinned to 3.12, the version
-        # the local hook uses: a version-split module leaves dead code on the
-        # others (`outbox/_uuid.py` vendors UUIDv7 for 3.12 and 3.13 and
-        # re-exports the stdlib on 3.14), so the total is below 100 there by
-        # design.
-        if: ${{ (inputs.full || inputs.coverage) && matrix.python == '3.12' }}
+        # the full path can check it.
+        if: ${{ inputs.full || inputs.coverage }}
         run: coverage report --fail-under=100
+
+  lowest:
+    name: Test Lowest Versions
+    # Every floor in pyproject.toml is a promise, so the tests run on the
+    # oldest version each one allows.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      UV_FROZEN: false
+      UV_RESOLUTION: lowest-direct
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          activate-environment: true
+          python-version: "3.14"
+      - name: Install the lowest versions
+        uses: $/.github/actions/uv-sync
+        with:
+          args: --all-extras
+      - name: Run Unit Tests
+        run: pytest -x -m "not integration and not slow"
+      - name: Run Slow and Integration Tests
+        if: ${{ inputs.full || inputs.coverage }}
+        run: pytest -x -m "slow or integration"
 
   demo:
     name: Demo Smoke

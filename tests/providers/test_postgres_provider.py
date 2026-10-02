@@ -853,7 +853,7 @@ class TestFromEngineAgainstPostgres:
     """`from_engine` against a real server, where the sharing has to hold."""
 
     @pytest.fixture
-    async def engine(self) -> AsyncGenerator["AsyncEngine"]:
+    async def engine(self) -> AsyncGenerator[AsyncEngine]:
         """Provide an app-owned async engine pointing at a container."""
         from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
 
@@ -868,7 +868,7 @@ class TestFromEngineAgainstPostgres:
             finally:
                 await engine.dispose()
 
-    async def test_lock_round_trip(self, engine: "AsyncEngine") -> None:
+    async def test_lock_round_trip(self, engine: AsyncEngine) -> None:
         """A lock acquires and releases through the borrowed engine."""
         provider = PostgresProvider.from_engine(engine)
 
@@ -881,7 +881,7 @@ class TestFromEngineAgainstPostgres:
             assert await backend.release(name=name, token=token)
             assert not await backend.locked(name=name)
 
-    async def test_opens_no_second_pool(self, engine: "AsyncEngine") -> None:
+    async def test_opens_no_second_pool(self, engine: AsyncEngine) -> None:
         """Every statement runs on the engine, so the server sees one pool."""
         provider = PostgresProvider.from_engine(engine)
 
@@ -899,7 +899,7 @@ class TestFromEngineAgainstPostgres:
         assert after <= before + 1
 
     async def test_borrowed_engine_survives_the_app(
-        self, engine: "AsyncEngine"
+        self, engine: AsyncEngine
     ) -> None:
         """`own=False` leaves the engine open for the application to use."""
         async with PostgresProvider.from_engine(engine) as provider:
@@ -911,9 +911,7 @@ class TestFromEngineAgainstPostgres:
             assert driver is not None
             assert await driver.fetchval("SELECT 1") == 1
 
-    async def test_owned_engine_is_disposed(
-        self, engine: "AsyncEngine"
-    ) -> None:
+    async def test_owned_engine_is_disposed(self, engine: AsyncEngine) -> None:
         """`own=True` disposes the engine on exit."""
         pool = engine.pool
 
@@ -923,7 +921,7 @@ class TestFromEngineAgainstPostgres:
         assert engine.pool is not pool
 
     async def test_session_state_survives_a_loan(
-        self, engine: "AsyncEngine"
+        self, engine: AsyncEngine
     ) -> None:
         """The application's own session state outlives grelmicro's use.
 
@@ -955,7 +953,7 @@ class TestFromEngineAgainstPostgres:
 
         assert "grelmicro_probe" in search_path
 
-    async def test_outbox_round_trip(self, engine: "AsyncEngine") -> None:
+    async def test_outbox_round_trip(self, engine: AsyncEngine) -> None:
         """A jsonb payload survives the engine's own type codecs.
 
         The engine registers a `jsonb` codec, so a borrowed connection
@@ -992,7 +990,7 @@ class TestFromEngineAgainstPostgres:
         assert claimed[0].headers == {"trace": "abc"}
 
     async def test_leader_election_metadata_round_trip(
-        self, engine: "AsyncEngine"
+        self, engine: AsyncEngine
     ) -> None:
         """The other jsonb writer reads back what it wrote over an engine."""
         from grelmicro.coordination.postgres import (  # noqa: PLC0415
@@ -1016,7 +1014,7 @@ class TestFromEngineAgainstPostgres:
         assert record.metadata == metadata
 
     async def test_a_static_pool_engine_is_refused(
-        self, engine: "AsyncEngine"
+        self, engine: AsyncEngine
     ) -> None:
         """`StaticPool` shares one connection, so two checkouts collide."""
         from sqlalchemy.pool import StaticPool  # noqa: PLC0415
@@ -1036,9 +1034,7 @@ class TestFromEngineAgainstPostgres:
         finally:
             await static.dispose()
 
-    async def test_reentry_reuses_the_engine(
-        self, engine: "AsyncEngine"
-    ) -> None:
+    async def test_reentry_reuses_the_engine(self, engine: AsyncEngine) -> None:
         """A provider entered twice never opens a private pool."""
         from grelmicro.providers._sqlalchemy import EnginePool  # noqa: PLC0415
 
@@ -1055,7 +1051,7 @@ class TestFromEngineAgainstPostgres:
                 assert isinstance(provider.client, EnginePool)
 
     async def test_lock_survives_a_caller_rollback(
-        self, engine: "AsyncEngine"
+        self, engine: AsyncEngine
     ) -> None:
         """A lock taken during a caller transaction outlives its rollback.
 
@@ -1093,7 +1089,7 @@ class _FakeSAConnection:
         self.closed = False
         self.invalidated = False
 
-    async def start(self) -> "_FakeSAConnection":
+    async def start(self) -> _FakeSAConnection:
         """Return the started connection, as SQLAlchemy does."""
         return self
 

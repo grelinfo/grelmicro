@@ -29,7 +29,7 @@ import warnings
 # annotations of `resolve_config` and `defer_report`, which
 # `typing.get_type_hints` has to resolve from module globals.
 from collections import abc, deque
-from collections.abc import Callable, Mapping  # noqa: TC003
+from collections.abc import Callable, Mapping
 from copy import copy
 from functools import lru_cache
 from types import UnionType

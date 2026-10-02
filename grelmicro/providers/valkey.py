@@ -18,7 +18,7 @@ from grelmicro.providers.redis import (
 
 # Runtime import: pydantic resolves the annotation on `_ValkeyEnvSettings.url`
 # from module globals when it builds the model.
-from grelmicro.types import SecretUrl  # noqa: TC001
+from grelmicro.types import SecretUrl
 
 if TYPE_CHECKING:
     from types import TracebackType
