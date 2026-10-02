@@ -143,7 +143,9 @@ async def test_metrics_doors_answer_the_same() -> None:
     micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
     async with micro:
         micro.metrics.counter("orders.placed", unit="1").add(1)
-        app = FastAPI()
+        # FastAPI would record the first read into the registry the second
+        # one renders.
+        app = FastAPI(telemetry={"metrics": False})
         app.include_router(metrics_router(micro.metrics))
         async with (
             client_for(app) as router,

@@ -146,7 +146,7 @@ standard = [
     "uvloop>=0.22.1; sys_platform != 'win32' and sys_platform != 'cygwin' and platform_python_implementation != 'PyPy'",
 ]
 fastapi = [
-    "fastapi>=0.137.0",
+    "fastapi>=0.142.1",
     "starlette>=1.0.0",
 ]
 starlette = [
@@ -171,17 +171,16 @@ kubernetes = [
     "lightkube>=1.0.0",
 ]
 opentelemetry = [
-    "opentelemetry-api>=1.33.0",
-    "opentelemetry-sdk>=1.33.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.33.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.33.0",
-    "opentelemetry-exporter-prometheus>=0.54b0",
+    "opentelemetry-api>=1.44.0",
+    "opentelemetry-sdk>=1.44.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
+    "opentelemetry-exporter-prometheus>=0.65b0",
     "prometheus-client>=0.19.0",
 ]
 instrumentation = [
-    "opentelemetry-instrumentation-fastapi>=0.54b0",
-    "opentelemetry-instrumentation-redis>=0.54b0",
-    "opentelemetry-instrumentation-asyncpg>=0.54b0",
+    "opentelemetry-instrumentation-redis>=0.65b0",
+    "opentelemetry-instrumentation-asyncpg>=0.65b0",
 ]
 # The verification core is a compiled extension. grelmicro already requires
 # one through pydantic-core, so this adds no platform that was not already
@@ -217,7 +216,7 @@ dev = [
     "pytest-mock>=3.15.1",
     "pytest-randomly>=4.1.0",
     "pre-commit>=4.6.2",
-    "fastapi>=0.137.0",
+    "fastapi>=0.142.1",
     "fastapi-cli>=0.0.32",
     "httpx2>=2.12.0",
     # The default JWKS fetcher is built on httpx, and the suite drives it
@@ -232,14 +231,13 @@ dev = [
     "asyncpg>=0.31.0",
     "redis>=6.0.0",
     "valkey>=6",
-    "opentelemetry-api>=1.33.0",
-    "opentelemetry-sdk>=1.33.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.33.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.33.0",
-    "opentelemetry-exporter-prometheus>=0.54b0",
-    "opentelemetry-instrumentation-fastapi>=0.54b0",
-    "opentelemetry-instrumentation-redis>=0.54b0",
-    "opentelemetry-instrumentation-asyncpg>=0.54b0",
+    "opentelemetry-api>=1.44.0",
+    "opentelemetry-sdk>=1.44.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.44.0",
+    "opentelemetry-exporter-prometheus>=0.65b0",
+    "opentelemetry-instrumentation-redis>=0.65b0",
+    "opentelemetry-instrumentation-asyncpg>=0.65b0",
     "prometheus-client>=0.19.0",
     "structlog>=24.1.0",
     "aiosqlite>=0.20.0",
