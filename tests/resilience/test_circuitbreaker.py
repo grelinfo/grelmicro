@@ -1127,7 +1127,7 @@ class _FakeSharedStrategy(CircuitBreakerStrategy):
 
     def __init__(
         self,
-        backend: "_FakeSharedBackend",
+        backend: _FakeSharedBackend,
         *,
         name: str,
         config: CircuitBreakerConfig,
@@ -1139,6 +1139,9 @@ class _FakeSharedStrategy(CircuitBreakerStrategy):
     async def try_acquire(self) -> bool:
         self._backend.try_acquire_calls.append(self._name)
         return self._backend.admit_result
+
+    async def abandon(self) -> None:
+        pass
 
     async def record_outcome(
         self, *, success: bool, duration: float = 0.0

@@ -46,6 +46,7 @@ from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from datetime import timedelta
 
     from pydantic import Discriminator, PositiveFloat, PositiveInt
 
@@ -380,10 +381,11 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
             ),
         ] = None,
         window: Annotated[
-            PositiveFloat | None,
+            int | timedelta | None,
             Doc(
-                "Window duration in seconds. Required unless the value "
-                "comes from env."
+                "Window duration, in whole seconds or as a `timedelta`. "
+                "A float is refused. Required unless the value comes "
+                "from env."
             ),
         ] = None,
         fail_open: Annotated[

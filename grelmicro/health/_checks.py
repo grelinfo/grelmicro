@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from logging import getLogger
 from types import TracebackType
-from typing import TYPE_CHECKING, Annotated, ClassVar, Self, cast
+from typing import Annotated, ClassVar, Self, cast
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 from typing_extensions import Doc
@@ -33,9 +33,7 @@ from grelmicro.health.errors import (
     HealthError,
 )
 from grelmicro.metrics import _emit
-
-if TYPE_CHECKING:
-    from grelmicro.providers._base import Provider
+from grelmicro.providers._base import Provider
 
 logger = getLogger("grelmicro.health")
 
@@ -418,7 +416,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
     def add_provider(
         self,
         provider: Annotated[
-            "Provider",
+            Provider,
             Doc("The provider whose built-in readiness check to register."),
         ],
         *,

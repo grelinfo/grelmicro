@@ -644,7 +644,7 @@ class TestUvicornProcess:
                         urllib.request.urlopen("http://127.0.0.1:9876/")
                         started = True
                         break
-                    except (ConnectionError, OSError):
+                    except ConnectionError, OSError:
                         time.sleep(_POLL_INTERVAL)
 
                 assert started, "Uvicorn did not start in time"

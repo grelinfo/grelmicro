@@ -16,8 +16,8 @@ Declare it on the route and the second caller is answered without reaching
 the handler. It rides the registered [Cache](../cache/index.md), so a
 response one replica computed answers the callers of every other one.
 
-`CachedResponse` is declared rather than called, because the middleware has
-to answer before the app is routed, and a handler body runs long after that.
+`CachedResponse` is declared rather than called, because a hit is answered
+before the handler runs.
 It is the same shape as [`Conditional`](conditional.md): the component holds
 the rules every route shares, and the route says it wants them.
 
@@ -94,9 +94,12 @@ headers and no body.
 
 Only `GET` is cached. `CachedResponse()` on a route that answers anything
 else is refused when `micro.install(app)` reads it, naming the path.
-A FastAPI `GET` with another dependency is left uncached: a hit would answer
-before that dependency ran, and an ordinary `Depends` may read a custom
-credential or otherwise vary the response without declaring `Vary`.
+
+On FastAPI, `CachedResponse()` written on a route that runs a dependency of
+its own fails install too, naming the path. A dependency on the route or on a
+router above it counts. grelmicro's `Anonymous()`, `Authenticated()`,
+`CurrentPrincipal`, `OptionalPrincipal`, `Claims` and `CurrentToken` do not.
+`CachedResponse()` declared on a router leaves such a read uncached.
 
 ## Vary
 
@@ -255,12 +258,13 @@ entering it. Both are added inside whatever middleware the app itself
 installed, so a request still passes middleware authentication before either
 can answer.
 
-!!! warning "A hit answers before the app is routed"
-    A route's own `Depends` never runs on a hit, because the response is
-    already on its way back by then. A route carrying any dependency besides
-    the `CachedResponse()` marker is therefore left uncached, including a
-    plain `Depends` that reads `Request` or `Header`. Dependencies on the app,
-    router, and include count too.
+!!! warning "A hit skips the handler and its dependencies"
+    A hit is answered once the route admitted the request, before its handler
+    runs. A plain `Depends` that reads `Request` or `Header` never runs on a
+    hit, so a route that runs one fails install or stays uncached, as
+    [What is never stored](#what-is-never-stored) describes. A cached route
+    that needs a caller is shared: every caller it admits gets the same
+    response.
 
     A FastAPI security scheme, such as `APIKeyHeader` or `HTTPBearer`, remains
     a configuration error and is refused when `micro.install(app)` reads it,

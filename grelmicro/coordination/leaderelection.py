@@ -780,7 +780,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
     def _is_renew_deadline_reached(self, config: LeaderElectionConfig) -> bool:
         return (monotonic() - self._state_updated_at) >= config.renew_deadline
 
-    def guard(self) -> "_LeaderGuard":
+    def guard(self) -> _LeaderGuard:
         """Return a non-blocking synchronization guard.
 
         The guard raises ``WouldBlockError`` if the current worker is not the

@@ -643,7 +643,7 @@ class OpsServer:
                     await _write_status(writer, answer.status)
                 writer.close()
                 await writer.wait_closed()
-        except (OSError, TimeoutError):
+        except OSError, TimeoutError:
             _abort(writer)
         except asyncio.CancelledError:
             _abort(writer)

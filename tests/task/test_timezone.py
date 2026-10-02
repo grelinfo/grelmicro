@@ -366,7 +366,7 @@ def test_resolving_an_unusable_name_reports_a_task_error() -> None:
 
 
 async def test_loop_waits_for_the_next_minute_inside_a_repeated_hour(
-    mocker: "MockFixture",
+    mocker: MockFixture,
 ) -> None:
     """The loop never waits on an instant that has already gone by.
 
@@ -402,7 +402,7 @@ async def test_loop_waits_for_the_next_minute_inside_a_repeated_hour(
 
 
 async def test_clamped_wake_does_not_run_the_body(
-    mocker: "MockFixture",
+    mocker: MockFixture,
 ) -> None:
     """Waking early inside the repeated hour is not a fire.
 

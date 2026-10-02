@@ -83,7 +83,7 @@ _INTEGRATION_TIMEOUT = pytest.mark.timeout(30)
 
 
 @pytest.fixture(scope="module")
-def container() -> Generator[RedisContainer, None, None]:
+def container() -> Generator[RedisContainer]:
     """Docker container running Redis."""
     with RedisContainer() as redis_container:
         yield redis_container

@@ -77,7 +77,7 @@ def _describe(predicate: Any) -> str:  # noqa: ANN401
         except Exception:  # noqa: BLE001
             text = str(type(predicate).__name__)
         return str.__str__(text)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return _UNNAMEABLE
@@ -91,7 +91,7 @@ def _describe_value(value: Any) -> str:  # noqa: ANN401
     """
     try:
         return str.__str__(repr(value))
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return _describe(type(value))
@@ -107,7 +107,7 @@ def _warn(message: str, *args: Any) -> None:  # noqa: ANN401
     """
     try:
         _log.warning(message, *args)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return
@@ -122,7 +122,7 @@ def _message_of(exc: BaseException) -> str | None:
     """
     try:
         return str(exc)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return None
@@ -136,7 +136,7 @@ def _equals(left: Any, right: Any) -> bool:  # noqa: ANN401
     """
     try:
         return bool(left == right)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return False
@@ -213,7 +213,7 @@ def _finds_itself(value: Any) -> bool:  # noqa: ANN401
         # Compared with itself on purpose: this asks whether the object
         # agrees with itself, which is what a set needs of it.
         return hash(value) == hash(value) and bool(value == value)  # noqa: PLR0124
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return False
@@ -256,7 +256,7 @@ def _already_warned(predicate: Any) -> bool:  # noqa: ANN401
             oldest = next(iter(_warned_untrackable))
             _warned_untrackable.pop(oldest, None)
         _warned_untrackable[id(predicate)] = predicate
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return False
@@ -274,7 +274,7 @@ def _coerce_bool(result: Any, predicate: Any) -> bool:  # noqa: ANN401
     """
     try:
         coerced = bool(result)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         if not _already_warned(predicate):
@@ -332,7 +332,7 @@ class Match:
         """
         try:
             return self._matcher(outcome)
-        except (KeyboardInterrupt, SystemExit):
+        except KeyboardInterrupt, SystemExit:
             raise
         except BaseException:  # noqa: BLE001
             if not _already_warned(self._matcher):

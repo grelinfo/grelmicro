@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import replace
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import anyio
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,6 +18,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from grelmicro import Grelmicro
+from grelmicro.clock import VirtualClock
 from grelmicro.http import (
     ErrorResponses,
     RateLimitedRequests,
@@ -47,7 +50,9 @@ PROXIES = ("10.0.0.0/8",)
 TWO_METERS = 2
 
 
-def _limiter(name: str, limit: int, window: float = WINDOW) -> RateLimiter:
+def _limiter(
+    name: str, limit: int, window: int | timedelta = WINDOW
+) -> RateLimiter:
     """Return a limiter over a backend of its own."""
     return RateLimiter.sliding_window(
         name, limit=limit, window=window, backend=MemoryRateLimiterAdapter()
@@ -759,7 +764,7 @@ def test_a_reset_is_rounded_up() -> None:
 def test_a_window_is_never_published_shorter_than_it_is() -> None:
     """Published short, it invites a pace the limiter refuses."""
     # Arrange
-    app = _app(_limiter("api", 10, window=1.4))
+    app = _app(_limiter("api", 10, window=timedelta(milliseconds=1400)))
     client = TestClient(app, client=CALLER)
 
     # Act
@@ -881,7 +886,7 @@ def test_the_superseded_fields_carry_the_meter_that_refuses_first() -> None:
 def test_a_window_shorter_than_a_second_states_no_policy() -> None:
     """A whole second would publish half the rate it enforces."""
     # Arrange
-    app = _app(_limiter("api", 100, window=0.5))
+    app = _app(_limiter("api", 100, window=timedelta(milliseconds=500)))
     client = TestClient(app, client=CALLER)
 
     # Act
@@ -1232,3 +1237,79 @@ def test_the_limiters_it_spends_are_readable() -> None:
     # Assert
     assert component.limiters == (burst,)
     assert component.name == "default"
+
+
+async def test_a_burst_that_spends_the_quota_is_told_the_window() -> None:
+    """A same-instant burst learns the quota comes back after the window."""
+    # Arrange
+    limit = 10
+    window = 1
+    limiter = _limiter("api", limit, window)
+    app = _app(limiter, legacy_headers=True)
+    transport = httpx.ASGITransport(app=app, client=CALLER)
+
+    # Act
+    async with (
+        VirtualClock(start=1000.0),
+        httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client,
+    ):
+        for _ in range(limit):
+            response = await client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_200_OK
+    assert response.headers["ratelimit"] == '"api";r=0;t=1'
+    assert response.headers["x-ratelimit-reset"] == "1"
+
+
+async def test_a_refusal_states_the_same_wait_in_every_header() -> None:
+    """`Retry-After` and the quota reset state the same whole seconds."""
+    # Arrange
+    window = 3
+    app = _app(_limiter("api", 1, window), legacy_headers=True)
+    transport = httpx.ASGITransport(app=app, client=CALLER)
+
+    # Act
+    async with (
+        VirtualClock(start=1000.0) as clock,
+        httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client,
+    ):
+        await client.get("/read")
+        await clock.advance(0.9997)
+        response = await client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["retry-after"] == "2"
+    assert response.headers["ratelimit"] == '"api";r=0;t=2'
+    assert response.headers["x-ratelimit-reset"] == "2"
+
+
+async def test_a_refusal_never_states_the_quota_is_back() -> None:
+    """A wait under a millisecond still states a whole second."""
+    # Arrange
+    bucket = RateLimiter.token_bucket(
+        "api", capacity=1, refill_rate=1.0, backend=MemoryRateLimiterAdapter()
+    )
+    app = _app(bucket, legacy_headers=True)
+    transport = httpx.ASGITransport(app=app, client=CALLER)
+
+    # Act
+    async with (
+        VirtualClock(start=1000.0) as clock,
+        httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client,
+    ):
+        await client.get("/read")
+        await clock.advance(0.9996)
+        response = await client.get("/read")
+
+    # Assert
+    assert response.status_code == HTTP_429_TOO_MANY_REQUESTS
+    assert response.headers["ratelimit"] == '"api";r=0;t=1'
+    assert response.headers["x-ratelimit-reset"] == "1"

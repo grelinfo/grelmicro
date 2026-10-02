@@ -27,18 +27,9 @@ Two things say otherwise:
   Write `/public/*` for everything under it, or `/public` for that path alone.
 - `Anonymous()` declared on a route makes the credential optional there. It applies
   per method, so a public read keeps the writes on the same path
-  authenticated. A URL another route could also answer stays authenticated,
-  whichever route would serve it, so a declaration never opens a route it was
-  not written on. A mount or a `Host` answers every path under it, except the
-  public routes it holds. A route under a `Host` is served without one only
-  where a request the host turns away is answered `404`.
-  A mounted app with middleware of its own may change the path before it
-  routes it, so its public routes are served without a credential only when
-  every route it holds is public. A route or a mount that matches requests
-  other than by its path, with a `matches` or a regex of its own, may answer
-  any path. It is never public, and the public routes it could shadow stay
-  authenticated. Routes changed once the app started are read again before a
-  request is served without a credential.
+  authenticated. It is read off the route the router dispatches the request
+  to, so a declaration never opens a route it was not written on, whatever
+  URL both could answer.
 
 On an `Anonymous()` route, a request sending no token is served with a caller
 that is not authenticated. A bearer token that is sent is verified as on any
@@ -56,15 +47,19 @@ HTTP requests and websocket handshakes are both covered.
 
 On Starlette, `micro.install(app)` puts a gate in front of every route and
 every `HTTPEndpoint` method, and in front of every mount whose app is not a
-Starlette router. A request without a credential is still
-refused before routing, unless its path is in `exclude`. A request whose token
-verified is routed, and the gate of the route it reaches checks its scopes.
+Starlette router. A request without a credential is refused before routing,
+unless its path is in `exclude` or a mounted FastAPI app declares an
+`Anonymous()` route. A request whose token verified is routed, and the gate
+of the route it reaches checks its scopes.
 
 - A URL no route answers gets the same `401` as a protected route, and the
   `401` names no scope.
 - A mount whose app is not a Starlette router, such as `StaticFiles`, a
   mounted app or a mount with middleware, is also one protected route, and the
   routes it holds are gated too. A router `default` of your own is gated.
+- A mounted FastAPI app is gated route by route. While it holds an
+  `Anonymous()` route, its mount lets a request without a credential
+  through, and each of its routes decides.
 - A route added later, through the app or any of its routers, is gated as it
   lands. A route list, a mount's app or a router's default assigned once the
   app serves is gated before the next request goes through it. An app whose
@@ -75,6 +70,68 @@ verified is routed, and the gate of the route it reaches checks its scopes.
   rebuilds the scope on the way.
 - A route shared by several apps is gated with each app's own `exclude` and
   error format. An app without `AuthenticatedRequests` gets `401` on it.
+
+### Decided at the route, on FastAPI
+
+On FastAPI, the gate sits where FastAPI hands a request to the route it
+matched, before the route reads the request body. A route declaring
+`Anonymous()` serves a caller with no credential, and the scopes of every
+`Authenticated` around it, on the route or on a router it was included with,
+are checked before the handler runs.
+
+- A request without a credential is routed when a route of the app declares
+  `Anonymous()`, and refused before routing otherwise. A URL no route
+  answers, a method no route serves and a trailing slash redirect get the
+  same `401` as a protected route.
+- A request a route refuses is answered before its body is read, so an
+  invalid body on a protected route gets `401`, not `422`.
+- A router included twice is gated under each include with what that include
+  adds. `include_router(router, dependencies=[Anonymous()])` makes its routes
+  public under that include alone. Websocket routes, Starlette routes, mounts
+  and frontend routes are gated too.
+- A mount holding no `Anonymous()` route refuses a request without a
+  credential before anything under it runs, its middleware included. A
+  mounted app holding one runs its own middleware, and each of its routes
+  decides. That middleware runs for a request without a credential too. Its
+  own CORS middleware answers a preflight.
+- A FastAPI app mounted under a Starlette app is gated route by route.
+- A route added later, to the app or to a router it includes, is gated as it
+  lands. A route removed or changed in place is served as it is now, and a
+  mount whose last `Anonymous()` route is gone refuses at its door again.
+
+### Decided at the handler, on Litestar
+
+On Litestar, the gate sits where Litestar's router hands a request to the
+handler it matched, per method. A handler declaring `Anonymous()` serves a
+caller with no credential, and `Authenticated(scopes=[...])` guards name the
+scopes the gate checks before the handler runs.
+
+- A request without a credential is routed when a handler of the app declares
+  `Anonymous()`, and refused before routing otherwise. A URL no handler answers
+  and a method no handler serves get the same `401` as a protected route.
+- `Anonymous()` on one method keeps the route's other methods authenticated,
+  and so is the `OPTIONS` Litestar adds to a route. A CORS preflight is answered
+  by Litestar's CORS middleware before authentication.
+- An ASGI mount is one route: its app, and any middleware in it, never runs for
+  a request its handler refuses.
+- A handler registered later is gated as it lands.
+- A middleware declared in `Litestar(middleware=[...])` runs behind the
+  router, and checks the handler it serves the same way. The rate limit, the
+  response cache, idempotency and conditional requests then run behind it,
+  once the handler's declaration admitted the request. It is part of each
+  handler's own stack, so a URL no handler answers never reaches it, and
+  Litestar answers it `404`. Let `micro.install(app)` place it for that URL to
+  get the `401`.
+
+### Rate limits, caching and idempotency run at the route
+
+On Starlette, FastAPI and Litestar, `RateLimitedRequests`, `CachedResponses`,
+`IdempotentRequests` and `ConditionalRequests` run once the gate of the route
+admitted the request, around its handler. A request a route refuses spends no
+rate-limit budget, costs no cache lookup and stores nothing under its
+`Idempotency-Key`. A request no route answers reaches none of them. Their
+`include=` and `exclude=` still name paths from the app's root, under a mount
+too.
 
 ## Reading the caller
 
@@ -285,9 +342,32 @@ answered `429` before its next token is verified. Only a forged signature or
 algorithm counts, never an expired token or a key the provider is rotating.
 
 `trusted=` is required with `bans`. A ban counted against an address the caller
-can choose would refuse somebody else. Read
+can choose would refuse somebody else. Bans stay off unless `bans=` is given,
+and [Bans are opt-in](../architecture/jwt.md#bans-are-opt-in) says why. Read
 [Shedding a caller that keeps forging](../security/jwt.md#shedding-a-caller-that-keeps-forging)
 for the thresholds.
+
+## What each flood meets
+
+There is nothing to guess. grelmicro verifies tokens and issues none, so no
+password or login is exposed, and a signature cannot be forged by trying. A
+flood can only cost the service work, and each kind meets its own guard:
+
+| A flood of requests | Meets | Cost of each |
+|---|---|---|
+| Without a token | `401` before routing | almost nothing |
+| With a malformed token | `401` before the signature is checked | under a microsecond |
+| With a forged signature | `bans=`, `429` before verifying again | one lookup once banned |
+| With an expired or misdirected token | `401` after verifying | about 12 microseconds |
+| With a valid token, to URLs no route answers | [`flood=`](rate-limit.md#limiting-floods-before-routing) | one limiter check |
+| With a valid token, to routes | [the route limits](rate-limit.md) | one limiter check |
+
+On an app with a public route, a request without a token is routed to find
+out whether that route serves it, so it spends `flood=` too.
+
+`bans=` and `flood=` are both off unless given. A flood spread over many
+addresses gets past anything counted per address, so it is for the ingress
+in front of the service to absorb.
 
 ## Security events
 

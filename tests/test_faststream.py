@@ -67,7 +67,7 @@ async def test_install_wires_lifecycle_and_ambient_binding() -> None:
 
     @broker.subscriber("limited")
     async def handler(msg: str) -> bool:  # noqa: ARG001
-        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1)
         result = await limiter.acquire(key="client")
         results.append(result.allowed)
         return result.allowed

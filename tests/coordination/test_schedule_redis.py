@@ -120,7 +120,7 @@ async def test_aenter_aexit_borrowed_provider_left_alone() -> None:
 
 
 @pytest.fixture(scope="module")
-def container() -> Generator[RedisContainer, None, None]:
+def container() -> Generator[RedisContainer]:
     """Redis Test Container."""
     with RedisContainer() as container:
         yield container

@@ -35,7 +35,7 @@ from grelmicro.resilience.timeout import Timeout
 
 _CAPACITY = 50
 _LIMIT = 100
-_WINDOW = 60.0
+_WINDOW = 60
 _THRESHOLD = 9
 
 

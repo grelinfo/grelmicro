@@ -5,28 +5,34 @@ The lifespan, the binding, and the error responses are pure ASGI and live in
 the OpenAPI schema and the health router.
 """
 
+import inspect
 import logging
+import os
+import re
+import weakref
+from collections.abc import Callable, Collection, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
 try:
-    # The dependency declares its headers, so these are needed where the
-    # class is defined rather than where it is called. Every other door
-    # into this module imports FastAPI when it runs, because the module
-    # has to import without it.
+    # The module has to import without FastAPI. Its annotations and
+    # dependencies are read at runtime, so FastAPI is imported here.
+    from fastapi import APIRouter, FastAPI
     from fastapi import Depends as _Depends
     from fastapi import Header as _Header
     from fastapi import Request as _Request
     from fastapi import Response as _Response
     from fastapi import Security as _Security
-
-    # Read at runtime: FastAPI resolves the quoted annotation through this
-    # module's globals when it builds the dependency.
+    from fastapi.params import Depends
     from fastapi.requests import (
-        HTTPConnection as _HTTPConnection,  # noqa: TC002
+        HTTPConnection as _HTTPConnection,
     )
     from fastapi.security import (
-        SecurityScopes as _SecurityScopes,  # noqa: TC002
+        SecurityScopes as _SecurityScopes,
     )
+    from opentelemetry import trace as _otel_trace
+    from starlette.middleware import Middleware
+    from starlette.types import ASGIApp, Receive, Scope, Send
+    from starlette.websockets import WebSocketDisconnect as _WebSocketDisconnect
 
     HAS_FASTAPI = True
 except ImportError:  # pragma: no cover - the reimport test walks this
@@ -36,6 +42,7 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Doc
 
+from grelmicro import Grelmicro
 from grelmicro._caller import is_authenticated
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
@@ -51,9 +58,11 @@ from grelmicro.health._models import HealthStatus
 from grelmicro.http import (
     ConditionalRequestsMiddleware,
     ErrorResponses,
+    Gate,
     IdempotencyMiddleware,
     PreconditionRequiredError,
     ProblemDetail,
+    RouteDeclaration,
     check_freshness,
 )
 from grelmicro.http._authentication import (
@@ -78,11 +87,16 @@ from grelmicro.http._ratelimit import (
 from grelmicro.http._requirement import (
     Requirement,
     declare_from_request,
+    declare_optional,
     requirement_for,
 )
 from grelmicro.http._response_cache import declare_cached
+from grelmicro.idempotency import Idempotency
+from grelmicro.integrations._fastapi_internals import telemetry_of
+from grelmicro.integrations._route_gate import declarations_of, gate_routes
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
+    _keep_watching_outside,
     error_response,
     is_bound,
 )
@@ -94,21 +108,12 @@ from grelmicro.integrations.starlette import (
     install_middleware as _install_middleware_starlette,
 )
 from grelmicro.resilience.errors import RateLimitExceededError
+from grelmicro.resilience.ratelimiter import RateLimiter
+from grelmicro.security.clientip import TrustedProxies
 from grelmicro.security.jwt import JWTClaims
 from grelmicro.security.principal import Principal, VerifiedToken
-
-if TYPE_CHECKING:
-    import inspect
-    from collections.abc import Callable, Collection, Sequence
-
-    from fastapi import APIRouter, FastAPI
-    from fastapi.params import Depends
-
-    from grelmicro import Grelmicro
-    from grelmicro.idempotency import Idempotency
-    from grelmicro.resilience.ratelimiter import RateLimiter
-    from grelmicro.security.clientip import TrustedProxies
-    from grelmicro.trace._component import Trace
+from grelmicro.trace._autoinstrument import is_selected
+from grelmicro.trace._component import Trace
 
 __all__ = [
     "Anonymous",
@@ -133,7 +138,9 @@ __all__ = [
     "install",
     "install_error_responses",
     "install_middleware",
+    "install_route_gate",
     "is_bound",
+    "route_declarations",
 ]
 
 _logger = logging.getLogger(__name__)
@@ -141,11 +148,11 @@ _logger = logging.getLogger(__name__)
 
 def install(
     app: Annotated[
-        "FastAPI",
+        FastAPI,
         Doc("The FastAPI application to wire."),
     ],
     micro: Annotated[
-        "Grelmicro",
+        Grelmicro,
         Doc(
             "The `Grelmicro` app to open in the lifespan and bind per request."
         ),
@@ -161,19 +168,19 @@ def install(
 ) -> None:
     """Wire `micro` into a FastAPI app.
 
-    The Starlette wiring, plus OpenTelemetry auto-instrumentation when a
-    `Trace` component asks for it.
+    The Starlette wiring, plus FastAPI's request telemetry exported through
+    the `Trace` and `Metrics` components.
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
     """
     _install_starlette(app, micro, ambient=ambient)
-    _instrument_app(app, micro)
+    _wire_telemetry(app, micro)
 
 
 def install_error_responses(
     app: Annotated[
-        "FastAPI",
+        FastAPI,
         Doc("The FastAPI application to wire."),
     ],
     errors: Annotated[
@@ -195,11 +202,11 @@ def install_error_responses(
 
 def install_middleware(
     app: Annotated[
-        "FastAPI",
+        FastAPI,
         Doc("The FastAPI application to wire."),
     ],
     components: Annotated[
-        "Sequence[Any]",
+        Sequence[Any],
         Doc("The registered components that carry an ASGI middleware."),
     ],
 ) -> None:
@@ -217,58 +224,193 @@ def install_middleware(
             document(app)
 
 
-def _instrument_app(app: "FastAPI", micro: "Grelmicro") -> None:
-    """Auto-instrument the FastAPI app per `Trace(instrument=...)`.
+def install_route_gate(
+    app: Annotated[
+        FastAPI,
+        Doc("The FastAPI application whose routes to gate."),
+    ],
+    gate: Annotated[
+        Gate,
+        Doc(
+            "Returns the app to dispatch to in place of a route, given it "
+            "and the route's declarations, refusing a declaration that "
+            "cannot hold."
+        ),
+    ],
+) -> None:
+    """Gate every route FastAPI dispatches to, before it reads the request.
 
-    Runs at install time, before the app serves, because the framework builds
-    its middleware stack on first use and the request-span middleware must be
-    in place by then. With no explicit `TracerProvider`, OTel's proxy tracer
-    resolves to the provider `Trace` installs during the lifespan, so request
-    spans land in grelmicro's pipeline. It is a no-op without
-    `opentelemetry-instrumentation-fastapi` installed.
+    Each route is gated as it is dispatched: directly, and under each
+    router that includes it, with what that include adds. So a request the
+    route refuses is answered before its body is read. Websocket routes,
+    frontend routes, and the routes of a mounted app or router are gated
+    too, and a mount holding no anonymous route refuses a request without
+    a credential at its door. A route added later is gated as it lands.
+
+    `micro.install(app)` calls this when `AuthenticatedRequests` is
+    registered, with the gate that component builds.
+
+    Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
+    docs.
+
+    Raises:
+        RuntimeError: If FastAPI's router lacks what the gates rely on,
+            naming it.
+        TypeError: If a declaration's `cache` is neither a boolean nor a
+            number.
+        ValueError: If a declaration cannot hold, naming its route.
     """
-    from grelmicro.trace._autoinstrument import (  # noqa: PLC0415
-        explicit_names,
-        is_selected,
-    )
+    gate_routes(app, gate)
 
-    component = next(
-        (c for c in micro.components if getattr(c, "kind", None) == "trace"),
+
+def route_declarations(
+    app: Annotated[
+        FastAPI,
+        Doc("The FastAPI application whose routes to list."),
+    ],
+) -> list[RouteDeclaration]:
+    """Return what every route of the app requires, as its gate reads it.
+
+    One declaration per route, and one per include of a router's route. A
+    route declaring `Anonymous()` is anonymous, and its scopes are the ones
+    every `Security` around `Authenticated`, `CurrentPrincipal`, `Claims` or
+    `CurrentToken` names. Any other dependency is a check of its own, except
+    `CachedResponse()` and `OptionalPrincipal`. A `CachedResponse()` on the
+    route is declared as it is, so one beside a check of its own fails
+    install. One on a router caches the reads under it that run no check of
+    their own.
+    """
+    return declarations_of(app)
+
+
+def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:
+    """Hand FastAPI's request telemetry to grelmicro's export.
+
+    FastAPI records the request spans and the HTTP server metrics through
+    the global providers. When a `Trace` or `Metrics` component exports
+    them, FastAPI stops setting up exporters of its own from the
+    environment. A `Trace` that is off, or whose `instrument` leaves out
+    `fastapi`, turns the request spans off and keeps the metrics.
+    """
+    settings = telemetry_of(app)
+    if app in _WIRED:
+        return
+    _WIRED.add(app)
+    kinds = {getattr(component, "kind", None) for component in micro.components}
+    if "trace" in kinds or "metrics" in kinds:
+        settings["auto_configure"] = False
+        settings["exclude"] = _excluding(settings["exclude"])
+    trace = next((c for c in micro.components if isinstance(c, Trace)), None)
+    if trace is None:
+        return
+    if not (trace.active and is_selected("fastapi", trace.instrument)):
+        settings["tracing"] = False
+    elif settings["tracing"] and _exceptions_on_spans():
+        entry = Middleware(_ExceptionEvents)
+        app.user_middleware.insert(0, entry)
+        _keep_watching_outside(app, [entry])
+
+
+_WIRED: Final[weakref.WeakSet[FastAPI]] = weakref.WeakSet()
+"""Apps whose telemetry is wired. The first `Grelmicro` installed wires it."""
+
+
+def _excluding(
+    app_exclude: Callable[[Scope], bool] | None,
+) -> Callable[[Scope], bool] | None:
+    """Return the app's `exclude`, also skipping URLs the environment names.
+
+    `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`, or `OTEL_PYTHON_EXCLUDED_URLS` when
+    it is unset, holds comma-separated regular expressions. A request whose
+    full URL one of them matches is neither traced nor measured.
+    """
+    listed = os.environ.get(
+        "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS",
+        os.environ.get("OTEL_PYTHON_EXCLUDED_URLS", ""),
+    )
+    patterns = [entry.strip() for entry in listed.split(",") if entry.strip()]
+    if not patterns:
+        return app_exclude
+    excluded = re.compile("|".join(patterns))
+
+    def exclude(scope: Scope) -> bool:
+        if app_exclude is not None and app_exclude(scope):
+            return True
+        return excluded.search(_url_of(scope)) is not None
+
+    return exclude
+
+
+def _url_of(scope: Scope) -> str:
+    """Return the request's full URL without its query, as it was sent."""
+    host = next(
+        (
+            value.decode("latin-1")
+            for name, value in scope["headers"]
+            if name == b"host"
+        ),
         None,
     )
-    if component is None:
-        return
-    trace = cast("Trace", component)
-    if not trace.active:
-        # Auto-disabled Trace installs no provider, so request spans would go
-        # nowhere. Skip instrumentation until an exporter endpoint is set.
-        return
-    directive = trace.instrument
-    if not is_selected("fastapi", directive):
-        return
-    try:
-        from opentelemetry.instrumentation.fastapi import (  # noqa: PLC0415
-            FastAPIInstrumentor,
-        )
-    except ImportError:  # pragma: no cover
-        names = explicit_names(directive)
-        if names is not None and "fastapi" in names:
-            _logger.warning(
-                "Trace named 'fastapi' for instrumentation but "
-                "opentelemetry-instrumentation-fastapi is not installed."
-            )
-        return
-    FastAPIInstrumentor.instrument_app(app)
+    if host is None:
+        address, port = scope.get("server") or _NO_SERVER
+        host = address if port == _HTTP_PORT else f"{address}:{port}"
+    return f"{scope.get('scheme', 'http')}://{host}{scope.get('path', '')}"
+
+
+_NO_SERVER: Final = ("0.0.0.0", 80)  # noqa: S104
+"""The server address a request without a `Host` header or a server reads as."""
+
+_HTTP_PORT: Final = 80
+"""The port a URL leaves out."""
+
+
+def _exceptions_on_spans() -> bool:
+    """Return whether exceptions go on spans, per `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN`.
+
+    `logs` moves them to the logs signal. `logs/dup` and no value keep them
+    on spans.
+    """
+    choice = os.environ.get("OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN", "")
+    return choice.strip().lower() != "logs"
+
+
+_NORMAL_CLOSE: Final = frozenset({1000, 1001})
+"""WebSocket close codes for a connection that ended as it should."""
+
+
+class _ExceptionEvents:
+    """Record an exception the app raised as an event on the request span.
+
+    Runs outside every middleware the app added and inside the server
+    error handler, while the request span is current. A WebSocket closed
+    normally records nothing.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        try:
+            await self.app(scope, receive, send)
+        except Exception as exc:
+            if not (
+                isinstance(exc, _WebSocketDisconnect)
+                and exc.code in _NORMAL_CLOSE
+            ):
+                _otel_trace.get_current_span().record_exception(exc)
+            raise
 
 
 def document_idempotency(
     app: Annotated[
-        "FastAPI",
+        FastAPI,
         Doc("The app carrying an `IdempotencyMiddleware` to document."),
     ],
     *,
     idempotency: Annotated[
-        "Idempotency[Any] | None",
+        Idempotency[Any] | None,
         Doc(
             "Describe only the middleware storing through this "
             "`Idempotency`. Defaults to every one the app carries."
@@ -364,7 +506,7 @@ def document_idempotency(
 def CachedResponse(  # noqa: N802
     *,
     ttl: Annotated[
-        "float | None",
+        float | None,
         Doc(
             "Seconds this route's response is served from the cache. "
             "Defaults to the `ttl` the registered `CachedResponses` "
@@ -374,10 +516,10 @@ def CachedResponse(  # noqa: N802
 ) -> Any:  # noqa: ANN401
     """Declare that this route's response is cached.
 
-    Declared on the route rather than called in the handler, because the
-    middleware has to answer before the app is routed. `micro.install(app)`
-    reads it off the dependency tree, so a repeated read is answered
-    without the handler running:
+    Declared on the route rather than called in the handler, because a hit
+    is answered before the handler runs. `micro.install(app)` reads it off
+    the dependency tree, so a repeated read is answered without the handler
+    running:
 
     ```python
     from grelmicro.integrations.fastapi import CachedResponse
@@ -414,14 +556,14 @@ def CachedResponse(  # noqa: N802
 
 
 async def _current_principal(
-    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+    connection: _HTTPConnection, security_scopes: _SecurityScopes
 ) -> Any:  # noqa: ANN401
     """Return the caller, holding every scope a `Security` around it names."""
     return await _authenticated(connection, security_scopes)
 
 
 async def _current_claims(
-    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+    connection: _HTTPConnection, security_scopes: _SecurityScopes
 ) -> Any:  # noqa: ANN401
     """Return the verified JWT claims of the caller.
 
@@ -443,14 +585,14 @@ async def _current_claims(
     return caller
 
 
-async def _optional_principal(connection: "_HTTPConnection") -> Any:  # noqa: ANN401
+async def _optional_principal(connection: _HTTPConnection) -> Any:  # noqa: ANN401
     """Return the authenticated caller, or `None` for a request that sent no token."""
     caller = connection.scope.get("user")
     return caller if is_authenticated(caller) else None
 
 
 async def _current_token(
-    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+    connection: _HTTPConnection, security_scopes: _SecurityScopes
 ) -> Any:  # noqa: ANN401
     """Return the bearer token the caller presented, once it verified.
 
@@ -465,7 +607,7 @@ async def _current_token(
 
 
 async def _authenticated(
-    connection: "_HTTPConnection", security_scopes: "_SecurityScopes"
+    connection: _HTTPConnection, security_scopes: _SecurityScopes
 ) -> Any:  # noqa: ANN401
     """Return the caller, holding every scope this declaration names."""
     return requirement_for(security_scopes.scopes).caller(connection.scope)
@@ -475,6 +617,7 @@ declare_from_request(_authenticated)
 declare_from_request(_current_principal)
 declare_from_request(_current_claims)
 declare_from_request(_current_token)
+declare_optional(_optional_principal)
 
 
 CurrentPrincipal = Annotated[
@@ -562,7 +705,7 @@ token that does not verify never reaches it: the request is answered `401`.
 def Authenticated(  # noqa: N802
     *,
     scopes: Annotated[
-        "Sequence[str]",
+        Sequence[str],
         Doc(
             "Scopes the caller must hold, every one of them. Declared on "
             "a router and on its route, each applies its own."
@@ -627,15 +770,15 @@ def Anonymous() -> Any:  # noqa: N802, ANN401
     async def catalog() -> list[Product]: ...
     ```
 
-    `micro.install(app)` reads it off the dependency tree, and the app is
-    read again when it starts. It applies per method, so a path serving a
-    public read keeps its writes authenticated. A URL another route without
-    it could also answer stays authenticated, whichever route would serve it,
-    so a declaration never opens a route it was not written on. A credential
-    is optional there. A request sending none is served with a caller that is
-    not authenticated, and a bearer token that is sent is verified, so a valid
-    one hands the route its caller through `OptionalPrincipal` and one that
-    does not verify is answered `401`.
+    `micro.install(app)` reads it off the dependency tree, and off what the
+    router holding the route was included with. It applies per method, so a
+    path serving a public read keeps its writes authenticated. It is read off
+    the route FastAPI dispatches the request to, so a declaration never opens
+    a route it was not written on. A credential is optional there. A request
+    sending none is served with a caller that is not authenticated, and a
+    bearer token that is sent is verified, so a valid one hands the route its
+    caller through `OptionalPrincipal` and one that does not verify is
+    answered `401`.
 
     Read more in the [Authentication](../http/authentication.md) docs.
     """
@@ -650,7 +793,7 @@ def Anonymous() -> Any:  # noqa: N802, ANN401
 
 def RateLimited(  # noqa: N802
     *limiters: Annotated[
-        "RateLimiter",
+        RateLimiter,
         Doc("The limiters this route spends, in the order given."),
     ],
     cost: Annotated[
@@ -665,7 +808,7 @@ def RateLimited(  # noqa: N802
         ),
     ] = 0.0,
     key: Annotated[
-        "Callable[[Any], str | None] | None",
+        Callable[[Any], str | None] | None,
         Doc(
             "Builds the bucket key from the ASGI scope, replacing the "
             "resolved caller, the same as the middleware takes. Return "
@@ -673,7 +816,7 @@ def RateLimited(  # noqa: N802
         ),
     ] = None,
     trusted: Annotated[
-        "TrustedProxies | None",
+        TrustedProxies | None,
         Doc(
             "The proxies whose forwarded entries may be believed. Not "
             "needed when a middleware already resolved the caller."
@@ -801,11 +944,11 @@ class ConditionalRequest:
     def __init__(
         self,
         if_match: Annotated[
-            "str | None",
+            str | None,
             Doc("What the client sent in `If-Match`, if anything."),
         ] = None,
         if_none_match: Annotated[
-            "str | None",
+            str | None,
             Doc("What the client sent in `If-None-Match`, if anything."),
         ] = None,
     ) -> None:
@@ -865,7 +1008,7 @@ class ConditionalRequest:
 
 def document_conditional_requests(
     app: Annotated[
-        "FastAPI",
+        FastAPI,
         Doc("The app carrying a `ConditionalRequestsMiddleware` to document."),
     ],
 ) -> None:
@@ -939,7 +1082,7 @@ _WRITE_METHODS = ("put", "patch", "delete")
 """Methods a precondition guards. `POST` creates, so it has none to hold."""
 
 
-def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
+def _required_routes(app: FastAPI) -> set[tuple[str, str]]:
     """Return the `(path, method)` pairs that declared a precondition.
 
     A guard called inside a handler body is invisible from here, which is
@@ -967,7 +1110,7 @@ def _required_routes(app: "FastAPI") -> set[tuple[str, str]]:
 
 def document_rate_limited_requests(
     app: Annotated[
-        "FastAPI",
+        FastAPI,
         Doc("The app carrying a `RateLimitMiddleware` to document."),
     ],
 ) -> None:
@@ -1040,7 +1183,7 @@ _HTTP_METHODS: Final = (
 
 def document_authenticated_requests(
     app: Annotated[
-        "FastAPI",
+        FastAPI,
         Doc("The app carrying an `AuthenticatedRequestsMiddleware`."),
     ],
 ) -> None:
@@ -1096,7 +1239,7 @@ def document_authenticated_requests(
 
 def _annotate_authenticated(
     schema: dict[str, Any],
-    app: "FastAPI",
+    app: FastAPI,
     options: dict[str, Any],
     media_type: str,
     model: type[BaseModel],
@@ -1285,8 +1428,8 @@ def _mark_required(operation: dict[str, Any], name: str) -> None:
 
 def _paths(
     schema: dict[str, Any],
-    methods: "Collection[str]",
-) -> "list[tuple[str, dict[str, Any], dict[str, Any]]]":
+    methods: Collection[str],
+) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
     """Return each operation of these methods, with the path it sits on."""
     return [
         (path, path_item, operation)
@@ -1298,8 +1441,8 @@ def _paths(
 
 def _paths_with_method(
     schema: dict[str, Any],
-    methods: "Collection[str]",
-) -> "list[tuple[str, dict[str, Any], dict[str, Any], str]]":
+    methods: Collection[str],
+) -> list[tuple[str, dict[str, Any], dict[str, Any], str]]:
     """Return each operation of these methods, with its path and method.
 
     Only `paths`: a webhook is a request the app sends, and no conditional
@@ -1337,7 +1480,7 @@ def _require_fastapi(app: Any, caller: str) -> None:  # noqa: ANN401
         raise TypeError(msg)
 
 
-def _described(app: "FastAPI", schema: dict[str, Any]) -> set[int]:
+def _described(app: FastAPI, schema: dict[str, Any]) -> set[int]:
     """Return which installed middlewares this schema already describes.
 
     FastAPI caches the schema it builds and hands back the same object,
@@ -1352,7 +1495,7 @@ def _described(app: "FastAPI", schema: dict[str, Any]) -> set[int]:
 
 
 def _middleware_options(
-    app: "FastAPI", middleware: type[Any], missing: str
+    app: FastAPI, middleware: type[Any], missing: str
 ) -> dict[str, Any]:
     """Return one installed middleware's arguments, defaults filled in.
 
@@ -1366,7 +1509,7 @@ def _middleware_options(
 
 
 def _every_middleware_options(
-    app: "FastAPI", middleware: type[Any], missing: str
+    app: FastAPI, middleware: type[Any], missing: str
 ) -> list[dict[str, Any]]:
     """Return every installed middleware's arguments, defaults filled in.
 
@@ -1420,7 +1563,7 @@ def _with_live(options: dict[str, Any]) -> dict[str, Any]:
 
 
 def _bound_options(
-    signature: "inspect.Signature", kwargs: dict[str, Any]
+    signature: inspect.Signature, kwargs: dict[str, Any]
 ) -> dict[str, Any]:
     """Return what a signature makes of these arguments, defaults filled in."""
     bound = signature.bind_partial(
@@ -1434,7 +1577,7 @@ def _bound_options(
     return dict(bound.arguments)
 
 
-def _idempotency_options(app: "FastAPI") -> list[dict[str, Any]]:
+def _idempotency_options(app: FastAPI) -> list[dict[str, Any]]:
     """Return every installed middleware's arguments, defaults filled in."""
     return _every_middleware_options(
         app,
@@ -1516,7 +1659,7 @@ def _annotate_schema(
         _add_replay_header(operation, options["replay_header"])
 
 
-def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
+def _document_error_responses(app: FastAPI, errors: ErrorResponses) -> None:
     """Republish the schema's error responses in the format now installed.
 
     FastAPI generates a `422` for every operation that validates, pointing
@@ -1570,7 +1713,7 @@ def _document_error_responses(app: "FastAPI", errors: ErrorResponses) -> None:
     app.openapi_schema = None
 
 
-def _renders_validation(app: "FastAPI") -> bool:
+def _renders_validation(app: FastAPI) -> bool:
     """Return whether grelmicro is still the one answering a bad request.
 
     Compared by identity against the handler `install` registered. A name
@@ -1662,9 +1805,9 @@ def _drop_unreferenced_validation_schemas(schema: dict[str, Any]) -> None:
 
 def _operations(
     schema: dict[str, Any],
-    methods: "Collection[str] | None" = None,
-    sections: "Collection[str]" = ("paths", "webhooks"),
-) -> "list[tuple[dict[str, Any], dict[str, Any]]]":
+    methods: Collection[str] | None = None,
+    sections: Collection[str] = ("paths", "webhooks"),
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """Return each operation in the schema, paired with its path item.
 
     Both `paths` and `webhooks` hold them, and a webhook left out of the
@@ -1838,7 +1981,7 @@ def health_router(
         ),
     ] = False,
     show_details: Annotated[
-        "bool | Depends",
+        bool | Depends,
         Doc(
             "Whether ``/healthz`` includes each check's verbose "
             "``details`` field (versions, hostnames, pool stats, ...):\n\n"
@@ -1856,7 +1999,7 @@ def health_router(
         ),
     ] = False,
     healthz_dependencies: Annotated[
-        "list[Depends] | None",
+        list[Depends] | None,
         Doc(
             "FastAPI dependencies applied to ``/healthz``. A failing "
             "dependency blocks the entire endpoint (``401``/``403``). "
@@ -1865,7 +2008,7 @@ def health_router(
             "load balancers. Independent of ``show_details``."
         ),
     ] = None,
-) -> "APIRouter":
+) -> APIRouter:
     """Create a FastAPI router with health check endpoints.
 
     Provides three endpoints:
@@ -1885,8 +2028,7 @@ def health_router(
             ``Depends(...)`` value.
     """
     try:
-        from fastapi import APIRouter as _APIRouter  # noqa: PLC0415
-        from fastapi import Depends, Query  # noqa: PLC0415
+        from fastapi import Query  # noqa: PLC0415
         from fastapi.responses import Response  # noqa: PLC0415
         from starlette.status import (  # noqa: PLC0415
             HTTP_200_OK,
@@ -1899,14 +2041,12 @@ def health_router(
 
         raise DependencyNotFoundError(module="fastapi")  # noqa: B904
 
-    from grelmicro._app import Grelmicro  # noqa: PLC0415
-
-    def _resolve_component() -> "HealthChecks":
+    def _resolve_component() -> HealthChecks:
         return component or Grelmicro.current().get("health", "default")
 
     show_details_dep = _resolve_show_details_dep(show_details)
 
-    router = _APIRouter(
+    router = APIRouter(
         prefix=prefix, tags=["health"], include_in_schema=include_in_schema
     )
     healthz_deps = list(healthz_dependencies or ())
@@ -1961,7 +2101,7 @@ def health_router(
     )
     @router.head("/healthz", include_in_schema=False, dependencies=healthz_deps)
     async def healthz(
-        include_details: Annotated[bool, Depends(show_details_dep)],
+        include_details: Annotated[bool, _Depends(show_details_dep)],
         exclude: Annotated[
             str | None,
             Query(
@@ -1986,7 +2126,7 @@ def health_router(
     return router
 
 
-def _resolve_show_details_dep(show_details: Any) -> "Callable[..., Any]":  # noqa: ANN401
+def _resolve_show_details_dep(show_details: Any) -> Callable[..., Any]:  # noqa: ANN401
     """Return the FastAPI dependency callable for ``show_details``.
 
     Booleans collapse to shared constant-returning helpers (identity

@@ -169,9 +169,11 @@ async def test_a_fake_on_an_open_app_needs_async_with() -> None:
     micro = Grelmicro(uses=[MemoryProvider()])
 
     async with micro:
-        with pytest.raises(OutOfContextError, match=r"async with micro\.fake"):
-            with micro.fake():
-                pass  # pragma: no cover
+        with (
+            pytest.raises(OutOfContextError, match=r"async with micro\.fake"),
+            micro.fake(),
+        ):
+            pass  # pragma: no cover
 
 
 async def test_a_faked_app_skips_the_backend_scope_check() -> None:

@@ -137,7 +137,7 @@ def test_as_str_passes_through_str() -> None:
 
 
 @pytest.fixture(scope="module")
-def monkeypatch() -> Generator[pytest.MonkeyPatch, None, None]:
+def monkeypatch() -> Generator[pytest.MonkeyPatch]:
     """Monkeypatch Module Scope."""
     monkeypatch = pytest.MonkeyPatch()
     yield monkeypatch
@@ -145,7 +145,7 @@ def monkeypatch() -> Generator[pytest.MonkeyPatch, None, None]:
 
 
 @pytest.fixture(scope="module")
-def container() -> Generator[RedisContainer, None, None]:
+def container() -> Generator[RedisContainer]:
     """Redis Test Container."""
     with RedisContainer() as container:
         yield container

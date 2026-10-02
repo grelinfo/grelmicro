@@ -35,7 +35,7 @@ def _make_record(
 
 
 @pytest.fixture
-def dedup_logger() -> Generator[logging.Logger, None, None]:
+def dedup_logger() -> Generator[logging.Logger]:
     """Yield a named logger and strip any attached filters after."""
     logger = logging.getLogger("grelmicro.test.dedup_integration")
     logger.setLevel(logging.WARNING)

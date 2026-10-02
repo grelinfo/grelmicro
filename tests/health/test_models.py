@@ -5,7 +5,7 @@ from grelmicro.health._models import (
     HealthReport,
     HealthStatus,
 )
-from grelmicro.health._types import HealthDetails  # noqa: TC001
+from grelmicro.health._types import HealthDetails
 
 
 def test_health_status_values() -> None:

@@ -41,7 +41,7 @@ async def _spend_the_budget(barrier: Barrier, results: Results) -> None:
     backend = MemoryRateLimiterAdapter()
     async with backend:
         limiter = RateLimiter.sliding_window(
-            "per-worker", limit=LIMIT, window=60.0, backend=backend
+            "per-worker", limit=LIMIT, window=60, backend=backend
         )
         barrier.wait()
         allowed = 0

@@ -13,6 +13,7 @@ from grelmicro.resilience._protocol import (
     RateLimitResult,
     unsupported_algorithm,
 )
+from grelmicro.resilience.ratelimiter import _gcra
 from grelmicro.resilience.ratelimiter.sliding_window import SlidingWindowConfig
 from grelmicro.resilience.ratelimiter.token_bucket import TokenBucketConfig
 
@@ -151,84 +152,51 @@ class _RedisGCRA(RateLimiterStrategy):
     with mismatched Redis types otherwise).
     """
 
-    _ALGO_PREFIX = "gcra:"
+    _ALGO_PREFIX = "gcra_us:"
 
     _LUA_ACQUIRE = """
         local key = KEYS[1]
-        local burst = tonumber(ARGV[1])
-        local rate = tonumber(ARGV[2])
-        local period = tonumber(ARGV[3])
-        local cost = tonumber(ARGV[4])
+        local limit = tonumber(ARGV[1])
+        local emission = tonumber(ARGV[2])
+        local cost = tonumber(ARGV[3])
 
-        local emission_interval = period / rate
-        local increment = emission_interval * cost
-        local burst_offset = emission_interval * burst
+        -- Redis server time, in whole microseconds, for cross-process consistency
+        local time = redis.call("TIME")
+        local now = tonumber(time[1]) * 1000000 + tonumber(time[2])
 
-        -- Use Redis server time for cross-process consistency
-        local now = redis.call("TIME")
-        -- Offset to Jan 1 2017 to avoid double-precision issues
-        local jan_1_2017 = 1483228800
-        now = (now[1] - jan_1_2017) + (now[2] / 1000000)
+        local tat = tonumber(redis.call("GET", key)) or now
+        local gap = math.max(0, tat - now)
+        local reset = gap + emission * cost
+        local diff = emission * limit - reset
 
-        local tat = redis.call("GET", key)
-        if not tat then
-            tat = now
-        else
-            tat = tonumber(tat)
+        if diff < 0 then
+            return {0, 0, -diff, gap}
         end
 
-        local new_tat = math.max(tat, now) + increment
-        local allow_at = new_tat - burst_offset
-        local diff = now - allow_at
-        local remaining = math.floor(diff / emission_interval + 0.5)
-
-        if remaining < 0 then
-            local reset_after = tat - now
-            local retry_after = diff * -1
-            return {0, 0, tostring(retry_after), tostring(reset_after)}
-        end
-
-        local reset_after = new_tat - now
-        redis.call("SET", key, new_tat, "EX", math.max(1, math.ceil(reset_after)))
-        return {1, remaining, "0", tostring(reset_after)}
+        redis.call(
+            "SET", key, now + reset, "PX", math.max(1, math.ceil(reset / 1000))
+        )
+        return {1, math.floor(diff / emission), 0, reset}
     """
 
     _LUA_PEEK = """
         local key = KEYS[1]
-        local rate = tonumber(ARGV[1])
-        local period = tonumber(ARGV[2])
+        local limit = tonumber(ARGV[1])
+        local emission = tonumber(ARGV[2])
 
-        local emission_interval = period / rate
+        local time = redis.call("TIME")
+        local now = tonumber(time[1]) * 1000000 + tonumber(time[2])
 
-        local now = redis.call("TIME")
-        local jan_1_2017 = 1483228800
-        now = (now[1] - jan_1_2017) + (now[2] / 1000000)
+        local tat = tonumber(redis.call("GET", key)) or now
+        local gap = math.max(0, tat - now)
+        local diff = emission * limit - gap
+        local remaining = math.floor(diff / emission)
 
-        local tat = redis.call("GET", key)
-        if not tat then
-            tat = now
-        else
-            tat = tonumber(tat)
-        end
-
-        local new_tat = math.max(tat, now)
-        local allow_at = new_tat - period
-        local diff = now - allow_at
-        local remaining = math.floor(diff / emission_interval + 0.5)
-
-        -- Use <= 0 (not < 0 like acquire): remaining=0 means the next
-        -- acquire(cost=1) would be rejected, so peek reports allowed=false.
+        -- remaining=0 means the next acquire(cost=1) would be refused.
         if remaining <= 0 then
-            local reset_after = math.max(0, tat - now)
-            local retry_after = emission_interval - diff
-            if remaining < 0 then
-                retry_after = diff * -1
-            end
-            return {0, 0, tostring(math.max(0, retry_after)), tostring(reset_after)}
+            return {0, 0, emission - diff, gap}
         end
-
-        local reset_after = new_tat - now
-        return {1, remaining, "0", tostring(reset_after)}
+        return {1, remaining, 0, gap}
     """
 
     def __init__(
@@ -242,36 +210,34 @@ class _RedisGCRA(RateLimiterStrategy):
         self._lua_acquire = redis.register_script(self._LUA_ACQUIRE)
         self._lua_peek = redis.register_script(self._LUA_PEEK)
         self._limit = config.limit
-        self._window = config.window
+        self._emission = _gcra.emission_interval(config.window, config.limit)
 
     async def acquire(self, *, key: str, cost: int) -> RateLimitResult:
         """Async acquire (GCRA)."""
         result: list[Any] = await self._lua_acquire(
             keys=[f"{self._key_prefix}{key}"],
-            args=[self._limit, self._limit, self._window, cost],
+            args=[self._limit, self._emission, cost],
             client=self._redis,
         )
-        return RateLimitResult(
-            allowed=bool(result[0]),
-            limit=self._limit,
-            remaining=int(result[1]),
-            retry_after=float(result[2]),
-            reset_after=float(result[3]),
-        )
+        return self._result(result)
 
     async def peek(self, *, key: str) -> RateLimitResult:
         """Async peek (GCRA)."""
         result: list[Any] = await self._lua_peek(
             keys=[f"{self._key_prefix}{key}"],
-            args=[self._limit, self._window],
+            args=[self._limit, self._emission],
             client=self._redis,
         )
+        return self._result(result)
+
+    def _result(self, reply: list[Any]) -> RateLimitResult:
+        """Return the result a script replied, its times in microseconds."""
         return RateLimitResult(
-            allowed=bool(result[0]),
+            allowed=bool(reply[0]),
             limit=self._limit,
-            remaining=int(result[1]),
-            retry_after=float(result[2]),
-            reset_after=float(result[3]),
+            remaining=int(reply[1]),
+            retry_after=int(reply[2]) / _gcra.MICROSECONDS,
+            reset_after=int(reply[3]) / _gcra.MICROSECONDS,
         )
 
     async def reset(self, *, key: str) -> None:

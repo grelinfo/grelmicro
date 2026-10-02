@@ -35,7 +35,7 @@ _USER_ID_3 = 789
 
 
 @pytest.fixture(autouse=True)
-def cleanup_handlers() -> Generator[None, None, None]:
+def cleanup_handlers() -> Generator[None]:
     """Cleanup logging handlers."""
     logger.configure(handlers=[])
     yield

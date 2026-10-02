@@ -67,7 +67,7 @@ def test_circuitbreaker_and_ratelimiter_register_under_single_token_prefix() -> 
 ):
     """CircuitBreaker and RateLimiter register under GREL_<MODULE>_<NAME>_."""
     cb = CircuitBreaker.consecutive_count("payments")
-    rl = RateLimiter.sliding_window("api", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("api", limit=10, window=1)
     prefixes = _prefixes()
     assert "GREL_CIRCUITBREAKER_PAYMENTS_" in prefixes
     assert "GREL_RATELIMITER_API_" in prefixes
@@ -123,7 +123,7 @@ def test_from_config_instances_stay_unregistered() -> None:
 
 async def test_reconfigure_all_reaches_ratelimiter() -> None:
     """A mounted mapping addresses a RateLimiter by its name-as-namespace prefix."""
-    rl = RateLimiter.sliding_window("orders", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("orders", limit=10, window=1)
     await reconfigure_all(
         {"GREL_RATELIMITER_ORDERS_LIMIT": "99"},
     )
@@ -188,7 +188,7 @@ async def test_reconfigure_all_never_logs_offending_value(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A rejected value is logged by field and error type, never the value."""
-    rl = RateLimiter.sliding_window("secretsvc", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("secretsvc", limit=10, window=1)
     secret = "s3cr3t-should-not-appear"
     with caplog.at_level(logging.WARNING, logger="grelmicro"):
         await reconfigure_all(
@@ -250,7 +250,7 @@ class _ScriptedBackend:
 
 async def test_reload_applies_immediately() -> None:
     """Reload performs one deterministic load-and-apply pass."""
-    rl = RateLimiter.sliding_window("deterministic", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("deterministic", limit=10, window=1)
     backend = _ScriptedBackend([{"GREL_RATELIMITER_DETERMINISTIC_LIMIT": "42"}])
     external = ExternalConfig(config=backend, reload_interval=999.0)
     async with external:
@@ -263,7 +263,7 @@ async def test_reload_keeps_last_good_config_on_adapter_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An adapter exception is logged and the last good config is kept."""
-    rl = RateLimiter.sliding_window("resilient", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("resilient", limit=10, window=1)
     backend = _ScriptedBackend(
         [
             {"GREL_RATELIMITER_RESILIENT_LIMIT": "20"},
@@ -293,7 +293,7 @@ async def test_reload_failure_names_failing_config_source(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A config-source failure names the config source and keeps last good."""
-    rl = RateLimiter.sliding_window("namedcfg", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("namedcfg", limit=10, window=1)
     config = _ScriptedBackend(
         [
             {"GREL_RATELIMITER_NAMEDCFG_LIMIT": "20"},
@@ -321,7 +321,7 @@ async def test_reload_failure_names_failing_secrets_source(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A secrets-source failure names the secrets source, config still applies."""
-    rl = RateLimiter.sliding_window("namedsec", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("namedsec", limit=10, window=1)
     config = _ScriptedBackend(
         [
             {"GREL_RATELIMITER_NAMEDSEC_LIMIT": "20"},
@@ -506,7 +506,7 @@ def test_external_config_requires_a_source() -> None:
 
 async def test_secrets_override_config_on_collision() -> None:
     """The secrets source wins over config on a shared key."""
-    rl = RateLimiter.sliding_window("merged", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("merged", limit=10, window=1)
     config = _ScriptedBackend([{"GREL_RATELIMITER_MERGED_LIMIT": "1"}])
     secrets = _ScriptedBackend([{"GREL_RATELIMITER_MERGED_LIMIT": "2"}])
     async with ExternalConfig(
@@ -518,7 +518,7 @@ async def test_secrets_override_config_on_collision() -> None:
 
 async def test_secrets_only_source_applies() -> None:
     """A secrets-only ExternalConfig applies with no config source."""
-    rl = RateLimiter.sliding_window("secretsonly", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("secretsonly", limit=10, window=1)
     secrets = _ScriptedBackend([{"GREL_RATELIMITER_SECRETSONLY_LIMIT": "7"}])
     async with ExternalConfig(secrets=secrets, reload_interval=999.0):
         assert isinstance(rl.config, SlidingWindowConfig)
@@ -527,7 +527,7 @@ async def test_secrets_only_source_applies() -> None:
 
 async def test_config_only_source_applies() -> None:
     """A config-only ExternalConfig applies with no secrets source."""
-    rl = RateLimiter.sliding_window("configonly", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("configonly", limit=10, window=1)
     config = _ScriptedBackend([{"GREL_RATELIMITER_CONFIGONLY_LIMIT": "8"}])
     async with ExternalConfig(config=config, reload_interval=999.0):
         assert isinstance(rl.config, SlidingWindowConfig)
@@ -542,7 +542,7 @@ async def test_aexit_before_aenter_is_a_noop() -> None:
 
 async def test_load_merged_skips_apply_when_no_source_has_data() -> None:
     """No source with data yet returns None and applies nothing."""
-    rl = RateLimiter.sliding_window("nodata", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("nodata", limit=10, window=1)
     config = _ScriptedBackend([None, None])
     async with ExternalConfig(config=config, reload_interval=999.0) as external:
         await external.reload()
@@ -552,7 +552,7 @@ async def test_load_merged_skips_apply_when_no_source_has_data() -> None:
 
 async def test_secrets_unchanged_keeps_config_only_merge() -> None:
     """A secrets source reporting None still merges the config data."""
-    rl = RateLimiter.sliding_window("mixmerge", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("mixmerge", limit=10, window=1)
     config = _ScriptedBackend([{"GREL_RATELIMITER_MIXMERGE_LIMIT": "4"}])
     secrets = _ScriptedBackend([None])
     async with ExternalConfig(
@@ -564,7 +564,7 @@ async def test_secrets_unchanged_keeps_config_only_merge() -> None:
 
 async def test_unchanged_source_keeps_last_seen_mapping() -> None:
     """A source reporting None reuses its last seen mapping."""
-    rl = RateLimiter.sliding_window("sticky", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("sticky", limit=10, window=1)
     config = _ScriptedBackend([{"GREL_RATELIMITER_STICKY_LIMIT": "5"}, None])
     async with ExternalConfig(config=config, reload_interval=999.0) as external:
         assert isinstance(rl.config, SlidingWindowConfig)
@@ -576,7 +576,7 @@ async def test_unchanged_source_keeps_last_seen_mapping() -> None:
 
 async def test_poll_loop_applies_on_each_interval() -> None:
     """The background poll loop applies the next scripted value."""
-    rl = RateLimiter.sliding_window("polled", limit=10, window=1.0)
+    rl = RateLimiter.sliding_window("polled", limit=10, window=1)
     config = _ScriptedBackend(
         [
             {"GREL_RATELIMITER_POLLED_LIMIT": "1"},

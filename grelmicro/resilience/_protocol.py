@@ -99,10 +99,11 @@ class RateLimitResult(NamedTuple):
     remaining: int
     """Remaining tokens or requests.
 
-    For algorithms with continuous state (`SlidingWindowConfig`,
-    GCRA-based strategies) this is an estimate rounded to the nearest
-    whole request. Enforcement still uses the exact internal state, so
-    the next `acquire` may be denied even when `remaining > 0`.
+    For `SlidingWindowConfig` an allowed result counts the whole slots
+    still open, the number of one-request acquires that would succeed at
+    this instant. A slot only partly open does not count. A refused
+    result reports `0`, even when a smaller cost would still fit.
+    Another caller can spend the open slots before the next `acquire`.
     """
 
     retry_after: float

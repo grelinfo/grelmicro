@@ -251,7 +251,7 @@ def _importable(name: str) -> bool:
         return True
     try:
         return importlib.util.find_spec(name) is not None
-    except (ImportError, ValueError):
+    except ImportError, ValueError:
         return False
 
 

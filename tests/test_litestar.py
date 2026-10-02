@@ -6,16 +6,26 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from litestar import Litestar, get
+from litestar import Litestar, asgi, get, post, put
 from litestar.middleware import DefineMiddleware
 from litestar.status_codes import (
     HTTP_200_OK,
+    HTTP_428_PRECONDITION_REQUIRED,
+    HTTP_429_TOO_MANY_REQUESTS,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
-from litestar.testing import AsyncTestClient
+from litestar.testing import AsyncTestClient, TestClient
 
 from grelmicro import Grelmicro, GrelmicroMiddleware
-from grelmicro.http import CachedResponses, ErrorResponses, RateLimitedRequests
+from grelmicro.cache import Cache
+from grelmicro.cache.memory import MemoryCacheAdapter
+from grelmicro.http import (
+    CachedResponses,
+    ConditionalRequests,
+    ErrorResponses,
+    IdempotentRequests,
+    RateLimitedRequests,
+)
 from grelmicro.integrations.litestar import is_bound
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
@@ -24,13 +34,15 @@ from grelmicro.security import TrustedProxies
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
+    from litestar.types import Receive, Scope, Send
+
 pytestmark = [pytest.mark.timeout(5)]
 
 
 @get("/limited")
 async def limited() -> dict[str, bool]:
     """Resolve a rate limiter ambiently, with no explicit backend."""
-    limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+    limiter = RateLimiter.sliding_window("api", limit=10, window=1)
     result = await limiter.acquire(key="client")
     return {"allowed": result.allowed}
 
@@ -153,3 +165,126 @@ def test_answering_middleware_nests_in_registration_order() -> None:
     assert chain.index("RateLimitMiddleware") < chain.index(
         "CachedResponsesMiddleware"
     )
+
+
+def _under_outer_app(inner: Litestar, *, outer_installed: bool) -> Litestar:
+    """Return an outer Litestar app serving `inner` under the mount `/in`."""
+
+    @asgi("/in", is_mount=True, copy_scope=False)
+    async def mount(scope: Scope, receive: Receive, send: Send) -> None:
+        await inner(scope, receive, send)
+
+    outer = Litestar([mount])
+    if outer_installed:
+        Grelmicro(uses=[ErrorResponses()]).install(outer)
+    return outer
+
+
+@pytest.mark.parametrize("outer_installed", [False, True])
+def test_a_mounted_app_replays_a_write_matched_on_its_own_path(
+    *, outer_installed: bool
+) -> None:
+    """Idempotency on an app mounted under another Litestar app matches `/write`."""
+    served: list[str] = []
+
+    @post("/write")
+    async def write() -> str:
+        served.append("write")
+        return "written"
+
+    inner = Litestar([write])
+    Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(include=("/write",), requires="process"),
+        ]
+    ).install(inner)
+    outer = _under_outer_app(inner, outer_installed=outer_installed)
+    key = {"Idempotency-Key": "signup-1"}
+    with TestClient(inner), TestClient(outer) as client:
+        responses = [client.post("/in/write", headers=key) for _ in range(2)]
+
+    assert [response.text for response in responses] == ["written"] * 2
+    assert served == ["write"]
+
+
+@pytest.mark.parametrize("outer_installed", [False, True])
+def test_a_mounted_app_caches_a_read_matched_on_its_own_path(
+    *, outer_installed: bool
+) -> None:
+    """The response cache on an app mounted under another Litestar app matches `/read`."""
+    served: list[str] = []
+
+    @get("/read")
+    async def read() -> str:
+        served.append("read")
+        return "fresh"
+
+    inner = Litestar([read])
+    Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            CachedResponses(include={"/read": 60}),
+        ]
+    ).install(inner)
+    outer = _under_outer_app(inner, outer_installed=outer_installed)
+    with TestClient(inner), TestClient(outer) as client:
+        responses = [client.get("/in/read") for _ in range(2)]
+
+    assert [response.text for response in responses] == ["fresh"] * 2
+    assert served == ["read"]
+
+
+@pytest.mark.parametrize("outer_installed", [False, True])
+def test_a_mounted_app_rate_limits_a_route_matched_on_its_own_path(
+    *, outer_installed: bool
+) -> None:
+    """The rate limit on an app mounted under another Litestar app matches `/limited`."""
+
+    @get("/limited")
+    async def once() -> str:
+        return "served"
+
+    limiter = RateLimiter.sliding_window(
+        "once", limit=1, window=60, backend=MemoryRateLimiterAdapter()
+    )
+    inner = Litestar([once])
+    Grelmicro(
+        uses=[
+            RateLimitedRequests(
+                limiter,
+                include=("/limited",),
+                key=lambda scope: "one caller",  # noqa: ARG005
+            )
+        ]
+    ).install(inner)
+    outer = _under_outer_app(inner, outer_installed=outer_installed)
+    with TestClient(inner), TestClient(outer) as client:
+        statuses = [client.get("/in/limited").status_code for _ in range(2)]
+
+    assert statuses == [HTTP_200_OK, HTTP_429_TOO_MANY_REQUESTS]
+
+
+@pytest.mark.parametrize("outer_installed", [False, True])
+def test_a_mounted_app_requires_a_precondition_matched_on_its_own_path(
+    *, outer_installed: bool
+) -> None:
+    """Conditional requests on an app mounted under another Litestar app match `/doc`."""
+
+    @put("/doc")
+    async def replace() -> str:
+        return "replaced"  # pragma: no cover
+
+    inner = Litestar([replace])
+    Grelmicro(
+        uses=[
+            ConditionalRequests(
+                require_precondition=("PUT",), include=("/doc",)
+            )
+        ]
+    ).install(inner)
+    outer = _under_outer_app(inner, outer_installed=outer_installed)
+    with TestClient(inner), TestClient(outer) as client:
+        response = client.put("/in/doc")
+
+    assert response.status_code == HTTP_428_PRECONDITION_REQUIRED

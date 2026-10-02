@@ -124,7 +124,7 @@ def test_rebind_provider_borrows() -> None:
     "config",
     [
         TokenBucketConfig(capacity=5, refill_rate=1),
-        SlidingWindowConfig(limit=5, window=60.0),
+        SlidingWindowConfig(limit=5, window=60),
     ],
 )
 async def test_acquire_rolls_back_on_error(

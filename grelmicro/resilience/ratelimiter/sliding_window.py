@@ -1,10 +1,12 @@
 """Sliding-window rate-limiter configuration."""
 
-from typing import Annotated, Literal
+from datetime import timedelta
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import PositiveFloat, PositiveInt
+from pydantic import PositiveInt, field_validator, model_validator
 from typing_extensions import Doc
 
+from grelmicro.resilience.ratelimiter import _gcra
 from grelmicro.resilience.ratelimiter._base import _BaseRateLimiterConfig
 
 
@@ -42,6 +44,44 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     ]
 
     window: Annotated[
-        PositiveFloat,
-        Doc("Window duration in seconds."),
+        int | timedelta,
+        Doc(
+            """
+            Window duration, in whole seconds or as a `timedelta`.
+
+            A float is refused. Use a `timedelta` for a window under a
+            second, such as `timedelta(milliseconds=500)`. From text,
+            such as an environment variable, it reads whole seconds
+            (`"60"`) or a duration such as ISO 8601 `"PT0.5S"`. A
+            decimal number of seconds, such as `"1.5"`, is refused.
+
+            Each request gets `window / limit`, truncated to the
+            microsecond, and must get at least one microsecond. The
+            window is at most 100 years.
+            """
+        ),
     ]
+
+    @field_validator("window", mode="before")
+    @classmethod
+    def _refuse_float(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse a float or a bool before Pydantic converts it."""
+        if isinstance(value, (bool, float)):
+            msg = "window must be whole seconds or a timedelta"
+            raise ValueError(msg)  # noqa: TRY004
+        return value
+
+    @model_validator(mode="after")
+    def _check_slot(self) -> Self:
+        """Refuse a window out of range, or under a microsecond a request."""
+        window = _gcra.window_microseconds(self.window)
+        if window <= 0:
+            msg = "window must be greater than zero"
+            raise ValueError(msg)
+        if window > _gcra.window_microseconds(_gcra.MAX_WINDOW):
+            msg = "window must be at most 100 years"
+            raise ValueError(msg)
+        if window < self.limit:
+            msg = "window / limit must be at least one microsecond"
+            raise ValueError(msg)
+        return self

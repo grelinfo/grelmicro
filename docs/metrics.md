@@ -235,6 +235,17 @@ refusal records.
 The `grelmicro.circuit_breaker.state` gauge maps states to codes: `CLOSED` is
 0, `OPEN` is 1, `HALF_OPEN` is 2, `FORCED_OPEN` is 3, `FORCED_CLOSED` is 4.
 
+### FastAPI requests
+
+On a FastAPI app, FastAPI measures every request and `Metrics` exports it.
+
+| Metric | Type | Attributes |
+|---|---|---|
+| `http.server.request.duration` | histogram | `http.request.method`, `http.route`, `http.response.status_code`, `url.scheme`, `network.protocol.version`, `error.type` on a failure |
+| `http.server.active_requests` | up_down_counter | `http.request.method`, `url.scheme` |
+
+A URL excluded from tracing, see [Tracing](tracing.md#fastapi-requests), is not measured either.
+
 ### What `grelmicro.outcome` says
 
 The values are drawn from one vocabulary, so a word means the same thing

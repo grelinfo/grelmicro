@@ -1,9 +1,8 @@
 """The status every kind of request is answered with, on each framework.
 
-`AuthenticatedRequests` decides whether a request may go without a
-credential before the framework routes it. On Starlette the gate of the
-route a request reaches decides the rest, without the routes read before
-routing. This table pins what that
+`AuthenticatedRequests` verifies a credential before the framework routes
+the request, and the gate of the route it reaches decides the rest,
+without the routes read before routing. This table pins what that
 decision answers for each kind of request, with no credential and with a
 valid one, on FastAPI, Starlette and Litestar. A change to how the decision
 is made must keep every row.
@@ -190,7 +189,7 @@ CASES = (
     Case(
         "trailing slash to a public route",
         "/public/",
-        fastapi=(307, 307),
+        fastapi=(401, 307),
         starlette=(401, 307),
         litestar=(200, 200),
     ),
@@ -508,7 +507,7 @@ def status(
             return ACCEPTED
     except WebSocketDenialResponse as denied:
         return denied.status_code
-    except (WebSocketDisconnect, LitestarWebSocketDisconnect):
+    except WebSocketDisconnect, LitestarWebSocketDisconnect:
         return CLOSED
 
 
@@ -552,11 +551,10 @@ def test_each_request_is_answered_as_today(
 ) -> None:
     """Without a credential and with a valid one, the status is pinned.
 
-    Starlette decides at each route's gate, so the routes read before
+    Every framework decides at each route's gate, so the routes read before
     routing are never asked.
     """
     build, client_class = FRAMEWORKS[framework]
-    if framework == "starlette":
-        monkeypatch.setattr(_PublicRoutes, "matches", unasked)
+    monkeypatch.setattr(_PublicRoutes, "matches", unasked)
 
     assert answered(build, client_class, case) == getattr(case, framework)

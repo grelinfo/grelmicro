@@ -330,6 +330,24 @@ and it charges an honest request one dictionary lookup, where a rate limiter
 in front of verification charges every request for traffic that is usually
 not there.
 
+## Bans are opt-in
+
+`AuthenticatedRequests` bans nobody unless it is given `bans=ClientBans()`.
+That stays the default, and the cost is not the reason: an honest caller pays
+55 ns for the check.
+
+The risk is who gets banned. A ban counts against the address `trusted=`
+resolves. When that set does not describe the deployment, the address is your
+own proxy, and one caller sending forged tokens bans every caller behind it.
+Whether `trusted=` is right is a fact about the deployment that grelmicro
+cannot check, so the operator turns bans on once it is.
+
+What a ban saves is processor time, not a secret. grelmicro verifies tokens and
+issues none, so there is no password or login to guess, and a signature cannot
+be guessed. A caller sending forged tokens costs a core about 11 µs each. A
+service behind an ingress that already sheds abusive clients loses little
+without bans. One exposed more directly should turn them on.
+
 ## Shipping the wheel
 
 The core is its own distribution, `grelmicro-core`, released on its own tag.

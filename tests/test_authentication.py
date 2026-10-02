@@ -68,7 +68,6 @@ from starlette.routing import (
     Route,
     Router,
     WebSocketRoute,
-    compile_path,
 )
 from starlette.status import (
     HTTP_307_TEMPORARY_REDIRECT,
@@ -158,7 +157,6 @@ HTTP_200_OK = 200
 HTTP_204_NO_CONTENT = 204
 HTTP_400_BAD_REQUEST = 400
 HTTP_403_FORBIDDEN = 403
-HTTP_404_NOT_FOUND = 404
 HTTP_405_METHOD_NOT_ALLOWED = 405
 HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_401_UNAUTHORIZED = 401
@@ -171,6 +169,12 @@ PROXIES = ["10.0.0.0/8"]
 
 SIGNER = Signer()
 FORGER = Signer()
+
+needs_frontend = pytest.mark.skipif(
+    not hasattr(APIRouter, "frontend"),
+    reason="This FastAPI release serves no frontend routes.",
+)
+"""Skips a test on a FastAPI release without frontend routes."""
 
 
 def token(signer: Signer = SIGNER, **claims: Any) -> str:  # noqa: ANN401
@@ -2098,7 +2102,7 @@ class TestFastAPI:
         assert response.json() == {"cancelled": 7}
 
     def test_a_router_and_its_route_each_apply_their_scopes(self) -> None:
-        """A router's scope is required as well as the route's own."""
+        """A router's scope is required as well as the route's own, both named."""
         client = TestClient(fastapi_app(AuthenticatedRequests(verifier())))
 
         refused = client.get(
@@ -2111,7 +2115,8 @@ class TestFastAPI:
 
         assert refused.status_code == HTTP_403_FORBIDDEN
         assert refused.headers["www-authenticate"] == (
-            'Bearer error="insufficient_scope", scope="reports:read"'
+            'Bearer error="insufficient_scope", '
+            'scope="reports:export reports:read"'
         )
         assert served.json() == {"exported": True}
 
@@ -2581,18 +2586,18 @@ def litestar_app(*uses: Any) -> Litestar:  # noqa: ANN401
 class TestLitestar:
     """Handler declarations on Litestar."""
 
-    def test_the_options_litestar_answers_on_a_public_path_is_public(
-        self,
-    ) -> None:
-        """The `OPTIONS` Litestar adds to a route is public where a handler is."""
+    def test_the_options_litestar_adds_needs_a_caller(self) -> None:
+        """Beside a public handler too: it declares nothing of its own."""
         with LitestarTestClient(
             litestar_app(AuthenticatedRequests(verifier()))
         ) as client:
-            public = client.options("/catalog/7")
+            refused = client.options("/catalog/7")
+            answered = client.options("/catalog/7", headers=bearer(token()))
             private = client.options("/orders/7")
 
-        assert public.status_code == HTTP_204_NO_CONTENT
-        assert "GET" in public.headers["allow"]
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert answered.status_code == HTTP_204_NO_CONTENT
+        assert "GET" in answered.headers["allow"]
         assert private.status_code == HTTP_401_UNAUTHORIZED
 
     def test_an_options_handler_of_its_own_is_authenticated_by_its_own_opt(
@@ -3139,10 +3144,8 @@ class TestRouting:
         assert client.get("/admin/users").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/about").json() == {"page": "about"}
 
-    def test_a_public_route_another_route_also_answers_stays_authenticated(
-        self,
-    ) -> None:
-        """Declaration order never decides whether a credential is needed."""
+    def test_the_route_the_router_dispatches_to_decides(self) -> None:
+        """Another route that could answer the URL takes nothing from it."""
         app = FastAPI()
 
         @app.get("/users/me", dependencies=[Anonymous()])
@@ -3158,10 +3161,8 @@ class TestRouting:
         ).install(app)
         client = TestClient(app)
 
-        assert client.get("/users/me").status_code == HTTP_401_UNAUTHORIZED
-        assert client.get("/users/me", headers=bearer(token())).json() == {
-            "public": True
-        }
+        assert client.get("/users/me").json() == {"public": True}
+        assert client.get("/users/7").status_code == HTTP_401_UNAUTHORIZED
 
     def test_a_router_included_as_public_needs_no_credential(self) -> None:
         """`include_router(dependencies=[Anonymous()])` counts for its routes."""
@@ -3340,10 +3341,10 @@ class TestRouting:
 
         assert refused.value.code == WS_1008_POLICY_VIOLATION
 
-    def test_a_public_route_is_redirected_to_without_its_trailing_slash(
+    def test_a_redirect_to_a_public_route_needs_a_credential(
         self,
     ) -> None:
-        """Starlette's redirect to a public route needs no credential."""
+        """No route answers the URL, so it is answered as a protected route."""
         app = FastAPI()
 
         @app.get("/catalog/", dependencies=[Anonymous()])
@@ -3363,11 +3364,15 @@ class TestRouting:
         ).install(app)
         client = TestClient(app)
 
-        redirect = client.get("/catalog", follow_redirects=False)
+        refused = client.get("/catalog", follow_redirects=False)
+        redirect = client.get(
+            "/catalog", headers=bearer(token()), follow_redirects=False
+        )
 
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
         assert redirect.status_code == HTTP_307_TEMPORARY_REDIRECT
         assert redirect.headers["location"].endswith("/catalog/")
-        assert client.get("/catalog").json() == {"catalog": True}
+        assert client.get("/catalog/").json() == {"catalog": True}
         assert client.get("/help").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/").status_code == HTTP_401_UNAUTHORIZED
         with (
@@ -3422,7 +3427,7 @@ class TestRouting:
     def test_a_host_whose_routes_cannot_be_read_keeps_its_paths_authenticated(
         self,
     ) -> None:
-        """A `Host` serving another app could answer any path under it."""
+        """A `Host` serving another app is one protected route."""
 
         async def admin(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
             await JSONResponse({"admin": True})(
@@ -3452,8 +3457,11 @@ class TestRouting:
         )
         looped = build(lambda app: app.mount("/again", app))
 
+        assert TestClient(at_root, base_url=admin_host).get(
+            "/status"
+        ).json() == {"up": True}
         assert (
-            TestClient(at_root, base_url=admin_host).get("/status").status_code
+            TestClient(at_root, base_url=admin_host).get("/x").status_code
             == HTTP_401_UNAUTHORIZED
         )
         assert TestClient(under).get("/status").json() == {"up": True}
@@ -3495,7 +3503,7 @@ class TestRouting:
         assert client.get("/sub/x").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/status").json() == {"up": True}
 
-    def test_a_public_route_under_a_host_is_public_only_when_others_get_a_404(
+    def test_a_public_route_under_a_host_is_public_only_at_that_host(
         self,
     ) -> None:
         """A request no `Host` takes falls to its router's default, which decides."""
@@ -3528,7 +3536,9 @@ class TestRouting:
         assert TestClient(standard, base_url=api_host).get("/x").json() == {
             "x": True
         }
-        assert TestClient(standard).get("/x").status_code == HTTP_404_NOT_FOUND
+        assert TestClient(standard).get("/x").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
         assert TestClient(fallback).get("/x").status_code == (
             HTTP_401_UNAUTHORIZED
         )
@@ -3683,8 +3693,10 @@ class TestRouting:
 
         assert client.get("/tenants/x").json() == {"x": True}
 
-    def test_a_route_of_another_kind_keeps_the_app_authenticated(self) -> None:
-        """A route with no path and no app could answer anything."""
+    def test_a_route_of_another_kind_takes_nothing_from_a_public_route(
+        self,
+    ) -> None:
+        """The route the router dispatches to decides, whatever else it holds."""
 
         class Silent(BaseRoute):
             def matches(self, scope: Any) -> tuple[Match, dict[str, Any]]:  # noqa: ANN401, ARG002
@@ -3697,16 +3709,14 @@ class TestRouting:
 
         @app.get("/status", dependencies=[Anonymous()])
         async def status() -> dict[str, bool]:
-            return {"up": True}  # pragma: no cover
+            return {"up": True}
 
         app.router.routes.append(Silent())
         Grelmicro(
             uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
         ).install(app)
 
-        assert TestClient(app).get("/status").status_code == (
-            HTTP_401_UNAUTHORIZED
-        )
+        assert TestClient(app).get("/status").json() == {"up": True}
 
     def test_apps_mounted_in_each_other_are_read_once(self) -> None:
         """A cycle of mounts ends the reading rather than the process."""
@@ -3724,25 +3734,6 @@ class TestRouting:
         ).install(outer)
 
         assert TestClient(outer).get("/status").json() == {"up": True}
-
-    def test_a_public_route_is_redirected_to_without_the_slash_sent(
-        self,
-    ) -> None:
-        """A slash the public route does not have is redirected away."""
-        app = FastAPI()
-
-        @app.get("/catalog", dependencies=[Anonymous()])
-        async def catalog() -> dict[str, bool]:
-            return {"catalog": True}  # pragma: no cover
-
-        Grelmicro(
-            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
-        ).install(app)
-
-        redirect = TestClient(app).get("/catalog/", follow_redirects=False)
-
-        assert redirect.status_code == HTTP_307_TEMPORARY_REDIRECT
-        assert redirect.headers["location"].endswith("/catalog")
 
     def test_a_protected_socket_beside_a_public_one_stays_refused(
         self,
@@ -3888,8 +3879,8 @@ class TestRouting:
         assert client.get("/x/x/x/x/a/a").status_code == HTTP_401_UNAUTHORIZED
         assert client.get("/api/x/x/x/x/a/a").json() == {"listed": True}
 
-    def test_a_mount_mounted_as_an_app_is_matched_through(self) -> None:
-        """A mount holding a mount itself matches by both paths."""
+    def test_a_mount_mounted_as_an_app_is_one_protected_route(self) -> None:
+        """What it holds is not read, so its public route needs a credential."""
 
         async def listed() -> dict[str, bool]:
             return {"listed": True}
@@ -3909,11 +3900,13 @@ class TestRouting:
         ).install(app)
         client = TestClient(app)
 
-        assert client.get("/api/x/x/x/a").json() == {"listed": True}
-        assert client.get("/x/x/x/a").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/api/x/x/x/a").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/api/x/x/x/a", headers=bearer(token())).json() == {
+            "listed": True
+        }
 
-    def test_a_route_mounted_as_an_app_is_matched_through(self) -> None:
-        """A route mounted in place of an app matches beneath the mount."""
+    def test_a_route_mounted_as_an_app_is_one_protected_route(self) -> None:
+        """What it declares is not read, so it needs a credential."""
 
         async def listed() -> dict[str, bool]:
             return {"listed": True}
@@ -3927,8 +3920,10 @@ class TestRouting:
         ).install(app)
         client = TestClient(app)
 
-        assert client.get("/api/x/y").json() == {"listed": True}
-        assert client.get("/x/y").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/api/x/y").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/api/x/y", headers=bearer(token())).json() == {
+            "listed": True
+        }
 
     def test_a_route_of_another_kind_rivals_the_public_routes_beside_it(
         self,
@@ -4029,13 +4024,13 @@ async def status_of(app: Any, path: str) -> int:  # noqa: ANN401
     )
 
 
-class TestRoutesMatchedElsewhere:
-    """A route matched other than by its path is never served without a credential."""
+class TestRoutesMatchedOtherThanByPath:
+    """The route a request reaches decides, whatever matched it or rewrote its path."""
 
-    async def test_a_mounted_app_rewriting_the_path_keeps_its_routes_protected(
+    async def test_a_path_a_mounted_app_rewrites_meets_the_gate_it_reaches(
         self,
     ) -> None:
-        """Its middleware may route a public path to any route it holds."""
+        """Its public route is served, and a path rewritten to another route meets its gate."""
         sub = FastAPI()
         sub.add_middleware(NormalizedPath)
         sub.add_api_route(
@@ -4051,7 +4046,7 @@ class TestRoutesMatchedElsewhere:
         assert await status_of(app, "/sub/files/../admin") == (
             HTTP_401_UNAUTHORIZED
         )
-        assert await status_of(app, "/sub/files/x") == HTTP_401_UNAUTHORIZED
+        assert await status_of(app, "/sub/files/x") == HTTP_200_OK
 
     def test_a_mounted_app_with_middleware_and_only_public_routes_stays_public(
         self,
@@ -4073,10 +4068,10 @@ class TestRoutesMatchedElsewhere:
         assert client.get("/sub/files/x").json() == {"listed": True}
         assert client.get("/admin").status_code == HTTP_401_UNAUTHORIZED
 
-    def test_a_route_class_matching_on_its_own_rivals_every_public_route(
+    def test_a_route_class_matching_on_its_own_keeps_what_it_answers_protected(
         self,
     ) -> None:
-        """Its path says nothing about the URLs it answers."""
+        """Whatever URL it answers meets its own gate, and the public route keeps its own."""
         admin = APIRouter(route_class=CaseInsensitiveRoute)
         admin.add_api_route("/items/special", secret)
         app = FastAPI()
@@ -4090,12 +4085,12 @@ class TestRoutesMatchedElsewhere:
         client = TestClient(app)
 
         assert client.get("/items/SPECIAL").status_code == HTTP_401_UNAUTHORIZED
-        assert client.get("/items/7").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/items/7").json() == {"listed": True}
 
-    def test_a_public_route_of_a_class_matching_on_its_own_is_protected(
+    def test_a_public_route_of_a_class_matching_on_its_own_is_public(
         self,
     ) -> None:
-        """Declaring it public cannot say which URLs it answers."""
+        """Every URL it answers, since its gate decides once it matched."""
         public = APIRouter(route_class=CaseInsensitiveRoute)
         public.add_api_route("/open", listed, dependencies=[Anonymous()])
         app = FastAPI()
@@ -4104,12 +4099,12 @@ class TestRoutesMatchedElsewhere:
             uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
         ).install(app)
 
-        assert TestClient(app).get("/open").status_code == HTTP_401_UNAUTHORIZED
+        assert TestClient(app).get("/OPEN").json() == {"listed": True}
 
-    def test_a_mount_matching_on_its_own_keeps_its_routes_protected(
+    def test_a_mount_matching_on_its_own_keeps_what_it_takes(
         self,
     ) -> None:
-        """Its path says nothing about the URLs it takes."""
+        """Each route under it meets its own gate, whatever URL the mount took."""
 
         class CaseInsensitiveMount(Mount):
             def matches(
@@ -4128,7 +4123,8 @@ class TestRoutesMatchedElsewhere:
         ).install(app)
         client = TestClient(app)
 
-        assert client.get("/sub/open").status_code == HTTP_401_UNAUTHORIZED
+        assert client.get("/sub/open").json() == {"listed": True}
+        assert client.get("/SUB/open").status_code == HTTP_401_UNAUTHORIZED
 
     async def test_a_rewriting_mounted_app_answering_unrouted_paths_is_protected(
         self,
@@ -4154,6 +4150,7 @@ class TestRoutesMatchedElsewhere:
             HTTP_401_UNAUTHORIZED
         )
 
+    @needs_frontend
     async def test_a_rewriting_mounted_app_serving_a_frontend_is_protected(
         self, tmp_path: Path
     ) -> None:
@@ -4175,6 +4172,7 @@ class TestRoutesMatchedElsewhere:
             HTTP_401_UNAUTHORIZED
         )
 
+    @needs_frontend
     async def test_a_frontend_on_a_router_a_rewriting_app_includes(
         self, tmp_path: Path
     ) -> None:
@@ -4216,6 +4214,7 @@ class TestRoutesMatchedElsewhere:
 
         assert await status_of(app, "/sub/files/x") == HTTP_200_OK
 
+    @needs_frontend
     async def test_a_frontend_added_to_a_rewriting_mounted_app_after_startup(
         self, tmp_path: Path
     ) -> None:
@@ -4498,71 +4497,6 @@ class TestRoutesAddedLater:
         assert served.json() == {"listed": True}
         assert refused.status_code == HTTP_401_UNAUTHORIZED
 
-    def test_slash_redirects_turned_off_after_startup(self) -> None:
-        """A path missing its slash then goes to the default, which is protected."""
-
-        async def default(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
-            await JSONResponse({"secret": True})(scope, receive, send)
-
-        app = FastAPI()
-        app.add_api_route("/items/", listed, dependencies=[Anonymous()])
-        app.router.default = default
-        Grelmicro(
-            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
-        ).install(app)
-
-        with TestClient(app) as client:
-            redirected = client.get("/items", follow_redirects=False)
-            app.router.redirect_slashes = False
-            refused = client.get("/items", follow_redirects=False)
-
-        assert redirected.status_code == HTTP_307_TEMPORARY_REDIRECT
-        assert refused.status_code == HTTP_401_UNAUTHORIZED
-
-    def test_an_included_route_removed_after_startup_is_gone_for_the_router_too(
-        self,
-    ) -> None:
-        """The router answers from the routes read, not from what it cached."""
-        included = APIRouter()
-        included.add_api_route("/a", secret)
-        included.add_api_route("/{name}", listed, dependencies=[Anonymous()])
-        app = FastAPI()
-        app.include_router(included, prefix="/s")
-        Grelmicro(
-            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
-        ).install(app)
-
-        with TestClient(app) as client:
-            client.get("/s/warm")
-            included.routes.pop(0)
-            client.get("/s/other")
-            response = client.get("/s/a")
-
-        assert response.json() == {"listed": True}
-
-    def test_an_included_route_moved_in_place_after_startup(self) -> None:
-        """The router answers the URL it left from the routes read, too."""
-        included = APIRouter()
-        included.add_api_route("/a", secret)
-        included.add_api_route("/{name}", listed, dependencies=[Anonymous()])
-        app = FastAPI()
-        app.include_router(included, prefix="/s")
-        Grelmicro(
-            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
-        ).install(app)
-
-        with TestClient(app) as client:
-            client.get("/s/warm")
-            moved = cast("APIRoute", included.routes[0])
-            moved.path = "/zz"
-            moved.path_regex, moved.path_format, moved.param_convertors = (
-                compile_path("/zz")
-            )
-            client.get("/s/other")
-            response = client.get("/s/a")
-
-        assert response.json() == {"listed": True}
-
     async def test_middleware_added_to_a_mounted_app_after_startup(
         self,
     ) -> None:
@@ -4609,10 +4543,10 @@ class TestConsistency:
 
         assert "/me" in app.openapi()["paths"]
 
-    def test_a_route_another_route_covers_is_described_as_authenticated(
+    def test_a_public_route_another_route_could_answer_is_described_as_public(
         self,
     ) -> None:
-        """The schema and the report agree with the `401` it is answered."""
+        """The schema and the report agree with the route the router dispatches to."""
 
         def declare(app: FastAPI) -> None:
             @app.get("/items/featured", dependencies=[Anonymous()])
@@ -4626,12 +4560,94 @@ class TestConsistency:
         app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
 
         assert app.openapi()["paths"]["/items/featured"]["get"]["security"] == [
+            {},
+            {SCHEME: []},
+        ]
+        assert self.applies(app, "GET", "/items/featured") == ("anonymous",)
+        assert TestClient(app).get("/items/featured").json() == {
+            "featured": True
+        }
+
+    @staticmethod
+    def reported(app: FastAPI) -> FastAPI:
+        """Install authentication on `app`, keeping what reports on it."""
+        micro = Grelmicro(
+            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
+        )
+        micro.install(app)
+        app.state.micro = micro
+        return app
+
+    def test_a_public_route_in_a_mounted_app_with_middleware_is_public(
+        self,
+    ) -> None:
+        """Its gate decides once its app routed it, whatever the middleware did."""
+        sub = FastAPI()
+        sub.add_middleware(NormalizedPath)
+        sub.add_api_route(
+            "/files/{name:path}", listed, dependencies=[Anonymous()]
+        )
+        sub.add_api_route("/admin", secret)
+        app = FastAPI()
+        app.mount("/sub", sub)
+        self.reported(app)
+
+        assert self.applies(app, "GET", "/sub/files/{name:path}") == (
+            "anonymous",
+        )
+        assert TestClient(app).get("/sub/files/x").json() == {"listed": True}
+
+    def test_a_public_route_of_a_class_matching_on_its_own_is_public(
+        self,
+    ) -> None:
+        """Described as its gate serves it, whatever URL its class matches."""
+        public = APIRouter(route_class=CaseInsensitiveRoute)
+        public.add_api_route("/open", listed, dependencies=[Anonymous()])
+        app = FastAPI()
+        app.include_router(public)
+        self.reported(app)
+
+        assert app.openapi()["paths"]["/open"]["get"]["security"] == [
+            {},
+            {SCHEME: []},
+        ]
+        assert self.applies(app, "GET", "/open") == ("anonymous",)
+        assert TestClient(app).get("/OPEN").json() == {"listed": True}
+
+    def test_a_public_route_an_earlier_route_takes_is_authenticated(
+        self,
+    ) -> None:
+        """The router dispatches its URL to the route declared first."""
+        app = FastAPI()
+        app.add_api_route("/{name}", listed)
+        app.add_api_route("/root", listed, dependencies=[Anonymous()])
+        self.reported(app)
+
+        assert app.openapi()["paths"]["/root"]["get"]["security"] == [
             {SCHEME: []}
         ]
-        assert self.applies(app, "GET", "/items/featured") == ("authenticated",)
-        assert (
-            TestClient(app).get("/items/featured").status_code
-            == HTTP_401_UNAUTHORIZED
+        assert self.applies(app, "GET", "/root") == ("authenticated",)
+        assert TestClient(app).get("/root").status_code == (
+            HTTP_401_UNAUTHORIZED
+        )
+
+    def test_a_public_route_under_a_mount_of_a_mount_is_authenticated(
+        self,
+    ) -> None:
+        """The outer mount is one protected route, as its gate serves it."""
+        app = FastAPI()
+        app.mount(
+            "/t",
+            Mount(
+                "/r",
+                routes=[APIRoute("/a", listed, dependencies=[Anonymous()])],
+            ),
+        )
+        self.reported(app)
+
+        assert self.applies(app, "GET", "/t/r/a") == ("authenticated",)
+        assert TestClient(app).get("/t/r/a").status_code == (
+            HTTP_401_UNAUTHORIZED
         )
 
     def test_scopes_a_parent_security_declares_are_described(self) -> None:
@@ -4757,7 +4773,7 @@ class TestConsistency:
     def test_a_public_route_with_a_registered_converter_is_described_public(
         self,
     ) -> None:
-        """A sample that fits the converter describes the route as it is served."""
+        """Described as its gate serves it, whatever the converter matches."""
 
         class Day(Convertor[str]):  # codespell:ignore
             regex = r"\d{4}-\d{2}-\d{2}"
@@ -4772,7 +4788,7 @@ class TestConsistency:
             regex = "9{12}"
 
             def convert(self, value: str) -> str:
-                return value  # pragma: no cover
+                return value
 
             def to_string(self, value: str) -> str:
                 return value  # pragma: no cover
@@ -4789,7 +4805,7 @@ class TestConsistency:
                 "/codes/{code:grelmicro_nines}", dependencies=[Anonymous()]
             )
             async def code(code: str) -> dict[str, str]:
-                return {"code": code}  # pragma: no cover
+                return {"code": code}
 
         app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
         paths = app.openapi()["paths"]
@@ -4801,7 +4817,10 @@ class TestConsistency:
         assert TestClient(app).get("/days/2026-01-01").json() == {
             "day": "2026-01-01"
         }
-        assert paths["/codes/{code}"]["get"]["security"] == [{SCHEME: []}]
+        assert paths["/codes/{code}"]["get"]["security"] == [{}, {SCHEME: []}]
+        assert TestClient(app).get(f"/codes/{'9' * 12}").json() == {
+            "code": "9" * 12
+        }
 
     def test_scopes_a_security_passes_to_the_caller_are_enforced(self) -> None:
         """`Security` around a dependency reading the caller requires its scopes."""
@@ -5387,56 +5406,11 @@ class TestResourceMetadata:
             )
 
 
-class TestRootPathRedirects:
-    """A trailing slash redirect is predicted under a root path, as Starlette makes it."""
-
-    @staticmethod
-    def app() -> FastAPI:
-        """Return an app served under `/api`, with public reads."""
-        app = FastAPI(root_path="/api")
-
-        @app.get("/items", dependencies=[Anonymous()])
-        async def items() -> list[str]:
-            return []  # pragma: no cover
-
-        @app.get("/orders", dependencies=[Anonymous()])
-        async def orders() -> list[str]:
-            return []  # pragma: no cover
-
-        @app.post("/orders/")
-        async def create() -> None: ...  # pragma: no cover
-
-        Grelmicro(
-            uses=[ErrorResponses(), AuthenticatedRequests(verifier())]
-        ).install(app)
-        return app
-
-    def test_a_public_route_missed_by_its_slash_is_redirected(self) -> None:
-        """The redirect to the public route is sent without a credential."""
-        response = TestClient(self.app()).get(
-            "/api/items/", follow_redirects=False
-        )
-
-        assert response.status_code == HTTP_307_TEMPORARY_REDIRECT
-
-    def test_a_route_answering_the_slashed_path_keeps_it_authenticated(
-        self,
-    ) -> None:
-        """Starlette answers the route there, so no redirect is predicted."""
-        response = TestClient(self.app()).get(
-            "/api/orders/", follow_redirects=False
-        )
-
-        assert response.status_code == HTTP_401_UNAUTHORIZED
-
-
 class TestLitestarDeclarations:
     """What a Litestar route declares public, for a report or a schema."""
 
-    def test_the_options_litestar_adds_is_public_beside_a_public_handler(
-        self,
-    ) -> None:
-        """Only where a handler of the route is public."""
+    def test_the_options_litestar_adds_is_never_public(self) -> None:
+        """Beside a public handler too, since it declares nothing."""
 
         @get("/catalog", opt=LitestarAnonymous())
         async def catalog() -> list[str]:
@@ -5452,7 +5426,7 @@ class TestLitestarDeclarations:
             for _, route, _ in walk_routes(app)
         }
 
-        assert declared == {"/catalog": True, "/orders": False}
+        assert declared == {"/catalog": False, "/orders": False}
 
 
 class TestDocumentOperations:
@@ -5801,6 +5775,45 @@ class TestResourceMetadataOnLitestar:
             response = client.get(f"{WELL_KNOWN}/")
 
         assert response.json()["resource"] == "https://api.example.com/orders/"
+
+    def test_a_middleware_wrapping_a_mounted_litestar_app_stays_quiet(
+        self,
+    ) -> None:
+        """In front of its app's router under another Litestar app, it serves the document."""
+
+        @get("/orders")
+        async def orders() -> dict[str, bool]:
+            return {"orders": True}  # pragma: no cover
+
+        inner = Litestar(route_handlers=[orders], openapi_config=None)
+        inner.asgi_handler = cast(
+            "Any",
+            AuthenticatedRequestsMiddleware(
+                cast("Any", inner.asgi_handler),
+                verifier=issuing(),
+                resource=RESOURCE,
+            ),
+        )
+
+        @asgi("/in", is_mount=True, copy_scope=False)
+        async def mount(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+            await inner(scope, receive, send)
+
+        outer = Litestar(route_handlers=[mount], openapi_config=None)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with LitestarTestClient(outer) as client:
+                document = client.get(f"/in{WELL_KNOWN}")
+                refused = client.get("/in/orders")
+
+        assert document.json()["resource"] == RESOURCE
+        assert refused.status_code == HTTP_401_UNAUTHORIZED
+        assert not [
+            warning
+            for warning in caught
+            if issubclass(warning.category, MiddlewarePlacementWarning)
+        ]
 
     def test_a_route_of_the_app_at_the_path_needs_no_warning(self) -> None:
         """A hand-built middleware behind a router routing the path stays quiet."""

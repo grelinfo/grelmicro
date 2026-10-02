@@ -7,6 +7,7 @@ and GCRA strategies, in both allowed and denied states, driven by a
 and a non-zero clock start keep the formulas sensitive to sign and operator.
 """
 
+import math
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -24,7 +25,7 @@ TB_CAPACITY = 10
 TB_REFILL_RATE = 2.0
 # window / limit give an emission interval of 2.0 seconds per token.
 SW_LIMIT = 5
-SW_WINDOW = 10.0
+SW_WINDOW = 10
 SW_EMISSION = SW_WINDOW / SW_LIMIT
 # Non-zero start so `x - now` and `x + now` mutations diverge.
 CLOCK_START = 1000.0
@@ -223,3 +224,97 @@ async def test_sliding_window_peek_denied_fields(
     assert result.remaining == 0
     assert result.retry_after == expected_retry
     assert result.reset_after == expected_reset
+
+
+async def test_sliding_window_reset_after_exact_below_power_of_two() -> None:
+    """Opening acquire reports the exact window just below a power of two."""
+    window = 20
+    # Just below 2048, `now + window` rounds to the coarser step above it.
+    virtual_clock = VirtualClock(start=math.nextafter(2048.0, 0.0))
+    backend = MemoryRateLimiterAdapter()
+    async with Grelmicro(uses=[virtual_clock, RateLimiterComponent(backend)]):
+        rl = RateLimiter.sliding_window(
+            "sw-power-of-two", limit=1, window=window
+        )
+
+        result = await rl.acquire(cost=1)
+
+    assert result.allowed is True
+    assert result.reset_after == window
+
+
+@pytest.mark.usefixtures("clock")
+async def test_sliding_window_reset_after_whole_limit_stays_in_window() -> None:
+    """Acquire spending the whole limit reports its whole-microsecond slots."""
+    limit = 187
+    # 187 slots of 3_000_000 // 187 = 16_042 microseconds each.
+    expected_reset = 2.999854
+    rl = RateLimiter.sliding_window("sw-whole-limit", limit=limit, window=3)
+
+    result = await rl.acquire(cost=limit)
+
+    assert result.allowed is True
+    assert result.reset_after == expected_reset
+
+
+async def test_sliding_window_refuses_a_request_before_its_slot(
+    clock: VirtualClock,
+) -> None:
+    """A request before its slot is refused, however close the slot is."""
+    rl = RateLimiter.sliding_window("sw-early", limit=10, window=1)
+    for _ in range(10):
+        assert (await rl.acquire(cost=1)).allowed is True
+    # The 11th slot opens 0.1 seconds after the burst.
+    await clock.advance(0.06)
+
+    result = await rl.acquire(cost=1)
+
+    assert result.allowed is False
+
+
+async def test_sliding_window_admits_a_request_at_its_slot(
+    clock: VirtualClock,
+) -> None:
+    """A request exactly at its slot is admitted despite float rounding."""
+    rl = RateLimiter.sliding_window("sw-on-time", limit=10, window=1)
+    for _ in range(10):
+        assert (await rl.acquire(cost=1)).allowed is True
+    await clock.advance(0.1)
+
+    result = await rl.acquire(cost=1)
+
+    assert result.allowed is True
+    assert result.remaining == 0
+
+
+async def test_sliding_window_refuses_a_request_before_a_long_slot(
+    clock: VirtualClock,
+) -> None:
+    """A long slot forgives no more than a short one."""
+    window = 3600
+    rl = RateLimiter.sliding_window("sw-hourly", limit=1, window=window)
+    assert (await rl.acquire(cost=1)).allowed is True
+    await clock.advance(window - 0.5)
+
+    early = await rl.acquire(cost=1)
+    await clock.advance(0.5)
+    on_time = await rl.acquire(cost=1)
+
+    assert early.allowed is False
+    assert on_time.allowed is True
+    assert on_time.reset_after == window
+
+
+async def test_sliding_window_refuses_a_request_under_a_microsecond_early(
+    clock: VirtualClock,
+) -> None:
+    """A clock reading under a microsecond before the slot is still early."""
+    rl = RateLimiter.sliding_window("sw-sub-us", limit=10, window=1)
+    for _ in range(10):
+        assert (await rl.acquire(cost=1)).allowed is True
+    # The 11th slot opens 0.1 seconds after the burst.
+    await clock.advance(0.0999996)
+
+    result = await rl.acquire(cost=1)
+
+    assert result.allowed is False

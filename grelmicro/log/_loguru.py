@@ -1,5 +1,7 @@
 """Loguru Logging Backend."""
 
+from __future__ import annotations
+
 import traceback as tb_module
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, tzinfo
@@ -43,7 +45,7 @@ LOGFMT_FORMAT = LOGURU_LOGFMT_FORMAT
 
 
 def _build_loguru_record(
-    record: "Record",
+    record: Record,
     timezone: tzinfo,
     *,
     caller_enabled: bool = False,
@@ -116,7 +118,7 @@ class _LoguruPatcher:
         self.enable_otel = enable_otel
         self.json_dumps = json_dumps
 
-    def __call__(self, record: "Record") -> None:
+    def __call__(self, record: Record) -> None:
         if self.enable_otel:
             _otel_patcher(record)
         if self.enable_localtime:
@@ -137,7 +139,7 @@ class _LoguruPatcher:
 
 
 def _json_patcher(
-    record: "Record",
+    record: Record,
     *,
     timezone: tzinfo | None = None,
     caller_enabled: bool = False,
@@ -151,7 +153,7 @@ def _json_patcher(
 
 
 def _logfmt_patcher(
-    record: "Record",
+    record: Record,
     *,
     timezone: tzinfo | None = None,
     caller_enabled: bool = False,
@@ -163,7 +165,7 @@ def _logfmt_patcher(
 
 
 def _localtime_patcher(
-    record: "Record",
+    record: Record,
     *,
     timezone: tzinfo | None = None,
 ) -> None:
@@ -175,7 +177,7 @@ def _localtime_patcher(
     )
 
 
-def _otel_patcher(record: "Record") -> None:
+def _otel_patcher(record: Record) -> None:
     """Patch the record with OpenTelemetry trace context (no-op if unavailable)."""
     trace_context = get_otel_trace_context()
     if trace_context:
@@ -183,12 +185,12 @@ def _otel_patcher(record: "Record") -> None:
         record["extra"]["span_id"] = trace_context["span_id"]
 
 
-def _json_formatter(record: "Record") -> str:  # noqa: ARG001
+def _json_formatter(record: Record) -> str:  # noqa: ARG001
     """Return pre-serialized JSON from patcher. Suppresses loguru's auto-traceback."""
     return JSON_FORMAT + "\n"
 
 
-def _logfmt_formatter(record: "Record") -> str:  # noqa: ARG001
+def _logfmt_formatter(record: Record) -> str:  # noqa: ARG001
     """Return pre-serialized logfmt from patcher. Suppresses loguru's auto-traceback."""
     return LOGFMT_FORMAT + "\n"
 
@@ -203,10 +205,10 @@ def _make_text_formatter(
     *,
     caller_enabled: bool,
     colors: bool,
-) -> "FormatFunction":
+) -> FormatFunction:
     """Create a text format function with captured settings."""
 
-    def _formatter(record: "Record") -> str:
+    def _formatter(record: Record) -> str:
         log_record = _build_loguru_record(
             record, timezone, caller_enabled=caller_enabled
         )
@@ -223,10 +225,10 @@ def _make_pretty_formatter(
     *,
     caller_enabled: bool,
     colors: bool,
-) -> "FormatFunction":
+) -> FormatFunction:
     """Create a pretty format function with captured settings."""
 
-    def _formatter(record: "Record") -> str:
+    def _formatter(record: Record) -> str:
         log_record = _build_loguru_record(
             record, timezone, caller_enabled=caller_enabled
         )

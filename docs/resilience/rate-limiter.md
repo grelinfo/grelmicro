@@ -121,7 +121,7 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
     | | **SlidingWindowConfig** | **TokenBucketConfig** |
     |---|---|---|
     | **Mental model** | "N requests per sliding T-second window" | "A bucket holding N tokens that refills at R tokens/sec" |
-    | **Parameters** | `limit`, `window` | `capacity`, `refill_rate` |
+    | **Parameters** | `limit`, `window` (whole seconds or a `timedelta`) | `capacity`, `refill_rate` |
     | **Burst behaviour** | Up to `limit` requests if the window is empty | Up to `capacity` if the bucket is full |
     | **Sustained rate** | `limit / window` requests per second | `refill_rate` tokens per second |
     | **HTTP header fit** | Strong. `reset_after` is a true window boundary and maps directly to the `t=` parameter of `RateLimit`. | Workable. `retry_after` is the time until the next token (continuous refill), not a window reset. |

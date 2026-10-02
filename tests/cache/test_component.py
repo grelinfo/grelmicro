@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from grelmicro import Component, Grelmicro
@@ -11,6 +13,9 @@ from grelmicro.cache.postgres import PostgresCacheAdapter
 from grelmicro.cache.redis import RedisCacheAdapter
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
+
+if TYPE_CHECKING:
+    from grelmicro._json import JSONEncodable
 
 
 def test_cache_satisfies_component_protocol() -> None:
@@ -63,8 +68,9 @@ async def test_cache_ttl_factory_passes_serializer() -> None:
     cache = Cache(MemoryCacheAdapter())
     ttl_cache = cache.ttl(ttl=60, serializer=JsonSerializer())
     async with cache:
-        await ttl_cache.set("payload", {"id": 1, "tags": ["a", "b"]})
-        assert await ttl_cache.get("payload") == {"id": 1, "tags": ["a", "b"]}
+        payload: JSONEncodable = {"id": 1, "tags": ["a", "b"]}
+        await ttl_cache.set("payload", payload)
+        assert await ttl_cache.get("payload") == payload
 
 
 async def test_cache_cached_decorator_works_via_micro_attribute() -> None:

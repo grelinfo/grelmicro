@@ -125,7 +125,7 @@ class _BlockedStream(_Stream):
 
 
 @pytest.fixture
-def clean_queue() -> Generator[None, None, None]:
+def clean_queue() -> Generator[None]:
     """Remove any writer a test installed."""
     yield
     uninstall()

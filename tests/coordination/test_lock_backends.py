@@ -32,7 +32,7 @@ reports itself through its own wait.
 
 
 @pytest.fixture(scope="module")
-def monkeypatch() -> Generator[pytest.MonkeyPatch, None, None]:
+def monkeypatch() -> Generator[pytest.MonkeyPatch]:
     """Monkeypatch Module Scope."""
     monkeypatch = pytest.MonkeyPatch()
     yield monkeypatch
@@ -67,7 +67,7 @@ def container(
     backend_name: str,
     monkeypatch: pytest.MonkeyPatch,
     request: pytest.FixtureRequest,
-) -> Generator[DockerContainer | None, None, None]:
+) -> Generator[DockerContainer | None]:
     """Test Container for each Backend."""
     if backend_name == "redis":
         with RedisContainer() as container:

@@ -146,7 +146,7 @@ def _module_functions(module: Any) -> dict[str, str]:  # noqa: ANN401
     """Return `{name: source}` for every function the module defines."""
     try:
         tree = ast.parse(textwrap.dedent(inspect.getsource(module)))
-    except (OSError, TypeError):  # pragma: no cover  # no readable source
+    except OSError, TypeError:  # pragma: no cover  # no readable source
         return {}
     # Module level only, deliberately. A method such as `_setup` is shared
     # by both construction doors and builds the env prefix for the door that
@@ -181,7 +181,7 @@ def _imported_helper(module: Any, name: str) -> tuple[str, Any] | None:  # noqa:
         return None
     try:
         source = textwrap.dedent(inspect.getsource(target))
-    except (OSError, TypeError):  # pragma: no cover  # no readable source
+    except OSError, TypeError:  # pragma: no cover  # no readable source
         return None
     return source, sys.modules.get(origin, module)
 
@@ -255,7 +255,7 @@ def test_from_config_reads_no_environment_variable(
     cls = _resolve(module_name, class_name)
     try:
         source = textwrap.dedent(inspect.getsource(cls.from_config))
-    except (OSError, TypeError):  # pragma: no cover  # C or builtin
+    except OSError, TypeError:  # pragma: no cover  # C or builtin
         pytest.skip(f"{class_name}.from_config has no readable source")
     reached = _env_names_reached(source, sys.modules[cls.__module__])
     assert not reached, (
@@ -368,7 +368,7 @@ def _assigned_attributes(cls: Any, method: str) -> set[str]:  # noqa: ANN401
         return set()
     try:
         tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
-    except (OSError, TypeError):  # pragma: no cover  # no readable source
+    except OSError, TypeError:  # pragma: no cover  # no readable source
         return set()
     return {
         target.attr

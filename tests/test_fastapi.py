@@ -52,7 +52,7 @@ def _build_app(*, with_middleware: bool) -> FastAPI:
 
     @app.get("/limited")
     async def limited() -> dict[str, bool]:
-        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1)
         result = await limiter.acquire(key="client")
         return {"allowed": result.allowed}
 
@@ -139,7 +139,7 @@ def _build_installed_app(
 
     @app.get("/limited")
     async def limited() -> dict[str, bool]:
-        limiter = RateLimiter.sliding_window("api", limit=10, window=1.0)
+        limiter = RateLimiter.sliding_window("api", limit=10, window=1)
         result = await limiter.acquire(key="client")
         return {"allowed": result.allowed}
 

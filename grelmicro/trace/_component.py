@@ -120,11 +120,11 @@ class Trace:
             Doc(
                 """
                 Auto-instrumentation selection for active providers and the
-                FastAPI app, bound to this app's tracer provider. `True` (the
-                default) instruments every active provider plus the FastAPI
-                app. A missing `opentelemetry-instrumentation-*` package is a
-                no-op, so default-on does nothing until the extras are
-                installed.
+                FastAPI request spans, bound to this app's tracer provider.
+                `True` (the default) instruments every active provider and
+                keeps the FastAPI request spans. A missing
+                `opentelemetry-instrumentation-*` package is a no-op, so a
+                provider is traced once its extra is installed.
 
                 - `False`: instrument nothing (the `@instrument` decorator
                   still works).

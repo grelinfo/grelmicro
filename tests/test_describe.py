@@ -437,13 +437,12 @@ def test_describe_does_not_apply_parent_cache_to_child_declaration() -> None:
 
 def test_describe_does_not_apply_cache_before_an_ordinary_dependency() -> None:
     """The endpoint table preserves the cache's dependency privacy rule."""
-    app = FastAPI()
-    marker = CachedResponse()
+    app = FastAPI(dependencies=[CachedResponse()])
 
     async def audit() -> None:
         return None
 
-    @app.get("/x", dependencies=[marker, Depends(audit)])
+    @app.get("/x", dependencies=[Depends(audit)])
     async def x() -> dict[str, bool]:
         return {"x": True}
 

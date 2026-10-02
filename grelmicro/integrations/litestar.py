@@ -2,31 +2,47 @@
 
 from __future__ import annotations
 
+import functools
 import warnings
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
+from litestar.exceptions import HTTPException
 from typing_extensions import Doc
 
 from grelmicro._asgi import GrelmicroMiddleware
+from grelmicro._component import authenticates, observes
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
-from grelmicro.http import ErrorResponses, merge_headers
+from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
+    METADATA_MARKER,
     document_operations,
     metadata_path_of,
     operation_authentication,
     refuse_routes_at_metadata,
     resource_metadata_of,
     serves_anonymous_routes,
+    template_under_root,
 )
-from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
+from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED, UNHANDLED_KEY
 from grelmicro.http._openapi import add_error_schema
-from grelmicro.http._requirement import AUTHENTICATED, Requirement
+from grelmicro.http._requirement import (
+    AUTHENTICATED,
+    Requirement,
+    declared_scopes,
+)
+from grelmicro.http._routes import RouteDeclaration
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, MutableMapping, Sequence
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Mapping,
+        MutableMapping,
+        Sequence,
+    )
 
     from litestar import Litestar, Request
     from litestar.connection import ASGIConnection
@@ -34,6 +50,8 @@ if TYPE_CHECKING:
     from litestar.response import Response
 
     from grelmicro import Grelmicro
+    from grelmicro.http import Gate
+    from grelmicro.http._kinds import Unhandled
     from grelmicro.security.principal import VerifiedToken
 
     Scope = MutableMapping[str, Any]
@@ -50,7 +68,9 @@ __all__ = [
     "install",
     "install_error_responses",
     "install_middleware",
+    "install_route_gate",
     "is_bound",
+    "route_declarations",
 ]
 
 
@@ -81,6 +101,10 @@ def install(
     components are registered before the first request. Startup hooks and
     lifespan managers already passed to `Litestar(...)` keep running.
 
+    Adds an `after_exception` hook that marks a request whose handler raised
+    an unhandled exception. The idempotency middleware stores nothing for a
+    marked request.
+
     When `ambient` is `True`, wraps the app's ASGI handler so patterns resolve
     through `Grelmicro.current()` inside route handlers. The wrap sits outside
     every middleware Litestar built, so one that resolves a backend ambiently
@@ -101,7 +125,25 @@ def install(
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
+
+    Raises:
+        TypeError: If a flood limit would run behind the router, before
+            anything is wired.
     """
+    if any(
+        declared_class is RateLimitMiddleware
+        and arguments.get("flood") is not None
+        for declared_class, arguments in _routed_middleware(app)
+    ):
+        raise TypeError(_FLOOD_BEHIND_ROUTER)
+    _refuse_flood(
+        app,
+        [
+            component
+            for component in micro.components
+            if hasattr(component, "asgi_middleware")
+        ],
+    )
 
     async def _open_micro() -> None:
         await micro.__aenter__()
@@ -112,6 +154,7 @@ def install(
 
     app.on_startup.append(_open_micro)
     app.on_shutdown.append(_close_micro)
+    app.after_exception.append(cast("Any", _mark_unhandled))
 
     if not ambient:
         micro._on_ambient_disabled()  # noqa: SLF001
@@ -122,6 +165,43 @@ def install(
         app.asgi_handler = cast(
             "Any", GrelmicroMiddleware(handler, micro=micro)
         )
+
+
+async def _mark_unhandled(exc: Exception, scope: Scope) -> None:
+    """Mark the request when the exception Litestar is about to render is unhandled.
+
+    Runs as an `after_exception` hook, for a request that raised. Only a
+    request idempotency may store is marked, and only once it was routed.
+    An `HTTPException` is handled. Any other exception is unhandled unless
+    `_caught_on_purpose` says a handler of the route answers it.
+    """
+    unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
+    route_handler = scope.get("route_handler")
+    if (
+        unhandled is None
+        or route_handler is None
+        or isinstance(exc, HTTPException)
+    ):
+        return
+    if not _caught_on_purpose(exc, route_handler.resolve_exception_handlers()):
+        unhandled.raised = True
+
+
+_CATCH_ALL: Final = (Exception, BaseException)
+"""Classes whose exception handler answers any crash."""
+
+
+def _caught_on_purpose(exc: Exception, handlers: Mapping[Any, Any]) -> bool:
+    """Return whether a handler answers `exc` for its own class or a base of it.
+
+    The first class of its MRO holding a handler decides. A handler for
+    `Exception` or `BaseException` is a catch-all and does not count, and
+    neither does one registered for status `500`.
+    """
+    for klass in type(exc).__mro__:
+        if klass in handlers:
+            return klass not in _CATCH_ALL
+    return False
 
 
 def install_middleware(
@@ -152,11 +232,15 @@ def install_middleware(
     stack at construction time. `micro.install(app)` calls this with the
     components it found, so a direct call is only for an app that never goes
     through `install`.
+
+    Raises:
+        TypeError: If a flood limit would run behind the router.
     """
     # Authentication first, whatever order it was registered in. Stable, so
     # registration order holds among the rest.
+    _refuse_flood(app, components)
     ordered = sorted(
-        components, key=lambda component: not _authenticates(component)
+        components, key=lambda component: not authenticates(component)
     )
     for component in ordered:
         _answer_for(app, component)
@@ -165,17 +249,22 @@ def install_middleware(
     # watches goes on top of everything, so those are wrapped in reverse for
     # the first of them to end up outermost.
     wrapping = [
-        *(component for component in ordered if not _observes(component)),
-        *reversed([component for component in ordered if _observes(component)]),
+        *(component for component in ordered if not observes(component)),
+        *reversed([component for component in ordered if observes(component)]),
     ]
+    behind = any(
+        authenticates(component) and _declared_by_app(app, component)
+        for component in ordered
+    )
     for component in wrapping:
         middleware, options = component.asgi_middleware()
-        if _already_wired(app, middleware):
+        watching = observes(component)
+        if _already_wired(app, middleware) or (behind and not watching):
             # The app passed it to `Litestar(middleware=...)`, which puts it
             # inside its own stack, which is the better place. Wrapping a
-            # second one would run it twice.
+            # second one would run it twice. Authentication the app runs
+            # behind its router runs the others once it admitted a request.
             continue
-        watching = _observes(component)
         if not watching:
             _warn_if_wrapping_app_middleware(app, middleware)
         binding = app.asgi_handler
@@ -199,12 +288,50 @@ def install_middleware(
                 ),
             )
     for component in ordered:
-        if _authenticates(component):
+        if authenticates(component):
             # The public routes it serves without a credential. The rest of
             # ours name their paths in `include=` on Litestar.
             _route_resource_metadata(app, component)
             component.read_routes(app)
             component.document_openapi(app)
+
+
+_FLOOD_BEHIND_ROUTER = (
+    "A flood= limit runs before routing, and a middleware passed to "
+    "Litestar(middleware=[...]) runs behind the router, where a URL no "
+    "handler answers never reaches it. Register RateLimitedRequests and "
+    "AuthenticatedRequests with Grelmicro(uses=[...]) instead, or drop flood=."
+)
+"""Why a flood limit behind Litestar's router is refused."""
+
+
+def _refuse_flood(app: Litestar, components: Sequence[Any]) -> None:
+    """Refuse a flood limit that would end up behind the router, or nowhere.
+
+    Behind the router when the app passed authentication to
+    `Litestar(middleware=[...])`. Nowhere when it passed its own
+    `RateLimitMiddleware` there, which stands in for the component's.
+
+    Raises:
+        TypeError: If a component carrying a flood limit is in either case.
+    """
+    behind = any(
+        authenticates(component) and _declared_by_app(app, component)
+        for component in components
+    )
+    passed = any(
+        declared_class is RateLimitMiddleware
+        for declared_class, _ in _routed_middleware(app)
+    )
+    if not (behind or passed):
+        return
+    for component in components:
+        middleware, options = component.asgi_middleware()
+        if (
+            middleware is RateLimitMiddleware
+            and options.get("flood") is not None
+        ):
+            raise TypeError(_FLOOD_BEHIND_ROUTER)
 
 
 def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: ANN401
@@ -225,9 +352,9 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
 
     middleware, options = component.asgi_middleware()
     declared = [
-        entry.kwargs
-        for entry in getattr(app, "middleware", ())
-        if getattr(entry, "middleware", None) is middleware
+        arguments
+        for declared_class, arguments in _routed_middleware(app)
+        if declared_class is middleware
     ]
     for described in declared or [options]:
         metadata = resource_metadata_of(described)
@@ -243,10 +370,208 @@ def _route_resource_metadata(app: Litestar, component: Any) -> None:  # noqa: AN
         )
 
 
+def install_route_gate(
+    app: Annotated[
+        Litestar,
+        Doc("The Litestar application whose handlers to gate."),
+    ],
+    gate: Annotated[
+        Gate,
+        Doc(
+            "Returns the app to dispatch to in place of a handler, given it "
+            "and the handler's declaration, refusing a declaration that "
+            "cannot hold."
+        ),
+    ],
+) -> None:
+    """Gate every handler Litestar's router dispatches to, once it matched it.
+
+    Each handler gets the gate its declaration asks for, per method: the
+    `OPTIONS` handler Litestar adds to a route, a websocket handler and an
+    ASGI mount included. A handler registered later is gated as it lands.
+
+    `micro.install(app)` calls this when `AuthenticatedRequests` is
+    registered, with the gate that component builds.
+
+    Read more in the [Plugins](../architecture/plugins.md#declare-the-routes)
+    docs.
+
+    Raises:
+        TypeError: If a declaration's `cache` is neither a boolean nor a
+            number.
+        ValueError: If a declaration cannot hold, naming its route.
+    """
+    gated: dict[int, tuple[Any, ASGIApp]] = {}
+    declared: dict[tuple[int, str], RouteDeclaration] = {}
+
+    def gated_for(asgi_app: Any, handler: Any, template: str) -> ASGIApp:  # noqa: ANN401
+        """Return the gated app of one route's handler, gating it the first time."""
+        known = gated.get(id(asgi_app))
+        if known is not None:
+            return known[1]
+        key = (id(handler), template)
+        if key not in declared:
+            declared.update(
+                ((id(found), declaration.path), declaration)
+                for found, declaration in _handler_declarations(app)
+            )
+        declaration = declared.get(key) or RouteDeclaration(template or "/")
+        wrapped = gate(
+            asgi_app,
+            declaration,
+            name=functools.partial(template_under_root, declaration.path),
+        )
+        gated[id(asgi_app)] = (asgi_app, wrapped)
+        return wrapped
+
+    _gate_router(app.asgi_router, gated_for)
+
+
+def _gate_router(
+    router: Any,  # noqa: ANN401
+    gated_for: Callable[[Any, Any, str], ASGIApp],
+) -> None:
+    """Make Litestar's router dispatch each handler through `gated_for`.
+
+    Litestar's own router internals are touched here and in
+    `_trie_handlers` alone: the router gets a class of its own, whose
+    `handle_routing` returns the gated app of the handler it matched, and
+    whose `construct_routing_trie` gates each handler registered later.
+
+    Raises:
+        RuntimeError: If the router lacks what this relies on, naming it.
+    """
+    base = type(router)
+    missing = [
+        name
+        for owner, name in (
+            (base, "handle_routing"),
+            (base, "construct_routing_trie"),
+            (router, "root_route_map_node"),
+            (router, "_mount_routes"),
+        )
+        if not hasattr(owner, name)
+    ]
+    if missing:
+        msg = (
+            f"Litestar's router has no {', '.join(missing)}, which "
+            f"micro.install(app) gates each handler through. Install a "
+            f"Litestar release grelmicro supports."
+        )
+        raise RuntimeError(msg)
+
+    def handle_routing(self: Any, path: str, method: Any) -> Any:  # noqa: ANN401
+        asgi_app, handler, routed, parameters, template = base.handle_routing(
+            self, path, method
+        )
+        return (
+            gated_for(asgi_app, handler, template),
+            handler,
+            routed,
+            parameters,
+            template,
+        )
+
+    def construct_routing_trie(self: Any) -> None:  # noqa: ANN401
+        base.construct_routing_trie(self)
+        for asgi_app, handler, template in _trie_handlers(self):
+            gated_for(asgi_app, handler, template)
+
+    router.__class__ = type(
+        f"Gated{base.__name__}",
+        (base,),
+        {
+            "__slots__": (),
+            "handle_routing": functools.lru_cache(_ROUTING_CACHE)(
+                handle_routing
+            ),
+            "construct_routing_trie": construct_routing_trie,
+        },
+    )
+    for asgi_app, handler, template in _trie_handlers(router):
+        gated_for(asgi_app, handler, template)
+
+
+def _trie_handlers(router: Any) -> list[tuple[Any, Any, str]]:  # noqa: ANN401
+    """Return each handler the router's trie dispatches to, its app and its template.
+
+    Read off Litestar's routing trie, one of the router internals
+    `_gate_router` relies on.
+    """
+    found: list[tuple[Any, Any, str]] = []
+    seen: set[int] = set()
+    pending = [
+        router.root_route_map_node,
+        *router._mount_routes.values(),  # noqa: SLF001
+    ]
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        found.extend(
+            (entry.asgi_app, entry.handler, node.path_template)
+            for entry in node.asgi_handlers.values()
+        )
+        pending.extend(node.children.values())
+    return found
+
+
+_ROUTING_CACHE: Final = 1024
+"""How many routed paths and methods each gated router keeps, as Litestar's own does."""
+
+
+def route_declarations(
+    app: Annotated[
+        Litestar,
+        Doc("The Litestar application whose handlers to list."),
+    ],
+) -> list[RouteDeclaration]:
+    """Return what every handler of the app requires, as its gate reads it.
+
+    One declaration per handler. A handler declaring `Anonymous()` is
+    anonymous, and its scopes are the ones every `Authenticated` guard
+    around it names. The `OPTIONS` handler Litestar adds needs a caller.
+    """
+    return [declaration for _, declaration in _handler_declarations(app)]
+
+
+def _handler_declarations(app: Litestar) -> list[tuple[Any, RouteDeclaration]]:
+    """Return every handler of the app beside what it declares."""
+    found: list[tuple[Any, RouteDeclaration]] = []
+    for route in app.routes:
+        handlers = getattr(route, "route_handlers", None) or [
+            route.route_handler  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+        ]
+        found.extend(
+            (handler, _declaration(route.path_format, handler))
+            for handler in handlers
+        )
+    return found
+
+
+def _declaration(template: str, handler: Any) -> RouteDeclaration:  # noqa: ANN401
+    """Return what one handler declares.
+
+    The route grelmicro adds for the protected resource metadata is not
+    anonymous.
+    """
+    methods = getattr(handler, "http_methods", None)
+    return RouteDeclaration(
+        template,
+        methods=frozenset(methods) if methods else None,
+        anonymous=bool(handler.opt.get(ANONYMOUS_OPT))
+        and not getattr(handler.fn, METADATA_MARKER, False),
+        scopes=frozenset(
+            scope
+            for guard in handler.resolve_guards()
+            for scope in declared_scopes(guard) or ()
+        ),
+    )
+
+
 def _routes(app: Litestar, path: str) -> bool:
     """Return whether Litestar's router answers `GET path` with a route."""
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
-
     try:
         app.asgi_router.handle_routing(path=path, method="GET")
     except HTTPException:
@@ -450,6 +775,23 @@ def _innermost_layer(handler: ASGIApp, app: Litestar) -> Any | None:  # noqa: AN
     return host  # pragma: no cover
 
 
+def _routed_middleware(app: Litestar) -> list[tuple[Any, dict[str, Any]]]:
+    """Return the middleware the app runs once its router matched a handler.
+
+    Each is what the app passed to `Litestar(middleware=[...])`, as its
+    class and the arguments it is built with. `micro.install(app)` reads
+    it to find an `AuthenticatedRequests` middleware the app runs behind
+    its router.
+    """
+    return [
+        (
+            getattr(entry, "middleware", entry),
+            dict(getattr(entry, "kwargs", {})),
+        )
+        for entry in getattr(app, "middleware", ())
+    ]
+
+
 def _already_wired(app: Litestar, middleware: type[Any]) -> bool:
     """Return whether this middleware is already in front of the app.
 
@@ -457,11 +799,26 @@ def _already_wired(app: Litestar, middleware: type[Any]) -> bool:
     because `install` ran before and wrapped it. One layer answers, stores
     and tags. Two would do all three twice.
     """
-    declared = any(
-        getattr(entry, "middleware", None) is middleware or entry is middleware
-        for entry in getattr(app, "middleware", ())
+    passed = any(
+        declared_class is middleware
+        for declared_class, _ in _routed_middleware(app)
     )
-    return declared or _wrapped_already(app.asgi_handler, middleware)
+    return passed or _wrapped_already(app.asgi_handler, middleware)
+
+
+def _declared_by_app(app: Litestar, component: Any) -> bool:  # noqa: ANN401
+    """Return whether the app runs this component's own middleware itself.
+
+    That is, the app passed it to `Litestar(middleware=[...])`, built with
+    the arguments the component builds it with.
+    """
+    middleware, options = component.asgi_middleware()
+    return any(
+        declared_class is middleware
+        and "public" in arguments
+        and arguments["public"] is options.get("public")
+        for declared_class, arguments in _routed_middleware(app)
+    )
 
 
 def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
@@ -477,16 +834,6 @@ def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
 
 _MAX_CHAIN = 32
 """How far to walk a handler chain before calling it a cycle."""
-
-
-def _authenticates(component: Any) -> bool:  # noqa: ANN401
-    """Return whether a component's middleware authenticates the request."""
-    return bool(getattr(component, "asgi_authenticates", False))
-
-
-def _observes(component: Any) -> bool:  # noqa: ANN401
-    """Return whether this component's middleware only watches a request."""
-    return bool(getattr(component, "asgi_observes", False))
 
 
 def _warn_if_wrapping_app_middleware(
@@ -612,7 +959,6 @@ def install_error_responses(
     def http_error(request: Request, exc: Exception) -> Response:
         """Reshape Litestar's own error into the registered format."""
         from litestar.exceptions import (  # noqa: PLC0415
-            HTTPException,
             ValidationException,
         )
         from litestar.response import (  # noqa: PLC0415
@@ -650,8 +996,6 @@ def install_error_responses(
         )
 
     app.state.grelmicro_error_responses = errors
-
-    from litestar.exceptions import HTTPException  # noqa: PLC0415
 
     if HTTPException not in app.exception_handlers:
         app.exception_handlers[HTTPException] = http_error
@@ -878,6 +1222,6 @@ def is_bound(
     if isinstance(getattr(app, "asgi_handler", None), GrelmicroMiddleware):
         return True
     return any(
-        getattr(entry, "middleware", None) is GrelmicroMiddleware
-        for entry in getattr(app, "middleware", ())
+        declared_class is GrelmicroMiddleware
+        for declared_class, _ in _routed_middleware(app)
     )

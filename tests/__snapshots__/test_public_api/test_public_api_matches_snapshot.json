@@ -296,6 +296,9 @@
       ".problem_details": "(*, name='default') -> 'Self'",
       ".tmf": "(*, code_prefix='GREL', reference_error='https://grelmicro.grel.info/http/errors/', name='default') -> 'Self'"
     },
+    "Gate": {
+      "()": "(*args, **kwargs)"
+    },
     "IdempotencyMiddleware": {
       "()": "(app, *, idempotency, key_header='Idempotency-Key', replay_header='Idempotent-Replayed', methods=('POST',), key_maker=None, skip=None, require_key=False, fingerprint_body=False, max_body_size=1048576, wait_timeout=10.0, include=(), exclude=(), reused_status=422, live=None) -> 'None'"
     },
@@ -326,11 +329,11 @@
       "()": "(*, type='about:blank', title, status, detail=None, instance=None, **extra_data) -> None"
     },
     "RateLimitMiddleware": {
-      "()": "(app, *, limiters, trusted=None, key=None, cost=1, max_wait=0.0, include=(), exclude=(), legacy_headers=False, live=None) -> 'None'"
+      "()": "(app, *, limiters, flood=None, trusted=None, key=None, cost=1, max_wait=0.0, include=(), exclude=(), legacy_headers=False, live=None) -> 'None'"
     },
     "RateLimitedRequests": {
-      "()": "(*limiters, trusted=None, key=None, cost=None, max_wait=None, include=None, exclude=None, legacy_headers=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
-      ".from_config": "(config, *limiters, name='default', trusted=None, key=None, openapi=True) -> 'RateLimitedRequests'"
+      "()": "(*limiters, flood=None, trusted=None, key=None, cost=None, max_wait=None, include=None, exclude=None, legacy_headers=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *limiters, name='default', flood=None, trusted=None, key=None, openapi=True) -> 'RateLimitedRequests'"
     },
     "RateLimitedRequestsConfig": {
       "()": "(*, cost=1, max_wait=0.0, include=(), exclude=(), legacy_headers=False) -> None"
@@ -442,7 +445,7 @@
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
     "health_router": {
-      "()": "(component=None, *, prefix='', include_in_schema=False, show_details=False, healthz_dependencies=None) -> 'APIRouter'"
+      "()": "(component=None, *, prefix='', include_in_schema=False, show_details=False, healthz_dependencies=None) -> APIRouter"
     },
     "install": {
       "()": "(app, micro, *, ambient=True) -> None"
@@ -453,8 +456,14 @@
     "install_middleware": {
       "()": "(app, components) -> None"
     },
+    "install_route_gate": {
+      "()": "(app, gate) -> None"
+    },
     "is_bound": {
-      "()": "(app) -> bool"
+      "()": "(app) -> 'bool'"
+    },
+    "route_declarations": {
+      "()": "(app) -> list[RouteDeclaration]"
     }
   },
   "grelmicro.integrations.faststream": {
@@ -487,8 +496,14 @@
     "install_middleware": {
       "()": "(app, components) -> 'None'"
     },
+    "install_route_gate": {
+      "()": "(app, gate) -> 'None'"
+    },
     "is_bound": {
       "()": "(app) -> 'bool'"
+    },
+    "route_declarations": {
+      "()": "(app) -> 'list[RouteDeclaration]'"
     }
   },
   "grelmicro.integrations.starlette": {
@@ -496,25 +511,25 @@
       "()": "(*, scopes=()) -> 'Callable[[Callable[..., Any]], Callable[..., Any]]'"
     },
     "current_token": {
-      "()": "(connection) -> VerifiedToken"
+      "()": "(connection) -> 'VerifiedToken'"
     },
     "error_response": {
       "()": "(request, *, status, detail=None, extensions=None) -> 'Response'"
     },
     "install": {
-      "()": "(app, micro, *, ambient=True) -> None"
+      "()": "(app, micro, *, ambient=True) -> 'None'"
     },
     "install_error_responses": {
-      "()": "(app, errors) -> None"
+      "()": "(app, errors) -> 'None'"
     },
     "install_middleware": {
-      "()": "(app, components) -> None"
+      "()": "(app, components) -> 'None'"
     },
     "install_route_gate": {
-      "()": "(app, gate) -> None"
+      "()": "(app, gate) -> 'None'"
     },
     "is_bound": {
-      "()": "(app) -> bool"
+      "()": "(app) -> 'bool'"
     },
     "route_declarations": {
       "()": "(app) -> 'list[RouteDeclaration]'"
@@ -608,7 +623,7 @@
       "()": "(component=None, *, prefix='', path='/metrics') -> 'ASGIApp'"
     },
     "metrics_router": {
-      "()": "(component=None, *, prefix='', path='/metrics', include_in_schema=False, dependencies=None) -> 'APIRouter'"
+      "()": "(component=None, *, prefix='', path='/metrics', include_in_schema=False, dependencies=None) -> APIRouter"
     }
   },
   "grelmicro.outbox": {
@@ -751,8 +766,8 @@
     },
     "Outcome": {
       "()": "(exception, result, raised) -> None",
-      ".from_exception": "(exception) -> 'Outcome[T]'",
-      ".from_result": "(result) -> 'Outcome[T]'"
+      ".from_exception": "(exception) -> Outcome[T]",
+      ".from_result": "(result) -> Outcome[T]"
     },
     "Pattern": null,
     "PostgresCircuitBreakerAdapter": {
@@ -1099,7 +1114,7 @@
     },
     "TaskError": null,
     "TaskRouter": {
-      "()": "(*, tasks=None, timezone=None) -> None"
+      "()": "(*, tasks=None, timezone=None) -> 'None'"
     },
     "TaskStartOperationError": {
       "()": "() -> None"
@@ -1154,7 +1169,7 @@
       "()": "(func=None, *, name=None, skip=None, skip_all=False) -> 'Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]'"
     },
     "span": {
-      "()": "(name, **fields) -> 'Generator[None, None, None]'"
+      "()": "(name, **fields) -> 'Generator[None]'"
     }
   },
   "grelmicro.types": {

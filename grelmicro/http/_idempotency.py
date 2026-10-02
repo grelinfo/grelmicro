@@ -73,8 +73,10 @@ from grelmicro.http._kinds import (
     IDEMPOTENCY_KEY_INVALID,
     IDEMPOTENCY_KEY_REUSED,
     REQUEST_BODY_TOO_LARGE,
+    UNHANDLED_KEY,
     Kind,
     Occurrence,
+    Unhandled,
 )
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
@@ -1168,11 +1170,14 @@ class IdempotencyMiddleware:
                     state.replay_header,
                     scope,
                 )
+                unhandled: Unhandled | None = scope.get(UNHANDLED_KEY)
+                if unhandled is None:
+                    unhandled = scope[UNHANDLED_KEY] = Unhandled()
                 await self.app(scope, receive, capture)
                 self._report_collision(
                     config.replay_header, replaced=capture.replaced
                 )
-                if capture.stored is not None:
+                if capture.stored is not None and not unhandled.raised:
                     operation.store(capture.stored)
         except BaseException as exc:
             await block.__aexit__(type(exc), exc, exc.__traceback__)

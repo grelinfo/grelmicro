@@ -47,7 +47,7 @@ from grelmicro._wrapping import refuse_registered
 from grelmicro.errors import SettingsValidationError
 from grelmicro.resilience._match import Match, Matcher
 from grelmicro.resilience._outcome import Outcome
-from grelmicro.resilience.retry import WhenInput  # noqa: TC001
+from grelmicro.resilience.retry import WhenInput
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable

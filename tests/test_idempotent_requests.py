@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
 from fastapi import APIRouter, FastAPI, Response
 from fastapi.testclient import TestClient
 from litestar import Litestar, post
+from litestar import Response as LitestarResponse
+from litestar.exceptions import HTTPException, ValidationException
+from litestar.middleware import DefineMiddleware
 from litestar.testing import TestClient as LitestarTestClient
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
-from starlette.routing import Route, Router
+from starlette.routing import BaseRoute, Route, Router
 
 from grelmicro import (
     Grelmicro,
@@ -32,6 +36,7 @@ from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
 from grelmicro.integrations.starlette import install_middleware
 from grelmicro.providers.memory import MemoryProvider
+from tests.test_route_gate_litestar import Passing
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -52,6 +57,7 @@ HTTP_400_BAD_REQUEST = 400
 HTTP_401_UNAUTHORIZED = 401
 HTTP_500_INTERNAL_SERVER_ERROR = 500
 HTTP_200_OK = 200
+HTTP_402_PAYMENT_REQUIRED = 402
 
 
 def _charge_app(*components: Usable) -> tuple[FastAPI, Grelmicro]:
@@ -364,8 +370,77 @@ def test_litestar_wraps_the_middleware_inside_what_renders_errors() -> None:
     assert isinstance(binding.app.app, IdempotencyMiddleware)  # ty: ignore[unresolved-attribute]
 
 
-def test_litestar_never_replays_an_unhandled_exception() -> None:
-    """The framework's `500` is not a response the app chose to store."""
+class _Copying(Passing):
+    """An app middleware that hands the request on in a copy of its scope."""
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        await self.app({**scope}, receive, send)
+
+
+class _DeclinedError(Exception):
+    """An error the app answers with a handler of its own."""
+
+
+def _declined(request: Any, exc: Exception) -> LitestarResponse[str]:  # noqa: ANN401, ARG001
+    return LitestarResponse("declined", status_code=HTTP_402_PAYMENT_REQUIRED)
+
+
+def _crashed(request: Any, exc: Exception) -> LitestarResponse[str]:  # noqa: ANN401, ARG001
+    return LitestarResponse(
+        "crashed", status_code=HTTP_500_INTERNAL_SERVER_ERROR
+    )
+
+
+_DECLARED_IDEMPOTENCY = DefineMiddleware(
+    IdempotencyMiddleware,  # ty: ignore[invalid-argument-type]
+    idempotency=Idempotency("http"),
+)
+"""The idempotency middleware as an app declares it in its own stack."""
+
+_WITH_APP_MIDDLEWARE = [
+    pytest.param([Passing], id="app middleware"),
+    pytest.param([_Copying], id="copying app middleware"),
+    pytest.param([_DECLARED_IDEMPOTENCY], id="declared by the app"),
+]
+"""Middleware lists of a Litestar app that declares middleware of its own."""
+
+_ANY_MIDDLEWARE = [
+    pytest.param([], id="no app middleware"),
+    *_WITH_APP_MIDDLEWARE,
+]
+"""Middleware lists of a Litestar app, none included."""
+
+
+def _litestar_app(
+    handler: Any,  # noqa: ANN401
+    middleware: list[Any],
+    catch_all: dict[Any, Any] | None = None,
+) -> Litestar:
+    """Return an installed Litestar app serving `handler` behind `middleware`.
+
+    `catch_all` adds the exception handlers the app answers a crash with.
+    """
+    app = Litestar(
+        route_handlers=[handler],
+        middleware=middleware,
+        exception_handlers={_DeclinedError: _declined, **(catch_all or {})},
+    )
+    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MiddlewarePlacementWarning)
+        micro.install(app)
+    return app
+
+
+@pytest.mark.parametrize("middleware", _ANY_MIDDLEWARE)
+def test_litestar_never_replays_an_unhandled_exception(
+    middleware: list[Any],
+) -> None:
+    """The framework's `500` is not a response the app chose to store.
+
+    With app middleware, Litestar renders the crash inside the route,
+    before the middleware sees the exception.
+    """
     # Arrange
     calls: list[int] = []
 
@@ -375,9 +450,7 @@ def test_litestar_never_replays_an_unhandled_exception() -> None:
         msg = "kaboom"
         raise RuntimeError(msg)
 
-    micro = Grelmicro(uses=[MemoryProvider(), IdempotentRequests()])
-    app = Litestar(route_handlers=[boom])
-    micro.install(app)
+    app = _litestar_app(boom, middleware)
 
     # Act
     with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
@@ -390,6 +463,173 @@ def test_litestar_never_replays_an_unhandled_exception() -> None:
     assert "idempotent-replayed" not in second.headers
     # Ran again, exactly as it does on Starlette and FastAPI.
     assert calls == [1, 1]
+
+
+@pytest.mark.parametrize("middleware", _WITH_APP_MIDDLEWARE)
+@pytest.mark.parametrize(
+    "catch_all",
+    [
+        {Exception: _crashed},
+        {BaseException: _crashed},
+        {HTTP_500_INTERNAL_SERVER_ERROR: _crashed},
+    ],
+    ids=["exception handler", "base exception handler", "500 handler"],
+)
+def test_litestar_never_replays_a_crash_its_catch_all_renders(
+    middleware: list[Any], catch_all: dict[Any, Any]
+) -> None:
+    """A catch-all handler renders a crash, which stays unhandled."""
+    # Arrange
+    calls: list[int] = []
+
+    @post("/boom", status_code=200)
+    async def boom() -> dict[str, int]:
+        calls.append(1)
+        msg = "kaboom"
+        raise RuntimeError(msg)
+
+    app = _litestar_app(boom, middleware, catch_all)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        client.post("/boom", headers={HEADER: "abc"})
+        second = client.post("/boom", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.text == "crashed"
+    assert "idempotent-replayed" not in second.headers
+    assert calls == [1, 1]
+
+
+@pytest.mark.parametrize("middleware", _ANY_MIDDLEWARE)
+def test_litestar_replays_a_500_the_handler_returns(
+    middleware: list[Any],
+) -> None:
+    """A `500` the handler returned is its answer for the key."""
+    # Arrange
+    calls: list[int] = []
+
+    @post("/fail")
+    async def fail() -> LitestarResponse[str]:
+        calls.append(1)
+        return LitestarResponse(
+            "failed", status_code=HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+    app = _litestar_app(fail, middleware)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        client.post("/fail", headers={HEADER: "abc"})
+        second = client.post("/fail", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert second.text == "failed"
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("middleware", _WITH_APP_MIDDLEWARE)
+@pytest.mark.parametrize(
+    ("raised", "status"),
+    [
+        (HTTPException(status_code=409, detail="busy"), 409),
+        (ValidationException(detail="bad"), 400),
+        (_DeclinedError(), HTTP_402_PAYMENT_REQUIRED),
+    ],
+    ids=["http exception", "validation exception", "handled exception"],
+)
+def test_litestar_with_app_middleware_replays_a_handled_exception(
+    middleware: list[Any], raised: Exception, status: int
+) -> None:
+    """An exception the app answers on purpose is the handler's answer.
+
+    An `HTTPException`, its subclasses, and an exception the app registered
+    a handler for are stored and replayed like a returned response.
+    """
+    # Arrange
+    calls: list[int] = []
+
+    @post("/charge", status_code=200)
+    async def charge() -> dict[str, int]:
+        calls.append(1)
+        raise raised
+
+    app = _litestar_app(charge, middleware)
+
+    # Act
+    with LitestarTestClient(app=app) as client:
+        client.post("/charge", headers={HEADER: "abc"})
+        second = client.post("/charge", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.status_code == status
+    assert second.headers["idempotent-replayed"] == "true"
+    assert calls == [1]
+
+
+def _starlette_app(framework: str) -> Starlette:
+    """Return an installed Starlette or FastAPI app that crashes or fails."""
+
+    async def boom(request: Request) -> JSONResponse:  # noqa: ARG001
+        calls.append("boom")
+        msg = "kaboom"
+        raise RuntimeError(msg)
+
+    async def fail(request: Request) -> JSONResponse:  # noqa: ARG001
+        calls.append("fail")
+        return JSONResponse(
+            {"failed": True}, status_code=HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+    calls: list[str] = []
+    routes: list[BaseRoute] = [
+        Route("/boom", boom, methods=["POST"]),
+        Route("/fail", fail, methods=["POST"]),
+    ]
+    app = (
+        FastAPI(routes=routes)
+        if framework == "fastapi"
+        else Starlette(routes=routes)
+    )
+    app.state.calls = calls
+    Grelmicro(uses=[MemoryProvider(), IdempotentRequests()]).install(app)
+    return app
+
+
+@pytest.mark.parametrize("framework", ["starlette", "fastapi"])
+def test_an_unhandled_exception_stores_nothing(framework: str) -> None:
+    """A crash runs the handler again on the retry."""
+    # Arrange
+    app = _starlette_app(framework)
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.post("/boom", headers={HEADER: "abc"})
+        second = client.post("/boom", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert "idempotent-replayed" not in second.headers
+    assert app.state.calls == ["boom", "boom"]
+
+
+@pytest.mark.parametrize("framework", ["starlette", "fastapi"])
+def test_a_500_the_handler_returns_is_replayed(framework: str) -> None:
+    """A returned `500` is the handler's answer for the key."""
+    # Arrange
+    app = _starlette_app(framework)
+
+    # Act
+    with TestClient(app) as client:
+        client.post("/fail", headers={HEADER: "abc"})
+        second = client.post("/fail", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert second.headers["idempotent-replayed"] == "true"
+    assert app.state.calls == ["fail"]
 
 
 def test_litestar_replays_a_repeated_key() -> None:
@@ -882,9 +1122,8 @@ def test_security_probe_handles_an_asgi_middleware_loop() -> None:
 
 def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:
     """Wired at construction is the better place, and one is enough."""
-    # Arrange
-    from litestar.middleware import DefineMiddleware  # noqa: PLC0415
 
+    # Arrange
     @post("/charge", status_code=200)
     async def charge() -> dict[str, int]:
         return {"amount": 100}
