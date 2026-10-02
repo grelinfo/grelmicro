@@ -658,9 +658,9 @@ def _wrapped_mount() -> Any:  # noqa: ANN401
     return Starlette(routes=[Mount("/t/{tenant}", app=wrapped)])
 
 
-def _fastapi_mounting(inner: Any) -> Any:  # noqa: ANN401
+def _fastapi_mounting(inner: Any, at: str = "/t/{tenant}") -> Any:  # noqa: ANN401
     app = FastAPI()
-    app.mount("/t/{tenant}", inner)
+    app.mount(at, inner)
     return app
 
 
@@ -704,6 +704,21 @@ def _litestar_files() -> Any:  # noqa: ANN401
             "/t/{tenant}/items/{item_id}",
         ),
         (_litestar_files, "/files/a/b.txt", "/files/{path}"),
+        (
+            lambda: Starlette(routes=[Mount("", app=_litestar_shop())]),
+            "/items/3",
+            "/items/{item_id}",
+        ),
+        (
+            lambda: _fastapi_mounting(_litestar_shop(), at=""),
+            "/items/3",
+            "/items/{item_id}",
+        ),
+        (
+            lambda: Starlette(routes=[Mount("/s", app=_litestar_files())]),
+            "/s/files/a.txt",
+            "/s/files/{path}",
+        ),
     ],
     ids=[
         "app-wrapped-in-middleware",
@@ -711,6 +726,9 @@ def _litestar_files() -> Any:  # noqa: ANN401
         "fastapi-asgi-app",
         "litestar-app",
         "litestar-asgi-app",
+        "litestar-app-at-the-root",
+        "litestar-app-at-the-fastapi-root",
+        "litestar-asgi-app-under-a-mount",
     ],
 )
 async def test_a_mounted_app_reads_as_the_mount_template(

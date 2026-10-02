@@ -1457,11 +1457,12 @@ def starlette_route(  # noqa: C901
 
     def through_mounts(
         routes: Sequence[Any], scope: MutableMapping[str, Any]
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str | None, str | None]:
         """Return the templates of the mounts `scope` goes through, and of its route.
 
         Matches as Starlette's router does: the first full match, else the
-        first partial one. The route is `None` when nothing inside the last
+        first partial one. The mounts are `None` when the request goes
+        through none. The route is `None` when nothing inside the last
         mount matches, or when that mount holds an app of another framework.
         """
         found = None
@@ -1473,10 +1474,10 @@ def starlette_route(  # noqa: C901
             if match is Match.PARTIAL and found is None:
                 found = candidate, child
         if found is None:
-            return "", None
+            return None, None
         candidate, child = found
         if not isinstance(candidate, (Mount, Host)):
-            return "", template(scope, candidate)
+            return None, template(scope, candidate)
         prefix = (
             candidate.path_format.removesuffix("/{path}")
             if isinstance(candidate, Mount)
@@ -1490,7 +1491,7 @@ def starlette_route(  # noqa: C901
         ):
             return prefix, None
         mounts, leaf = through_mounts(inner, {**scope, **child})
-        return prefix + mounts, leaf
+        return prefix + (mounts or ""), leaf
 
     def start(at: str) -> dict[str, Any]:
         return {**scope, "path": at, "root_path": root_path, "path_params": {}}
@@ -1501,17 +1502,19 @@ def starlette_route(  # noqa: C901
             return None
         toggled = path.removesuffix("/") if path.endswith("/") else path + "/"
         mounts, leaf = through_mounts(router.routes, start(toggled))
-        return None if leaf is None else mounts + leaf
+        return None if leaf is None else (mounts or "") + leaf
 
     matched = scope.get("route")
-    if scope.get("root_path", "") == root_path:
-        return redirected() if matched is None else template(scope, matched)
+    route = matched is not None and not isinstance(matched, Mount)
+    if route and scope.get("root_path", "") == root_path:
+        return template(scope, matched)
     mounts, walked = through_mounts(router.routes, start(path))
-    if matched is not None and not isinstance(matched, Mount):
+    if mounts is None:
+        return redirected() if matched is None else template(scope, matched)
+    if route:
         walked = template(scope, matched)
-    elif walked is None and litestar_route_handler(scope) is not None:
-        owned = scope.get("path_template")
-        walked = owned if isinstance(owned, str) else None
+    elif walked is None:
+        walked = _litestar_template(scope)
     if walked is not None:
         return mounts + walked
     return redirected() or mounts + "/{path}"
