@@ -7,8 +7,6 @@ the OpenAPI schema and the health router.
 
 import inspect
 import logging
-import os
-import re
 import weakref
 from collections.abc import Callable, Collection, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
@@ -32,7 +30,6 @@ try:
     from opentelemetry import trace as _otel_trace
     from starlette.middleware import Middleware
     from starlette.types import ASGIApp, Receive, Scope, Send
-    from starlette.websockets import WebSocketDisconnect as _WebSocketDisconnect
 
     HAS_FASTAPI = True
 except ImportError:  # pragma: no cover - the reimport test walks this
@@ -93,6 +90,11 @@ from grelmicro.http._requirement import (
 from grelmicro.http._response_cache import declare_cached
 from grelmicro.idempotency import Idempotency
 from grelmicro.integrations._fastapi_internals import telemetry_of
+from grelmicro.integrations._request_telemetry import (
+    exceptions_on_spans,
+    excluding,
+    normal_close,
+)
 from grelmicro.integrations._route_gate import declarations_of, gate_routes
 from grelmicro.integrations.starlette import (
     HTTP_422_UNPROCESSABLE_CONTENT,
@@ -100,7 +102,7 @@ from grelmicro.integrations.starlette import (
     error_response,
     is_bound,
 )
-from grelmicro.integrations.starlette import install as _install_starlette
+from grelmicro.integrations.starlette import _wire as _wire_starlette
 from grelmicro.integrations.starlette import (
     install_error_responses as _install_error_responses_starlette,
 )
@@ -174,7 +176,7 @@ def install(
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
     """
-    _install_starlette(app, micro, ambient=ambient)
+    _wire_starlette(app, micro, ambient=ambient)
     _wire_telemetry(app, micro)
 
 
@@ -299,13 +301,13 @@ def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:
     kinds = {getattr(component, "kind", None) for component in micro.components}
     if "trace" in kinds or "metrics" in kinds:
         settings["auto_configure"] = False
-        settings["exclude"] = _excluding(settings["exclude"])
+        settings["exclude"] = excluding("fastapi", settings["exclude"])
     trace = next((c for c in micro.components if isinstance(c, Trace)), None)
     if trace is None:
         return
     if not (trace.active and is_selected("fastapi", trace.instrument)):
         settings["tracing"] = False
-    elif settings["tracing"] and _exceptions_on_spans():
+    elif settings["tracing"] and exceptions_on_spans():
         entry = Middleware(_ExceptionEvents)
         app.user_middleware.insert(0, entry)
         _keep_watching_outside(app, [entry])
@@ -313,69 +315,6 @@ def _wire_telemetry(app: FastAPI, micro: Grelmicro) -> None:
 
 _WIRED: Final[weakref.WeakSet[FastAPI]] = weakref.WeakSet()
 """Apps whose telemetry is wired. The first `Grelmicro` installed wires it."""
-
-
-def _excluding(
-    app_exclude: Callable[[Scope], bool] | None,
-) -> Callable[[Scope], bool] | None:
-    """Return the app's `exclude`, also skipping URLs the environment names.
-
-    `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`, or `OTEL_PYTHON_EXCLUDED_URLS` when
-    it is unset, holds comma-separated regular expressions. A request whose
-    full URL one of them matches is neither traced nor measured.
-    """
-    listed = os.environ.get(
-        "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS",
-        os.environ.get("OTEL_PYTHON_EXCLUDED_URLS", ""),
-    )
-    patterns = [entry.strip() for entry in listed.split(",") if entry.strip()]
-    if not patterns:
-        return app_exclude
-    excluded = re.compile("|".join(patterns))
-
-    def exclude(scope: Scope) -> bool:
-        if app_exclude is not None and app_exclude(scope):
-            return True
-        return excluded.search(_url_of(scope)) is not None
-
-    return exclude
-
-
-def _url_of(scope: Scope) -> str:
-    """Return the request's full URL without its query, as it was sent."""
-    host = next(
-        (
-            value.decode("latin-1")
-            for name, value in scope["headers"]
-            if name == b"host"
-        ),
-        None,
-    )
-    if host is None:
-        address, port = scope.get("server") or _NO_SERVER
-        host = address if port == _HTTP_PORT else f"{address}:{port}"
-    return f"{scope.get('scheme', 'http')}://{host}{scope.get('path', '')}"
-
-
-_NO_SERVER: Final = ("0.0.0.0", 80)  # noqa: S104
-"""The server address a request without a `Host` header or a server reads as."""
-
-_HTTP_PORT: Final = 80
-"""The port a URL leaves out."""
-
-
-def _exceptions_on_spans() -> bool:
-    """Return whether exceptions go on spans, per `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN`.
-
-    `logs` moves them to the logs signal. `logs/dup` and no value keep them
-    on spans.
-    """
-    choice = os.environ.get("OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN", "")
-    return choice.strip().lower() != "logs"
-
-
-_NORMAL_CLOSE: Final = frozenset({1000, 1001})
-"""WebSocket close codes for a connection that ended as it should."""
 
 
 class _ExceptionEvents:
@@ -395,10 +334,7 @@ class _ExceptionEvents:
         try:
             await self.app(scope, receive, send)
         except Exception as exc:
-            if not (
-                isinstance(exc, _WebSocketDisconnect)
-                and exc.code in _NORMAL_CLOSE
-            ):
+            if not normal_close(exc):
                 _otel_trace.get_current_span().record_exception(exc)
             raise
 

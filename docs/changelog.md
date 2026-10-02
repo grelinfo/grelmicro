@@ -74,6 +74,9 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ Starlette and Litestar requests get the request span and the HTTP server metrics FastAPI records, exported by `Trace` and `Metrics`. ([#964](https://github.com/grelinfo/grelmicro/issues/964))
+* ✨ `Trace(instrument=...)` takes `"starlette"` and `"litestar"`, and `OTEL_PYTHON_STARLETTE_EXCLUDED_URLS` and `OTEL_PYTHON_LITESTAR_EXCLUDED_URLS` leave URLs out. ([#964](https://github.com/grelinfo/grelmicro/issues/964))
+* ✨ A FastAPI app mounted under a Starlette app is one request span, named by its full route. ([#964](https://github.com/grelinfo/grelmicro/issues/964))
 * ✨ `Metrics` exports `http.server.request.duration` and `http.server.active_requests` for every FastAPI request, with or without `Trace`. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * ✨ `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN=logs` keeps an unhandled exception off the FastAPI request span. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * ✨ `RateLimitedRequests(flood=...)` limits every request before routing, a URL no route answers included, with a budget of its own. A request a route refuses spends no route limit. ([#943](https://github.com/grelinfo/grelmicro/issues/943))
@@ -118,6 +121,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 `Trace` leaves a framework's own OpenTelemetry instrumentor out of its library sweep only when `micro.install(app)` wired an app of that framework. ([#968](https://github.com/grelinfo/grelmicro/pull/968))
 * 🐛 A FastAPI app with an OTLP endpoint in the environment no longer sets up a second exporter beside grelmicro's. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` and `OTEL_TRACES_EXPORTER=console` no longer fail its startup. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 The published floors install and work. pydantic-settings 2.5 failed at import, the Redis instrumentation crashed before 0.54b0, and Pydantic 2.12.0 to 2.12.3 read some environment variables in the wrong order and percent-encoded URL credentials. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 A sliding window refuses a request that arrives before its slot. With 10 per second, an 11th request was admitted up to 50 ms early. ([#957](https://github.com/grelinfo/grelmicro/pull/957))

@@ -42,6 +42,7 @@ from grelmicro._diagnostics import (
 )
 from grelmicro._discovery import (
     Integration,
+    framework_of,
     integration_names,
     load_integration,
 )
@@ -384,6 +385,8 @@ class Grelmicro:
         self._items: list[AbstractAsyncContextManager[object]] = []
         self._installed_on: WeakSet[object] = WeakSet()
         """Apps with no `state` this app already wired, see `_install_marks`."""
+        self._frameworks: set[str] = set()
+        """The frameworks of the apps `install` wired, whose requests it records."""
         self._by_key: dict[tuple[str, str], Component] = {}
         self._resolved: dict[tuple[str, str], Component] = {}
         """`_by_key` plus `(kind, "default")` for the sole entry of a kind
@@ -1295,6 +1298,9 @@ class Grelmicro:
         if self._installed(app):
             return
         integration.install(app, self, ambient=ambient)
+        framework = framework_of(app)
+        if framework is not None:  # pragma: no branch
+            self._frameworks.add(framework)
         errors = next(
             (
                 component
@@ -1560,9 +1566,10 @@ class Grelmicro:
         )
         validate_directive(directive, known)
         # A managed provider owns its library (Redis per client, Postgres ->
-        # asyncpg), and the framework integration owns FastAPI. Exclude both
-        # from the sweep so the same calls are not instrumented twice.
-        exclude = KNOWN_FRAMEWORKS | {
+        # asyncpg), and an installed app's integration owns its framework.
+        # Exclude both from the sweep so the same calls are not instrumented
+        # twice.
+        exclude = self._frameworks | {
             provider_library_name(provider.short_name) for provider in providers
         }
         instrumented = instrument_providers(

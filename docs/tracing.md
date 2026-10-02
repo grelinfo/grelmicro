@@ -157,7 +157,7 @@ configure()
 
 ## Automatic instrumentation
 
-`@instrument` traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, `Trace` exports the request spans FastAPI records and instruments the providers it manages and **every other library you use** that ships an OpenTelemetry instrumentor.
+`@instrument` traces your own functions. To trace incoming HTTP requests and database or cache calls without touching every handler, `Trace` exports the request spans of your FastAPI, Starlette or Litestar app and instruments the providers it manages and **every other library you use** that ships an OpenTelemetry instrumentor.
 
 Install the instrumentor packages alongside the OpenTelemetry SDK:
 
@@ -165,7 +165,7 @@ Install the instrumentor packages alongside the OpenTelemetry SDK:
 pip install "grelmicro[opentelemetry,instrumentation]"
 ```
 
-The `instrumentation` extra bundles the Redis and asyncpg instrumentors. FastAPI traces its own requests, so it needs none. **The set of installed `opentelemetry-instrumentation-*` packages defines what gets traced** : add `opentelemetry-instrumentation-sqlalchemy` or `opentelemetry-instrumentation-httpx` and `Trace` wires them too, with no code change. This matters when your app uses its own database client (a SQLAlchemy or asyncpg engine) instead of a grelmicro `PostgresProvider` : the spans appear all the same.
+The `instrumentation` extra bundles the Redis and asyncpg instrumentors. Requests need none: FastAPI traces its own, and grelmicro traces Starlette and Litestar. **The set of installed `opentelemetry-instrumentation-*` packages defines what gets traced** : add `opentelemetry-instrumentation-sqlalchemy` or `opentelemetry-instrumentation-httpx` and `Trace` wires them too, with no code change. This matters when your app uses its own database client (a SQLAlchemy or asyncpg engine) instead of a grelmicro `PostgresProvider` : the spans appear all the same.
 
 Then `Trace` does the rest. Request spans wrap each handler, and database, cache, and outbound HTTP spans nest under them, all bound to the app's tracer provider:
 
@@ -187,7 +187,7 @@ What is covered:
 
 | Target | Spans | Notes |
 |---|---|---|
-| FastAPI | Incoming HTTP requests and WebSocket connections | recorded by FastAPI, see [FastAPI requests](#fastapi-requests) |
+| FastAPI, Starlette, Litestar | Incoming HTTP requests and WebSocket connections | see [Requests](#requests) |
 | Redis | Cache and lock commands | per-client when grelmicro owns the client, cluster included |
 | asyncpg | Queries | covers a grelmicro `PostgresProvider` and any app-owned asyncpg or SQLAlchemy-on-asyncpg engine |
 | Any other installed instrumentor | Per that library | e.g. `sqlalchemy`, `httpx`, `psycopg` : install the package and it is wired |
@@ -197,15 +197,15 @@ What is covered:
 !!! note "asyncpg and SQLAlchemy together"
     If both the asyncpg and SQLAlchemy instrumentors are installed they would double-span the same queries (SQLAlchemy runs through asyncpg). `Trace` keeps asyncpg and drops SQLAlchemy with a warning. Pass `instrument={"asyncpg": False}` to trace at the SQLAlchemy layer instead.
 
-### FastAPI requests
+### Requests
 
-FastAPI records a span for every request and WebSocket connection, named by its route, such as `GET /v1/items/{item_id}`. `micro.install(app)` hands those spans to `Trace` and the request metrics to `Metrics`:
+A FastAPI, Starlette or Litestar app gets a span for every request and WebSocket connection, named by its route, such as `GET /v1/items/{item_id}`. `micro.install(app)` exports those spans through `Trace` and the request metrics through `Metrics`. FastAPI records them itself. On Starlette and Litestar, grelmicro records the same spans and metrics, with the same names and attributes.
 
-- `Trace(instrument={"fastapi": False})` turns the request spans off. The request metrics stay. A `Trace` with no endpoint turns them off too.
+- `Trace(instrument={"fastapi": False})` turns the request spans off, and so do `"starlette"` and `"litestar"`. The request metrics stay. A `Trace` with no endpoint turns them off too.
 - An exception the app does not handle is an `exception` event on the request span. Set `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN=logs` to leave it off the span.
-- `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`, or `OTEL_PYTHON_EXCLUDED_URLS` when it is unset, lists comma-separated regular expressions. A request whose full URL, such as `http://api.example/healthz`, matches one is neither traced nor measured.
-- With `Trace` or `Metrics` registered, FastAPI sets up no exporters of its own from `OTEL_EXPORTER_OTLP_*`. `Trace` exports the spans and `Metrics` the metrics. With `Metrics` alone, register `Trace` to export the spans. FastAPI's own log records are not exported.
+- `OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`, `OTEL_PYTHON_STARLETTE_EXCLUDED_URLS` or `OTEL_PYTHON_LITESTAR_EXCLUDED_URLS`, or `OTEL_PYTHON_EXCLUDED_URLS` when it is unset, lists comma-separated regular expressions. A request whose full URL, such as `http://api.example/healthz`, matches one is neither traced nor measured.
+- A request to a mounted app is one span, recorded by the app you installed, and its route keeps the mount prefix, such as `GET /tenants/{tenant}/items/{item_id}`. The installed app's `instrument` name decides for the mounted app too.
 
-Settings you pass to `FastAPI(telemetry={...})` apply. grelmicro only turns things off, and runs your `exclude` before its own.
+On FastAPI, with `Trace` or `Metrics` registered, FastAPI sets up no exporters of its own from `OTEL_EXPORTER_OTLP_*`. `Trace` exports the spans and `Metrics` the metrics. With `Metrics` alone, register `Trace` to export the spans. FastAPI's own log records are not exported. Settings you pass to `FastAPI(telemetry={...})` apply. grelmicro only turns things off, and runs your `exclude` before its own.
 
 Under a FastStream app, `micro.install(app)` also wires the broker's OpenTelemetry telemetry middleware, so consumed and published messages get spans, on top of the provider and library spans. It is selected by the same directive (`faststream`) and is a no-op when the broker's faststream telemetry support is not installed.

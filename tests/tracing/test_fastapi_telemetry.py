@@ -22,7 +22,6 @@ from fastapi.testclient import TestClient
 from opentelemetry import metrics, trace
 from opentelemetry._logs import _internal as logs_internal
 from opentelemetry.metrics import _internal as metrics_internal
-from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
@@ -232,20 +231,6 @@ def test_metrics_alone_keeps_fastapi_from_exporting(
     assert 'http_route="/v1/items/{item_id}"' in durations
     [server] = _server_spans(global_spans.get_finished_spans())
     assert server.name == "GET /v1/items/{item_id}"
-
-
-@pytest.fixture
-def global_spans() -> Iterator[InMemorySpanExporter]:
-    """Install a global tracer provider of the app's own, and capture it."""
-    saved = trace._TRACER_PROVIDER
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    trace._TRACER_PROVIDER = provider
-    try:
-        yield exporter
-    finally:
-        trace._TRACER_PROVIDER = saved
 
 
 def test_an_inactive_trace_turns_request_spans_off(

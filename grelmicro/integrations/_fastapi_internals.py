@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 __all__ = [
     "FRESH_KEY",
     "ROUTERS",
+    "TELEMETRY_KEY",
     "candidates",
     "context_of",
     "copy_of",
@@ -65,6 +66,12 @@ FRESH_KEY: Final = "grelmicro.fresh"
 
 The checks of the includes the router matched it against, or `True` once
 a mount's door brought everything under it up to date.
+"""
+
+TELEMETRY_KEY: Final = "fastapi.telemetry"
+"""Where FastAPI marks a request its telemetry records.
+
+A FastAPI app that finds the key in the scope records nothing of its own.
 """
 
 _CANDIDATES: Final = "effective_candidates"
