@@ -1,42 +1,22 @@
 [project]
 name = "grelmicro"
 version = "0.0.0.dev0"
-description = "grelmicro is a lightweight toolkit for building Python applications that need to coordinate work across processes"
+description = "Async-first Python toolkit for microservices, with tasks, coordination, resilience, caching and observability"
 license = "MIT"
 authors = [{ name = "Loïc Gremaud", email = "grelinfo@gmail.com"}]
 dynamic = ["readme"]
 keywords = [
     "microservice",
-    "microservice-patterns",
-    "modular-monolith",
-    "self-contained-systems",
-    "cloud-native",
-    "kubernetes",
-    "containerized",
-    "distributed-systems",
+    "asyncio",
+    "fastapi",
+    "litestar",
+    "faststream",
     "distributed-lock",
     "leader-election",
     "rate-limiter",
     "circuit-breaker",
-    "cache",
-    "health-checks",
     "task-scheduler",
-    "logging",
-    "tracing",
     "opentelemetry",
-    "redis",
-    "postgresql",
-    "fastapi",
-    "litestar",
-    "faststream",
-    "asyncio",
-    "async",
-    "pydantic",
-    "jwt",
-    "jwks",
-    "oidc",
-    "security",
-    "rust",
 ]
 
 classifiers = [
