@@ -3,6 +3,7 @@
 import asyncio
 import contextvars
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from time import monotonic
 from types import TracebackType
 from typing import Any, Self
@@ -94,7 +95,7 @@ def test_sliding_window_properties() -> None:
     assert rl.name == "auth"
     assert isinstance(rl.config, SlidingWindowConfig)
     assert rl.config.limit == LIMIT
-    assert rl.config.window == WINDOW
+    assert rl.config.window == timedelta(seconds=WINDOW)
 
 
 def test_token_bucket_properties() -> None:

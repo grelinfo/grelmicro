@@ -104,12 +104,13 @@ Two words because they are two operations. Adding a route to the schema and
 annotating someone else's are not the same act, and a component that serves
 no route has nothing to include.
 
-## A quota window is whole seconds or a `timedelta`
+## A stored duration is whole seconds or a `timedelta`
 
-A window that defines a quota takes an `int` of seconds or a `timedelta`,
-never a float. `RateLimiter.sliding_window("api", limit=100, window=60)` is
-the common case, and `window=timedelta(milliseconds=500)` covers a window
-under a second.
+A duration that grelmicro stores or enforces takes an `int` of seconds or a
+`timedelta`, never a float. A TTL, a lease, a quota window, a ban and a task
+schedule are such durations. `RateLimiter.sliding_window("api", limit=100,
+window=60)` is the common case, and `window=timedelta(milliseconds=500)`
+covers a window under a second.
 
 ```python
 from datetime import timedelta
@@ -120,14 +121,37 @@ RateLimiter.sliding_window("api", limit=100, window=60)
 RateLimiter.sliding_window("burst", limit=10, window=timedelta(milliseconds=500))
 ```
 
-Both are whole microseconds from the start, so the limiter compares
-integers and every decision is exact. A float such as `1.001` is
-`1000999.9999999999` microseconds, and a limiter that took it would have to
-guess what was meant. From text, such as an environment variable, a window
-reads whole seconds (`"60"`) or an ISO 8601 duration (`"PT0.5S"`).
+Both are whole microseconds from the start, so a backend stores exactly what
+was asked. A float such as `1.001` is `1000999.9999999999` microseconds, and
+a component that took it would have to guess what was meant. From text, such
+as an environment variable, a duration reads whole seconds (`"60"`) or an
+ISO 8601 duration (`"PT0.5S"`). A duration is greater than zero and at most
+100 years. Once validated, the config holds a `timedelta`.
 
-A window is at most 100 years, so the time a backend stores stays an exact
-integer in every backend.
+A wait, a timeout passed to I/O and the sleep between two runs of a
+background loop stay a float of seconds, the type `asyncio` and HTTP clients
+take.
 
-A wait or a timeout passed to I/O stays a float of seconds, the type
-`asyncio` and HTTP clients take.
+| Parameter | Type | Moved |
+| --- | --- | --- |
+| `SlidingWindowConfig.window` | `int \| timedelta` | yes |
+| `ClientBansConfig.window`, `.duration` | `int \| timedelta` | not yet |
+| `ConsecutiveCountConfig.reset_timeout` | `int \| timedelta` | not yet |
+| `LockConfig.lease_duration`, `ReadWriteLockConfig.lease_duration` | `int \| timedelta` | not yet |
+| `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | not yet |
+| `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | not yet |
+| `OutboxConfig.lease_duration`, `.keep_delivered` | `int \| timedelta` | not yet |
+| `TTLCacheConfig.ttl`, `cached(ttl, stale_ttl)` | `int \| timedelta` | not yet |
+| `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl` | `int \| timedelta` | not yet |
+| `DuplicateFilterConfig.ttl` | `int \| timedelta` | not yet |
+| `HealthChecksConfig.cache_ttl` | `int \| timedelta` | not yet |
+| `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | not yet |
+| `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | not yet |
+| `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | not yet |
+| cron `misfire_grace_seconds`, renamed `misfire_grace` | `int \| timedelta` | not yet |
+| `max_wait` on the rate limiter and the bulkhead | `float` | stays |
+| `retry_interval`, `error_interval`, `poll_interval`, `export_interval` | `float` | stays |
+| `timeout`, `wait_timeout`, `backend_timeout`, `request_timeout` | `float` | stays |
+| `shutdown_timeout`, `export_timeout`, `command_timeout` | `float` | stays |
+| `TimeoutConfig.seconds` | `float` | stays |
+| `RetryConfig.max_seconds`, backoff delays, outbox `retry_base` and `retry_max` | `float` | stays |
