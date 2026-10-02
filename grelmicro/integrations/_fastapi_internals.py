@@ -1,12 +1,12 @@
-"""FastAPI's router as the route gates read it, its private parts included.
+"""FastAPI's router as the route gates read it, and its telemetry settings.
 
 FastAPI dispatches a route of an included router through a context it
 builds for each include: an `APIRoute` or a frontend group runs as itself
 with the context in the scope, and any other route runs as a copy the
 context holds. Frontend routes are matched after every other route. Every
-private part of FastAPI the gates rely on is read here alone, and
-`require(router)` fails install when a FastAPI release moved one. Without
-FastAPI installed, nothing here is FastAPI's.
+private part of FastAPI grelmicro relies on is read here alone.
+`require(router)` and `telemetry_of(app)` fail install when a FastAPI
+release moved one. Without FastAPI installed, nothing here is FastAPI's.
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ __all__ = [
     "path_of",
     "require",
     "router_of",
+    "telemetry_of",
     "track",
     "watch",
 ]
@@ -68,6 +69,32 @@ a mount's door brought everything under it up to date.
 
 _CANDIDATES: Final = "effective_candidates"
 _LOW_PRIORITY: Final = "effective_low_priority_routes"
+
+
+def telemetry_of(app: object) -> dict[str, Any]:
+    """Return the telemetry settings FastAPI reads for `app`.
+
+    FastAPI reads them at startup and on every request, so a change made
+    after the app is built applies.
+
+    Raises:
+        RuntimeError: When FastAPI keeps no such settings.
+    """
+    settings = getattr(app, "_telemetry", None)
+    native = getattr(app, "_native_telemetry", None)
+    if getattr(native, "config", None) is not settings:
+        raise RuntimeError(_TELEMETRY_MOVED)
+    if not isinstance(settings, dict):
+        raise RuntimeError(_TELEMETRY_MOVED)  # noqa: TRY004
+    return settings
+
+
+_TELEMETRY_MOVED: Final = (
+    "FastAPI no longer reads its telemetry settings from `_telemetry`, which "
+    "micro.install(app) sets. Install FastAPI 0.142.1 or a later release "
+    "grelmicro supports."
+)
+"""Why install fails on a FastAPI release that moved its telemetry settings."""
 
 
 def require(router: object) -> None:

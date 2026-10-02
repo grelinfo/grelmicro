@@ -44,7 +44,7 @@ grelmicro is modular. Install only the extras you need.
 | `litestar` | `litestar` for the Litestar integration. | All platforms. |
 | `faststream` | `faststream` for the FastStream integration. | All platforms. |
 | `opentelemetry` | OpenTelemetry API and SDK for the `Trace` and `Metrics` components. | All platforms. |
-| `instrumentation` | OpenTelemetry instrumentation packages (FastAPI, Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
+| `instrumentation` | OpenTelemetry instrumentation packages (Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
 | `structlog` | `structlog` as an alternative logging backend. | All platforms. |
 | `yaml` | `pyyaml` for YAML sources in `ExternalConfig`. | All platforms. |
 | `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.14, free-threaded 3.14t included. Elsewhere it builds from source and needs a Rust toolchain. |

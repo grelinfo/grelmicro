@@ -3,8 +3,14 @@
 ## Unreleased
 
 ### Breaking
+* 💥 On FastAPI, FastAPI itself records the request spans and metrics. They follow the OpenTelemetry semantic conventions 1.44 instead of 1.11. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* 💥 On FastAPI, `http.server.duration` in milliseconds becomes `http.server.request.duration` in seconds. The request and response body size metrics are gone. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* 💥 On FastAPI, a request span has `fastapi.dependencies`, `fastapi.endpoint` and `fastapi.serialization` children instead of `send` and `receive`. A WebSocket span is named like `WS /ws/{room}`. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* 💥 On FastAPI, `OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_*` and `OTEL_SEMCONV_STABILITY_OPT_IN` no longer apply to requests. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* 💥 With `Trace` or `Metrics` registered, FastAPI no longer exports anything itself. Its log records are not exported. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* 💥 FastAPI 0.142.1, OpenTelemetry 1.44 and the instrumentations 0.65b0 are the new floors. `opentelemetry-instrumentation-fastapi` leaves the `instrumentation` extra. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 💥 grelmicro and `grelmicro-core` require Python 3.14. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
-* 💥 Raise the dependency floors: Pydantic 2.12.4, pydantic-settings 2.12.0, FastDepends 3.0.5, Starlette 1.0, lightkube 1.0, redis 6.0, asyncpg 0.31, orjson 3.11.1, uvloop 0.22.1, PyYAML 6.0.3, OpenTelemetry 1.33 and its instrumentations 0.54b0. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* 💥 Raise the dependency floors: Pydantic 2.12.4, pydantic-settings 2.12.0, FastDepends 3.0.5, Starlette 1.0, lightkube 1.0, redis 6.0, asyncpg 0.31, orjson 3.11.1, uvloop 0.22.1 and PyYAML 6.0.3. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 💥 A sliding window counts time in whole microseconds, on every backend, so each decision is exact. Its stored state moves to new keys (`gcra_us:`) and new Postgres functions, so limits start empty after the upgrade. A slot is its window divided by the limit, truncated to the microsecond, and a window that gives each request less than a microsecond is refused. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
 * 💥 A sliding window `window` takes whole seconds or a `timedelta`, up to 100 years. A float is refused. Write `window=timedelta(milliseconds=500)` for a window under a second. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -67,6 +73,8 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `Metrics` exports `http.server.request.duration` and `http.server.active_requests` for every FastAPI request, with or without `Trace`. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
+* ✨ `OTEL_SEMCONV_EXCEPTION_SIGNAL_OPT_IN=logs` keeps an unhandled exception off the FastAPI request span. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * ✨ `RateLimitedRequests(flood=...)` limits every request before routing, a URL no route answers included, with a budget of its own. A request a route refuses spends no route limit. ([#943](https://github.com/grelinfo/grelmicro/issues/943))
 * ✨ The FastAPI integration ships `install_route_gate(app, gate)` and `route_declarations(app)`. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * ✨ On FastAPI, a route is gated under each include with what that include adds, and so are frontend routes, websocket routes and the routes an include copies. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -109,6 +117,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 A FastAPI app with an OTLP endpoint in the environment no longer sets up a second exporter beside grelmicro's. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` and `OTEL_TRACES_EXPORTER=console` no longer fail its startup. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 The published floors install and work. pydantic-settings 2.5 failed at import, the Redis instrumentation crashed before 0.54b0, and Pydantic 2.12.0 to 2.12.3 read some environment variables in the wrong order and percent-encoded URL credentials. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 A sliding window refuses a request that arrives before its slot. With 10 per second, an 11th request was admitted up to 50 ms early. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
 * 🐛 The `RateLimit` and `X-RateLimit-Reset` headers no longer state one second too many until the quota is back. A `20` second window could report `t=21`. ([#950](https://github.com/grelinfo/grelmicro/issues/950))
