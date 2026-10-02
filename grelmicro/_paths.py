@@ -1363,9 +1363,9 @@ def route_template(
     read only when the app in `scope["app"]` owns the handler in the scope.
     On FastAPI, a route reached through included routers reads the
     template with every router prefix. A refused request reads the route
-    its refusal named. A request that went through a Starlette mount reads
-    as `starlette_route` reads it, with the template of each mount, and
-    `status` names the route a slash redirect sends it to.
+    its refusal named. Any other request that went through a Starlette
+    mount reads as `starlette_route` reads it, with the template of each
+    mount, and `status` names the route a slash redirect sends it to.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1377,22 +1377,21 @@ def route_template(
         return scope[ROUTE_KEY]
     root = scope.get("root_path", "")
     router = scope.get("router")
-    if "app_root_path" in scope and router is not None:
+    template = (
+        scope.get("path_template")
+        if litestar_route_handler(scope) is not None
+        else None
+    )
+    if not isinstance(template, str) and "app_root_path" in scope and router:
         root = scope["app_root_path"]
         template = starlette_route(
             router, scope, root, scope.get("path", ""), status
         )
-    else:
-        template = (
-            scope.get("path_template")
-            if litestar_route_handler(scope) is not None
-            else None
-        )
-        if not isinstance(template, str):
-            route = scope.get("route")
-            template = getattr(
-                _included(scope, route) or route, "path_format", None
-            ) or getattr(route, "path", None)
+    elif not isinstance(template, str):
+        route = scope.get("route")
+        template = getattr(
+            _included(scope, route) or route, "path_format", None
+        ) or getattr(route, "path", None)
     if not isinstance(template, str):
         return None
     root = root.rstrip("/")

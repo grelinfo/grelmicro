@@ -630,6 +630,28 @@ async def test_a_mount_reads_as_its_template_not_its_values(
     assert capture()[0].__dict__["http.route"] == route
 
 
+async def test_litestar_under_a_mount_records_its_own_route_template(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """Litestar's template is read, not the Starlette mount around it."""
+
+    @get("/items/{item_id:int}")
+    async def item(item_id: Annotated[int, Parameter()]) -> int:
+        return item_id
+
+    shop = Litestar(
+        route_handlers=[item],
+        middleware=[cast("Any", AccessLogMiddleware)],
+        logging_config=None,
+    )
+    app = Starlette(routes=[Mount("/t/{tenant}", app=cast("Any", shop))])
+
+    async with client_for(app) as client:
+        await client.get("/t/acme/items/3")
+
+    assert capture()[0].__dict__["http.route"] == "/items/{item_id}"
+
+
 # --- The component -------------------------------------------------------
 
 
