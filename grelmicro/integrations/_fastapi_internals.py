@@ -325,9 +325,13 @@ class _Shape:
         """
         lists = tuple(map(_ROUTES, self.routers))
         if (
-            all(map(is_, lists, self.lists))
+            all(map(is_, lists, self.lists, strict=True))
             and sum(map(len, lists)) == len(self.items)
-            and all(map(is_, chain.from_iterable(lists), self.items))
+            # The lengths matched above, so a shorter side means a list
+            # changed in between, which the next check catches.
+            and all(
+                map(is_, chain.from_iterable(lists), self.items, strict=False)
+            )
             and tuple(map(_SHAPE, self.served)) == self.shapes
             and tuple(
                 map(getattr, self.others, repeat("path_regex"), repeat(None))

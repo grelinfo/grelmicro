@@ -28,6 +28,7 @@ from typing import (
     Any,
     Generic,
     Protocol,
+    TypeVar,
     cast,
     get_args,
     get_origin,
@@ -36,7 +37,6 @@ from typing import (
 
 from pydantic import TypeAdapter
 from pydantic.errors import PydanticSchemaGenerationError
-from typing_extensions import TypeVar
 
 from grelmicro._json import (
     JSONDecodable,
@@ -187,7 +187,7 @@ def _infer_serializer(annotation: object) -> CacheSerializer[Any] | None:
         return None
     try:
         return PydanticSerializer(cast("type[Any]", annotation))
-    except (PydanticSchemaGenerationError, TypeError):
+    except PydanticSchemaGenerationError, TypeError:
         return None
 
 

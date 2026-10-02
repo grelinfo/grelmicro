@@ -18,11 +18,11 @@ the default values themselves. Parameter annotation reprs carry
 ``Annotated[..., Doc(...)]`` payloads that vary across Python and Pydantic
 versions and would make the guard flaky, so those are excluded. Return
 annotations are kept: they are part of the contract, they were measured
-stable across the matrix, and no other tool guards them.
+stable, and no other tool guards them.
 
 Defaults are kept for the same reason. Every default on the public surface
-reprs identically on 3.12, 3.13 and 3.14, and only a sentinel's memory address
-is normalised. So this catches a parameter rename, removal, reorder,
+reprs the same on every run, and only a sentinel's memory address is
+normalised. So this catches a parameter rename, removal, reorder,
 required-to-optional flip, a changed return type, and a changed default, which
 is a behavioural break for every caller who never passed the argument.
 
@@ -145,7 +145,7 @@ def _default(value: object) -> _Rendered:
     invisible here.
 
     Measured before trusting it: all 392 defaults on the public surface
-    repr identically on 3.12, 3.13 and 3.14. Only a memory address varies,
+    repr the same on every run. Only a memory address varies,
     so only that is normalized.
     """
     return _Rendered(_ADDRESS.sub(" at 0x...", repr(value)))
@@ -204,7 +204,7 @@ def _signature(obj: object) -> str | None:
     """
     try:
         sig = inspect.signature(obj)  # ty: ignore[invalid-argument-type]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     params = [
         param.replace(
@@ -231,8 +231,8 @@ def _returns(sig: inspect.Signature) -> object:
     ``_returns_are_compatible`` ends in a ``TODO`` and returns ``True``.
 
     Measured before trusting it, the same way defaults were: all 145 return
-    annotations on the public surface render identically on 3.12, 3.13 and
-    3.14. Parameter annotations are a different matter, since those carry
+    annotations on the public surface render the same on every run.
+    Parameter annotations are a different matter, since those carry
     ``Annotated[..., Doc(...)]`` payloads, and stay stripped.
     """
     annotation = sig.return_annotation
@@ -383,7 +383,7 @@ def _hands_out_loop_bound(member: Callable[..., Any]) -> bool:
     except Exception:  # noqa: BLE001  # unresolvable forward reference
         try:
             rendered = str(inspect.signature(member))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
         return bool(_LOOP_BOUND_TEXT.search(rendered))
     pending = list(hints.values())

@@ -24,7 +24,7 @@ def _no_real_library_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def reset_loguru() -> Generator[None, None, None]:
+def reset_loguru() -> Generator[None]:
     """Reset loguru configuration."""
     loguru_logger.configure(handlers=[])
     yield
@@ -32,7 +32,7 @@ def reset_loguru() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def reset_structlog() -> Generator[None, None, None]:
+def reset_structlog() -> Generator[None]:
     """Reset structlog configuration."""
     structlog.reset_defaults()
     yield
@@ -40,7 +40,7 @@ def reset_structlog() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def reset_stdlib() -> Generator[None, None, None]:
+def reset_stdlib() -> Generator[None]:
     """Reset stdlib logging configuration."""
     root = logging.getLogger()
     old_handlers = root.handlers.copy()

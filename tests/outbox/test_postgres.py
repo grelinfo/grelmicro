@@ -6,6 +6,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid7
 
 import asyncpg
 import pytest
@@ -14,7 +15,6 @@ from pydantic import BaseModel
 from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox import Message, Outbox
 from grelmicro.outbox._message import OutboxRecord
-from grelmicro.outbox._uuid import uuid7
 from grelmicro.outbox.errors import OutboxHandleError, OutboxTransactionError
 from grelmicro.outbox.postgres import (
     PostgresOutboxAdapter,

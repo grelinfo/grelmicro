@@ -35,7 +35,7 @@ def log_message(backend: str, msg: str, **kwargs: object) -> None:
 
 
 @pytest.fixture
-def reset_loguru() -> Generator[None, None, None]:
+def reset_loguru() -> Generator[None]:
     """Reset loguru configuration."""
     loguru_logger.configure(handlers=[])
     yield
@@ -43,7 +43,7 @@ def reset_loguru() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def reset_structlog() -> Generator[None, None, None]:
+def reset_structlog() -> Generator[None]:
     """Reset structlog configuration."""
     structlog.reset_defaults()
     yield
@@ -51,7 +51,7 @@ def reset_structlog() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def reset_stdlib() -> Generator[None, None, None]:
+def reset_stdlib() -> Generator[None]:
     """Reset stdlib logging configuration (root and child loggers)."""
     root = logging.getLogger()
     old_handlers = root.handlers.copy()

@@ -631,7 +631,7 @@ class JWTKeysConfig(JWTPolicy):
                 continue
             try:
                 keys.append(JWTKey.jwk(jwk, algorithm=algorithm))
-            except (SettingsValidationError, ValueError):
+            except SettingsValidationError, ValueError:
                 # A provider is free to publish a key type this does not read.
                 # Skipping it keeps the keys that do work, where failing the
                 # whole document would take authentication down over a key
@@ -1853,7 +1853,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             return await self._fetch(
                 url, timeout=source.timeout, max_bytes=source.max_bytes
             )
-        except (SigningKeysUnavailableError, DependencyNotFoundError):
+        except SigningKeysUnavailableError, DependencyNotFoundError:
             # A missing dependency is a broken install, not an outage, so it
             # stops the app at startup instead of being retried forever.
             raise

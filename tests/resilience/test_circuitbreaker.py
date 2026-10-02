@@ -1127,7 +1127,7 @@ class _FakeSharedStrategy(CircuitBreakerStrategy):
 
     def __init__(
         self,
-        backend: "_FakeSharedBackend",
+        backend: _FakeSharedBackend,
         *,
         name: str,
         config: CircuitBreakerConfig,

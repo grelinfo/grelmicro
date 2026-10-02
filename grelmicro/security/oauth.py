@@ -2657,7 +2657,7 @@ def _json_object(body: bytes) -> dict[str, Any] | None:
     """
     try:
         parsed = json.loads(body)
-    except (ValueError, RecursionError):
+    except ValueError, RecursionError:
         return None
     return parsed if isinstance(parsed, dict) else None
 
@@ -2713,11 +2713,11 @@ def _retry_after(value: str | None) -> float | None:
     if text.isascii() and text.isdigit():
         try:
             return min(float(int(text)), _RETRY_AFTER_CEILING)
-        except (ValueError, OverflowError):
+        except ValueError, OverflowError:
             return _RETRY_AFTER_CEILING
     try:
         when = parsedate_to_datetime(text)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return max(0.0, when.timestamp() - time())
 

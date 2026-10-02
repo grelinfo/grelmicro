@@ -33,7 +33,7 @@ def is_instance(value: Any, parent: Any) -> bool:  # noqa: ANN401
     """Return whether `value` is a `parent`, and never raise deciding it."""
     try:
         return isinstance(value, parent)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return False
@@ -53,7 +53,7 @@ def is_subclass(candidate: Any, parent: type) -> bool:  # noqa: ANN401
     """
     try:
         return issubclass(candidate, parent)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return False
@@ -73,7 +73,7 @@ def type_name(value: Any) -> str:  # noqa: ANN401
     """
     try:
         return _exact(str(type(value).__name__))
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return UNNAMEABLE
@@ -89,7 +89,7 @@ def name_of(value: Any) -> str:  # noqa: ANN401
     try:
         if is_class(value):
             return _exact(str(value.__name__))
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return UNNAMEABLE
@@ -106,7 +106,7 @@ def items_of(value: Any) -> tuple[Any, ...] | None:  # noqa: ANN401
     """
     try:
         return tuple(value)
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt, SystemExit:
         raise
     except BaseException:  # noqa: BLE001
         return None

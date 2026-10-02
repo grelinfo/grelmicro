@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import TYPE_CHECKING, ClassVar, Self
 
 import pytest
@@ -1278,7 +1279,13 @@ async def test_instantiate_if_class_handles_unreadable_signature() -> None:
     constructed and left to fail on their own terms rather than being
     reported as needing arguments.
     """
-    assert _needs_constructor_arguments(type(None)) is False
+
+    class Unreadable:
+        __signature__ = object()
+
+    with pytest.raises(TypeError):
+        inspect.signature(Unreadable)
+    assert _needs_constructor_arguments(Unreadable) is False
 
 
 async def test_fake_swaps_backed_components_onto_memory() -> None:

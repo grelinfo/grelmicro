@@ -1,11 +1,10 @@
 """Shared types used across grelmicro modules and in user configuration."""
 
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import AnyUrl, GetCoreSchemaHandler, GetJsonSchemaHandler, Secret
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
-from typing_extensions import TypeVar
 
 from grelmicro._redact import redact_url
 from grelmicro._timezone import normalize_timezone_name
@@ -61,7 +60,7 @@ class TimeZoneName(str):
     __slots__ = ()
 
     @classmethod
-    def _validate(cls, value: str) -> "TimeZoneName":
+    def _validate(cls, value: str) -> TimeZoneName:
         """Return the validated timezone name.
 
         Raises:

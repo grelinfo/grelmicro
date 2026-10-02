@@ -400,21 +400,33 @@ class _Snapshot:
                 self._others,
                 repeat("path_regex", count),
                 repeat(None, count),
+                strict=True,
             )
         )
 
     def changed(self) -> bool:
         """Return whether any attribute holds anything else now."""
         if not all(
-            map(is_, map(getattr, self._holders, self._names), self._values)
+            map(
+                is_,
+                map(getattr, self._holders, self._names, strict=True),
+                self._values,
+                strict=True,
+            )
         ):
             return True
-        lists = tuple(map(getattr, self._list_holders, self._list_names))
+        lists = tuple(
+            map(getattr, self._list_holders, self._list_names, strict=True)
+        )
         count = len(self._others)
         return (
-            not all(map(is_, lists, self._lists))
+            not all(map(is_, lists, self._lists, strict=True))
             or list(map(len, lists)) != self._lengths
-            or not all(map(is_, chain.from_iterable(lists), self._items))
+            # The lengths matched above, so a shorter side means a list
+            # changed in between, which the next read catches.
+            or not all(
+                map(is_, chain.from_iterable(lists), self._items, strict=False)
+            )
             or list(map(_SHAPE, self._served)) != self._shapes
             or not all(
                 map(
@@ -424,8 +436,10 @@ class _Snapshot:
                         self._others,
                         repeat("path_regex", count),
                         repeat(None, count),
+                        strict=True,
                     ),
                     self._regexes,
+                    strict=True,
                 )
             )
             or list(map(len, map(vars, self._routes))) != self._sizes
@@ -1135,7 +1149,7 @@ def _litestar_template(app: Any, scope: Scope) -> str | None:  # noqa: ANN401
         routed = app.asgi_router.handle_routing(
             path=normalize_path(route_path(scope)), method=scope.get("method")
         )
-    except (HTTPException, KeyError):
+    except HTTPException, KeyError:
         return None
     return routed[4]
 

@@ -1,18 +1,14 @@
 # Installation
 
-grelmicro supports Python 3.12+ and depends on Pydantic v2+ and FastDepends. The async runtime is `asyncio`. Trio is not supported.
+grelmicro supports Python 3.14+ and depends on Pydantic v2+ and FastDepends. The async runtime is `asyncio`. Trio is not supported.
 
-## Why Python 3.12
+## Why Python 3.14
 
-grelmicro uses [PEP 695](https://peps.python.org/pep-0695/) type
-parameter syntax, structural [`Self`](https://peps.python.org/pep-0673/)
-returns, and [`asyncio.timeout`](https://docs.python.org/3/library/asyncio-task.html#asyncio.timeout)
-on every primitive. These are 3.11/3.12 features. Pinning the floor
-to 3.12 keeps the codebase free of conditional imports and lets `ty`
-check a single typing dialect.
+grelmicro builds on 3.14 features, such as the standard library
+[`uuid.uuid7`](https://docs.python.org/3/library/uuid.html#uuid.uuid7)
+for outbox ids. One floor keeps the codebase free of version checks.
 
-CI runs the test matrix on every advertised classifier (3.12, 3.13,
-3.14). Older Python versions are not in scope before 1.0.
+CI runs the tests on Python 3.14. Older Python versions are not supported.
 
 ## Quick install
 
@@ -51,7 +47,7 @@ grelmicro is modular. Install only the extras you need.
 | `instrumentation` | OpenTelemetry instrumentation packages (FastAPI, Redis, asyncpg) for `Trace(instrument=...)`. | All platforms. |
 | `structlog` | `structlog` as an alternative logging backend. | All platforms. |
 | `yaml` | `pyyaml` for YAML sources in `ExternalConfig`. | All platforms. |
-| `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.12 to 3.14, free-threaded 3.14t included. Elsewhere it builds from source and needs a Rust toolchain. |
+| `jwt` | `grelmicro-core`, the compiled Rust core behind JWT verification. | Prebuilt wheels for Linux (glibc and musl), macOS, and Windows on CPython 3.14, free-threaded 3.14t included. Elsewhere it builds from source and needs a Rust toolchain. |
 
 === "pip"
     ```bash

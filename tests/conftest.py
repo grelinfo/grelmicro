@@ -65,7 +65,7 @@ def _no_recorded_patterns() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _no_leaked_log_backend() -> Generator[None, None, None]:
+def _no_leaked_log_backend() -> Generator[None]:
     """Take out a log sink bound to another test's stream.
 
     A backend writes to the stream it was handed when it was configured,
@@ -104,7 +104,7 @@ def _no_leaked_log_backend() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def _no_leaked_log_queue() -> Generator[None, None, None]:
+def _no_leaked_log_queue() -> Generator[None]:
     """Take out a log queue a test left installed.
 
     `configure(queue_enabled=True)` starts a writer that lives until the

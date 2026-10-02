@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Self, cast
+from uuid import uuid7
 
 from typing_extensions import Doc
 
@@ -19,7 +20,6 @@ from grelmicro.outbox._otel import inject_trace_context
 from grelmicro.outbox._protocol import OutboxBackend
 from grelmicro.outbox._registry import OutboxRegistry, derive_topic
 from grelmicro.outbox._relay import Relay
-from grelmicro.outbox._uuid import uuid7
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:

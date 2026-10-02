@@ -53,7 +53,7 @@ def backend_name(request: pytest.FixtureRequest) -> str:
 @pytest.fixture(scope="module")
 def container(
     backend_name: str,
-) -> Generator[DockerContainer | None, None, None]:
+) -> Generator[DockerContainer | None]:
     """Docker container (only for Redis and Postgres)."""
     if backend_name == "redis":
         with RedisContainer() as redis_container:

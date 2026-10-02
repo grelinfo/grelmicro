@@ -5,12 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING
+from uuid import uuid7
 
 import pytest
 from opentelemetry.sdk.trace import TracerProvider
 
 from grelmicro.outbox import Message, Outbox, _otel
-from grelmicro.outbox._uuid import uuid7
 from grelmicro.outbox.memory import MemoryOutboxAdapter
 
 if TYPE_CHECKING:

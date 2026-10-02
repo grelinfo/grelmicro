@@ -32,11 +32,11 @@ class Outcome[T]:
     """``True`` when the call raised, ``False`` when it returned."""
 
     @classmethod
-    def from_exception(cls, exception: Exception) -> "Outcome[T]":
+    def from_exception(cls, exception: Exception) -> Outcome[T]:
         """Build an Outcome for a raised call."""
         return cls(exception=exception, result=None, raised=True)
 
     @classmethod
-    def from_result(cls, result: T) -> "Outcome[T]":
+    def from_result(cls, result: T) -> Outcome[T]:
         """Build an Outcome for a returned call."""
         return cls(exception=None, result=result, raised=False)

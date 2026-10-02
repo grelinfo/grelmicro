@@ -507,7 +507,7 @@ def status(
             return ACCEPTED
     except WebSocketDenialResponse as denied:
         return denied.status_code
-    except (WebSocketDisconnect, LitestarWebSocketDisconnect):
+    except WebSocketDisconnect, LitestarWebSocketDisconnect:
         return CLOSED
 
 

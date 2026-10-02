@@ -32,7 +32,7 @@ def _needs_constructor_arguments(source: type) -> bool:
     """
     try:
         parameters = inspect.signature(source).parameters
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
     return any(
         parameter.default is inspect.Parameter.empty

@@ -5,7 +5,16 @@ from __future__ import annotations
 import inspect
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Any, Final, Generic, Self, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Final,
+    Generic,
+    Self,
+    TypeVar,
+    cast,
+)
 
 from pydantic import (
     BaseModel,
@@ -13,7 +22,7 @@ from pydantic import (
     PositiveFloat,
     ValidationError,
 )
-from typing_extensions import Doc, TypeVar
+from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
 from grelmicro.cache._stampede import (

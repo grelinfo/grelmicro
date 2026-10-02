@@ -2022,7 +2022,7 @@ def _authentication_state(value: Any, *, user: bool) -> tuple[Any, ...]:  # noqa
     if scopes is not _AUTH_MISSING and scopes is not _AUTH_UNREADABLE:
         try:
             scopes = tuple(scopes)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             scopes = _AUTH_UNREADABLE
     return type(value), scopes
 

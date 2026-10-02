@@ -425,7 +425,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         return None
 
     @property
-    def from_thread(self) -> "ThreadLockAdapter":
+    def from_thread(self) -> ThreadLockAdapter:
         """Return the lock adapter for a worker thread."""
         if self._from_thread is None:
             self._from_thread = ThreadLockAdapter(lock=self)
@@ -443,7 +443,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         self,
         *,
         timeout: Annotated[  # noqa: ASYNC109
-            "Seconds | None",
+            Seconds | None,
             Doc(
                 """
                 Maximum number of seconds to wait for the lock.
@@ -694,7 +694,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         self,
         owner: HolderIdentity,
         *,
-        timeout: "Seconds | None" = None,  # noqa: ASYNC109
+        timeout: Seconds | None = None,  # noqa: ASYNC109
     ) -> LockHandle:
         """Acquire the lock from a worker thread (blocking).
 
@@ -859,7 +859,7 @@ class ThreadLockAdapter:
         """Release the lock with the context manager."""
         self.release()
 
-    def acquire(self, *, timeout: "Seconds | None" = None) -> LockHandle:
+    def acquire(self, *, timeout: Seconds | None = None) -> LockHandle:
         """Acquire the lock.
 
         Returns the `LockHandle` for this acquisition, carrying the ownership
