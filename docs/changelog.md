@@ -159,6 +159,8 @@
 * ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 
 ### Docs
+* 📝 The package summary and keywords describe what grelmicro covers. ([#902](https://github.com/grelinfo/grelmicro/issues/902))
+* 📝 CONTRIBUTING shows how to title an issue. ([#891](https://github.com/grelinfo/grelmicro/issues/891))
 * 📝 What each kind of flood meets, and why client bans are opt-in. ([#943](https://github.com/grelinfo/grelmicro/issues/943))
 * 📝 The snippet files run and show something: a FastAPI app answers requests, a snippet that defines `main()` calls it, and the logging examples print what the page shows. A block that only runs inside an `async` function is labelled `fragment`. ([#888](https://github.com/grelinfo/grelmicro/pull/888))
 * ✅ The snippet tests exercise each FastAPI snippet's routes, run the snippets that need no service, and compare a page's output block with what the snippet prints. ([#888](https://github.com/grelinfo/grelmicro/pull/888))

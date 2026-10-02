@@ -687,6 +687,17 @@ A release happens when one or more `next`-labeled issues are
 closed and the changelog has enough to ship. There is no
 fixed cadence.
 
+An issue title starts with an emoji for its kind and reads as a
+sentence that describes the problem, not the fix. No trailing period.
+
+| Kind | Emoji | Example |
+|---|---|---|
+| Bug | 🐛 | 🐛 A Litestar ASGI mount records an empty http.route |
+| Feature | ✨ | ✨ Verify signed webhooks |
+| Cosmetic | 🎨 | 🎨 One concept, several names across the API |
+| Docs | 📝 | 📝 Write the docs rules down and enforce them in CI |
+| Tests | ✅ | ✅ Run a long-lived soak test for memory growth and latency drift |
+
 ## Pull requests
 
 `main` is protected, so every change lands through a pull request.

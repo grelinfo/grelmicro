@@ -1,6 +1,6 @@
 # grelmicro
 
-> grelmicro is a lightweight, async-first Python toolkit that ships microservice patterns as small composable modules with pluggable backends. It provides distributed locks, leader election, rate limiting, circuit breakers, cache, a transactional outbox, task scheduling, logging, tracing, metrics, and health checks. The same primitives serve microservices, a modular monolith, or a self-contained system.
+> grelmicro is an async-first Python toolkit that ships microservice patterns as small composable modules with pluggable backends. It provides distributed locks, leader election, rate limiting, circuit breakers, cache, a transactional outbox, task scheduling, logging, tracing, metrics, and health checks. The same primitives serve microservices, a modular monolith, or a self-contained system.
 
 Each primitive is a protocol, so Redis, PostgreSQL, SQLite, Kubernetes, and in-memory swap without an application change. grelmicro drops into FastAPI, Starlette, Litestar, FastStream, and any asyncio stack. It is pre-1.0 and follows semantic versioning. This index is curated. Every page of the site is listed in [llms-full.txt](https://grelmicro.grel.info/llms-full.txt).
 
