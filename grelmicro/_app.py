@@ -1019,10 +1019,7 @@ class Grelmicro:
                     self._reindex()
                     if component not in self._items:  # pragma: no branch
                         self._items.append(component)
-                    # `Component` is an async context manager; ty misreads the
-                    # protocol's `Self`-returning `__aenter__` as incompatible
-                    # with its own AbstractAsyncContextManager base.
-                    await stack.enter_async_context(component)  # ty: ignore[invalid-argument-type]
+                    await stack.enter_async_context(component)
                 yield
             finally:
                 self._by_key = snapshot_by_key

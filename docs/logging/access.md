@@ -179,16 +179,13 @@ the components already emit.
 groups `/orders/7` and `/orders/9` under `/orders/{order_id}`.
 
 There is no standard ASGI key for it, so each framework is read the way it
-records it. FastAPI and Litestar both do. Plain Starlette records no template,
-so the field is left out rather than guessed from the values that filled it,
-which is what OpenTelemetry's own ASGI instrumentation does with the same
-problem.
+records it. FastAPI, Litestar and Starlette all do.
 
 | Framework | `http.route` |
 |---|---|
 | FastAPI | Yes |
 | Litestar | Yes |
-| Starlette | Left out |
+| Starlette | Yes |
 
 ## Without `install`
 

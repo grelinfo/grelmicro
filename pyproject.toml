@@ -147,10 +147,10 @@ standard = [
 ]
 fastapi = [
     "fastapi>=0.142.1",
-    "starlette>=1.0.0",
+    "starlette>=1.7.0",
 ]
 starlette = [
-    "starlette>=1.0.0",
+    "starlette>=1.7.0",
 ]
 litestar = [
     "litestar>=2.24.0",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pickle
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import pytest
 from pydantic import BaseModel
@@ -19,6 +19,9 @@ from grelmicro.cache.serializers import (
     _infer_serializer_from_instance,
     _resolve_serializer,
 )
+
+if TYPE_CHECKING:
+    from grelmicro._json import JSONEncodable
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -104,7 +107,7 @@ class TestJsonSerializer:
     def test_roundtrip_dict(self) -> None:
         """Test JSON roundtrip with a dict."""
         serializer = JsonSerializer()
-        obj = {"id": 1, "tags": ["a", "b"]}
+        obj: JSONEncodable = {"id": 1, "tags": ["a", "b"]}
 
         result = serializer.loads(serializer.dumps(obj))
 
@@ -113,7 +116,7 @@ class TestJsonSerializer:
     def test_roundtrip_list(self) -> None:
         """Test JSON roundtrip with a list."""
         serializer = JsonSerializer()
-        obj = [1, "two", None, True]
+        obj: JSONEncodable = [1, "two", None, True]
 
         result = serializer.loads(serializer.dumps(obj))
 

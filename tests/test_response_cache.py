@@ -1102,6 +1102,25 @@ def test_credential_scopes_are_read_without_trusting_the_backend() -> None:
     )
 
 
+def test_a_user_attribute_that_raises_snapshots_as_unreadable() -> None:
+    """A user whose attribute raises on read snapshots instead of raising."""
+
+    class Raising:
+        """User whose identity cannot be read."""
+
+        @property
+        def identity(self) -> str:
+            raise RuntimeError
+
+    assert _authentication_state(Raising(), user=True) == (
+        Raising,
+        _AUTH_MISSING,
+        _AUTH_UNREADABLE,
+        _AUTH_MISSING,
+        _AUTH_MISSING,
+    )
+
+
 def test_a_mounted_middleware_keeps_its_route_declarations_inside() -> None:
     """A parent cache cannot answer before a mounted middleware runs."""
     # Arrange
