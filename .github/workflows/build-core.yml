@@ -214,5 +214,5 @@ jobs:
         run: |
           rustup toolchain install
           uv sync --all-extras --group dev
-          uv pip install --reinstall --no-deps dist/grelmicro_core-*-cp312-cp312-manylinux*_x86_64*.whl
+          uv pip install --reinstall --no-deps dist/grelmicro_core-*-cp314-cp314-manylinux*_x86_64*.whl
           uv run --no-sync pytest tests/security -q
