@@ -34,6 +34,8 @@ from tests.security.jwt_signing import Signer
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
 
+    from starlette.types import Receive, Scope, Send
+
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
 HTTP_METHOD_NOT_ALLOWED = 405
@@ -570,6 +572,84 @@ async def test_a_mount_is_on_both_the_path_and_the_route(
 
     assert record.__dict__["url.path"] == "/api/orders/7"
     assert record.__dict__["http.route"] == "/api/orders/{order_id}"
+
+
+async def _file(scope: Scope, receive: Receive, send: Send) -> None:
+    await PlainTextResponse("file")(scope, receive, send)
+
+
+@pytest.mark.parametrize(
+    ("routes", "path", "route"),
+    [
+        (
+            [Mount("/t/{tenant}", routes=[Route("/docs/{d}", ok)])],
+            "/t/acme/docs/1",
+            "/t/{tenant}/docs/{d}",
+        ),
+        (
+            [
+                Mount(
+                    "/t/{tenant}",
+                    routes=[Mount("/v/{v}", routes=[Route("/docs/{d}", ok)])],
+                )
+            ],
+            "/t/acme/v/2/docs/1",
+            "/t/{tenant}/v/{v}/docs/{d}",
+        ),
+        (
+            [Mount("/t/{tenant}", routes=[Route("/docs/{d}", ok)])],
+            "/t/acme/nowhere",
+            "/t/{tenant}/{path}",
+        ),
+        (
+            [Mount("/files/{bucket}", app=_file)],
+            "/files/b1/a/b.txt",
+            "/files/{bucket}/{path}",
+        ),
+        (
+            [Mount("/t/{tenant}", routes=[Route("/docs/", ok)])],
+            "/t/acme/docs",
+            "/t/{tenant}/docs/",
+        ),
+    ],
+    ids=["parameter", "nested", "unknown-path", "asgi-app", "slash-redirect"],
+)
+async def test_a_mount_reads_as_its_template_not_its_values(
+    capture: Callable[[], list[logging.LogRecord]],
+    routes: list[Mount],
+    path: str,
+    route: str,
+) -> None:
+    """A tenant id in a mount path never becomes a route of its own."""
+    app = Starlette(routes=routes)
+    app.add_middleware(AccessLogMiddleware)
+
+    async with client_for(app) as client:
+        await client.get(path)
+
+    assert capture()[0].__dict__["http.route"] == route
+
+
+async def test_litestar_under_a_mount_records_its_own_route_template(
+    capture: Callable[[], list[logging.LogRecord]],
+) -> None:
+    """Litestar's template is read, not the Starlette mount around it."""
+
+    @get("/items/{item_id:int}")
+    async def item(item_id: Annotated[int, Parameter()]) -> int:
+        return item_id
+
+    shop = Litestar(
+        route_handlers=[item],
+        middleware=[cast("Any", AccessLogMiddleware)],
+        logging_config=None,
+    )
+    app = Starlette(routes=[Mount("/t/{tenant}", app=cast("Any", shop))])
+
+    async with client_for(app) as client:
+        await client.get("/t/acme/items/3")
+
+    assert capture()[0].__dict__["http.route"] == "/items/{item_id}"
 
 
 # --- The component -------------------------------------------------------

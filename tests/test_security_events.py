@@ -1087,13 +1087,19 @@ class TestMetrics:
         assert points(metrics, "grelmicro.authorization.refusals") == []
 
     @pytest.mark.parametrize(
-        ("prefix", "mounted"), [("", False), ("/v1", True)]
+        ("prefix", "asked", "mounted"),
+        [
+            ("", "", False),
+            ("/v1", "/v1", True),
+            ("/t/{tenant}", "/t/acme", True),
+        ],
     )
     def test_starlette_names_a_route_the_same_way_before_and_after_routing(
         self,
         events: list[logging.LogRecord],
         *,
         prefix: str,
+        asked: str,
         mounted: bool,
     ) -> None:
         """A forged token and a missing scope on one route agree, in a mount too."""
@@ -1112,8 +1118,8 @@ class TestMetrics:
         micro.install(app)
         client = TestClient(app)
 
-        client.delete(f"{prefix}/orders/7", headers=bearer(token(FORGER)))
-        client.delete(f"{prefix}/orders/7", headers=bearer(token()))
+        client.delete(f"{asked}/orders/7", headers=bearer(token(FORGER)))
+        client.delete(f"{asked}/orders/7", headers=bearer(token()))
 
         forged, scoped = events
         assert field(scoped, "error.type") == "insufficient-scope"

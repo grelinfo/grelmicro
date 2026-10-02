@@ -16,7 +16,7 @@ from pydantic import BeforeValidator
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, MutableMapping
+    from collections.abc import Callable, Iterator, MutableMapping, Sequence
     from re import Pattern
 
 __all__ = [
@@ -45,6 +45,7 @@ __all__ = [
     "route_path",
     "route_template",
     "selects",
+    "starlette_route",
     "starlette_route_path",
     "walk_routes",
 ]
@@ -1347,7 +1348,11 @@ def _watch_topology_node(  # noqa: PLR0911
         )
 
 
-def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
+def route_template(
+    scope: MutableMapping[str, Any],
+    asked: str,
+    status: int | None = None,
+) -> str | None:
     """Return the route template the request matched, when there is one.
 
     Read after the router has run, because that is when it has written
@@ -1358,7 +1363,9 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     read only when the app in `scope["app"]` owns the handler in the scope.
     On FastAPI, a route reached through included routers reads the
     template with every router prefix. A refused request reads the route
-    its refusal named.
+    its refusal named. Any other request that went through a Starlette
+    mount reads as `starlette_route` reads it, with the template of each
+    mount, and `status` names the route a slash redirect sends it to.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1368,27 +1375,124 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     """
     if ROUTE_KEY in scope:
         return scope[ROUTE_KEY]
+    root = scope.get("root_path", "")
+    router = scope.get("router")
     template = (
         scope.get("path_template")
         if litestar_route_handler(scope) is not None
         else None
     )
-    if not isinstance(template, str):
-        route = scope.get("route")
-        fastapi = scope.get("fastapi")
-        if fastapi:
-            included = fastapi.get("effective_route_context")
-            if getattr(included, "original_route", None) is route:
-                route = included
-        template = getattr(route, "path_format", None) or getattr(
-            route, "path", None
+    if not isinstance(template, str) and "app_root_path" in scope and router:
+        root = scope["app_root_path"]
+        template = starlette_route(
+            router, scope, root, scope.get("path", ""), status
         )
+    elif not isinstance(template, str):
+        route = scope.get("route")
+        template = getattr(
+            _included(scope, route) or route, "path_format", None
+        ) or getattr(route, "path", None)
     if not isinstance(template, str):
         return None
-    root = scope.get("root_path", "").rstrip("/")
+    root = root.rstrip("/")
     if not root or not asked.startswith(root):
         return template
     return f"{root}{template}"
+
+
+def _included(scope: MutableMapping[str, Any], route: object) -> Any | None:  # noqa: ANN401
+    """Return the include FastAPI dispatched `route` through, if any."""
+    fastapi = scope.get("fastapi")
+    included = fastapi.get("effective_route_context") if fastapi else None
+    return (
+        included if getattr(included, "original_route", None) is route else None
+    )
+
+
+def starlette_route(  # noqa: C901
+    router: Annotated[Any, Doc("The Starlette router the request entered.")],  # noqa: ANN401
+    scope: Annotated[
+        MutableMapping[str, Any], Doc("The scope, after routing.")
+    ],
+    root_path: Annotated[str, Doc("The root path the request arrived with.")],
+    path: Annotated[str, Doc("The path the request arrived with.")],
+    status: Annotated[int | None, Doc("The status it was answered with.")],
+) -> str | None:
+    """Return the route template a Starlette router matched, under the root path.
+
+    The template is each mount the request went through, then the route
+    the innermost router matched. A request that went through no mount
+    reads that route alone. One that did is matched again for the
+    template of each mount. When no router inside the last mount recorded
+    a route, the one matching again finds is read, else `{path}`. A
+    FastAPI route reached through included routers reads with every
+    prefix. A request a router redirects to add or drop a trailing slash
+    reads the route it is redirected to.
+    """
+    from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
+    from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
+
+    def template(scope: MutableMapping[str, Any], route: object) -> str | None:
+        found = getattr(_included(scope, route) or route, "path_format", None)
+        return found if isinstance(found, str) else None
+
+    def through_mounts(
+        routes: Sequence[Any], scope: MutableMapping[str, Any]
+    ) -> tuple[str, str | None]:
+        """Return the templates of the mounts `scope` goes through, and of its route.
+
+        Matches as Starlette's router does: the first full match, else the
+        first partial one. The route is `None` when nothing inside the last
+        mount matches, or when that mount holds an app of another framework.
+        """
+        found = None
+        for candidate in routes:
+            match, child = candidate.matches(scope)
+            if match is Match.FULL:
+                found = candidate, child
+                break
+            if match is Match.PARTIAL and found is None:
+                found = candidate, child
+        if found is None:
+            return "", None
+        candidate, child = found
+        if not isinstance(candidate, (Mount, Host)):
+            return "", template(scope, candidate)
+        prefix = (
+            candidate.path_format.removesuffix("/{path}")
+            if isinstance(candidate, Mount)
+            else ""
+        )
+        inner = getattr(candidate, "routes", None)
+        if not inner or not all(
+            isinstance(entry, BaseRoute) for entry in inner
+        ):
+            return prefix, None
+        mounts, leaf = through_mounts(inner, {**scope, **child})
+        return prefix + mounts, leaf
+
+    def start(at: str) -> dict[str, Any]:
+        return {**scope, "path": at, "root_path": root_path, "path_params": {}}
+
+    def redirected() -> str | None:
+        """Return the route a slash redirect sends the request to, if any."""
+        if scope["type"] != "http" or status != HTTP_307_TEMPORARY_REDIRECT:
+            return None
+        toggled = path.removesuffix("/") if path.endswith("/") else path + "/"
+        mounts, leaf = through_mounts(router.routes, start(toggled))
+        return None if leaf is None else mounts + leaf
+
+    matched = scope.get("route")
+    if matched is None:
+        return redirected()
+    if scope.get("root_path", "") == root_path:
+        return template(scope, matched)
+    mounts, walked = through_mounts(router.routes, start(path))
+    if not isinstance(matched, Mount):
+        walked = template(scope, matched)
+    if walked is not None:
+        return mounts + walked
+    return redirected() or mounts + "/{path}"
 
 
 def declared_dependencies(
