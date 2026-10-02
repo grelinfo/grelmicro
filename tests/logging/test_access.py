@@ -744,6 +744,45 @@ async def test_a_mounted_app_reads_as_the_mount_template(
     assert capture()[0].__dict__["http.route"] == route
 
 
+def _litestar_mounting(inner: Any) -> Any:  # noqa: ANN401
+    @asgi("/shop", is_mount=True)
+    async def shop(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
+        await inner(scope, receive, send)
+
+    return Litestar(route_handlers=[shop], logging_config=None)
+
+
+@pytest.mark.filterwarnings("ignore:.*copy_scope.*")
+@pytest.mark.parametrize(
+    ("inner", "path", "route"),
+    [
+        (_litestar_shop, "/shop/items/3", "/shop/items/{item_id}"),
+        (_litestar_shop, "/shop/nowhere", "/shop/{path}"),
+        (
+            lambda: Starlette(routes=[Route("/items/{item_id}", ok)]),
+            "/shop/items/3",
+            "/shop/{path}",
+        ),
+    ],
+    ids=["litestar-app", "unknown-path", "starlette-app"],
+)
+async def test_litestar_mount_sharing_its_scope_reads_as_the_request_spans(
+    capture: Callable[[], list[logging.LogRecord]],
+    inner: Callable[[], Any],
+    path: str,
+    route: str,
+) -> None:
+    """A mounted app that rewrites the scope still reads under the mount."""
+    app = _litestar_mounting(inner())
+    micro = Grelmicro(uses=[AccessLog()])
+    micro.install(app)
+
+    async with micro, client_for(app) as client:
+        await client.get(path)
+
+    assert capture()[0].__dict__["http.route"] == route
+
+
 # --- The component -------------------------------------------------------
 
 

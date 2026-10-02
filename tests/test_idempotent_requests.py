@@ -343,6 +343,15 @@ def test_registration_order_is_wrapping_order() -> None:
     assert added == ["binding", "X-Outer", "X-Inner"]
 
 
+def _layers(handler: Any, app: Litestar) -> list[Any]:  # noqa: ANN401
+    """Return the layers of a Litestar handler chain, down to the router."""
+    layers = []
+    while handler is not None and handler is not app and callable(handler):
+        layers.append(handler)
+        handler = getattr(handler, "app", None)
+    return layers
+
+
 def test_litestar_wraps_the_middleware_inside_what_renders_errors() -> None:
     """It runs in the request scope, and under Litestar's error handling.
 
@@ -366,8 +375,10 @@ def test_litestar_wraps_the_middleware_inside_what_renders_errors() -> None:
     binding = app.asgi_handler
     assert isinstance(binding, GrelmicroMiddleware)
     # Under the layer that turns an exception into a response, not around it.
-    assert not isinstance(binding.app, IdempotencyMiddleware)
-    assert isinstance(binding.app.app, IdempotencyMiddleware)  # ty: ignore[unresolved-attribute]
+    layers = [type(layer).__name__ for layer in _layers(binding, app)]
+    assert layers.index("ExceptionHandlerMiddleware") < layers.index(
+        "IdempotencyMiddleware"
+    )
 
 
 class _Copying(Passing):
@@ -818,7 +829,9 @@ def test_litestar_wraps_the_handler_when_there_is_no_binding() -> None:
     micro.install(app, ambient=False)
 
     # Assert
-    assert isinstance(app.asgi_handler.app, _Marker)  # ty: ignore[unresolved-attribute]
+    assert any(
+        isinstance(layer, _Marker) for layer in _layers(app.asgi_handler, app)
+    )
 
 
 def test_the_ttl_needs_no_pattern_object() -> None:

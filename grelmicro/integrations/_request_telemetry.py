@@ -14,7 +14,7 @@ import re
 from contextlib import nullcontext
 from importlib.metadata import version
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Final, NamedTuple
+from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from opentelemetry import context as otel_context
@@ -22,6 +22,7 @@ from opentelemetry import metrics, propagate, trace
 from opentelemetry.propagators.textmap import Getter
 from opentelemetry.trace import SpanKind, StatusCode
 
+from grelmicro._paths import Answered
 from grelmicro.integrations._fastapi_internals import TELEMETRY_KEY
 
 if TYPE_CHECKING:
@@ -50,17 +51,6 @@ __all__ = [
 ]
 
 _logger = logging.getLogger(__name__)
-
-
-class Answered(NamedTuple):
-    """A request as it arrived, and the status it was answered with."""
-
-    root_path: str
-    """The root path the request arrived with."""
-    path: str
-    """The path the request arrived with."""
-    status: int | None
-    """The status of the answer, `None` before one started."""
 
 
 SCOPE_NAME: Final = "grelmicro.http"

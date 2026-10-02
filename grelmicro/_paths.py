@@ -10,7 +10,7 @@ import functools
 import itertools
 import re
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Annotated, Any, Final
+from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple
 
 from pydantic import BeforeValidator
 from typing_extensions import Doc
@@ -25,6 +25,8 @@ __all__ = [
     "BARE_STRING_MESSAGE",
     "MALFORMED_JSON_MESSAGE",
     "ROUTE_KEY",
+    "ROUTE_OF_KEY",
+    "Answered",
     "FieldNames",
     "MethodNames",
     "PathPatterns",
@@ -99,6 +101,20 @@ send them looking for the mistake they did not make.
 
 ROUTE_KEY: Final = "grelmicro.route"
 """Where the route a refused request names is left, `None` when no route answers it."""
+
+ROUTE_OF_KEY: Final = "grelmicro.route_of"
+"""Where an installed app leaves how to read a request's route, and the request as it arrived."""
+
+
+class Answered(NamedTuple):
+    """A request as it arrived, and the status it was answered with."""
+
+    root_path: str
+    """The root path the request arrived with."""
+    path: str
+    """The path the request arrived with."""
+    status: int | None
+    """The status of the answer, `None` before one started."""
 
 
 def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
@@ -1363,12 +1379,14 @@ def route_template(
     read only when the app in `scope["app"]` owns the handler in the scope.
     On FastAPI, a route reached through included routers reads the
     template with every router prefix. A refused request reads the route
-    its refusal named. A request that went through a Starlette mount
-    reads as `starlette_route` reads it, with the template of each mount,
-    and `status` names the route a slash redirect sends it to. A Litestar
-    app's own access log under such a mount, which sees the path without
-    the mount, reads Litestar's template alone. A Litestar mount of an
-    ASGI app reads as `{path}` under the mount.
+    its refusal named. A request that arrived at an installed Litestar app
+    as `asked` reads as that app's request spans read it. A request that
+    went through a Starlette mount reads as `starlette_route` reads it,
+    with the template of each mount, and `status` names the route a slash
+    redirect sends it to. A Litestar app's own access log under such a
+    mount, which sees the path without the mount, reads Litestar's
+    template alone. A Litestar mount of an ASGI app reads as `{path}`
+    under the mount.
 
     A mount prefix goes back on, so the route reads as the path it
     grouped, which is what `asked` carries. A proxy that strips its own
@@ -1378,6 +1396,13 @@ def route_template(
     """
     if ROUTE_KEY in scope:
         return scope[ROUTE_KEY]
+    reading = scope.get(ROUTE_OF_KEY)
+    if reading is not None and reading[1].path == asked:
+        route_of, arrived = reading
+        kept = asked.startswith(arrived.root_path.rstrip("/"))
+        return route_of(
+            scope, Answered(arrived.root_path if kept else "", asked, status)
+        )
     root = scope.get("root_path", "")
     router = scope.get("router")
     template = _litestar_template(scope)

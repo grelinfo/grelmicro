@@ -122,7 +122,7 @@
 
 ### Fixed
 * 🐛 A request under a Starlette mount records the mount template in `http.route` in the access log and security events, not the values in its path. ([#969](https://github.com/grelinfo/grelmicro/issues/969))
-* 🐛 A request to an app mounted under FastAPI, to an ASGI app mounted in Litestar, or to an app wrapped in middleware under a mount records the mount template in `http.route` in the access log and security events. ([#969](https://github.com/grelinfo/grelmicro/issues/969))
+* 🐛 A request to an app mounted under FastAPI, to an ASGI app mounted in Litestar, to an app wrapped in middleware under a mount, or to an app mounted in an installed Litestar app records the mount template in `http.route` in the access log and security events, as the request spans do. ([#969](https://github.com/grelinfo/grelmicro/issues/969))
 * 🐛 `Trace` leaves a framework's own OpenTelemetry instrumentor out of its library sweep only when `micro.install(app)` wired an app of that framework. ([#968](https://github.com/grelinfo/grelmicro/pull/968))
 * 🐛 A FastAPI app with an OTLP endpoint in the environment no longer sets up a second exporter beside grelmicro's. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` and `OTEL_TRACES_EXPORTER=console` no longer fail its startup. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 The published floors install and work. pydantic-settings 2.5 failed at import, the Redis instrumentation crashed before 0.54b0, and Pydantic 2.12.0 to 2.12.3 read some environment variables in the wrong order and percent-encoded URL credentials. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
