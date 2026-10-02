@@ -53,7 +53,7 @@ class TestOrjsonPath:
         makes the opposite call, because a log line must not be lost.
         """
         with pytest.raises(TypeError):
-            json_dumps_bytes({"counts": {1: "a"}})
+            json_dumps_bytes({"counts": {1: "a"}})  # ty: ignore[invalid-argument-type]
 
     @pytest.mark.parametrize(
         ("obj", "expected_fragment"),

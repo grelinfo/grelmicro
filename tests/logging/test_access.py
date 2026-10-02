@@ -540,14 +540,14 @@ async def test_a_litestar_app_under_a_litestar_mount_names_no_route_it_missed(
     assert "http.route" not in missed.__dict__
 
 
-async def test_starlette_leaves_the_route_out(
+async def test_starlette_records_the_route_template(
     client: httpx.AsyncClient,
     capture: Callable[[], list[logging.LogRecord]],
 ) -> None:
-    """Starlette records no template, and a guess is worse than nothing."""
+    """Starlette records the route it matched, so the template is read."""
     await client.get("/orders/7")
 
-    assert "http.route" not in capture()[0].__dict__
+    assert capture()[0].__dict__["http.route"] == "/orders/{order_id}"
 
 
 async def test_a_mount_is_on_both_the_path_and_the_route(

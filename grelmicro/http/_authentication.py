@@ -662,8 +662,7 @@ class _PublicRoutes:
     def template(self, scope: Scope) -> str | None:
         """Return the template of the route a request is served by, before routing.
 
-        For a refusal the middleware answers before the router runs, and one
-        a Starlette route raises, whose router records no template, so the
+        For a refusal the middleware answers before the router runs, so the
         record names the route rather than the path. A prefix a proxy
         stripped stays off, as it does once the router has run. Inside a
         mount the root path the request arrived with is read, since the

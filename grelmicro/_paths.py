@@ -1322,9 +1322,8 @@ def route_template(scope: MutableMapping[str, Any], asked: str) -> str | None:
     Read after the router has run, because that is when it has written
     what it matched into the scope. There is no standard key for it, so
     each framework is read the way it records it: Litestar writes
-    `path_template`, and FastAPI a route carrying `path_format`. Starlette
-    records neither, so a plain Starlette app leaves it out rather than
-    guessing a template from the values that filled it. Litestar's key is
+    `path_template`, and FastAPI and Starlette the route they matched.
+    Litestar's key is
     read only when the app in `scope["app"]` owns the handler in the scope.
     On FastAPI, a route reached through included routers reads the
     template with every router prefix. A refused request reads the route
