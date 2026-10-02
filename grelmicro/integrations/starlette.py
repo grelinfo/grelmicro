@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import functools
 import inspect
+import weakref
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
 from typing_extensions import Doc
 
@@ -27,6 +28,7 @@ from grelmicro.http._requirement import (
 )
 from grelmicro.integrations._route_gate import declarations_of, gate_routes
 from grelmicro.security.principal import VerifiedToken
+from grelmicro.trace._autoinstrument import request_spans
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -96,8 +98,22 @@ def install(
     placement is read back on startup and raises `AmbientBindingError` if it
     did not hold.
 
+    With `Trace` or `Metrics` registered, records the request span and the
+    HTTP server metrics of every request.
+
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
+
+    Raises:
+        TypeError: If the app's own `RateLimitMiddleware` would stand in for
+            a registered flood limit, before anything is wired.
+    """
+    _wire(app, micro, ambient=ambient)
+    _wire_request_telemetry(app, micro)
+
+
+def _wire(app: Starlette, micro: Grelmicro, *, ambient: bool) -> None:
+    """Chain the lifespan and add the binding, as `install` describes.
 
     Raises:
         TypeError: If the app's own `RateLimitMiddleware` would stand in for
@@ -127,6 +143,148 @@ def install(
         # would set the same context variable again on every request.
         app.add_middleware(GrelmicroMiddleware, micro=micro)
         _keep_binding_outermost(app)
+
+
+def _wire_request_telemetry(app: Starlette, micro: Grelmicro) -> None:
+    """Record the request telemetry of `app` when `micro` exports it.
+
+    The recorder wraps the whole stack, outside the server error handler,
+    and the exception recorder sits inside it, outside every middleware
+    the app adds. A `Trace` that is off, or whose `instrument` leaves out
+    `starlette`, turns the request spans off and keeps the metrics.
+    """
+    tracing = request_spans(micro.components, "starlette")
+    if tracing is None or app in _TELEMETRY_WIRED:
+        return
+    from starlette.middleware import Middleware  # noqa: PLC0415
+
+    from grelmicro.integrations._request_telemetry import (  # noqa: PLC0415
+        RaisedExceptions,
+        RequestTelemetry,
+        exceptions_on_spans,
+        excluding,
+        known_methods,
+    )
+
+    _TELEMETRY_WIRED.add(app)
+    entry = Middleware(RaisedExceptions)
+    app.user_middleware.insert(0, entry)
+    _keep_watching_outside(app, [entry])
+    build = app.build_middleware_stack
+    options: dict[str, Any] = {
+        "route": _route_of(app),
+        "tracing": tracing,
+        "exclude": excluding("starlette"),
+        "methods": known_methods(),
+        "events": exceptions_on_spans(),
+    }
+
+    def build_middleware_stack() -> ASGIApp:
+        return RequestTelemetry(build(), **options)
+
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+
+
+_TELEMETRY_WIRED: Final[weakref.WeakSet[Starlette]] = weakref.WeakSet()
+"""Apps whose request telemetry is wired. The first `Grelmicro` wires it."""
+
+
+def _route_of(app: Starlette) -> Callable[[Scope, str, str], str | None]:  # noqa: C901
+    """Return how to read the route template a request to `app` matched.
+
+    The template starts with the request's root path, then each mount it
+    went through, then the route the innermost router matched. A request
+    that went through no mount reads that route alone. One that did is
+    matched again for the template of each mount. When no router inside the last mount recorded a
+    route, the one matching again finds is read, else `{path}`. A FastAPI
+    route reached through included routers reads with every prefix. A
+    request the router redirects to add or drop a trailing slash reads the
+    route it is redirected to.
+    """
+    from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
+
+    from grelmicro.integrations._fastapi_internals import (  # noqa: PLC0415
+        context_of,
+    )
+
+    def template(scope: Scope, route: object) -> str | None:
+        path = getattr(context_of(scope, route) or route, "path_format", None)
+        return path if isinstance(path, str) else None
+
+    def through_mounts(
+        routes: Sequence[Any], scope: Scope
+    ) -> tuple[str, str | None]:
+        """Return the templates of the mounts `scope` goes through, and of its route.
+
+        Matches as Starlette's router does: the first full match, else the
+        first partial one. The route is `None` when nothing inside the last
+        mount matches, or when that mount holds an app of another framework.
+        """
+        found = None
+        for candidate in routes:
+            match, child = candidate.matches(scope)
+            if match is Match.FULL:
+                found = candidate, child
+                break
+            if match is Match.PARTIAL and found is None:
+                found = candidate, child
+        if found is None:
+            return "", None
+        candidate, child = found
+        if not isinstance(candidate, (Mount, Host)):
+            return "", template(scope, candidate)
+        prefix = (
+            candidate.path_format.removesuffix("/{path}")
+            if isinstance(candidate, Mount)
+            else ""
+        )
+        inner = getattr(candidate, "routes", None)
+        if not inner or not all(
+            isinstance(entry, BaseRoute) for entry in inner
+        ):
+            return prefix, None
+        mounts, leaf = through_mounts(inner, {**scope, **child})
+        return prefix + mounts, leaf
+
+    def redirected(scope: Scope, root_path: str, path: str) -> str | None:
+        """Return the route a slash redirect sends the request to, if any."""
+        if (
+            scope["type"] != "http"
+            or not app.router.redirect_slashes
+            or path.removeprefix(root_path) in ("", "/")
+        ):
+            return None
+        toggled = path.removesuffix("/") if path.endswith("/") else path + "/"
+        start = {
+            **scope,
+            "path": toggled,
+            "root_path": root_path,
+            "path_params": {},
+        }
+        mounts, leaf = through_mounts(app.router.routes, start)
+        return None if leaf is None else root_path.rstrip("/") + mounts + leaf
+
+    def route(scope: Scope, root_path: str, path: str) -> str | None:
+        prefix = root_path.rstrip("/")
+        matched = scope.get("route")
+        if matched is None:
+            return redirected(scope, root_path, path)
+        if scope.get("root_path", "") == root_path:
+            leaf = template(scope, matched)
+            return None if leaf is None else prefix + leaf
+        start = {
+            **scope,
+            "path": path,
+            "root_path": root_path,
+            "path_params": {},
+        }
+        mounts, walked = through_mounts(app.router.routes, start)
+        leaf = (
+            walked if isinstance(matched, Mount) else template(scope, matched)
+        )
+        return prefix + mounts + (leaf or "/{path}")
+
+    return route
 
 
 def install_error_responses(

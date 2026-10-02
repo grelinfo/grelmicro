@@ -6,6 +6,12 @@ from collections.abc import Generator
 import pytest
 import structlog
 from loguru import logger as loguru_logger
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -68,3 +74,17 @@ def reset_backend(
 ) -> None:
     """Reset all backends before each test."""
     _ = reset_loguru, reset_structlog, reset_stdlib
+
+
+@pytest.fixture
+def global_spans() -> Generator[InMemorySpanExporter]:
+    """Install a global tracer provider of the app's own, and capture it."""
+    saved = trace._TRACER_PROVIDER
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    trace._TRACER_PROVIDER = provider
+    try:
+        yield exporter
+    finally:
+        trace._TRACER_PROVIDER = saved

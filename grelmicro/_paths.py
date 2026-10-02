@@ -33,7 +33,10 @@ __all__ = [
     "compile_route",
     "declared_dependencies",
     "holds_control_character",
+    "litestar_mount",
+    "litestar_owned_handler",
     "litestar_route_handler",
+    "litestar_route_template",
     "matches",
     "names_route",
     "refuse_bare_method",
@@ -285,7 +288,7 @@ def route_path(
     litestar = _serving_litestar(scope)
     if litestar is None:
         return starlette_route_path(path, root)
-    handler = _owned_handler(litestar, scope.get("route_handler"))
+    handler = litestar_owned_handler(litestar, scope.get("route_handler"))
     if handler is None:
         routed = path.split(root, maxsplit=1)[-1] if root else path
         return _litestar_normalize()(routed)
@@ -308,7 +311,7 @@ def litestar_route_handler(
     litestar = _serving_litestar(scope)
     if litestar is None:
         return None
-    return _owned_handler(litestar, scope.get("route_handler"))
+    return litestar_owned_handler(litestar, scope.get("route_handler"))
 
 
 def _serving_litestar(scope: MutableMapping[str, Any]) -> Any | None:  # noqa: ANN401
@@ -323,8 +326,8 @@ def _serving_litestar(scope: MutableMapping[str, Any]) -> Any | None:  # noqa: A
     return litestar
 
 
-def _owned_handler(app: Any, handler: Any) -> Any | None:  # noqa: ANN401
-    """Return `handler` when `app` owns it, or `None`.
+def litestar_owned_handler(app: Any, handler: Any) -> Any | None:  # noqa: ANN401
+    """Return `handler` when the Litestar app `app` owns it, or `None`.
 
     Litestar gives each handler it registers the router it was registered
     on as its owner, and each router the one above it, up to the app.
@@ -345,10 +348,38 @@ def _litestar_mounted_path(app: Any, handler: Any, remaining: str) -> str:  # no
     Raises:
         RuntimeError: If the router lists no mount for the handler.
     """
+    return _litestar_normalize()(f"{litestar_mount(app, handler)}{remaining}")
+
+
+def litestar_route_template(app: Any, path: str) -> str:  # noqa: ANN401
+    """Return the template of the route `path` matches, whatever the method.
+
+    For a path a Litestar app matched and refused for its method, so a
+    route holds it.
+    """
+    from litestar._asgi.routing_trie.traversal import (  # noqa: PLC0415
+        traverse_route_map,
+    )
+
+    router = app.asgi_router
+    if path in router._plain_routes:  # noqa: SLF001
+        return router.root_route_map_node.children[path].path_template
+    node, _, _ = traverse_route_map(
+        root_node=router.root_route_map_node, path=path
+    )
+    return node.path_template
+
+
+def litestar_mount(app: Any, handler: Any) -> str:  # noqa: ANN401
+    """Return the path a Litestar app mounts `handler` at, router prefixes included.
+
+    Raises:
+        RuntimeError: If the router lists no mount for the handler.
+    """
     mounts = app.asgi_router._mount_routes  # noqa: SLF001
     for mount, node in mounts.items():
         if any(entry[1] is handler for entry in node.asgi_handlers.values()):
-            return _litestar_normalize()(f"{mount}{remaining}")
+            return mount
     msg = (
         "Litestar routed the request to a mount its router does not list, "
         "so the path it serves is unknown."

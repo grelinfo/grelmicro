@@ -11,7 +11,7 @@ no-op (silent under the default, a warning when the target was named).
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -22,13 +22,36 @@ _logger = logging.getLogger(__name__)
 InstrumentDirective = bool | str | Sequence[str] | Mapping[str, bool]
 """`True`/`False`, a single name, an allow-list, or an all-with-overrides map."""
 
-KNOWN_FRAMEWORKS = frozenset({"fastapi", "faststream"})
+KNOWN_FRAMEWORKS = frozenset({"fastapi", "faststream", "litestar", "starlette"})
 """Framework integration names valid in an `instrument` directive.
 
 These are wired by `micro.install(app)` (not the library sweep): FastAPI request
-spans recorded by FastAPI itself, FastStream message spans via the broker's
-OpenTelemetry telemetry middleware.
+spans recorded by FastAPI itself, Starlette and Litestar request spans recorded
+by grelmicro, FastStream message spans via the broker's OpenTelemetry telemetry
+middleware.
 """
+
+
+def request_spans(components: Iterable[object], framework: str) -> bool | None:
+    """Return whether the request spans of `framework` are recorded.
+
+    `None` when no `Trace` or `Metrics` is registered, so nothing records
+    request telemetry. A `Trace` that is off, or whose `instrument` leaves
+    out `framework`, turns the spans off and keeps the metrics.
+    """
+    from grelmicro.trace._component import Trace  # noqa: PLC0415
+
+    exporting = [
+        component
+        for component in components
+        if getattr(component, "kind", None) in ("trace", "metrics")
+    ]
+    if not exporting:
+        return None
+    trace = next((c for c in exporting if isinstance(c, Trace)), None)
+    return trace is None or (
+        trace.active and is_selected(framework, trace.instrument)
+    )
 
 
 def explicit_names(directive: InstrumentDirective) -> set[str] | None:

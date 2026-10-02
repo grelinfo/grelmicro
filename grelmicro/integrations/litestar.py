@@ -6,11 +6,22 @@ import functools
 import warnings
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
-from litestar.exceptions import HTTPException
+from litestar import Litestar
+from litestar.exceptions import (
+    HTTPException,
+    LitestarException,
+    MethodNotAllowedException,
+)
+from litestar.utils.path import normalize_path
 from typing_extensions import Doc
 
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
+from grelmicro._paths import (
+    litestar_mount,
+    litestar_owned_handler,
+    litestar_route_template,
+)
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
@@ -34,6 +45,7 @@ from grelmicro.http._requirement import (
     declared_scopes,
 )
 from grelmicro.http._routes import RouteDeclaration
+from grelmicro.trace._autoinstrument import request_spans
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -44,7 +56,7 @@ if TYPE_CHECKING:
         Sequence,
     )
 
-    from litestar import Litestar, Request
+    from litestar import Request
     from litestar.connection import ASGIConnection
     from litestar.handlers.base import BaseRouteHandler
     from litestar.response import Response
@@ -104,6 +116,9 @@ def install(
     Adds an `after_exception` hook that marks a request whose handler raised
     an unhandled exception. The idempotency middleware stores nothing for a
     marked request.
+
+    With `Trace` or `Metrics` registered, records the request span and the
+    HTTP server metrics of every request.
 
     When `ambient` is `True`, wraps the app's ASGI handler so patterns resolve
     through `Grelmicro.current()` inside route handlers. The wrap sits outside
@@ -165,6 +180,137 @@ def install(
         app.asgi_handler = cast(
             "Any", GrelmicroMiddleware(handler, micro=micro)
         )
+    _wire_request_telemetry(app, micro)
+
+
+def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
+    """Record the request telemetry of `app` when `micro` exports it.
+
+    The recorder goes over everything the app built, under the binding, and
+    an `after_exception` hook hands it the exceptions no handler answers. A
+    `Trace` that is off, or whose `instrument` leaves out `litestar`, turns
+    the request spans off and keeps the metrics.
+    """
+    tracing = request_spans(micro.components, "litestar")
+    if tracing is None:
+        return
+    from grelmicro.integrations._request_telemetry import (  # noqa: PLC0415
+        RequestTelemetry,
+        exceptions_on_spans,
+        excluding,
+        known_methods,
+        record_unhandled,
+    )
+
+    if _wrapped_already(app.asgi_handler, RequestTelemetry):
+        return
+    options: dict[str, Any] = {
+        "route": _route_of(app),
+        "tracing": tracing,
+        "exclude": excluding("litestar"),
+        "methods": known_methods(),
+        "events": exceptions_on_spans(),
+        "unwrap": _raised_by_app,
+    }
+    binding = app.asgi_handler
+    if isinstance(binding, GrelmicroMiddleware):
+        _wrap_outside(binding, RequestTelemetry, options)
+    else:
+        app.asgi_handler = cast(
+            "Any", RequestTelemetry(cast("ASGIApp", binding), **options)
+        )
+
+    async def record(exc: Exception, scope: Scope) -> None:
+        """Hand the request telemetry an exception no handler answers.
+
+        An `HTTPException` is handled, and so is an exception a handler of
+        the route catches on purpose.
+        """
+        if isinstance(exc, HTTPException):
+            return
+        route_handler = scope.get("route_handler")
+        if route_handler is not None and _caught_on_purpose(
+            exc, route_handler.resolve_exception_handlers()
+        ):
+            return
+        record_unhandled(scope, exc)
+
+    app.after_exception.append(cast("Any", record))
+
+
+def _route_of(app: Litestar) -> Callable[[Scope, str, str], str | None]:
+    """Return how to read the route template a request to `app` matched.
+
+    Router prefixes are included. A mounted ASGI app reads as `{path}`
+    under its mount, and a mounted Litestar app as its own route under
+    the mount. A request Litestar refused for its method reads the route
+    its path matched.
+    """
+
+    def route(scope: Scope, root_path: str, path: str) -> str | None:
+        handler = litestar_owned_handler(app, scope.get("route_handler"))
+        template: str | None = (
+            _handler_template(app, handler, scope["path_template"])
+            if scope.get("litestar_app") is app and handler is not None
+            else _routed_template(app, scope, root_path, path)
+        )
+        return None if template is None else root_path.rstrip("/") + template
+
+    return route
+
+
+def _handler_template(app: Litestar, handler: Any, template: str) -> str:  # noqa: ANN401
+    """Return the template of a handler `app` routed to, `{path}` for a mount."""
+    if not getattr(handler, "is_mount", False):
+        return template
+    return litestar_mount(app, handler).rstrip("/") + "/{path}"
+
+
+def _routed_template(
+    app: Litestar, scope: Scope, root_path: str, path: str
+) -> str | None:
+    """Return the template of the route `app` routes the request's path to.
+
+    For a request the scope no longer describes as `app` routed it: one a
+    mounted app took over, or one refused before routing. A mounted
+    Litestar app adds the route it matched. `None` when no route of `app`
+    matches the path.
+    """
+    routed = path.split(root_path, maxsplit=1)[-1] if root_path else path
+    routed = normalize_path(routed)
+    router = app.asgi_router
+    try:
+        _, handler, _, _, _ = router.handle_routing(routed, scope.get("method"))
+    except MethodNotAllowedException:
+        return litestar_route_template(app, routed)
+    except Exception:  # noqa: BLE001
+        return None
+    # Routed, yet not as the scope says: the request went through a mount.
+    mount = litestar_mount(app, handler)
+    inner = scope.get("litestar_app")
+    inner_handler = litestar_owned_handler(inner, scope.get("route_handler"))
+    inner_template = scope.get("path_template")
+    if (
+        inner is not app
+        and inner_handler is not None
+        and isinstance(inner_template, str)
+        and not getattr(inner_handler, "is_mount", False)
+    ):
+        return mount.rstrip("/") + inner_template
+    return mount.rstrip("/") + "/{path}"
+
+
+def _raised_by_app(exc: BaseException) -> BaseException:
+    """Return the exception the app raised, from the one Litestar let out.
+
+    Litestar wraps an exception raised once the response started in a bare
+    `LitestarException`, and a streamed body fails as a group of one.
+    """
+    wrapped = exc.__cause__ if type(exc) is LitestarException else None
+    exc = wrapped or exc
+    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+        exc = exc.exceptions[0]
+    return exc
 
 
 async def _mark_unhandled(exc: Exception, scope: Scope) -> None:
