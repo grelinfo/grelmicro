@@ -341,13 +341,26 @@ _PARITY_APPS: dict[str, Callable[[], Any]] = {
 Recorded = tuple[str, dict[str, Any], list[str], list[str]]
 
 
+def _active_requests(micro: Grelmicro) -> list[str]:
+    """Return the active request series, labels and value."""
+    return [
+        re.sub(r'otel_scope_[a-z_]+="[^"]*",?', "", line)
+        for line in render_prometheus(micro.metrics).decode().splitlines()
+        if line.startswith("http_server_active_requests{")
+    ]
+
+
 def _what(micro: Grelmicro, exporter: InMemorySpanExporter) -> Recorded:
-    """Return the span name, attributes, exception events and metric labels."""
+    """Return the span name, attributes, exception events and metric series.
+
+    The duration series are read by their labels, the active request
+    series by their labels and value.
+    """
     [server] = _server_spans(exporter.get_finished_spans())
     labels = [
         re.sub(r'otel_scope_[a-z_]+="[^"]*",?', "", line).rsplit(" ", 1)[0]
         for line in _request_durations(micro).splitlines()
-    ]
+    ] + _active_requests(micro)
     return (
         server.name,
         dict(server.attributes or {}),
@@ -1110,6 +1123,35 @@ def test_litestar_excluded_url_records_nothing(
     assert spans == []
 
 
+@pytest.mark.parametrize("code", [1000, 1001])
+def test_litestar_websocket_normal_close_records_no_exception(
+    code: int,
+) -> None:
+    """A normal close is how a connection ends, not a failure."""
+
+    # Arrange
+    @websocket("/ws")
+    async def echo(socket: LitestarWebSocket) -> None:
+        await socket.accept()
+        await socket.receive_text()
+
+    micro = Grelmicro(uses=[_trace()])
+    app = Litestar(route_handlers=[echo])
+    exporter = InMemorySpanExporter()
+    micro.install(app)
+
+    # Act
+    with LitestarTestClient(app) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        with client.websocket_connect("/ws") as socket:
+            socket.close(code=code)
+
+    # Assert
+    [server] = _server_spans(exporter.get_finished_spans())
+    assert server.status.status_code is StatusCode.UNSET
+    assert _exception_events(server) == []
+
+
 def test_litestar_websocket_records_one_span_named_by_route() -> None:
     """A WebSocket connection is traced like a request."""
 
@@ -1294,6 +1336,44 @@ def test_request_telemetry_raw_request_matches_fastapi(
 
     # Assert
     assert recorded == _raw_recorded("fastapi", dict(scope), messages)
+
+
+def _active_in_flight(framework: str) -> list[str]:
+    """Return the active request series as the response starts."""
+    micro = Grelmicro(uses=[_metrics()])
+    app = _PARITY_APPS[framework]()
+    micro.install(app)
+    incoming = iter(_BODY)
+    seen: list[list[str]] = []
+
+    async def receive() -> dict[str, Any]:
+        return next(incoming, {"type": "http.disconnect"})
+
+    async def send(message: dict[str, Any]) -> None:
+        if message["type"] == "http.response.start":
+            seen.append(_active_requests(micro))
+
+    async def run() -> None:
+        async with micro:
+            await app(_scope(), receive, send)
+
+    anyio.run(run)
+    return seen[0]
+
+
+@pytest.mark.parametrize("framework", ["fastapi", "starlette", "litestar"])
+def test_request_telemetry_counts_a_request_in_flight(framework: str) -> None:
+    """A request is active until it is answered, with FastAPI's attributes."""
+    # Act
+    active = _active_in_flight(framework)
+
+    # Assert
+    assert active == [
+        (
+            'http_server_active_requests{http_request_method="GET",'
+            'url_scheme="http"} 1.0'
+        )
+    ]
 
 
 @pytest.mark.parametrize(

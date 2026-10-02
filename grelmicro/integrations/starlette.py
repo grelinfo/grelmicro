@@ -18,6 +18,7 @@ from typing_extensions import Doc
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
+from grelmicro._paths import starlette_route
 from grelmicro._wrapping import refuse_registered
 from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
@@ -190,100 +191,17 @@ _TELEMETRY_WIRED: Final[weakref.WeakSet[Starlette]] = weakref.WeakSet()
 """Apps whose request telemetry is wired. The first `Grelmicro` wires it."""
 
 
-def _route_of(app: Starlette) -> Callable[[Scope, Answered], str | None]:  # noqa: C901
+def _route_of(app: Starlette) -> Callable[[Scope, Answered], str | None]:
     """Return how to read the route template a request to `app` matched.
 
-    The template starts with the request's root path, then each mount it
-    went through, then the route the innermost router matched. A request
-    that went through no mount reads that route alone. One that did is
-    matched again for the template of each mount. When no router inside
-    the last mount recorded a route, the one matching again finds is read,
-    else `{path}`. A FastAPI route reached through included routers reads
-    with every prefix. A request a router redirects to add or drop a
-    trailing slash reads the route it is redirected to.
+    The template starts with the request's root path, then reads as
+    `starlette_route` reads it.
     """
-    from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
-    from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
-
-    from grelmicro.integrations._fastapi_internals import (  # noqa: PLC0415
-        context_of,
-    )
-
-    def template(scope: Scope, route: object) -> str | None:
-        path = getattr(context_of(scope, route) or route, "path_format", None)
-        return path if isinstance(path, str) else None
-
-    def through_mounts(
-        routes: Sequence[Any], scope: Scope
-    ) -> tuple[str, str | None]:
-        """Return the templates of the mounts `scope` goes through, and of its route.
-
-        Matches as Starlette's router does: the first full match, else the
-        first partial one. The route is `None` when nothing inside the last
-        mount matches, or when that mount holds an app of another framework.
-        """
-        found = None
-        for candidate in routes:
-            match, child = candidate.matches(scope)
-            if match is Match.FULL:
-                found = candidate, child
-                break
-            if match is Match.PARTIAL and found is None:
-                found = candidate, child
-        if found is None:
-            return "", None
-        candidate, child = found
-        if not isinstance(candidate, (Mount, Host)):
-            return "", template(scope, candidate)
-        prefix = (
-            candidate.path_format.removesuffix("/{path}")
-            if isinstance(candidate, Mount)
-            else ""
-        )
-        inner = getattr(candidate, "routes", None)
-        if not inner or not all(
-            isinstance(entry, BaseRoute) for entry in inner
-        ):
-            return prefix, None
-        mounts, leaf = through_mounts(inner, {**scope, **child})
-        return prefix + mounts, leaf
-
-    def redirected(scope: Scope, answered: Answered) -> str | None:
-        """Return the route a slash redirect sends the request to, if any."""
-        root_path, path, status = answered
-        if scope["type"] != "http" or status != HTTP_307_TEMPORARY_REDIRECT:
-            return None
-        toggled = path.removesuffix("/") if path.endswith("/") else path + "/"
-        start = {
-            **scope,
-            "path": toggled,
-            "root_path": root_path,
-            "path_params": {},
-        }
-        mounts, leaf = through_mounts(app.router.routes, start)
-        return None if leaf is None else root_path.rstrip("/") + mounts + leaf
 
     def route(scope: Scope, answered: Answered) -> str | None:
-        root_path, path, _ = answered
-        prefix = root_path.rstrip("/")
-        matched = scope.get("route")
-        if matched is None:
-            return redirected(scope, answered)
-        if scope.get("root_path", "") == root_path:
-            leaf = template(scope, matched)
-            return None if leaf is None else prefix + leaf
-        start = {
-            **scope,
-            "path": path,
-            "root_path": root_path,
-            "path_params": {},
-        }
-        mounts, walked = through_mounts(app.router.routes, start)
-        if not isinstance(matched, Mount):
-            walked = template(scope, matched)
-        if walked is not None:
-            return prefix + mounts + walked
-        return redirected(scope, answered) or prefix + mounts + "/{path}"
+        root_path, path, status = answered
+        found = starlette_route(app.router, scope, root_path, path, status)
+        return None if found is None else root_path.rstrip("/") + found
 
     return route
 

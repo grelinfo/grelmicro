@@ -363,7 +363,7 @@ class AccessLogMiddleware:
         }
         if status is not None:
             fields["http.response.status_code"] = status
-        template = route_template(scope, asked)
+        template = route_template(scope, asked, status)
         if template is not None:
             fields["http.route"] = template
         client = client_address(scope)

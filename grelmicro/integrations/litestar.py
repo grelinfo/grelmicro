@@ -201,6 +201,7 @@ def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
         exceptions_on_spans,
         excluding,
         known_methods,
+        normal_close,
         record_unhandled,
     )
 
@@ -226,9 +227,10 @@ def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
         """Hand the request telemetry an exception no handler answers.
 
         An `HTTPException` is handled, and so is an exception a handler of
-        the route catches on purpose.
+        the route catches on purpose. A WebSocket the client closed normally
+        is how the connection ends, not a failure.
         """
-        if isinstance(exc, HTTPException):
+        if isinstance(exc, HTTPException) or normal_close(exc):
             return
         route_handler = scope.get("route_handler")
         if route_handler is not None and _caught_on_purpose(
