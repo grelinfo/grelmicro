@@ -121,6 +121,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 `Trace` leaves a framework's own OpenTelemetry instrumentor out of its library sweep only when `micro.install(app)` wired an app of that framework. ([#968](https://github.com/grelinfo/grelmicro/pull/968))
 * 🐛 A FastAPI app with an OTLP endpoint in the environment no longer sets up a second exporter beside grelmicro's. `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` and `OTEL_TRACES_EXPORTER=console` no longer fail its startup. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 The published floors install and work. pydantic-settings 2.5 failed at import, the Redis instrumentation crashed before 0.54b0, and Pydantic 2.12.0 to 2.12.3 read some environment variables in the wrong order and percent-encoded URL credentials. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 🐛 A sliding window refuses a request that arrives before its slot. With 10 per second, an 11th request was admitted up to 50 ms early. ([#957](https://github.com/grelinfo/grelmicro/pull/957))

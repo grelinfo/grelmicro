@@ -18,6 +18,7 @@ from litestar import Litestar, Router, asgi, get, websocket
 from litestar import Request as LitestarRequest
 from litestar import Response as LitestarResponseType
 from litestar import WebSocket as LitestarWebSocket
+from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException as LitestarHTTPException
 from litestar.params import Parameter
 from litestar.response import Stream
@@ -48,6 +49,8 @@ from starlette.responses import (
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.status import (
     HTTP_200_OK,
+    HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
@@ -55,6 +58,11 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from grelmicro import Grelmicro
+from grelmicro.integrations._request_telemetry import (
+    Answered,
+    RequestTelemetry,
+    known_methods,
+)
 from grelmicro.metrics import Metrics, MetricsExporterType
 from grelmicro.metrics._endpoints import render_prometheus
 from grelmicro.trace import Trace, TraceExporterType
@@ -1420,3 +1428,163 @@ def test_starlette_unknown_websocket_records_no_route() -> None:
     # Assert
     [server] = _server_spans(spans)
     assert server.name == "WS"
+
+
+def test_litestar_cors_preflight_records_no_route_and_succeeds() -> None:
+    """A preflight Litestar answers before routing is recorded, unrouted."""
+
+    # Arrange
+    @get("/v1/items")
+    async def items() -> list[int]:
+        return [7]
+
+    micro = Grelmicro(uses=[_trace(), _metrics()])
+    cors = Litestar(
+        route_handlers=[items],
+        cors_config=CORSConfig(allow_origins=["https://app.example"]),
+    )
+    exporter = InMemorySpanExporter()
+    micro.install(cors)
+
+    # Act
+    with LitestarTestClient(cors) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        response = client.options(
+            "/v1/items",
+            headers={
+                "Origin": "https://app.example",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        active = render_prometheus(micro.metrics).decode()
+
+    # Assert
+    assert response.status_code == HTTP_204_NO_CONTENT
+    [server] = _server_spans(exporter.get_finished_spans())
+    assert server.name == "OPTIONS"
+    [series] = [
+        line
+        for line in active.splitlines()
+        if line.startswith("http_server_active_requests{")
+    ]
+    assert series.endswith(" 0.0")
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_litestar_invalid_host_records_status_without_route(
+    method: str,
+) -> None:
+    """A request Litestar refuses before routing names no route."""
+    # Arrange
+    micro = Grelmicro(uses=[_trace()])
+
+    # Act
+    spans = _litestar_raw_spans(
+        micro,
+        _litestar_items(),
+        _scope(method=method, headers=[(b"host", b"bad host")]),
+    )
+
+    # Assert
+    [server] = spans
+    assert server.name == method
+    assert server.attributes is not None
+    assert "http.route" not in server.attributes
+    assert (
+        server.attributes["http.response.status_code"] == HTTP_400_BAD_REQUEST
+    )
+
+
+def test_starlette_slash_redirect_in_mount_reads_target_route() -> None:
+    """A mount's own router redirecting names the route it redirects to."""
+    # Arrange
+    micro = Grelmicro(uses=[_trace()])
+    app = Starlette(
+        routes=[Mount("/shop", routes=[Route("/items/", _read_item)])]
+    )
+
+    # Act
+    spans = _spans(
+        micro,
+        app,
+        lambda client: client.get("/shop/items", follow_redirects=False),
+    )
+
+    # Assert
+    [server] = _server_spans(spans)
+    assert server.name == "GET /shop/items/"
+
+
+def test_request_telemetry_failing_route_reader_still_records(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A route that cannot be read leaves the span ended, unnamed, and logs why."""
+    # Arrange
+    micro = Grelmicro(uses=[_trace()])
+    exporter = InMemorySpanExporter()
+
+    def unreadable(_scope: Scope, _answered: Answered) -> str | None:
+        msg = "unreadable"
+        raise LookupError(msg)
+
+    async def ok(scope: Scope, receive: Receive, send: Send) -> None:
+        await PlainTextResponse("ok")(scope, receive, send)
+
+    app = RequestTelemetry(
+        ok,
+        route=unreadable,
+        tracing=True,
+        exclude=None,
+        methods=known_methods(),
+        events=True,
+    )
+
+    sent: list[dict[str, Any]] = []
+    messages = iter(_BODY)
+
+    async def receive() -> dict[str, Any]:
+        return next(messages, {"type": "http.disconnect"})
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    async def run() -> None:
+        async with micro:
+            micro.trace.provider.add_span_processor(
+                SimpleSpanProcessor(exporter)
+            )
+            await app(_scope("/anything"), receive, send)  # ty: ignore[invalid-argument-type]
+
+    # Act
+    anyio.run(run)
+
+    # Assert
+    assert sent[0]["status"] == HTTP_200_OK
+    [server] = _server_spans(exporter.get_finished_spans())
+    assert server.name == "GET"
+    assert "Could not read the route of /anything" in caplog.text
+
+
+def _litestar_raw_spans(
+    micro: Grelmicro, app: Litestar, scope: dict[str, Any]
+) -> list[ReadableSpan]:
+    """Return the request spans one raw scope sent to `app` records."""
+    exporter = InMemorySpanExporter()
+    micro.install(app)
+    messages = iter(_BODY)
+
+    async def receive() -> dict[str, Any]:
+        return next(messages, {"type": "http.disconnect"})
+
+    async def send(_: object) -> None:
+        return None
+
+    async def run() -> None:
+        async with micro:
+            micro.trace.provider.add_span_processor(
+                SimpleSpanProcessor(exporter)
+            )
+            await app(scope, receive, send)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    anyio.run(run)
+    return _server_spans(exporter.get_finished_spans())

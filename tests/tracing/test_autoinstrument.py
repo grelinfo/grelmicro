@@ -9,7 +9,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from fastapi import FastAPI
+from litestar import Litestar
 from opentelemetry.sdk.trace import TracerProvider
+from starlette.applications import Starlette
 
 from grelmicro import Grelmicro
 from grelmicro.errors import SettingsValidationError
@@ -32,7 +35,7 @@ from grelmicro.trace._autoinstrument import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 REDIS_URL = "redis://localhost:6379/0"
 PG_URL = "postgresql://localhost:5432/db"
@@ -329,16 +332,38 @@ def test_uninstrument_libraries_swallows_errors(
 async def test_app_sweeps_libraries_without_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A Trace app with no providers still sweeps used libraries, FastAPI aside."""
-    instances = _fake_entries(monkeypatch, ["asyncpg", "fastapi"])
+    """A Trace app with no providers sweeps every used library."""
+    instances = _fake_entries(monkeypatch, ["asyncpg", "fastapi", "starlette"])
     micro = Grelmicro(uses=[_none_trace()])
     async with micro:
-        # asyncpg (app-owned, no provider) is instrumented...
+        # No app is installed, so a framework's instrumentor is swept too.
         assert instances["asyncpg"].tracer_provider is micro.trace.provider
-        # ...but FastAPI is owned by the integration, excluded from the sweep.
-        assert instances["fastapi"].tracer_provider is None
+        assert instances["fastapi"].tracer_provider is micro.trace.provider
+        assert instances["starlette"].tracer_provider is micro.trace.provider
     # Reversed on exit.
     assert instances["asyncpg"].uninstrumented is True
+
+
+def _litestar() -> Litestar:
+    return Litestar(route_handlers=[])
+
+
+@pytest.mark.parametrize(
+    ("app", "framework"),
+    [(FastAPI, "fastapi"), (Starlette, "starlette"), (_litestar, "litestar")],
+)
+async def test_app_sweep_skips_the_framework_of_an_installed_app(
+    monkeypatch: pytest.MonkeyPatch,
+    app: Callable[[], object],
+    framework: str,
+) -> None:
+    """The framework of an app grelmicro records requests for is not swept."""
+    instances = _fake_entries(monkeypatch, ["asyncpg", framework])
+    micro = Grelmicro(uses=[_none_trace()])
+    micro.install(app())
+    async with micro:
+        assert instances["asyncpg"].tracer_provider is micro.trace.provider
+        assert instances[framework].tracer_provider is None
 
 
 # --- per-provider hooks ------------------------------------------------------

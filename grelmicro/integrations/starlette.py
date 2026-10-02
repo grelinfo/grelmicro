@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from grelmicro import Grelmicro
     from grelmicro.http import Gate, RouteDeclaration
+    from grelmicro.integrations._request_telemetry import Answered
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -189,19 +190,20 @@ _TELEMETRY_WIRED: Final[weakref.WeakSet[Starlette]] = weakref.WeakSet()
 """Apps whose request telemetry is wired. The first `Grelmicro` wires it."""
 
 
-def _route_of(app: Starlette) -> Callable[[Scope, str, str], str | None]:  # noqa: C901
+def _route_of(app: Starlette) -> Callable[[Scope, Answered], str | None]:  # noqa: C901
     """Return how to read the route template a request to `app` matched.
 
     The template starts with the request's root path, then each mount it
     went through, then the route the innermost router matched. A request
     that went through no mount reads that route alone. One that did is
-    matched again for the template of each mount. When no router inside the last mount recorded a
-    route, the one matching again finds is read, else `{path}`. A FastAPI
-    route reached through included routers reads with every prefix. A
-    request the router redirects to add or drop a trailing slash reads the
-    route it is redirected to.
+    matched again for the template of each mount. When no router inside
+    the last mount recorded a route, the one matching again finds is read,
+    else `{path}`. A FastAPI route reached through included routers reads
+    with every prefix. A request a router redirects to add or drop a
+    trailing slash reads the route it is redirected to.
     """
     from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
+    from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
 
     from grelmicro.integrations._fastapi_internals import (  # noqa: PLC0415
         context_of,
@@ -246,13 +248,10 @@ def _route_of(app: Starlette) -> Callable[[Scope, str, str], str | None]:  # noq
         mounts, leaf = through_mounts(inner, {**scope, **child})
         return prefix + mounts, leaf
 
-    def redirected(scope: Scope, root_path: str, path: str) -> str | None:
+    def redirected(scope: Scope, answered: Answered) -> str | None:
         """Return the route a slash redirect sends the request to, if any."""
-        if (
-            scope["type"] != "http"
-            or not app.router.redirect_slashes
-            or path.removeprefix(root_path) in ("", "/")
-        ):
+        root_path, path, status = answered
+        if scope["type"] != "http" or status != HTTP_307_TEMPORARY_REDIRECT:
             return None
         toggled = path.removesuffix("/") if path.endswith("/") else path + "/"
         start = {
@@ -264,11 +263,12 @@ def _route_of(app: Starlette) -> Callable[[Scope, str, str], str | None]:  # noq
         mounts, leaf = through_mounts(app.router.routes, start)
         return None if leaf is None else root_path.rstrip("/") + mounts + leaf
 
-    def route(scope: Scope, root_path: str, path: str) -> str | None:
+    def route(scope: Scope, answered: Answered) -> str | None:
+        root_path, path, _ = answered
         prefix = root_path.rstrip("/")
         matched = scope.get("route")
         if matched is None:
-            return redirected(scope, root_path, path)
+            return redirected(scope, answered)
         if scope.get("root_path", "") == root_path:
             leaf = template(scope, matched)
             return None if leaf is None else prefix + leaf
@@ -279,10 +279,11 @@ def _route_of(app: Starlette) -> Callable[[Scope, str, str], str | None]:  # noq
             "path_params": {},
         }
         mounts, walked = through_mounts(app.router.routes, start)
-        leaf = (
-            walked if isinstance(matched, Mount) else template(scope, matched)
-        )
-        return prefix + mounts + (leaf or "/{path}")
+        if not isinstance(matched, Mount):
+            walked = template(scope, matched)
+        if walked is not None:
+            return prefix + mounts + walked
+        return redirected(scope, answered) or prefix + mounts + "/{path}"
 
     return route
 

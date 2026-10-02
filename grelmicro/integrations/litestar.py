@@ -12,6 +12,7 @@ from litestar.exceptions import (
     LitestarException,
     MethodNotAllowedException,
 )
+from litestar.status_codes import HTTP_405_METHOD_NOT_ALLOWED
 from litestar.utils.path import normalize_path
 from typing_extensions import Doc
 
@@ -64,6 +65,7 @@ if TYPE_CHECKING:
     from grelmicro import Grelmicro
     from grelmicro.http import Gate
     from grelmicro.http._kinds import Unhandled
+    from grelmicro.integrations._request_telemetry import Answered
     from grelmicro.security.principal import VerifiedToken
 
     Scope = MutableMapping[str, Any]
@@ -238,23 +240,26 @@ def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
     app.after_exception.append(cast("Any", record))
 
 
-def _route_of(app: Litestar) -> Callable[[Scope, str, str], str | None]:
+def _route_of(app: Litestar) -> Callable[[Scope, Answered], str | None]:
     """Return how to read the route template a request to `app` matched.
 
     Router prefixes are included. A mounted ASGI app reads as `{path}`
     under its mount, and a mounted Litestar app as its own route under
     the mount. A request Litestar refused for its method reads the route
-    its path matched.
+    its path matched. One answered before routing, such as a CORS
+    preflight, reads no route.
     """
 
-    def route(scope: Scope, root_path: str, path: str) -> str | None:
+    def route(scope: Scope, answered: Answered) -> str | None:
         handler = litestar_owned_handler(app, scope.get("route_handler"))
         template: str | None = (
             _handler_template(app, handler, scope["path_template"])
             if scope.get("litestar_app") is app and handler is not None
-            else _routed_template(app, scope, root_path, path)
+            else _routed_template(app, scope, answered)
         )
-        return None if template is None else root_path.rstrip("/") + template
+        if template is None:
+            return None
+        return answered.root_path.rstrip("/") + template
 
     return route
 
@@ -267,25 +272,29 @@ def _handler_template(app: Litestar, handler: Any, template: str) -> str:  # noq
 
 
 def _routed_template(
-    app: Litestar, scope: Scope, root_path: str, path: str
+    app: Litestar, scope: Scope, answered: Answered
 ) -> str | None:
     """Return the template of the route `app` routes the request's path to.
 
-    For a request the scope no longer describes as `app` routed it: one a
-    mounted app took over, or one refused before routing. A mounted
-    Litestar app adds the route it matched. `None` when no route of `app`
-    matches the path.
+    For a request the scope does not describe as `app` routed it: one a
+    mounted app took over, one refused for its method, or one answered
+    before routing. A mounted Litestar app adds the route it matched.
+    `None` when no route of `app` matched the request.
     """
+    root_path, path, status = answered
     routed = path.split(root_path, maxsplit=1)[-1] if root_path else path
     routed = normalize_path(routed)
     router = app.asgi_router
     try:
         _, handler, _, _, _ = router.handle_routing(routed, scope.get("method"))
     except MethodNotAllowedException:
+        if status != HTTP_405_METHOD_NOT_ALLOWED:
+            return None
         return litestar_route_template(app, routed)
     except Exception:  # noqa: BLE001
         return None
-    # Routed, yet not as the scope says: the request went through a mount.
+    if not getattr(handler, "is_mount", False):
+        return None
     mount = litestar_mount(app, handler)
     inner = scope.get("litestar_app")
     inner_handler = litestar_owned_handler(inner, scope.get("route_handler"))

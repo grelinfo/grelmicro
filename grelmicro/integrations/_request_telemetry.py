@@ -8,12 +8,13 @@ the request matched. Nothing here imports a web framework.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from contextlib import nullcontext
 from importlib.metadata import version
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from opentelemetry import context as otel_context
@@ -34,10 +35,11 @@ if TYPE_CHECKING:
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
-    RouteOf = Callable[[Scope, str, str], "str | None"]
+    RouteOf = Callable[[Scope, "Answered"], "str | None"]
 
 __all__ = [
     "SCOPE_NAME",
+    "Answered",
     "RaisedExceptions",
     "RequestTelemetry",
     "exceptions_on_spans",
@@ -46,6 +48,20 @@ __all__ = [
     "normal_close",
     "record_unhandled",
 ]
+
+_logger = logging.getLogger(__name__)
+
+
+class Answered(NamedTuple):
+    """A request as it arrived, and the status it was answered with."""
+
+    root_path: str
+    """The root path the request arrived with."""
+    path: str
+    """The path the request arrived with."""
+    status: int | None
+    """The status of the answer, `None` before one started."""
+
 
 SCOPE_NAME: Final = "grelmicro.http"
 """The instrumentation scope of the request spans and the HTTP server metrics."""
@@ -528,7 +544,15 @@ class RequestTelemetry:
             if finished:
                 return
             finished = True
-            route = self._route(scope, root_path, path)
+            try:
+                route = self._route(
+                    scope, Answered(root_path, path, status_code)
+                )
+            except Exception:
+                _logger.warning(
+                    "Could not read the route of %s", path, exc_info=True
+                )
+                route = None
             if route is not None:
                 attributes["http.route"] = route
             if status_code is not None:

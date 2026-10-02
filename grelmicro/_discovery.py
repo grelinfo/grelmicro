@@ -25,6 +25,8 @@ from grelmicro.errors import (
 )
 
 if TYPE_CHECKING:
+    from importlib.metadata import EntryPoint
+
     from grelmicro.providers._base import Provider
 
 PROVIDER_GROUP = "grelmicro.providers"
@@ -103,11 +105,26 @@ def load_integration(app: object) -> Integration | None:
     inherits from. The first root module registered under
     `INTEGRATION_GROUP` wins, and only that module is imported.
     """
+    ep = _integration_entry(app)
+    return None if ep is None else cast("Integration", ep.load())
+
+
+def framework_of(app: object) -> str | None:
+    """Return the framework name `app`'s integration is registered under.
+
+    `None` when no integration matches.
+    """
+    ep = _integration_entry(app)
+    return None if ep is None else ep.name
+
+
+def _integration_entry(app: object) -> EntryPoint | None:
+    """Return the entry point of the integration for `app`, `None` without one."""
     eps = {ep.name: ep for ep in entry_points(group=INTEGRATION_GROUP)}
     for klass in type(app).__mro__:
         ep = eps.get(klass.__module__.partition(".")[0])
         if ep is not None:
-            return cast("Integration", ep.load())
+            return ep
     return None
 
 
