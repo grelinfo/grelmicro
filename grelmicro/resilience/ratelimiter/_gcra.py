@@ -18,23 +18,18 @@ MICROSECONDS = 1_000_000
 
 _ONE_MICROSECOND = timedelta(microseconds=1)
 
-MAX_WINDOW = timedelta(days=36_500)
-"""Longest sliding window, a hundred years."""
-
 
 def to_microseconds(seconds: float) -> int:
     """Return the clock reading `seconds` as whole microseconds, floored."""
     return math.floor(seconds * MICROSECONDS)
 
 
-def window_microseconds(window: int | timedelta) -> int:
-    """Return `window`, whole seconds or a timedelta, in microseconds."""
-    if isinstance(window, timedelta):
-        return window // _ONE_MICROSECOND
-    return window * MICROSECONDS
+def window_microseconds(window: timedelta) -> int:
+    """Return `window` in microseconds."""
+    return window // _ONE_MICROSECOND
 
 
-def emission_interval(window: int | timedelta, limit: int) -> int:
+def emission_interval(window: timedelta, limit: int) -> int:
     """Return the microseconds one request spends, truncated."""
     return window_microseconds(window) // limit
 

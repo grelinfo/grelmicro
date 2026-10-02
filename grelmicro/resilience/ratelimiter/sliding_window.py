@@ -1,11 +1,11 @@
 """Sliding-window rate-limiter configuration."""
 
-from datetime import timedelta
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Literal, Self
 
-from pydantic import PositiveInt, field_validator, model_validator
+from pydantic import PositiveInt, model_validator
 from typing_extensions import Doc
 
+from grelmicro._duration import Duration
 from grelmicro.resilience.ratelimiter import _gcra
 from grelmicro.resilience.ratelimiter._base import _BaseRateLimiterConfig
 
@@ -44,7 +44,7 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
     ]
 
     window: Annotated[
-        int | timedelta,
+        Duration,
         Doc(
             """
             Window duration, in whole seconds or as a `timedelta`.
@@ -62,26 +62,10 @@ class SlidingWindowConfig(_BaseRateLimiterConfig, frozen=True, extra="forbid"):
         ),
     ]
 
-    @field_validator("window", mode="before")
-    @classmethod
-    def _refuse_float(cls, value: Any) -> Any:  # noqa: ANN401
-        """Refuse a float or a bool before Pydantic converts it."""
-        if isinstance(value, (bool, float)):
-            msg = "window must be whole seconds or a timedelta"
-            raise ValueError(msg)  # noqa: TRY004
-        return value
-
     @model_validator(mode="after")
     def _check_slot(self) -> Self:
-        """Refuse a window out of range, or under a microsecond a request."""
-        window = _gcra.window_microseconds(self.window)
-        if window <= 0:
-            msg = "window must be greater than zero"
-            raise ValueError(msg)
-        if window > _gcra.window_microseconds(_gcra.MAX_WINDOW):
-            msg = "window must be at most 100 years"
-            raise ValueError(msg)
-        if window < self.limit:
+        """Refuse a window under a microsecond a request."""
+        if _gcra.window_microseconds(self.window) < self.limit:
             msg = "window / limit must be at least one microsecond"
             raise ValueError(msg)
         return self
