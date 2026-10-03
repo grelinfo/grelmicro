@@ -64,10 +64,10 @@ nav:
 - migration.md
 - Coming From:
     - coming-from/spring-boot.md
-    - coming-from/django.md
-    - coming-from/symfony.md
-    - coming-from/laravel.md
     - coming-from/quarkus.md
+    - coming-from/django.md
+    - coming-from/laravel.md
+    - coming-from/symfony.md
 - User Guide:
     - first-steps.md
     - wiring.md

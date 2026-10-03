@@ -151,7 +151,7 @@ A second acquire of the same `Lock` from the same task raises `LockReentrantErro
 | profile | The profiler's record of one request | A [Shield](../resilience/shield.md) preset such as `internal` or `api` |
 | tags | Service tags. Cache tags mean the same in both | Cache tags for bulk invalidation |
 | middleware | Messenger bus middleware | ASGI middleware a component adds through `micro.install(app)` |
-| channels | Monolog channels such as `app` or `doctrine` | The two places a configuration warning goes: a Python warning and a log record |
+| channels | Monolog channels such as `app` or `doctrine` | Where a configuration warning shows up: as a Python warning and in the log |
 
 ## No equivalent, do this instead
 

@@ -145,7 +145,7 @@ MDC is a map for each thread that you can write to anywhere. grelmicro context f
 
 | Word | In Spring | In grelmicro |
 |---|---|---|
-| profile | A named set of configuration, chosen by `spring.profiles.active` | A [Shield](../resilience/shield.md) preset such as `internal` or `api`. `GREL_ENVIRONMENT` selects no configuration |
+| profile | A named set of configuration, chosen by `spring.profiles.active` | A [Shield](../resilience/shield.md) preset such as `internal` or `api`. `GREL_ENVIRONMENT` only names the deployment tier and selects no configuration |
 | container | The IoC container that builds and injects beans | The `Grelmicro` app that opens and closes your components, or a Docker container |
 | component | Any bean found by `@Component` scanning | One pattern wired into the app, such as `Cache` or `Coordination`, with a start and a stop |
 | provider | An `AuthenticationProvider` | A connection to one vendor, such as `RedisProvider` |

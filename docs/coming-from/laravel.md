@@ -8,10 +8,10 @@ grelmicro is not a web framework and has no ORM. It runs inside FastAPI, Starlet
 |---|---|---|
 | `Schedule::call(...)->everyMinute()`, `->cron(...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | `->onOneServer()` | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
-| `->withoutOverlapping()` | Nothing to add: a task never overlaps itself | [Task Scheduler](../task.md#interval-task) |
+| `->withoutOverlapping()` | Nothing to add on one worker. `gate="claim"` across workers | [Task Scheduler](../task.md#interval-task) |
 | `Cache::lock('name', 10)` | `Lock("name", lease_duration=10)` | [Lock](../coordination/lock.md) |
 | `Cache::remember(...)` | `@cached(cache)`, `cache.get_or_set(...)` | [@cached](../cache/cached.md) |
-| `Cache::flexible(...)` | `@cached(cache, early=0.1)` | [Stampede protection](../cache/cached.md#stampede-protection) |
+| `Cache::flexible(...)` | `@cached(cache, early=0.1)`, a fraction of the TTL, not seconds | [Stampede protection](../cache/cached.md#stampede-protection) |
 | `Cache::tags([...])->flush()` | `cache.delete_tags(...)` | [@cached](../cache/cached.md) |
 | `RateLimiter::for(...)` and the `throttle` middleware | `RateLimitedRequests` for the app, `RateLimited` for one route | [Rate limit](../http/rate-limit.md) |
 | `RateLimiter::attempt(...)` | `limiter.acquire(key=...)` | [Rate Limiter](../resilience/rate-limiter.md) |
@@ -19,7 +19,7 @@ grelmicro is not a web framework and has no ORM. It runs inside FastAPI, Starlet
 | `failed_jobs`, `queue:retry` | The outbox dead-letter state, `outbox.redrive(...)` | [Outbox](../outbox/index.md) |
 | Passport `auth:api` with `CheckToken::using(...)` | `AuthenticatedRequests` with a `JWTVerifier`, `Authenticated(scopes=[...])` | [Authentication](../http/authentication.md) |
 | `Http::retry(3, 100)` | `@retry(when=httpx.HTTPError, attempts=3)` | [Retry](../resilience/retry.md) |
-| `Log::withContext([...])` | `span()` and `add_context()` | [Tracing](../tracing.md) |
+| `Log::withContext([...])` | `add_context()` inside a `span()` | [Tracing](../tracing.md) |
 | The `/up` health route | `HealthChecks` with `/livez`, `/readyz` and `/healthz` | [Health](../health.md) |
 | HTTP tests, `$this->get('/')` | Your framework's `TestClient` with `micro.fake()` | [Testing](../testing.md) |
 
@@ -37,13 +37,17 @@ Laravel runs `schedule:run` from a system cron entry every minute. grelmicro run
 
 In Laravel, a task runs even while the previous run is still going, unless you add `withoutOverlapping()`. A grelmicro task waits for its previous run on the same worker. Add `gate="claim"` to cover the other workers too.
 
-### Locks wait unless you set a timeout
+### Locks wait unless you say otherwise
 
-`Cache::lock(...)->get()` returns `false` at once when the lock is taken. `async with lock:` waits for it. Pass `timeout=` to `lock.acquire(...)` to give up after a while. A grelmicro lock is not reentrant: a second acquire from the same task raises `LockReentrantError`.
+`Cache::lock(...)->get()` returns `false` at once when the lock is taken. `lock.acquire_nowait()` raises `WouldBlockError` instead. `async with lock:` waits like `block()`, and `lock.acquire(timeout=5)` gives up after five seconds with `LockTimeoutError`. A grelmicro lock is not reentrant: a second acquire from the same task raises `LockReentrantError`.
 
 ### Cache tags only drive invalidation
 
 A Laravel tagged item can only be read with its tags. A grelmicro tag only marks the entry for `delete_tags`, and the key alone reads it.
+
+### Context lives on the call
+
+`Log::withContext([...])` adds fields to every later log line. grelmicro context follows the call across `await`, and only `@instrument` and `span()` open it. Inside a route handler, open a `span(...)` before you call `add_context`. Called outside a span, `add_context` does nothing.
 
 ### The outbox is a table in your transaction
 
@@ -134,7 +138,7 @@ Pass `key=` to `RateLimitedRequests` to count per user instead of per client add
 | container | The service container for dependency injection | The `Grelmicro` app that opens and closes your components, or a Docker container |
 | middleware groups | The `web` and `api` groups | No groups. A component adds its own ASGI middleware through `micro.install(app)` |
 | tags | Cache tags that scope reads and flushes | Cache tags that only drive `delete_tags` |
-| channels | Log channels, or broadcasting channels | The two places a configuration warning goes: a Python warning and a log record |
+| channels | Log channels, or broadcasting channels | Where a configuration warning shows up: as a Python warning and in the log |
 | context | The `Context` facade, carried into queued jobs | The fields `add_context` adds inside a span. The trace context follows an outbox message, other fields do not |
 
 ## No equivalent, do this instead

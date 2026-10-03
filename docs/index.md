@@ -89,7 +89,7 @@ Each minute the report is sent once, by whichever copy claims it. `micro.install
 
 ## Add the next one
 
-The same provider line serves every pattern you add. Here a lock keeps two checkouts from running at once, and a circuit breaker stops calling a payment service that keeps failing:
+The same provider line serves every pattern you add. Here a lock keeps two inventory syncs from running at once across replicas, and a circuit breaker stops calling a warehouse service that keeps failing. The job from above stays:
 
 ```python
 from fastapi import FastAPI
@@ -105,14 +105,14 @@ tasks = Tasks()
 micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0"), tasks])
 micro.install(app)
 
-checkout_lock = Lock("checkout")
-payments = CircuitBreaker("payments")
+sync_lock = Lock("inventory-sync")
+warehouse = CircuitBreaker("warehouse")
 
 
-@app.post("/checkout/{cart_id}")
-async def checkout(cart_id: str) -> dict[str, str]:
-    async with checkout_lock, payments:
-        return {"cart": cart_id, "status": "paid"}  # your payment call
+@app.post("/inventory/sync")
+async def sync_inventory() -> dict[str, str]:
+    async with sync_lock, warehouse:
+        return {"status": "synced"}  # your warehouse call
 
 
 @tasks.every(seconds=60, gate="claim")

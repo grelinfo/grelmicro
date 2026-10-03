@@ -130,7 +130,7 @@ You order Django's `MIDDLEWARE` list yourself. In grelmicro, a component such as
 | fixtures | Database rows loaded by `TestCase.fixtures` | pytest fixtures |
 | tags | Template tags | Cache tags for bulk invalidation |
 | container | Usually a Docker container | The `Grelmicro` app that opens and closes your components, or a Docker container |
-| channels | Django Channels, for WebSockets | The two places a configuration warning goes: a Python warning and a log record |
+| channels | Django Channels, for WebSockets | Where a configuration warning shows up: as a Python warning and in the log |
 
 ## No equivalent, do this instead
 

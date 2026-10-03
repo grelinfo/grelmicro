@@ -155,7 +155,7 @@ MDC is a map for each thread. grelmicro context follows the call across `await`,
 
 | Word | In Quarkus | In grelmicro |
 |---|---|---|
-| profile | A config profile such as `%prod.` | A [Shield](../resilience/shield.md) preset such as `internal` or `api`. `GREL_ENVIRONMENT` selects no configuration |
+| profile | A config profile such as `%prod.` | A [Shield](../resilience/shield.md) preset such as `internal` or `api`. `GREL_ENVIRONMENT` only names the deployment tier and selects no configuration |
 | extension | A build-time module that generates code | No build step. Framework support lives in `grelmicro.integrations` and wires at runtime |
 | Dev Services | Real services started in containers for dev and test | No containers. `micro.fake()` swaps grelmicro's backends to memory |
 | bean | A container-managed object with injection | No beans. A component has a start and a stop |

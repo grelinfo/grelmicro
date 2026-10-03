@@ -8,6 +8,14 @@
 - [Installation](https://grelmicro.grel.info/installation/): install it and pick the extras.
 - [Migration](https://grelmicro.grel.info/migration/): what to change on each minor release, by symptom.
 
+## Coming from another stack
+
+- [Spring Boot](https://grelmicro.grel.info/coming-from/spring-boot/): Actuator, ShedLock, Resilience4j and Spring Security mapped to grelmicro.
+- [Quarkus](https://grelmicro.grel.info/coming-from/quarkus/): SmallRye Health, MicroProfile Fault Tolerance, the scheduler and `quarkus-oidc` mapped to grelmicro.
+- [Django](https://grelmicro.grel.info/coming-from/django/): `on_commit`, `cache_page`, django-ratelimit and DRF authentication mapped to grelmicro.
+- [Laravel](https://grelmicro.grel.info/coming-from/laravel/): atomic locks, `onOneServer()`, `afterCommit()` and Passport scopes mapped to grelmicro.
+- [Symfony](https://grelmicro.grel.info/coming-from/symfony/): Lock, RateLimiter, Scheduler, Messenger and the firewall mapped to grelmicro.
+
 ## User guide
 
 - [First steps](https://grelmicro.grel.info/first-steps/): one pattern and one provider.
