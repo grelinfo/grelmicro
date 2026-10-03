@@ -472,7 +472,7 @@ def install_middleware(
             continue
         if not watching:
             _warn_if_wrapping_app_middleware(app, middleware)
-            _render_in_routes(app.asgi_router)
+            _render_in_routes(app)
         binding = app.asgi_handler
         if isinstance(binding, GrelmicroMiddleware):
             # Inside the binding, which `install` put outermost so a
@@ -740,8 +740,8 @@ def _trie_nodes(router: Any) -> list[Any]:  # noqa: ANN401
     return found
 
 
-def _render_in_routes(router: Any) -> None:  # noqa: ANN401
-    """Make every route the router dispatches to render its own exceptions.
+def _render_in_routes(app: Litestar) -> None:
+    """Make every route the app dispatches to render its own exceptions.
 
     Litestar renders an exception inside a route only when the route runs
     middleware. Otherwise it renders it above the whole handler, and a
@@ -749,11 +749,15 @@ def _render_in_routes(router: Any) -> None:  # noqa: ANN401
     caller receives. A route Litestar built no middleware for gets the
     renderer it gives one that runs some. So does one registered later.
     Rendering in the route runs the app's `after_exception` hooks as
-    before.
+    before, and the one that marks an unhandled exception is added when
+    `install` did not add it, so idempotency stores no rendered crash.
 
     Raises:
         RuntimeError: If the router lacks what this relies on, naming it.
     """
+    if _mark_unhandled not in app.after_exception:
+        app.after_exception.append(cast("Any", _mark_unhandled))
+    router = app.asgi_router
     base = type(router)
     if getattr(base, "_grelmicro_renders_in_routes", False):
         return

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, Self
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any, Self, cast
 
 import pytest
 from fastapi import APIRouter, FastAPI, Response
@@ -34,12 +35,15 @@ from grelmicro.http._idempotency import (
 )
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import IdempotencyKeyMakerError
+from grelmicro.integrations.litestar import (
+    install_middleware as install_litestar_middleware,
+)
 from grelmicro.integrations.starlette import install_middleware
 from grelmicro.providers.memory import MemoryProvider
 from tests.test_route_gate_litestar import Passing
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
     from starlette.requests import Request
 
@@ -687,6 +691,41 @@ def test_install_middleware_wires_an_app_that_never_went_through_install() -> (
         GrelmicroMiddleware,
         IdempotencyMiddleware,
     ]
+
+
+def test_litestar_install_middleware_alone_never_replays_a_crash() -> None:
+    """Called without `install`, it still stores nothing for an unhandled exception."""
+    # Arrange
+    micro = Grelmicro(uses=[MemoryProvider()])
+    component = IdempotentRequests()
+    calls: list[int] = []
+
+    @post("/boom", status_code=200)
+    async def boom() -> dict[str, int]:
+        calls.append(1)
+        msg = "kaboom"
+        raise RuntimeError(msg)
+
+    @asynccontextmanager
+    async def opened(app: Litestar) -> AsyncIterator[None]:  # noqa: ARG001
+        async with micro:
+            yield
+
+    app = Litestar(route_handlers=[boom], lifespan=[opened])
+    app.asgi_handler = cast(
+        "Any", GrelmicroMiddleware(cast("Any", app.asgi_handler), micro=micro)
+    )
+    install_litestar_middleware(app, [component])
+
+    # Act
+    with LitestarTestClient(app=app, raise_server_exceptions=False) as client:
+        client.post("/boom", headers={HEADER: "abc"})
+        second = client.post("/boom", headers={HEADER: "abc"})
+
+    # Assert
+    assert second.status_code == HTTP_500_INTERNAL_SERVER_ERROR
+    assert "idempotent-replayed" not in second.headers
+    assert calls == [1, 1]
 
 
 def test_a_component_without_middleware_is_left_alone() -> None:
