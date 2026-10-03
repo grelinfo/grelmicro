@@ -298,6 +298,31 @@ def test_a_raised_http_exception_passes_through_our_middleware_as_a_response(
     assert response.headers["access-control-allow-origin"] == "*"
 
 
+def test_rendering_in_routes_needs_no_router_seam_of_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the route gate dispatches through `handle_routing`."""
+    # Arrange
+    app = Litestar([conflict])
+    monkeypatch.delattr(type(app.asgi_router), "handle_routing")
+    limiter = RateLimiter.sliding_window(
+        "conflict", limit=10, window=60, backend=MemoryRateLimiterAdapter()
+    )
+
+    # Act
+    Grelmicro(
+        uses=[
+            RateLimitedRequests(
+                limiter,
+                key=lambda scope: "one caller",  # noqa: ARG005
+            )
+        ]
+    ).install(app)
+
+    # Assert
+    assert type(app.asgi_router).__name__.startswith("Rendering")
+
+
 @pytest.mark.parametrize("outer_installed", [False, True])
 def test_a_mounted_app_rate_limits_a_route_matched_on_its_own_path(
     *, outer_installed: bool

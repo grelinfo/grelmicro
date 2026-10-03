@@ -649,7 +649,9 @@ def _gate_router(
         RuntimeError: If the router lacks what this relies on, naming it.
     """
     base = type(router)
-    _require_router_internals(router)
+    _require_router_internals(
+        router, "handle_routing", "construct_routing_trie"
+    )
 
     def handle_routing(self: Any, path: str, method: Any) -> Any:  # noqa: ANN401
         asgi_app, handler, routed, parameters, template = base.handle_routing(
@@ -683,8 +685,11 @@ def _gate_router(
         gated_for(asgi_app, handler, template)
 
 
-def _require_router_internals(router: Any) -> None:  # noqa: ANN401
+def _require_router_internals(router: Any, *methods: str) -> None:  # noqa: ANN401
     """Raise when Litestar's router lacks an internal grelmicro relies on.
+
+    `methods` names the methods of its class the caller overrides. Its
+    routing trie is always required.
 
     Raises:
         RuntimeError: Naming each one missing.
@@ -693,8 +698,7 @@ def _require_router_internals(router: Any) -> None:  # noqa: ANN401
     missing = [
         name
         for owner, name in (
-            (base, "handle_routing"),
-            (base, "construct_routing_trie"),
+            *((base, method) for method in methods),
             (router, "root_route_map_node"),
             (router, "_mount_routes"),
         )
@@ -761,7 +765,7 @@ def _render_in_routes(app: Litestar) -> None:
     base = type(router)
     if getattr(base, "_grelmicro_renders_in_routes", False):
         return
-    _require_router_internals(router)
+    _require_router_internals(router, "construct_routing_trie")
 
     def construct_routing_trie(self: Any) -> None:  # noqa: ANN401
         base.construct_routing_trie(self)
