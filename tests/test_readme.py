@@ -26,7 +26,7 @@ _BLOCK = re.compile(r"^```python\n(.*?)^```", re.MULTILINE | re.DOTALL)
 _BLOCKS = _BLOCK.findall(_README.read_text(encoding="utf-8"))
 
 _MIN_EXAMPLES = 2
-"""The front-door examples: grelmicro added to an app, and one route."""
+"""The front-door examples: one pattern, then the next one added."""
 
 
 def test_readme_has_python_examples() -> None:

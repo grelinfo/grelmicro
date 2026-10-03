@@ -41,75 +41,86 @@ ______________________________________________________________________
 
 Your FastAPI, Starlette, Litestar or FastStream service keeps its routes, its lifespan and its database code. grelmicro adds what a service needs once it runs on more than one replica:
 
+- a scheduled job that runs once per interval across replicas, not on each of them,
 - a lock, a cache and a rate limit that every replica shares,
-- a scheduled job that runs on one replica, not on all of them,
 - a retry, a circuit breaker and a timeout around the calls that fail,
 - health probes, logs, traces and metrics that Kubernetes and your dashboards read.
+
+Use one pattern, a few, or all of them. Each one you add works with the ones you have. Pay only for what you import: grelmicro needs three dependencies, each backend is an extra, and a module loads only what it uses.
 
 One line says where the shared state lives: Redis, Valkey, PostgreSQL, SQLite or Kubernetes. Change that line and the rest of the code stays the same.
 
 Every pattern behaves the same on each framework, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim. The hot paths run in a compiled Rust core: a JWT signature check is about four times faster than in a pure-Python library.
 
-Coming from another stack? See the mapping for [Spring Boot](https://grelmicro.grel.info/coming-from/spring-boot/), [Django](https://grelmicro.grel.info/coming-from/django/) or [Symfony](https://grelmicro.grel.info/coming-from/symfony/).
+Coming from another stack? See the mapping for [Spring Boot](https://grelmicro.grel.info/coming-from/spring-boot/), [Quarkus](https://grelmicro.grel.info/coming-from/quarkus/), [Django](https://grelmicro.grel.info/coming-from/django/), [Laravel](https://grelmicro.grel.info/coming-from/laravel/) or [Symfony](https://grelmicro.grel.info/coming-from/symfony/).
 
-## Add it to the app you already run
+## Start with one pattern
 
-Create a file `main.py` with:
+Run a job once a minute across all your replicas, not once per replica. Create a file `main.py` with:
 
 ```python
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.cache import TTLCache, cached
-from grelmicro.coordination import Lock
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.task import Tasks
 
-
-@asynccontextmanager
-async def lifespan(app):
-    print("your own startup")
-    yield
-    print("your own shutdown")
-
-
-app = FastAPI(lifespan=lifespan)
-
+app = FastAPI()
 tasks = Tasks()
 micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0"), tasks])
 micro.install(app)
 
-prices = TTLCache[int](ttl=30)
-checkout_lock = Lock("checkout")
-
-
-@cached(prices)
-async def load_price(sku: str) -> int:
-    return 42  # your database call
-
-
-@app.post("/checkout/{sku}")
-async def checkout(sku: str) -> dict[str, int]:
-    async with checkout_lock:
-        return {"price": await load_price(sku)}
-
 
 @tasks.every(seconds=60, gate="claim")
-async def expire_carts() -> None:
-    print("runs on one replica each minute")
+async def send_report() -> None:
+    print("report sent by this copy")
 ```
 
-Run it:
+Start Redis and two copies of the app:
 
 ```bash
 docker run -d -p 6379:6379 redis
 pip install "grelmicro[fastapi,redis]" "fastapi[standard]"
 fastapi run main.py
+fastapi run main.py --port 8001
 ```
 
-Your lifespan still runs. `micro.install(app)` opens grelmicro around it at startup and closes it at shutdown. Start a second copy with `fastapi run main.py --port 8001`: both copies share the lock and the cache, and only one of them runs `expire_carts` each minute.
+Each minute the report is sent once, by whichever copy claims it. `micro.install(app)` opens grelmicro when the app starts and closes it when the app stops. Already pass a `lifespan` to `FastAPI(...)`? It keeps running.
+
+## Add the next one
+
+The same provider line serves every pattern you add. Here a lock keeps two checkouts from running at once, and a circuit breaker stops calling a payment service that keeps failing:
+
+```python
+from fastapi import FastAPI
+
+from grelmicro import Grelmicro
+from grelmicro.coordination import Lock
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.resilience import CircuitBreaker
+from grelmicro.task import Tasks
+
+app = FastAPI()
+tasks = Tasks()
+micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0"), tasks])
+micro.install(app)
+
+checkout_lock = Lock("checkout")
+payments = CircuitBreaker("payments")
+
+
+@app.post("/checkout/{cart_id}")
+async def checkout(cart_id: str) -> dict[str, str]:
+    async with checkout_lock, payments:
+        return {"cart": cart_id, "status": "paid"}  # your payment call
+
+
+@tasks.every(seconds=60, gate="claim")
+async def send_report() -> None:
+    print("report sent by this copy")
+```
+
+Both copies now share the lock and the breaker's state as well as the job.
 
 ## What each module guarantees
 
@@ -140,9 +151,7 @@ pip install grelmicro
 
 See the [Installation guide](https://grelmicro.grel.info/installation/) for `uv` and `poetry` commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, structlog, and JWT verification.
 
-## More examples
-
-### Run the demo
+## Run the demo
 
 Want to see every pattern running against real Redis and Postgres? The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo) starts in three commands:
 
@@ -153,33 +162,6 @@ open http://localhost:8000/docs
 ```
 
 It wires a cached endpoint, a rate-limited endpoint, a circuit-breaker-protected endpoint, a distributed lock, a leader-gated task, and `/healthz` / `/readyz` probes. Read [`app.py`](https://github.com/grelinfo/grelmicro/blob/main/examples/fastapi-demo/app.py) to see each one.
-
-### One route, one primitive
-
-The smallest grelmicro program: a FastAPI route protected by a process-local rate limiter. No `Grelmicro(...)`, no Redis, no lifespan.
-
-```python
-from fastapi import FastAPI
-
-from grelmicro.providers.memory import MemoryProvider
-from grelmicro.resilience import RateLimitExceededError, RateLimiter
-
-app = FastAPI()
-api_limiter = RateLimiter.sliding_window(
-    "api", limit=100, window=60, backend=MemoryProvider().ratelimiter()
-)
-
-
-@app.get("/ping")
-async def ping() -> str:
-    try:
-        await api_limiter.acquire_or_raise()
-    except RateLimitExceededError:
-        return "throttled"
-    return "ok"
-```
-
-Run it with `fastapi run main.py`, then open `http://localhost:8000/ping`. The memory backend keeps the count in one process on purpose. Add a provider as in the example above to share it across replicas.
 
 The [User Guide](https://grelmicro.grel.info/first-steps/) covers multiple Redis instances, separate names and test overrides.
 

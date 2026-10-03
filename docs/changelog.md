@@ -168,8 +168,8 @@
 * ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 
 ### Docs
-* 📝 The landing page shows grelmicro added to an app that already runs, how to run it, and one guarantee per module. ([#884](https://github.com/grelinfo/grelmicro/issues/884))
-* 📝 Coming from Spring Boot, Django or Symfony: one page each maps the concepts, the false friends and what has no equivalent. ([#884](https://github.com/grelinfo/grelmicro/issues/884))
+* 📝 The landing page starts with one pattern, a job that runs once across replicas, then adds the next one and states one guarantee per module. ([#884](https://github.com/grelinfo/grelmicro/issues/884))
+* 📝 Coming from Spring Boot, Quarkus, Django, Laravel or Symfony: one page each maps the concepts, the false friends and what has no equivalent. ([#884](https://github.com/grelinfo/grelmicro/issues/884))
 * 📝 The JWT guide shows how to sign a test token. The pages define their jargon where it first appears. ([#884](https://github.com/grelinfo/grelmicro/issues/884))
 * 📝 The package summary and keywords describe what grelmicro covers. ([#902](https://github.com/grelinfo/grelmicro/issues/902))
 * 📝 CONTRIBUTING shows how to title an issue. ([#891](https://github.com/grelinfo/grelmicro/issues/891))
