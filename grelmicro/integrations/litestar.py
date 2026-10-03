@@ -357,10 +357,11 @@ def _raised_by_app(exc: BaseException) -> BaseException:
     """Return the exception the app raised, from the one Litestar let out.
 
     Litestar wraps an exception raised once the response started in a bare
-    `LitestarException`, and a streamed body fails as a group of one.
+    `LitestarException`, once for each layer that renders exceptions, and a
+    streamed body fails as a group of one.
     """
-    wrapped = exc.__cause__ if type(exc) is LitestarException else None
-    exc = wrapped or exc
+    while type(exc) is LitestarException and exc.__cause__ is not None:
+        exc = exc.__cause__
     while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
         exc = exc.exceptions[0]
     return exc
