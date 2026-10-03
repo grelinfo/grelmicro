@@ -12,6 +12,7 @@ from litestar.exceptions import (
     LitestarException,
     MethodNotAllowedException,
 )
+from litestar.routes import BaseRoute
 from litestar.status_codes import HTTP_405_METHOD_NOT_ALLOWED
 from litestar.utils.path import normalize_path
 from typing_extensions import Doc
@@ -356,10 +357,11 @@ def _raised_by_app(exc: BaseException) -> BaseException:
     """Return the exception the app raised, from the one Litestar let out.
 
     Litestar wraps an exception raised once the response started in a bare
-    `LitestarException`, and a streamed body fails as a group of one.
+    `LitestarException`, once for each layer that renders exceptions, and a
+    streamed body fails as a group of one.
     """
-    wrapped = exc.__cause__ if type(exc) is LitestarException else None
-    exc = wrapped or exc
+    while type(exc) is LitestarException and exc.__cause__ is not None:
+        exc = exc.__cause__
     while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
         exc = exc.exceptions[0]
     return exc
@@ -426,6 +428,11 @@ def install_middleware(
     Each one is wrapped inside the binding, so a middleware that resolves a
     backend ambiently finds the app bound.
 
+    Once one that answers is wrapped, every route renders its own
+    exceptions, as Litestar does for a route that runs middleware. A raised
+    `HTTPException` then reaches each of ours as the response the caller
+    receives, so it is stored, replayed, and carries the fields ours add.
+
     Call it after the app is built, since Litestar builds its middleware
     stack at construction time. `micro.install(app)` calls this with the
     components it found, so a direct call is only for an app that never goes
@@ -465,6 +472,7 @@ def install_middleware(
             continue
         if not watching:
             _warn_if_wrapping_app_middleware(app, middleware)
+            _render_in_routes(app)
         binding = app.asgi_handler
         if isinstance(binding, GrelmicroMiddleware):
             # Inside the binding, which `install` put outermost so a
@@ -631,32 +639,19 @@ def _gate_router(
 ) -> None:
     """Make Litestar's router dispatch each handler through `gated_for`.
 
-    Litestar's own router internals are touched here and in
-    `_trie_handlers` alone: the router gets a class of its own, whose
-    `handle_routing` returns the gated app of the handler it matched, and
-    whose `construct_routing_trie` gates each handler registered later.
+    Litestar's own router internals are touched here, in
+    `_render_in_routes` and in `_trie_nodes` alone: the router gets a class
+    of its own, whose `handle_routing` returns the gated app of the handler
+    it matched, and whose `construct_routing_trie` gates each handler
+    registered later.
 
     Raises:
         RuntimeError: If the router lacks what this relies on, naming it.
     """
     base = type(router)
-    missing = [
-        name
-        for owner, name in (
-            (base, "handle_routing"),
-            (base, "construct_routing_trie"),
-            (router, "root_route_map_node"),
-            (router, "_mount_routes"),
-        )
-        if not hasattr(owner, name)
-    ]
-    if missing:
-        msg = (
-            f"Litestar's router has no {', '.join(missing)}, which "
-            f"micro.install(app) gates each handler through. Install a "
-            f"Litestar release grelmicro supports."
-        )
-        raise RuntimeError(msg)
+    _require_router_internals(
+        router, "handle_routing", "construct_routing_trie"
+    )
 
     def handle_routing(self: Any, path: str, method: Any) -> Any:  # noqa: ANN401
         asgi_app, handler, routed, parameters, template = base.handle_routing(
@@ -690,13 +685,50 @@ def _gate_router(
         gated_for(asgi_app, handler, template)
 
 
+def _require_router_internals(router: Any, *methods: str) -> None:  # noqa: ANN401
+    """Raise when Litestar's router lacks an internal grelmicro relies on.
+
+    `methods` names the methods of its class the caller overrides. Its
+    routing trie is always required.
+
+    Raises:
+        RuntimeError: Naming each one missing.
+    """
+    base = type(router)
+    missing = [
+        name
+        for owner, name in (
+            *((base, method) for method in methods),
+            (router, "root_route_map_node"),
+            (router, "_mount_routes"),
+        )
+        if not hasattr(owner, name)
+    ]
+    if missing:
+        msg = (
+            f"Litestar's router has no {', '.join(missing)}, which "
+            f"micro.install(app) wires each route through. Install a "
+            f"Litestar release grelmicro supports."
+        )
+        raise RuntimeError(msg)
+
+
 def _trie_handlers(router: Any) -> list[tuple[Any, Any, str]]:  # noqa: ANN401
-    """Return each handler the router's trie dispatches to, its app and its template.
+    """Return each handler the router's trie dispatches to, its app and its template."""
+    return [
+        (entry.asgi_app, entry.handler, node.path_template)
+        for node in _trie_nodes(router)
+        for entry in node.asgi_handlers.values()
+    ]
+
+
+def _trie_nodes(router: Any) -> list[Any]:  # noqa: ANN401
+    """Return every node of the router's trie, mounts included.
 
     Read off Litestar's routing trie, one of the router internals
-    `_gate_router` relies on.
+    `_gate_router` and `_render_in_routes` rely on.
     """
-    found: list[tuple[Any, Any, str]] = []
+    found: list[Any] = []
     seen: set[int] = set()
     pending = [
         router.root_route_map_node,
@@ -707,12 +739,65 @@ def _trie_handlers(router: Any) -> list[tuple[Any, Any, str]]:  # noqa: ANN401
         if id(node) in seen:
             continue
         seen.add(id(node))
-        found.extend(
-            (entry.asgi_app, entry.handler, node.path_template)
-            for entry in node.asgi_handlers.values()
-        )
+        found.append(node)
         pending.extend(node.children.values())
     return found
+
+
+def _render_in_routes(app: Litestar) -> None:
+    """Make every route the app dispatches to render its own exceptions.
+
+    Litestar renders an exception inside a route only when the route runs
+    middleware. Otherwise it renders it above the whole handler, and a
+    middleware of ours sees the exception instead of the response the
+    caller receives. A route Litestar built no middleware for gets the
+    renderer it gives one that runs some. So does one registered later.
+    Rendering in the route runs the app's `after_exception` hooks as
+    before, and the one that marks an unhandled exception is added when
+    `install` did not add it, so idempotency stores no rendered crash.
+
+    Raises:
+        RuntimeError: If the router lacks what this relies on, naming it.
+    """
+    if _mark_unhandled not in app.after_exception:
+        app.after_exception.append(cast("Any", _mark_unhandled))
+    router = app.asgi_router
+    base = type(router)
+    if getattr(base, "_grelmicro_renders_in_routes", False):
+        return
+    _require_router_internals(router, "construct_routing_trie")
+
+    def construct_routing_trie(self: Any) -> None:  # noqa: ANN401
+        base.construct_routing_trie(self)
+        _render_in(self)
+
+    router.__class__ = type(
+        f"Rendering{base.__name__}",
+        (base,),
+        {
+            "__slots__": (),
+            "_grelmicro_renders_in_routes": True,
+            "construct_routing_trie": construct_routing_trie,
+        },
+    )
+    _render_in(router)
+
+
+def _render_in(router: Any) -> None:  # noqa: ANN401
+    """Wrap each route the router dispatches straight to in Litestar's renderer.
+
+    Litestar dispatches straight to a route's own `handle` when it built no
+    middleware for it, and wraps every route it built middleware for in its
+    renderer first.
+    """
+    from litestar._asgi.utils import wrap_in_exception_handler  # noqa: PLC0415
+
+    for node in _trie_nodes(router):
+        for key, entry in list(node.asgi_handlers.items()):
+            if isinstance(getattr(entry.asgi_app, "__self__", None), BaseRoute):
+                node.asgi_handlers[key] = entry._replace(
+                    asgi_app=wrap_in_exception_handler(entry.asgi_app)
+                )
 
 
 _ROUTING_CACHE: Final = 1024

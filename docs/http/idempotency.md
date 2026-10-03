@@ -173,7 +173,7 @@ IdempotentRequests(
 )
 ```
 
-A handler that raises an unhandled exception is different. It stores nothing, so a retry runs fresh rather than replaying a `500` for the whole window. A raised `HTTPException` is not an unhandled exception. The framework turns it into a response the handler chose, so it is stored and replayed like any other.
+A handler that raises an unhandled exception is different. It stores nothing, so a retry runs fresh rather than replaying a `500` for the whole window. A raised `HTTPException` is not an unhandled exception, and neither is one the app maps to a response with an exception handler of its own. The framework turns it into a response the handler chose, so it is stored and replayed like any other, on every framework.
 
 ## What is never stored
 

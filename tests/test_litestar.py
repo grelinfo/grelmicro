@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from litestar import Litestar, asgi, get, post, put
+from litestar.config.cors import CORSConfig
+from litestar.exceptions import HTTPException
 from litestar.middleware import DefineMiddleware
 from litestar.status_codes import (
     HTTP_200_OK,
+    HTTP_409_CONFLICT,
     HTTP_428_PRECONDITION_REQUIRED,
     HTTP_429_TOO_MANY_REQUESTS,
     HTTP_500_INTERNAL_SERVER_ERROR,
@@ -30,6 +33,7 @@ from grelmicro.integrations.litestar import is_bound
 from grelmicro.resilience import RateLimiter, RateLimiterComponent
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.security import TrustedProxies
+from tests.test_route_gate_litestar import Passing
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -237,6 +241,86 @@ def test_a_mounted_app_caches_a_read_matched_on_its_own_path(
 
     assert [response.text for response in responses] == ["fresh"] * 2
     assert served == ["read"]
+
+
+@post("/conflict")
+async def conflict() -> None:
+    """Refuse the request with a `409` the app chose."""
+    raise HTTPException(status_code=HTTP_409_CONFLICT)
+
+
+@pytest.mark.filterwarnings("ignore::grelmicro.MiddlewarePlacementWarning")
+@pytest.mark.parametrize(
+    ("middleware", "registered_later"),
+    [
+        pytest.param([], False, id="no app middleware"),
+        pytest.param([Passing], False, id="app middleware"),
+        pytest.param([], True, id="registered after install"),
+    ],
+)
+def test_a_raised_http_exception_passes_through_our_middleware_as_a_response(
+    middleware: list[Any], *, registered_later: bool
+) -> None:
+    """A route's `HTTPException` states the rate limit and keeps its CORS fields.
+
+    Litestar renders it inside the route, under every middleware of ours,
+    whether or not the app declares middleware of its own.
+    """
+    # Arrange
+    limiter = RateLimiter.sliding_window(
+        "conflict", limit=10, window=60, backend=MemoryRateLimiterAdapter()
+    )
+    app = Litestar(
+        [] if registered_later else [conflict],
+        middleware=middleware,
+        cors_config=CORSConfig(allow_origins=["*"]),
+    )
+    Grelmicro(
+        uses=[
+            RateLimitedRequests(
+                limiter,
+                key=lambda scope: "one caller",  # noqa: ARG005
+            )
+        ]
+    ).install(app)
+    if registered_later:
+        app.register(conflict)
+
+    # Act
+    with TestClient(app) as client:
+        response = client.post(
+            "/conflict", headers={"Origin": "https://example.com"}
+        )
+
+    # Assert
+    assert response.status_code == HTTP_409_CONFLICT
+    assert "ratelimit" in response.headers
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+def test_rendering_in_routes_needs_no_router_seam_of_the_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the route gate dispatches through `handle_routing`."""
+    # Arrange
+    app = Litestar([conflict])
+    monkeypatch.delattr(type(app.asgi_router), "handle_routing")
+    limiter = RateLimiter.sliding_window(
+        "conflict", limit=10, window=60, backend=MemoryRateLimiterAdapter()
+    )
+
+    # Act
+    Grelmicro(
+        uses=[
+            RateLimitedRequests(
+                limiter,
+                key=lambda scope: "one caller",  # noqa: ARG005
+            )
+        ]
+    ).install(app)
+
+    # Assert
+    assert type(app.asgi_router).__name__.startswith("Rendering")
 
 
 @pytest.mark.parametrize("outer_installed", [False, True])

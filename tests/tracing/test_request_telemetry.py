@@ -58,6 +58,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from grelmicro import Grelmicro
+from grelmicro.http import RateLimitedRequests
 from grelmicro.integrations._request_telemetry import (
     Answered,
     RequestTelemetry,
@@ -65,6 +66,8 @@ from grelmicro.integrations._request_telemetry import (
 )
 from grelmicro.metrics import Metrics, MetricsExporterType
 from grelmicro.metrics._endpoints import render_prometheus
+from grelmicro.resilience import RateLimiter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.trace import Trace, TraceExporterType
 
 if TYPE_CHECKING:
@@ -369,9 +372,17 @@ def _what(micro: Grelmicro, exporter: InMemorySpanExporter) -> Recorded:
     )
 
 
-def _recorded(framework: str, method: str, path: str) -> Recorded:
-    """Return what one request through a test client records."""
-    micro = Grelmicro(uses=[_trace(), _metrics()])
+def _recorded(
+    framework: str,
+    method: str,
+    path: str,
+    *uses: Any,  # noqa: ANN401
+) -> Recorded:
+    """Return what one request through a test client records.
+
+    `uses` adds components beside the trace and the metrics.
+    """
+    micro = Grelmicro(uses=[_trace(), _metrics(), *uses])
     app = _PARITY_APPS[framework]()
     exporter = InMemorySpanExporter()
     micro.install(app)
@@ -1301,6 +1312,33 @@ def test_request_telemetry_request_matches_fastapi(
 
     # Assert
     assert recorded == _recorded("fastapi", method, path)
+
+
+def _limited() -> RateLimitedRequests:
+    """Return a rate limit that answers nothing, for a request to pass through."""
+    return RateLimitedRequests(
+        RateLimiter.sliding_window(
+            "parity", limit=100, window=60, backend=MemoryRateLimiterAdapter()
+        ),
+        key=lambda scope: "one caller",  # noqa: ARG005
+    )
+
+
+@pytest.mark.parametrize("framework", ["starlette", "litestar"])
+@pytest.mark.parametrize(
+    "path",
+    ["/v1/boom", "/v1/broken", "/v1/stream"],
+    ids=["crash", "crash-of-the-app", "stream-failing-midway"],
+)
+def test_request_telemetry_under_an_answering_middleware_matches_fastapi(
+    framework: str, path: str
+) -> None:
+    """A middleware of ours that answers leaves the recorded failure as it is."""
+    # Act
+    recorded = _recorded(framework, "GET", path, _limited())
+
+    # Assert
+    assert recorded == _recorded("fastapi", "GET", path, _limited())
 
 
 @pytest.mark.parametrize("framework", ["starlette", "litestar"])

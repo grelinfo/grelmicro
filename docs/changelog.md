@@ -121,6 +121,7 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 On a Litestar app without middleware of its own, a raised `HTTPException`, or an exception the app maps to a response with a handler, is stored and replayed by idempotency, and carries the `RateLimit` fields. ([#945](https://github.com/grelinfo/grelmicro/issues/945))
 * 🐛 A request under a Starlette mount records the mount template in `http.route` in the access log and security events, not the values in its path. ([#969](https://github.com/grelinfo/grelmicro/issues/969))
 * 🐛 A request to an app mounted under FastAPI, to an ASGI app mounted in Litestar, to an app wrapped in middleware under a mount, or to an app mounted in an installed Litestar app records the mount template in `http.route` in the access log and security events, as the request spans do. ([#969](https://github.com/grelinfo/grelmicro/issues/969))
 * 🐛 `Trace` leaves a framework's own OpenTelemetry instrumentor out of its library sweep only when `micro.install(app)` wired an app of that framework. ([#968](https://github.com/grelinfo/grelmicro/pull/968))

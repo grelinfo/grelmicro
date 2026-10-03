@@ -1400,6 +1400,23 @@ class TestAnsweringMiddleware:
         assert statuses == [INTERNAL_SERVER_ERROR] * 2
         assert probe.calls == len(statuses)
 
+    def test_a_public_route_that_raises_without_a_credential_is_the_servers_500(
+        self,
+    ) -> None:
+        """The gate admitted it, so the crash is not the `401` of a URL no route answers."""
+        app = FastAPI()
+
+        @app.get("/catalog", dependencies=[Anonymous()])
+        async def catalog() -> dict[str, bool]:
+            raise RuntimeError
+
+        installed(app)
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/catalog")
+
+        assert response.status_code == INTERNAL_SERVER_ERROR
+
     @pytest.mark.usefixtures("clock")
     async def test_an_app_mounted_in_itself_runs_them_once_at_any_depth(
         self,

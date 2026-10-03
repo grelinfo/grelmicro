@@ -85,6 +85,7 @@ from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.errors import (
     AmbiguousCredentialsError,
     AuthenticationRequiredError,
+    GrelmicroError,
     InsufficientScopeError,
     MiddlewarePlacementWarning,
     SettingsValidationError,
@@ -5632,6 +5633,68 @@ class TestResourceMetadataEdges:
             TestClient(app),
         ):
             pass  # pragma: no cover
+
+    @pytest.mark.parametrize(
+        ("refusal", "challenge"),
+        [
+            (
+                lambda: TokenRejectedError(TokenRejectedReason.SIGNATURE),
+                'Bearer error="invalid_token"',
+            ),
+            (AmbiguousCredentialsError, 'Bearer error="invalid_request"'),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("resource", "pointer"),
+        [
+            (RESOURCE, f', resource_metadata="{METADATA_URL}"'),
+            (None, ""),
+        ],
+        ids=["published", "not published"],
+    )
+    async def test_a_refusal_rendered_above_the_middleware_points_at_the_document(
+        self,
+        refusal: Any,  # noqa: ANN401
+        challenge: str,
+        resource: str | None,
+        pointer: str,
+    ) -> None:
+        """A framework that renders errors above its middleware still names it."""
+
+        async def app(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401, ARG001
+            raise refusal()
+
+        async def receive() -> dict[str, Any]:
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message: MutableMapping[str, Any]) -> None:  # noqa: ARG001
+            raise AssertionError  # pragma: no cover
+
+        middleware = AuthenticatedRequestsMiddleware(
+            app, verifier=issuing(), resource=resource
+        )
+        with pytest.raises(GrelmicroError) as raised:
+            await middleware(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "path": "/orders",
+                    "root_path": "",
+                    "query_string": b"",
+                    "headers": [
+                        (
+                            b"authorization",
+                            f"Bearer {token(iss=ISSUER)}".encode(),
+                        )
+                    ],
+                },
+                receive,
+                send,
+            )
+
+        rendered = ErrorResponses().render(raised.value)
+        assert rendered is not None
+        assert rendered.headers["www-authenticate"] == challenge + pointer
 
 
 def declared_on_litestar(
