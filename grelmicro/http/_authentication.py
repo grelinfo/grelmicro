@@ -2092,8 +2092,8 @@ class AuthenticatedRequestsMiddleware:
         """Run the app, pointing a refusal it raises at the metadata.
 
         A refusal a route raises is rendered wherever the framework catches
-        it, which on Litestar is above this middleware, out of reach of the
-        `send` it wraps. The refusal itself carries the URL there instead.
+        it. Where that is above this middleware, out of reach of the `send`
+        it wraps, the refusal itself carries the URL instead.
 
         On an app whose routes carry a gate, the request goes on past the
         answering middleware, which run at the route it reaches. What one
