@@ -2,9 +2,9 @@ from grelmicro import Grelmicro
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.task import Tasks
 
-task = Tasks()
+tasks = Tasks()
 redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis, task])
+micro = Grelmicro(uses=[redis, tasks])
 
 leader = micro.coordination.leaderelection("cluster_group")
-task.add_task(leader)
+tasks.add_task(leader)

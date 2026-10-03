@@ -11,6 +11,19 @@ verified, and the caller handed to the route.
 `GET /orders` needs a valid token. `DELETE /orders/{order_id}` needs one that
 grants `orders:write`. `GET /catalog` needs none.
 
+The words this page uses:
+
+- **Bearer token**: the token a caller sends in `Authorization: Bearer <token>`.
+  Here it is a JWT that your identity provider signed.
+- **Claims**: the fields inside the token, such as `sub` (who the caller is),
+  `exp` (when it expires), `aud` (the audience: which service it is meant for)
+  and `jti` (a unique id).
+- **Scope**: a permission the token grants, such as `orders:write`.
+- **Principal**: the verified caller, which handlers receive as
+  `CurrentPrincipal`.
+
+The [JWT guide](../security/jwt.md) explains how a token is verified.
+
 ## What is authenticated
 
 Everything, unless it says otherwise. There is no `include`, so a route added

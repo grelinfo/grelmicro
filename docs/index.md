@@ -37,41 +37,100 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Why grelmicro
+## What your service gains
 
-grelmicro is an async Python toolkit for microservices and distributed systems: shared locks, caching, rate limits, circuit breakers, retries, and scheduled tasks.
+Your FastAPI, Starlette, Litestar or FastStream service keeps its routes, its lifespan and its database code. grelmicro adds what a service needs once it runs on more than one replica:
 
-It ships them as small, composable modules with pluggable backends, alongside idempotency keys, the transactional outbox, logging, health checks, metrics, and tracing. Async-first, type-safe, and fully tested.
+- a lock, a cache and a rate limit that every replica shares,
+- a scheduled job that runs on one replica, not on all of them,
+- a retry, a circuit breaker and a timeout around the calls that fail,
+- health probes, logs, traces and metrics that Kubernetes and your dashboards read.
 
-It is built for any Python application that coordinates work across processes, workers, or replicas. The same primitives serve microservices, a modular monolith, or a self-contained system, and fit naturally into containerized and Kubernetes deployments.
+One line says where the shared state lives: Redis, Valkey, PostgreSQL, SQLite or Kubernetes. Change that line and the rest of the code stays the same.
 
-- **Micro**: one focused primitive per module. Each covers a microservice pattern (distributed lock, leader election, rate limiter, circuit breaker, health check API, externalised configuration).
-- **Fast**: small footprint by design. We keep the layers thin so your code stays quick, and the hot paths that do real work run in a compiled Rust core: a JWT signature check is about four times faster than in a pure-Python library.
-- **Async-first**: every I/O call is `async` / `await`. Drops into FastAPI, FastStream, and any asyncio-based stack.
-- **Backend-agnostic**: each primitive is a protocol. Swap Redis for PostgreSQL or SQLite without touching application code.
-- **Framework-agnostic**: every pattern behaves the same on FastAPI, Starlette, Litestar, and FastStream. `micro.install(app)` handles the difference, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim.
-- **Railguarded**: fully tested, type-checked, and validated. Pre-1.0 the API may change on a minor release. `1.x` follows standard semver.
+Every pattern behaves the same on each framework, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim. The hot paths run in a compiled Rust core: a JWT signature check is about four times faster than in a pure-Python library.
+
+Coming from another stack? See the mapping for [Spring Boot](https://grelmicro.grel.info/coming-from/spring-boot/), [Django](https://grelmicro.grel.info/coming-from/django/) or [Symfony](https://grelmicro.grel.info/coming-from/symfony/).
+
+## Add it to the app you already run
+
+Create a file `main.py` with:
+
+```python
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from grelmicro import Grelmicro
+from grelmicro.cache import TTLCache, cached
+from grelmicro.coordination import Lock
+from grelmicro.providers.redis import RedisProvider
+from grelmicro.task import Tasks
+
+
+@asynccontextmanager
+async def lifespan(app):
+    print("your own startup")
+    yield
+    print("your own shutdown")
+
+
+app = FastAPI(lifespan=lifespan)
+
+tasks = Tasks()
+micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0"), tasks])
+micro.install(app)
+
+prices = TTLCache[int](ttl=30)
+checkout_lock = Lock("checkout")
+
+
+@cached(prices)
+async def load_price(sku: str) -> int:
+    return 42  # your database call
+
+
+@app.post("/checkout/{sku}")
+async def checkout(sku: str) -> dict[str, int]:
+    async with checkout_lock:
+        return {"price": await load_price(sku)}
+
+
+@tasks.every(seconds=60, gate="claim")
+async def expire_carts() -> None:
+    print("runs on one replica each minute")
+```
+
+Run it:
+
+```bash
+docker run -d -p 6379:6379 redis
+pip install "grelmicro[fastapi,redis]" "fastapi[standard]"
+fastapi run main.py
+```
+
+Your lifespan still runs. `micro.install(app)` opens grelmicro around it at startup and closes it at shutdown. Start a second copy with `fastapi run main.py --port 8001`: both copies share the lock and the cache, and only one of them runs `expire_carts` each minute.
+
+## What each module guarantees
+
+| Module | Guarantee |
+|---|---|
+| [**Cache**](https://grelmicro.grel.info/cache/) | `@cached(ttl=30)` memoizes in one process. `@cached(TTLCache(...))` shares entries across replicas, and concurrent misses on one key run the function once per process. `lock=True` runs it once across replicas. |
+| [**Idempotency**](https://grelmicro.grel.info/idempotency/) | A repeated key within `ttl` replays the stored response without running the operation again. |
+| [**Coordination**](https://grelmicro.grel.info/coordination/) | A `Lock` has one holder at a time for as long as its lease, and a `LeaderElection` one leader. A `lost` renewal metric tells you when the work outran the lease. |
+| [**Outbox**](https://grelmicro.grel.info/outbox/) | A message published inside your transaction runs its handler at least once, and never for a transaction that rolled back. |
+| [**Task Scheduler**](https://grelmicro.grel.info/task/) | With `gate="claim"`, one worker runs each interval or cron fire. A claimed cron fire runs at most once, and a fire missed while every worker was down replays once. |
+| [**Resilience**](https://grelmicro.grel.info/resilience/) | An open [circuit breaker](https://grelmicro.grel.info/resilience/circuit-breaker/) fails calls fast until `reset_timeout`, then lets a few probe calls through. A [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/) on a shared backend counts one budget for every replica. [Retry](https://grelmicro.grel.info/resilience/retry/), [Timeout](https://grelmicro.grel.info/resilience/timeout/), [Bulkhead](https://grelmicro.grel.info/resilience/bulkhead/) and [Fallback](https://grelmicro.grel.info/resilience/fallback/) compose through a [Shield](https://grelmicro.grel.info/resilience/shield/). |
+| [**Health**](https://grelmicro.grel.info/health/) | Each check runs at most once per `cache_ttl`, however many probes arrive. |
+| [**Security**](https://grelmicro.grel.info/security/) | A [JWT](https://grelmicro.grel.info/security/jwt/) ![Rust powered](https://img.shields.io/badge/Rust-powered-b7410e?logo=rust&logoColor=white) is accepted only with a valid signature and `exp`, and with `aud` and `iss` when you name them. Signing keys refresh from the JWKS when they rotate. [Client IP](https://grelmicro.grel.info/security/clientip/) trusts only your own proxies. |
+| [**Logging**](https://grelmicro.grel.info/logging/), [**Tracing**](https://grelmicro.grel.info/tracing/), [**Metrics**](https://grelmicro.grel.info/metrics/) | A log line written inside a traced request carries that request's trace and span id. |
+| [**Configuration**](https://grelmicro.grel.info/config/) | `ExternalConfig` changes a running component's settings from a mounted ConfigMap, Secret or file, without a restart. |
 
 grelmicro is **not** a task queue (reach for Celery, Dramatiq, or taskiq), **not** a message broker client (reach for FastStream to publish and subscribe over Kafka, RabbitMQ, NATS, or Redis), and **not** a web framework (it plugs into FastAPI, Starlette, Litestar, and FastStream). It fills the gap between the web framework you picked and the infrastructure you run.
 
 Already using `aiocache`, `slowapi`, `pybreaker`, `tenacity`, or `aioredlock`? See the [comparison page](https://grelmicro.grel.info/comparison/) for a per-domain breakdown.
 
-## Modules
-
-| Module | Summary |
-|---|---|
-| [**Cache**](https://grelmicro.grel.info/cache/) | `TTLCache` and a `@cached` decorator with local and distributed stampede protection. Redis, Valkey, PostgreSQL, SQLite, in-memory. |
-| [**Idempotency**](https://grelmicro.grel.info/idempotency/) | Idempotency keys that make a retried operation safe. Store the response once, replay it on repeat, single-flight across replicas. |
-| [**Coordination**](https://grelmicro.grel.info/coordination/) | Distributed `Lock`, `ReadWriteLock`, `TaskLock`, and `LeaderElection`. Redis, Valkey, PostgreSQL, SQLite, Kubernetes, in-memory. |
-| [**Outbox**](https://grelmicro.grel.info/outbox/) | Transactional outbox. `publish` a message inside your database transaction and a background relay delivers it at least once with retries and dead-lettering. PostgreSQL, in-memory. |
-| [**Task Scheduler**](https://grelmicro.grel.info/task/) | Interval and cron tasks. Every worker runs a task by default. `gate="claim"` or a leader election runs it on one worker across the fleet. A modern, lightweight alternative to APScheduler and Celery beat. |
-| [**Resilience**](https://grelmicro.grel.info/resilience/) | [Shield](https://grelmicro.grel.info/resilience/shield/), [Stack](https://grelmicro.grel.info/resilience/composition/#stack), [Circuit Breaker](https://grelmicro.grel.info/resilience/circuit-breaker/), [Rate Limiter](https://grelmicro.grel.info/resilience/rate-limiter/), [Retry](https://grelmicro.grel.info/resilience/retry/), [Timeout](https://grelmicro.grel.info/resilience/timeout/), [Bulkhead](https://grelmicro.grel.info/resilience/bulkhead/), and [Fallback](https://grelmicro.grel.info/resilience/fallback/), with pluggable algorithms and backends. |
-| [**Logging**](https://grelmicro.grel.info/logging/) | 12-factor logging with JSON, LOGFMT, TEXT, or PRETTY output, structured error rendering, and OpenTelemetry trace context. |
-| [**Tracing**](https://grelmicro.grel.info/tracing/) | Unified instrumentation. `@instrument` creates OpenTelemetry spans and enriches log records with structured context. |
-| [**Metrics**](https://grelmicro.grel.info/metrics/) | OpenTelemetry metrics with a `@measure` decorator, a Prometheus `/metrics` router, and built-in instrumentation across components. |
-| [**Health**](https://grelmicro.grel.info/health/) | Health checks with concurrent runners and FastAPI liveness / readiness integration. |
-| [**Security**](https://grelmicro.grel.info/security/) | [JWT verification](https://grelmicro.grel.info/security/jwt/) ![Rust powered](https://img.shields.io/badge/Rust-powered-b7410e?logo=rust&logoColor=white) checks the bearer token a caller presents against a key or a JWKS endpoint whose keys rotate. [Client IP](https://grelmicro.grel.info/security/clientip/) resolves the real caller behind a reverse proxy, trusting only your own proxies. |
-| [**Configuration**](https://grelmicro.grel.info/config/) | `ExternalConfig` reconfigures live components from a mounted ConfigMap, Secret, or `.env` / JSON / YAML / TOML file. |
+Pre-1.0, the API may change on a minor release. `1.x` follows standard semver.
 
 ## Installation
 
@@ -81,11 +140,11 @@ pip install grelmicro
 
 See the [Installation guide](https://grelmicro.grel.info/installation/) for `uv` and `poetry` commands, plus optional extras for Redis, PostgreSQL, SQLite, Kubernetes, OpenTelemetry, structlog, and JWT verification.
 
-## Example
+## More examples
 
 ### Run the demo
 
-Want to see every Pattern running against real Redis and Postgres? The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo) starts in three commands:
+Want to see every pattern running against real Redis and Postgres? The [FastAPI demo](https://github.com/grelinfo/grelmicro/tree/main/examples/fastapi-demo) starts in three commands:
 
 ```bash
 cd examples/fastapi-demo
@@ -120,177 +179,9 @@ async def ping() -> str:
     return "ok"
 ```
 
-That is the whole thing. Pick a primitive, name it, give it a backend, call it. The memory backend says per-process on purpose. [Make it fleet-wide](#fastapi-with-one-provider) when you need to.
+Run it with `fastapi run main.py`, then open `http://localhost:8000/ping`. The memory backend keeps the count in one process on purpose. Add a provider as in the example above to share it across replicas.
 
-### FastAPI with one provider
-
-To make the rate limiter fleet-wide, put one provider in a `Grelmicro` container and install it into FastAPI. The provider wires a component for every kind it serves, so there is nothing else to list.
-
-```python
-from fastapi import FastAPI
-
-from grelmicro import Grelmicro
-from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import RateLimitExceededError, RateLimiter
-
-redis = RedisProvider("redis://localhost:6379/0")
-micro = Grelmicro(uses=[redis])
-
-api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
-
-app = FastAPI()
-micro.install(app)
-
-
-@app.get("/ping")
-async def ping() -> str:
-    try:
-        await api_limiter.acquire_or_raise()
-    except RateLimitExceededError:
-        return "throttled"
-    return "ok"
-```
-
-Adding more primitives is the same shape: they resolve through the same provider. `micro.install(app)` opens the app on startup, closes it on shutdown, and lets request handlers resolve backends without passing `backend=`.
-
-### FastAPI integration
-
-Create a file `main.py` with:
-
-```python
-import logging
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
-
-from grelmicro import Grelmicro
-from grelmicro.cache import TTLCache, cached
-from grelmicro.security import TrustedProxies, resolve_client_address
-from grelmicro.health import HealthChecks
-from grelmicro.log import configure as configure_logging
-from grelmicro.providers.redis import RedisProvider
-from grelmicro.resilience import (
-    CircuitBreaker,
-    RateLimitExceededError,
-    RateLimiter,
-)
-from grelmicro.coordination import LeaderElection, Lock
-from grelmicro.task import Tasks
-
-logger = logging.getLogger(__name__)
-
-# === grelmicro app: one container, one lifespan ===
-tasks = Tasks()
-health = HealthChecks()
-
-# One line says where the shared state lives.
-redis = RedisProvider("redis://localhost:6379/0")
-
-leader = LeaderElection("leader-election")
-tasks.add_task(leader)
-
-micro = Grelmicro(uses=[redis, tasks, health])
-
-class User(BaseModel):
-    id: int
-    name: str
-
-
-# === Patterns declared once at module load, no backend wiring ===
-ttl_cache = TTLCache[User](ttl=300)
-lock = Lock("shared-resource")
-cb = CircuitBreaker("my-service")
-api_limiter = RateLimiter.sliding_window("api", limit=100, window=60)
-
-
-# === FastAPI ===
-@asynccontextmanager
-async def lifespan(app):
-    configure_logging()
-    yield
-
-
-app = FastAPI(lifespan=lifespan)
-micro.install(app)
-
-
-# --- Cache: avoid redundant database queries ---
-@cached(ttl_cache)
-async def get_user(user_id: int) -> User:
-    return User(id=user_id, name="Alice")
-
-
-@app.get("/users/{user_id}")
-async def read_user(user_id: int) -> User:
-    return await get_user(user_id)
-
-
-# --- Circuit Breaker: protect calls to an unreliable service ---
-@app.get("/")
-async def read_root() -> str:
-    async with cb:
-        return "Hello World"
-
-
-# --- Rate Limiter: protect endpoints from overload ---
-# Behind a proxy, `request.client.host` is the proxy, so every caller would
-# share one bucket. Resolve the real client instead, trusting only your own
-# proxies. Drop the `trusted`/`client_key` lines if nothing fronts the app.
-trusted = TrustedProxies(["10.0.0.0/8"])
-
-
-def client_key(request: Request) -> str:
-    client = resolve_client_address(request.scope, trusted)
-    return client.key if client else "unknown"
-
-
-@app.get("/api")
-async def api_endpoint(request: Request) -> str:
-    try:
-        await api_limiter.acquire_or_raise(key=client_key(request))
-    except RateLimitExceededError as exc:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests",
-            headers={"Retry-After": str(int(exc.retry_after))},
-        )
-    return "ok"
-
-
-# --- Distributed Lock: synchronize access to a shared resource ---
-@app.get("/protected")
-async def protected() -> str:
-    async with lock:
-        return "ok"
-
-
-# --- Interval Task: run locally on every worker ---
-@tasks.every(seconds=5)
-def heartbeat():
-    logger.info("heartbeat")
-
-
-# --- Distributed Task: run once per interval across all workers ---
-@tasks.every(seconds=60, gate="claim")
-def cleanup():
-    logger.info("cleanup")
-
-
-# --- Leader-gated Task: only the leader executes ---
-@tasks.every(seconds=10, gate=leader)
-def leader_only_task():
-    logger.info("leader task")
-```
-
-The key shape:
-
-- **One container, one lifespan.** `Grelmicro(uses=[...])` lists every Component and active manager. `async with micro:` opens them all in order, closes in reverse.
-- **One Provider, many Components.** `Grelmicro(uses=[redis])` registers a default Component for every kind the `RedisProvider` serves, and they all share its pool. Name a Component only to override one kind: `Grelmicro(uses=[redis, Cache(postgres)])` keeps the rest on Redis.
-- **Patterns are declared at module load.** `Lock("cart")`, `TTLCache(ttl=60)`, `CircuitBreaker("svc")` carry no backend reference. They resolve through the active app inside `async with`, and `GrelmicroMiddleware` extends that scope to request handlers. The same `Lock` works in production with Redis and in tests with `MemoryLockAdapter`, no rewiring.
-- **Pay only for what you import.** `import grelmicro` does not pull in `redis`, `psycopg`, or any other vendor SDK. First-party Providers live under `grelmicro.providers.{vendor}` and load only when you import them.
-
-For multiple Redis instances, separate names, or test overrides, see the [docs](https://grelmicro.grel.info/).
+The [User Guide](https://grelmicro.grel.info/first-steps/) covers multiple Redis instances, separate names and test overrides.
 
 ## Contributing
 

@@ -98,7 +98,7 @@ backend instance, or a zero-arg class. See [Providers](../providers/index.md).
 |---|---|---|---|---|---|
 | **Use case** | Production | Production | Production (K8s-native) | Home lab / Local testing | Testing only |
 | **Multi-node** | Yes | Yes | Yes | No | No |
-| **Persistence** | Yes | Yes | Yes (etcd-backed) | Yes | No |
+| **Persistence** | Yes | Yes | Yes (in etcd, the Kubernetes cluster database) | Yes | No |
 | **Extra infrastructure** | Required | None if already in stack | None (uses existing K8s API) | None | None |
 | **Lock performance** | Best | Good | Moderate | Good | Best |
 

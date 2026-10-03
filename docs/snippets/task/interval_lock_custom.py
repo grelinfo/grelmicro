@@ -1,10 +1,10 @@
 from grelmicro.coordination import TaskLock
 from grelmicro.task import Tasks
 
-task = Tasks()
+tasks = Tasks()
 
 
-@task.every(
+@tasks.every(
     seconds=60,
     gate=TaskLock(lease_duration=600, min_hold_duration=60),
 )

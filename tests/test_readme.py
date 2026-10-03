@@ -25,9 +25,8 @@ _README = Path(__file__).resolve().parent.parent / "README.md"
 _BLOCK = re.compile(r"^```python\n(.*?)^```", re.MULTILINE | re.DOTALL)
 _BLOCKS = _BLOCK.findall(_README.read_text(encoding="utf-8"))
 
-# The README ships at least these front-door examples: one route, the
-# lifespan variant, and the full FastAPI integration.
-_MIN_EXAMPLES = 3
+_MIN_EXAMPLES = 2
+"""The front-door examples: grelmicro added to an app, and one route."""
 
 
 def test_readme_has_python_examples() -> None:

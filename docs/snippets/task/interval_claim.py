@@ -1,8 +1,8 @@
 from grelmicro.task import Tasks
 
-task = Tasks()
+tasks = Tasks()
 
 
-@task.every(seconds=60, gate="claim")
+@tasks.every(seconds=60, gate="claim")
 async def cleanup():
     print("Running cleanup...")

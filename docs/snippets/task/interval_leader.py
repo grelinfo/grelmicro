@@ -4,10 +4,10 @@ from grelmicro.task import Tasks
 
 redis = RedisProvider("redis://localhost:6379/0")
 leader = LeaderElection("my-service", backend=redis.leaderelection())
-task = Tasks()
-task.add_task(leader)
+tasks = Tasks()
+tasks.add_task(leader)
 
 
-@task.every(seconds=60, gate=leader)
+@tasks.every(seconds=60, gate=leader)
 async def cleanup():
     print("Running cleanup...")

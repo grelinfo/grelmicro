@@ -42,6 +42,15 @@ async with micro:
 The lock finds the registered Redis backend through the active app. No `backend=`
 argument needed.
 
+Declare patterns at module load, next to your routes. `Lock("cart")`,
+`TTLCache(ttl=60)` and `CircuitBreaker("svc")` carry no backend reference, so
+the same `Lock` runs on Redis in production and on memory in tests with no
+rewiring.
+
+`async with micro:` opens everything in `uses=[...]` in order and closes it in
+reverse. `import grelmicro` imports no vendor SDK. A provider such as
+`grelmicro.providers.redis` loads `redis` only when you import it.
+
 ## Register something conditionally
 
 A component that exists only for one backend or one environment stays inline. A

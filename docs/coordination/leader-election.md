@@ -81,7 +81,7 @@ Pick the backend that matches your deployment.
 |---|---|---|
 | `MemoryLeaderElectionAdapter` | Tests and single-process apps. | A process-local dict (not shared across nodes). |
 | `RedisLeaderElectionAdapter` | A Redis-backed cluster. | A Redis hash, updated atomically. |
-| `PostgresLeaderElectionAdapter` | Postgres is already in your stack. | A row, updated atomically under an advisory lock. |
+| `PostgresLeaderElectionAdapter` | Postgres is already in your stack. | A row, updated atomically under an advisory lock (a lock PostgreSQL holds by name, not on a table row). |
 | `KubernetesLeaderElectionAdapter` | A Kubernetes-native deployment. | A `coordination.k8s.io` Lease, metadata in its annotations. |
 
 A `Provider` builds the matching backend for you: `Coordination(redis)` calls
@@ -133,7 +133,8 @@ sum by (grelmicro_leader_election_name) (grelmicro_leader_election_leading) != 1
 ```
 
 Two means a split brain and zero means nobody is running the leader-gated
-work, which is the failure that otherwise shows up as nothing happening.
+work, which is the failure that otherwise shows up as nothing happening. A split
+brain is two replicas that each believe they lead.
 
 `grelmicro.leader_election.attempts` counts each acquire-or-renew call:
 `acquired` on the leader, `unavailable` on a standby, and `error` when the

@@ -27,6 +27,12 @@ async def get_user(user_id: int) -> User:
 
 Call `get_user` inside `async with micro:`, or from a handler once `micro.install(app)` ran. That is where the cache finds its backend.
 
+Start Redis with one command:
+
+```bash
+docker run -d -p 6379:6379 redis
+```
+
 Redis needs the `redis` extra: `pip install "grelmicro[redis]"`. Tests swap the provider for the memory backend, see [Testing](../testing.md).
 
 ## Backend

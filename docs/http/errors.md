@@ -85,6 +85,8 @@ client that honours the header without reading the body.
 | `DeadlineExceededError` | 504 | [`deadline-exceeded`](#deadline-exceeded) | `timeout` |
 | `IdempotencyConflictError` | 422 | [`idempotency-key-reused`](#idempotency-key-reused) | nothing |
 | `IdempotencyWaitTimeoutError` | 409 | [`idempotency-in-flight`](#idempotency-in-flight) | `retry_after` |
+| a missing or malformed `Idempotency-Key` | 400 | [`idempotency-key-invalid`](#idempotency-key-invalid) | nothing |
+| a body over `max_body_size` | 413 | [`request-body-too-large`](#request-body-too-large) | nothing |
 | `PreconditionFailedError` | 412 | [`precondition-failed`](#precondition-failed) | nothing |
 | `PreconditionRequiredError` | 428 | [`precondition-required`](#precondition-required) | nothing |
 | a request that failed validation | the framework's | [`validation-failed`](#validation-failed) | `errors` |

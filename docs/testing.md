@@ -9,7 +9,7 @@ pattern makes.
 Tests wire memory backends, and a memory backend behind a `Lock` is what the
 [backend check](deployment.md#the-backend-check) reports. Declare the
 environment once in `conftest.py` and the report stops, in the suite where it
-has nothing to say:
+has nothing to say. pytest reads `conftest.py` before your tests:
 
 ```python
 import os
@@ -37,7 +37,8 @@ registers. `Coordination`, `Cache`, `RateLimiterComponent` and
 that needs no database. The Postgres they would have used is never opened, so
 the suite connects to nothing and `/readyz` does not probe it.
 
-Do not open `micro` in the fixture as well. `install(app)` already opens it
+A fixture is a pytest function that prepares a test. Do not open `micro` in the
+fixture as well. `install(app)` already opens it
 when the client starts, and a second open raises.
 
 A Provider stays open when a component that is not faked still uses it, such
@@ -114,9 +115,8 @@ generated and no token is signed:
 
 A token the verifier does not know is refused the way a bad one is in
 production, so the `401` and its challenge are tested too. To test the verifier
-itself, generate a key pair in the test, sign a token with the private half, and
-build a `JWTVerifier.keys(...)` from the public half. The
-[Keys](security/jwt.md#keys) section lists the key forms it accepts.
+itself, sign a real token as
+[Test with a real token](security/jwt.md#test-with-a-real-token) shows.
 
 ## Going deeper
 

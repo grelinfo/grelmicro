@@ -284,6 +284,20 @@ naming a new key fetches the key set alone. A metadata endpoint that cannot be
 reached never holds a rotation up: the key set it last named is fetched, and
 the metadata is tried again once `retry_interval` has passed.
 
+## Test with a real token
+
+grelmicro verifies tokens and never issues one. To test the verifier itself,
+generate a key pair in the test, sign a token with the private half, and give
+the public half to `JWTVerifier.keys(...)`. The example signs with
+`cryptography`:
+
+```python
+--8<-- "security/jwt_test_key.py"
+```
+
+To test your routes without real tokens, swap the verifier for a fake, as
+[Testing](../testing.md#test-an-authenticated-app) shows.
+
 ## Configure from the deployment
 
 A verifier built by `keys`, `jwks` or `discover` also reads its settings from the

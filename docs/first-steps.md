@@ -14,6 +14,11 @@ backend extras.
 
 ## Reading the examples
 
+grelmicro is async. A function written `async def` runs only when something
+`await`s it, and `asyncio.run(main())` starts the first one. Examples that run
+on their own end with that call. In a web app the server starts it for you, so
+you run `fastapi run main.py` or `uvicorn main:app` instead.
+
 A block labelled `fragment` is a piece of a larger file. Put it inside an
 `async` function of your own, where the names around it are already defined.
 
@@ -34,13 +39,14 @@ lock state lives, so every worker takes the same lock.
 --8<-- "coordination/quickstart_lock.py"
 ```
 
-Start Redis with one command:
+Save it as `main.py`, start Redis and run it:
 
 ```bash
 docker run -d -p 6379:6379 redis
+python main.py
 ```
 
-Three things happen here:
+It prints `Protected resource accessed`. Three things happen here:
 
 1. `Lock("cart")` builds a lock named `cart` with default settings.
 2. `RedisProvider(...)` says where the shared state lives.
