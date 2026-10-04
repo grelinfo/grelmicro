@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro._context import pop_context, push_context
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, MutableMapping
 
@@ -103,7 +105,9 @@ class GrelmicroMiddleware:
             await self.app(scope, receive, send)
             return
         token = self.micro._bind_current()  # noqa: SLF001
+        context = push_context({})
         try:
             await self.app(scope, receive, send)
         finally:
+            pop_context(context)
             self.micro._reset_current(token)  # noqa: SLF001

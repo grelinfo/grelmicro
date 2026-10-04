@@ -78,6 +78,17 @@ async def process(order_id: str):
     logger.info("charged")  # includes payment_id and status
 ```
 
+A request or message handler needs no span. `micro.install(app)` opens a context for each request and each message, so fields added in a handler reach every log record until the response, and the next request starts empty:
+
+```python title="fragment"
+@app.post("/orders/{order_id}")
+async def create_order(order_id: str) -> None:
+    add_context(order_id=order_id)
+    logger.info("order received")  # includes order_id
+```
+
+Outside a span and outside a handler, `add_context` does nothing.
+
 ## Configuration
 
 The tracing context enriches log records regardless of how logging is configured. No additional configuration is needed.
