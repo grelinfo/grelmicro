@@ -38,6 +38,7 @@ import functools
 import inspect
 import math
 from dataclasses import dataclass, field
+from time import time
 from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
@@ -343,7 +344,8 @@ class FakeVerifier:
 
     It answers `verify` and `verify_header` like `JWTVerifier`, so it drops
     into `AuthenticatedRequests`. A token it does not know is refused as
-    `invalid`, and a header with no bearer token as `scheme`.
+    `invalid`, a header with no bearer token as `scheme`, an expired token
+    as `expired`, and one not valid yet as `not-yet-valid`.
 
     ```python
     verifier = FakeVerifier(
@@ -388,11 +390,30 @@ class FakeVerifier:
         self,
         token: Annotated[str, Doc("The token, with no scheme prefix.")],
     ) -> JWTClaims:
-        """Return the claims of `token`, or raise `TokenRejectedError`."""
+        """Return the claims of `token`, or raise `TokenRejectedError`.
+
+        A token past its `exp` is refused as `expired`, and one whose `nbf`
+        or `iat` is still to come as `not-yet-valid`, with no leeway.
+        """
         try:
-            return self._tokens[token]
+            claims = self._tokens[token]
         except KeyError:
             raise TokenRejectedError(TokenRejectedReason.INVALID) from None
+        now = int(time())
+        if claims.expires_at is not None and claims.expires_at < now:
+            raise TokenRejectedError(
+                TokenRejectedReason.EXPIRED, subject=claims.subject
+            )
+        starts = claims.claims.get("nbf")
+        if (
+            isinstance(starts, (int, float))
+            and not isinstance(starts, bool)
+            and starts > now
+        ) or (claims.issued_at is not None and claims.issued_at > now):
+            raise TokenRejectedError(
+                TokenRejectedReason.NOT_YET_VALID, subject=claims.subject
+            )
+        return claims
 
     def verify_header(
         self,

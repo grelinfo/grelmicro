@@ -1,6 +1,7 @@
 """Tests for `FakeVerifier` and `fake_claims`."""
 
 import math
+import time
 from http import HTTPStatus
 from typing import Any
 
@@ -328,3 +329,45 @@ def test_fake_claims_rejects_a_non_finite_number(value: float) -> None:
         fake_claims("alice", issued_at=value)
     with pytest.raises(TypeError, match="JSON"):
         fake_claims("alice", extra=value)
+
+
+def test_fake_verifier_refuses_an_expired_token() -> None:
+    """FakeVerifier refuses a token past its expiry, as the real verifier does."""
+    # Arrange
+    verifier = FakeVerifier(
+        old=fake_claims("alice", expires_at=time.time() - 60)
+    )
+
+    # Act / Assert
+    with pytest.raises(TokenRejectedError) as excinfo:
+        verifier.verify("old")
+    assert excinfo.value.reason is TokenRejectedReason.EXPIRED
+
+
+@pytest.mark.parametrize("claim", ["nbf", "issued_at"])
+def test_fake_verifier_refuses_a_token_not_yet_valid(claim: str) -> None:
+    """FakeVerifier refuses a token whose nbf or iat is still to come."""
+    # Arrange
+    later = int(time.time()) + 60
+    claims = (
+        fake_claims("alice", nbf=later)
+        if claim == "nbf"
+        else fake_claims("alice", issued_at=later)
+    )
+    verifier = FakeVerifier(early=claims)
+
+    # Act / Assert
+    with pytest.raises(TokenRejectedError) as excinfo:
+        verifier.verify("early")
+    assert excinfo.value.reason is TokenRejectedReason.NOT_YET_VALID
+
+
+def test_fake_verifier_accepts_a_token_within_its_lifetime() -> None:
+    """FakeVerifier accepts a token issued in the past that expires later."""
+    # Arrange
+    now = int(time.time())
+    alice = fake_claims("alice", issued_at=now - 60, expires_at=now + 60)
+    verifier = FakeVerifier(alice=alice)
+
+    # Act / Assert
+    assert verifier.verify("alice") is alice
