@@ -131,7 +131,7 @@ async def test_metrics_endpoint_dependency_gate() -> None:
 def test_metrics_router_raises_without_fastapi() -> None:
     """metrics_router raises DependencyNotFoundError without FastAPI."""
     with (
-        patch("grelmicro.integrations.fastapi.HAS_FASTAPI", new=False),
+        patch.dict(metrics_router.__globals__, {"HAS_FASTAPI": False}),
         pytest.raises(DependencyNotFoundError),
     ):
         metrics_router()
