@@ -45,7 +45,7 @@ A MicroProfile circuit breaker and a SmallRye rate limit keep their state in one
 
 ### Health has three fixed endpoints
 
-`/livez` runs no check, `/readyz` runs the critical checks, and `/healthz` runs them all. There are no health groups and no startup endpoint. A check with `critical=False` stays out of readiness. A Quarkus liveness check, such as a deadlock detector, is not needed: `/livez` runs on the app's event loop, so a deadlocked loop stops answering it and the probe restarts the pod.
+`/livez` runs no check, `/readyz` runs the critical checks, and `/healthz` runs them all. There are no health groups and no startup endpoint. A check with `critical=False` stays out of readiness. A Quarkus liveness check, such as a deadlock detector, has no equivalent yet: `/livez` only fails when the event loop is blocked, not when coroutines or threads deadlock.
 
 ### Every route is protected by default
 

@@ -167,7 +167,7 @@ This creates three endpoints:
 | `GET /readyz` | Readiness probe. Runs critical checks only. | `200` | `503` | empty |
 | `GET /healthz` | Aggregate JSON report for humans and dashboards. Runs all checks. | `200` | `503` | JSON `{status, checks}` |
 
-`/livez` runs no check on purpose. Kubernetes restarts a pod whose liveness probe fails, so a check on a database there would restart every replica when the database goes down. `/livez` is served on the same event loop as your app, so a deadlocked or blocked loop stops answering it, and the probe times out and restarts the pod. That is the failure a liveness probe exists to catch.
+`/livez` runs no check on purpose. Kubernetes restarts a pod whose liveness probe fails, so a check on a database there would restart every replica when the database goes down. `/livez` is served on the same event loop as your app, so a loop blocked by a long synchronous call stops answering it, and the probe times out and restarts the pod. A deadlock between coroutines or between threads leaves the loop free, so `/livez` keeps answering and does not catch it.
 
 All three also accept `HEAD`. All responses set `Cache-Control: no-store`. Probe endpoints return an empty body. The HTTP status code is the entire signal.
 
