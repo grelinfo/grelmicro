@@ -2,7 +2,7 @@
 
 The lifespan, the binding, and the error responses are pure ASGI and live in
 `grelmicro.integrations.starlette`. This module adds what only FastAPI has,
-the OpenAPI schema and the health router.
+the OpenAPI schema and the health and metrics routers.
 """
 
 import inspect
