@@ -27,7 +27,7 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 
 ### A claimed task renews its lease
 
-ShedLock always releases the lock after `lockAtMostFor`. A task that runs longer can run on a second node at the same time. A grelmicro task with `gate="claim"` renews its lease while the body runs, so `lease_duration` only bounds how long a crashed worker keeps the claim. A bare `async with TaskLock(...)` does not renew and behaves like ShedLock: `lockAtLeastFor` is `min_hold_duration` and `lockAtMostFor` is `lease_duration`.
+ShedLock releases the lock when the task ends, and at the latest after `lockAtMostFor`. Without its `KeepAliveLockProvider`, a task that runs longer than `lockAtMostFor` can run on a second node at the same time. A grelmicro task with `gate="claim"` renews its lease while the body runs, so `lease_duration` only bounds how long a crashed worker keeps the claim. A bare `async with TaskLock(...)` does not renew and behaves like ShedLock: `lockAtLeastFor` is `min_hold_duration` and `lockAtMostFor` is `lease_duration`.
 
 A claimed cron task takes no lock at all. It records each fire it claims, and a fire missed while every worker was down runs once when a worker comes back.
 
@@ -45,7 +45,7 @@ Spring Framework 7 `@Retryable` retries every exception, three retries after the
 
 ### The circuit breaker counts consecutive failures
 
-Resilience4j opens on a failure rate or a slow-call rate over a sliding window. grelmicro opens after a number of consecutive failures. Its state can live in Redis, PostgreSQL or SQLite, so every replica sees the same breaker.
+Resilience4j opens on a failure rate or a slow-call rate over a sliding window. grelmicro opens after a number of consecutive failures. Its state can live in Redis, Valkey or PostgreSQL, so every replica sees the same breaker.
 
 ### Resilience runs in a fixed order
 

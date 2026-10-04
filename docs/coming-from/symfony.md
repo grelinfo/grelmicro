@@ -39,7 +39,7 @@ Messenger routes messages to transports such as Doctrine, AMQP or Redis. The gre
 
 ### Locks are not reentrant
 
-A second acquire of the same `Lock` from the same task raises `LockReentrantError`. Use two instances when you need two independent locks.
+A second acquire of the same `Lock` from the same task raises `LockReentrantError`. Use two locks with different names when you need two independent locks.
 
 ## Side by side
 

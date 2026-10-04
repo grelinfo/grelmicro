@@ -1,6 +1,6 @@
 # Coming from Quarkus
 
-SmallRye Health, MicroProfile Fault Tolerance, the scheduler, the cache and `quarkus-oidc` all have a grelmicro equivalent. The biggest difference: grelmicro keeps a circuit breaker's and a rate limit's state in Redis, PostgreSQL or SQLite, so every replica shares it. This page maps each concept, says where the behavior differs, and lists what grelmicro leaves to other libraries.
+SmallRye Health, MicroProfile Fault Tolerance, the scheduler, the cache and `quarkus-oidc` all have a grelmicro equivalent. The biggest difference: grelmicro can keep a circuit breaker's and a rate limit's state in Redis, Valkey or PostgreSQL, so every replica shares it. This page maps each concept, says where the behavior differs, and lists what grelmicro leaves to other libraries.
 
 ## Quick reference
 
@@ -29,7 +29,7 @@ SmallRye Health, MicroProfile Fault Tolerance, the scheduler, the cache and `qua
 
 ### Shared state across replicas
 
-A MicroProfile circuit breaker and a SmallRye rate limit keep their state in one JVM, per bean class and method. A grelmicro `CircuitBreaker` or `RateLimiter` keeps it in the backend, by name, so every replica sees the same breaker and spends the same budget. A grelmicro limiter also takes a `key=`, such as one budget per user.
+A MicroProfile circuit breaker and a SmallRye rate limit keep their state in one JVM, per bean class and method. A grelmicro `CircuitBreaker` or `RateLimiter` keeps it in the backend, by name. On Redis, Valkey or PostgreSQL every replica sees the same breaker and spends the same budget. SQLite shares it between the processes of one host only. A grelmicro limiter also takes a `key=`, such as one budget per user.
 
 ### Retry counts calls
 
@@ -41,7 +41,7 @@ A MicroProfile circuit breaker and a SmallRye rate limit keep their state in one
 
 ### One worker per run without Quartz
 
-`concurrentExecution = SKIP` only covers one instance, and running a job once across the cluster takes Quartz with a JDBC store. grelmicro's `gate="claim"` does it through Redis, PostgreSQL or SQLite, and claimed and local tasks sit side by side in one `Tasks`.
+`concurrentExecution = SKIP` only covers one instance, and running a job once across the cluster takes Quartz with a JDBC store. grelmicro's `gate="claim"` does it through a backend every replica reaches, such as Redis or PostgreSQL, and claimed and local tasks sit side by side in one `Tasks`.
 
 ### Health has three fixed endpoints
 
