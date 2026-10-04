@@ -142,3 +142,13 @@ def test_metrics_router_raises_without_fastapi() -> None:
     if "grelmicro.metrics.fastapi" in sys.modules:
         del sys.modules["grelmicro.metrics.fastapi"]
     importlib.import_module("grelmicro.metrics.fastapi")  # restore
+
+
+def test_metrics_package_unknown_attribute_raises() -> None:
+    """The metrics package raises AttributeError for a name it does not export."""
+    # Arrange
+    package = importlib.import_module("grelmicro.metrics")
+
+    # Act / Assert
+    with pytest.raises(AttributeError, match="no attribute 'missing'"):
+        _ = package.missing
