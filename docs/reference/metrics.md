@@ -1,7 +1,7 @@
 # Metrics
 
 - **Start here**: [Metrics guide](../metrics.md)
-- **Common recipes**: `Metrics()` component to install an OTel `MeterProvider` for the app's lifetime. `@measure` to time and count a function. `metrics_router()` to expose Prometheus metrics on FastAPI, `metrics_asgi()` on any other ASGI framework.
+- **Common recipes**: `Metrics()` component to install an OTel `MeterProvider` for the app's lifetime. `@measure` to time and count a function. `metrics_asgi()` to expose Prometheus metrics on any ASGI framework, or `metrics_router()` from `grelmicro.integrations.fastapi` on FastAPI.
 
 ::: grelmicro.metrics
     options:
@@ -13,4 +13,3 @@
         - MetricsExporterType
         - measure
         - metrics_asgi
-        - metrics_router

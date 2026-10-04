@@ -45,6 +45,7 @@ that a client library used to accept.
 | `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
+| `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to seconds` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
 
 ## 0.42
@@ -75,6 +76,20 @@ timers each run their own tick. A `TaskLock` you still pass as the gate needs a
 A gated task with no backend reports a coordination error on every fire
 instead of running on every worker. Register a `Coordination` component, or
 drop the gate when every worker should run it.
+
+### `metrics_router` moved to `grelmicro.integrations.fastapi` {#0-42-metrics-router-moved}
+
+`metrics_router` builds a FastAPI router, so it now sits next to `health_router`:
+
+```python
+# Before
+from grelmicro.metrics import metrics_router
+
+# After
+from grelmicro.integrations.fastapi import metrics_router
+```
+
+`metrics_asgi` stays in `grelmicro.metrics`, since it needs no framework.
 
 ## 0.40
 

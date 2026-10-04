@@ -112,7 +112,7 @@ def metrics_asgi(
 ) -> ASGIApp:
     """Create a pure-ASGI app serving the Prometheus endpoint.
 
-    The endpoint [`metrics_router`][grelmicro.metrics.metrics_router]
+    The endpoint [`metrics_router`][grelmicro.integrations.fastapi.metrics_router]
     serves, rendered by the same code, with no framework anywhere.
     ``GET/HEAD {prefix}{path}`` returns the Prometheus exposition of the
     component's collector registry, with ``Cache-Control: no-store``. Any

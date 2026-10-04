@@ -95,7 +95,7 @@ Use `counter` for values that only increase, `up_down_counter` for values that r
 
 ## Prometheus endpoint
 
-With the `prometheus` exporter, `metrics_router()` adds a `GET /metrics` route that returns the Prometheus exposition format.
+With the `prometheus` exporter, `metrics_router()` from `grelmicro.integrations.fastapi` adds a `GET /metrics` route that returns the Prometheus exposition format.
 
 ```python
 --8<-- "metrics/router.py"
