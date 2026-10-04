@@ -11,7 +11,7 @@ grelmicro follows the Django/SQLAlchemy pattern: **core API is re-exported from 
 
 ## Rationale
 
-**No unnecessary imports.** Importing a primitive does not pull in backend client libraries. Users only pay for the backend they choose.
+**No unnecessary imports.** Importing a primitive does not pull in backend client libraries. Users only pay for the backend they choose. A framework helper re-exported from a package, such as `metrics_router`, loads on first use. A test imports each package in a fresh interpreter and checks that no framework, vendor SDK or OpenTelemetry module loads. Two dependencies load at import when they are installed: orjson, which handles the JSON grelmicro reads and writes, and OpenTelemetry in `grelmicro.log`, which adds the trace context to every record.
 
 **Explicit dependencies.** A submodule import like `from grelmicro.coordination.redis import RedisLockAdapter` makes the infrastructure dependency visible at the import site. Grepping for the submodule path finds every file that needs that backend.
 
