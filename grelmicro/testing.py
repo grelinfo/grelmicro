@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -297,7 +298,9 @@ def _check_registered(
             raise TypeError(msg)
     for name, value in (("expires_at", expires_at), ("issued_at", issued_at)):
         if value is not None and (
-            isinstance(value, bool) or not isinstance(value, (int, float))
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
         ):
             msg = f"fake_claims(): {name} must be seconds, got {value!r}."
             raise TypeError(msg)
@@ -321,7 +324,9 @@ def _audience(
 
 def _is_json(value: object) -> bool:
     """Return whether `value` is a JSON value, as a token's claims are."""
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if value is None or isinstance(value, (str, int, bool)):
         return True
     if isinstance(value, list):
         return all(_is_json(item) for item in value)

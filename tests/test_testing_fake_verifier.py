@@ -1,5 +1,6 @@
 """Tests for `FakeVerifier` and `fake_claims`."""
 
+import math
 from http import HTTPStatus
 from typing import Any
 
@@ -315,3 +316,15 @@ def test_fake_claims_accepts_nbf_as_an_extra_claim() -> None:
 
     # Assert
     assert claims.claims["nbf"] == _ISSUED_AT
+
+
+@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
+def test_fake_claims_rejects_a_non_finite_number(value: float) -> None:
+    """fake_claims refuses inf and nan, which no JSON token carries."""
+    # Act / Assert
+    with pytest.raises(TypeError):
+        fake_claims("alice", expires_at=value)
+    with pytest.raises(TypeError):
+        fake_claims("alice", issued_at=value)
+    with pytest.raises(TypeError, match="JSON"):
+        fake_claims("alice", extra=value)
