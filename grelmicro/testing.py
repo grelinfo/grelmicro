@@ -62,7 +62,7 @@ __all__ = [
 _BEARER = "bearer "
 
 _REGISTERED = frozenset(
-    {"aud", "exp", "iat", "iss", "jti", "nbf", "scope", "scp", "sub"}
+    {"aud", "exp", "iat", "iss", "jti", "nbf", "scope", "scopes", "scp", "sub"}
 )
 """Claims `fake_claims` sets itself, refused among the extra claims."""
 
@@ -254,8 +254,22 @@ class FakeVerifier:
             JWTClaims, Doc("Tokens given as keyword arguments.")
         ],
     ) -> None:
-        """Map each token to the claims it stands for."""
+        """Map each token to the claims it stands for.
+
+        Raises:
+            TypeError: If a token maps to anything but `JWTClaims`, such as
+                a mapping passed by keyword as `tokens=`.
+        """
         self._tokens: dict[str, JWTClaims] = {**(tokens or {}), **named}
+        for token, claims in self._tokens.items():
+            if not isinstance(claims, JWTClaims):
+                msg = (
+                    f"FakeVerifier token {token!r} maps to "
+                    f"{type(claims).__name__}, not JWTClaims. Build the claims "
+                    "with fake_claims(), and pass a mapping of tokens as the "
+                    "first positional argument."
+                )
+                raise TypeError(msg)
 
     def verify(
         self,

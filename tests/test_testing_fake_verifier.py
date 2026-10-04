@@ -150,3 +150,17 @@ def test_fake_claims_rejects_an_empty_subject() -> None:
     # Act / Assert
     with pytest.raises(ValueError, match="subject"):
         fake_claims("")
+
+
+def test_fake_claims_rejects_scopes_as_a_keyword() -> None:
+    """fake_claims refuses scopes passed as a keyword list."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="scopes"):
+        fake_claims("alice", scopes=["orders:read"])
+
+
+def test_fake_verifier_rejects_a_value_that_is_not_claims() -> None:
+    """FakeVerifier refuses a token whose value is not built by fake_claims."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="tokens"):
+        FakeVerifier(tokens={"tok-1": fake_claims("alice")})  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
