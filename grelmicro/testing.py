@@ -178,13 +178,24 @@ def _wrap(
 def fake_claims(
     subject: Annotated[str, Doc("The `sub` claim, who the caller is.")],
     *scopes: Annotated[str, Doc("The scopes the caller holds.")],
+    issuer: Annotated[str | None, Doc("The `iss` claim.")] = None,
+    audience: Annotated[
+        str | tuple[str, ...] | None, Doc("The `aud` claim.")
+    ] = None,
+    expires_at: Annotated[
+        int | None, Doc("The `exp` claim, in whole seconds.")
+    ] = None,
+    issued_at: Annotated[
+        int | None, Doc("The `iat` claim, in whole seconds.")
+    ] = None,
+    token_id: Annotated[str | None, Doc("The `jti` claim.")] = None,
     **claims: Annotated[object, Doc("Any other claim, such as `tenant`.")],
 ) -> JWTClaims:
     """Build the claims of a verified token, for a test.
 
-    The registered claims other than `sub` stay unset, so the claims never
-    expire. `claims` carries `sub`, `scope` when scopes are given, and the
-    extra claims, read-only like a verified token's.
+    A registered claim left out stays unset, so by default the claims never
+    expire. `claims` carries every claim given, as a token would, read-only
+    like a verified token's.
 
     Raises:
         TypeError: If a scope is not a string, an extra claim is a
@@ -193,6 +204,9 @@ def fake_claims(
         ValueError: If `subject` is empty, or a scope is empty or holds
             whitespace, since a verified token never carries either.
     """
+    if not isinstance(subject, str):
+        msg = f"fake_claims() takes the subject as a string, got {subject!r}."
+        raise TypeError(msg)
     if not subject:
         msg = "fake_claims() needs a non-empty subject."
         raise ValueError(msg)
@@ -229,15 +243,25 @@ def fake_claims(
     raw: dict[str, Any] = {"sub": subject}
     if scopes:
         raw["scope"] = " ".join(scopes)
+    registered = {
+        "iss": issuer,
+        "aud": list(audience) if isinstance(audience, tuple) else audience,
+        "exp": expires_at,
+        "iat": issued_at,
+        "jti": token_id,
+    }
+    raw.update(
+        {name: value for name, value in registered.items() if value is not None}
+    )
     raw.update(claims)
     return JWTClaims(
         claims=_frozen(raw),
         subject=subject,
-        issuer=None,
-        audience=None,
-        expires_at=None,
-        issued_at=None,
-        token_id=None,
+        issuer=issuer,
+        audience=audience,
+        expires_at=expires_at,
+        issued_at=issued_at,
+        token_id=token_id,
         scopes=frozenset(scopes),
     )
 

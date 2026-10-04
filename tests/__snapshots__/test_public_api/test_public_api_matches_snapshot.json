@@ -1141,7 +1141,7 @@
       "()": "(tokens=None, /, **named) -> 'None'"
     },
     "fake_claims": {
-      "()": "(subject, *scopes, **claims) -> 'JWTClaims'"
+      "()": "(subject, *scopes, issuer=None, audience=None, expires_at=None, issued_at=None, token_id=None, **claims) -> 'JWTClaims'"
     },
     "record": {
       "()": "(backend) -> 'CallLog'"

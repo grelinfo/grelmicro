@@ -1,6 +1,7 @@
 """Tests for `FakeVerifier` and `fake_claims`."""
 
 from http import HTTPStatus
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -11,6 +12,12 @@ from grelmicro.http import AuthenticatedRequests, ErrorResponses
 from grelmicro.integrations.fastapi import Authenticated, CurrentPrincipal
 from grelmicro.security import TokenRejectedError, TokenRejectedReason
 from grelmicro.testing import FakeVerifier, fake_claims
+
+_EXPIRES_AT = 2_000_000_000
+"""An `exp` far in the future, in whole seconds."""
+
+_ISSUED_AT = 1_900_000_000
+"""An `iat` before `_EXPIRES_AT`, in whole seconds."""
 
 
 def test_fake_claims_sets_subject_and_scopes() -> None:
@@ -132,9 +139,12 @@ def test_fake_claims_are_read_only_like_verified_claims() -> None:
 )
 def test_fake_claims_rejects_a_registered_claim_as_extra(name: str) -> None:
     """fake_claims refuses a registered claim passed as an extra."""
+    # Arrange
+    extras: dict[str, Any] = {name: "x"}
+
     # Act / Assert
     with pytest.raises(TypeError, match=name):
-        fake_claims("alice", **{name: "x"})
+        fake_claims("alice", **extras)
 
 
 @pytest.mark.parametrize("scope", ["orders:read orders:write", "", "a\tb"])
@@ -195,3 +205,38 @@ def test_fake_claims_registered_claims_error_names_every_claim() -> None:
     # Act / Assert
     with pytest.raises(TypeError, match="exp, iss are registered claims"):
         fake_claims("alice", iss="https://auth.example.com/", exp=1)
+
+
+def test_fake_claims_sets_the_registered_claims_it_is_given() -> None:
+    """fake_claims carries issuer, audience, expiry, issue time and token id."""
+    # Act
+    claims = fake_claims(
+        "alice",
+        issuer="https://auth.example.com/",
+        audience=("orders-api", "billing-api"),
+        expires_at=_EXPIRES_AT,
+        issued_at=_ISSUED_AT,
+        token_id="t-1",
+    )
+
+    # Assert
+    assert claims.issuer == "https://auth.example.com/"
+    assert claims.audience == ("orders-api", "billing-api")
+    assert claims.expires_at == _EXPIRES_AT
+    assert claims.issued_at == _ISSUED_AT
+    assert claims.token_id == "t-1"
+    assert claims.claims == {
+        "sub": "alice",
+        "iss": "https://auth.example.com/",
+        "aud": ("orders-api", "billing-api"),
+        "exp": _EXPIRES_AT,
+        "iat": _ISSUED_AT,
+        "jti": "t-1",
+    }
+
+
+def test_fake_claims_rejects_a_subject_that_is_not_a_string() -> None:
+    """fake_claims refuses a subject that is not a string."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="subject"):
+        fake_claims(42)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
