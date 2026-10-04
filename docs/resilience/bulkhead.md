@@ -18,6 +18,8 @@ A **Bulkhead** caps how many calls run at once. Rate limiting bounds requests pe
 
 The default fails fast: with no `max_wait`, a full bulkhead rejects immediately. Set `max_wait` to let callers queue briefly for a permit.
 
+The limit counts calls in one process. Each replica has its own permits, so three replicas with `max_concurrent=10` run up to 30 calls at once. To run one call at a time across replicas, use a [`Lock`](../coordination/lock.md).
+
 ### Bounded blocking work
 
 `to_thread` runs a blocking function on the bulkhead's own thread pool when `max_workers` is set, otherwise on the event loop's shared executor.
