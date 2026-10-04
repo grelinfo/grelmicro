@@ -238,7 +238,7 @@ endpoints on a port of its own from [`OpsServer`](http/server.md), and points
 its probes at that port.
 
 Keep the readiness period short and the liveness period long. Readiness
-reacts to a lost backend, liveness only to a process that is gone. Use a
+reacts to a lost backend, liveness only to a process that is gone or stuck. Use a
 `startupProbe` on `/livez` instead of a long `initialDelaySeconds`, so a slow
 first connection never counts as a liveness failure.
 [Health checks](health.md) covers the component and the endpoint behavior.
