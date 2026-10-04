@@ -21,6 +21,9 @@ _EXPIRES_AT = 2_000_000_000
 _ISSUED_AT = 1_900_000_000
 """An `iat` before `_EXPIRES_AT`, in whole seconds."""
 
+_YEAR_2100 = 4_102_444_800
+"""The default `exp`: 2100-01-01T00:00:00Z."""
+
 
 def test_fake_claims_sets_subject_and_scopes() -> None:
     """fake_claims builds claims with the subject, the scopes and the extras."""
@@ -34,9 +37,10 @@ def test_fake_claims_sets_subject_and_scopes() -> None:
         "sub": "alice",
         "scope": "orders:read orders:write",
         "tenant": "acme",
+        "exp": _YEAR_2100,
     }
     assert claims.issuer is None
-    assert claims.expires_at is None
+    assert claims.expires_at == _YEAR_2100
 
 
 def test_fake_verifier_verify_returns_the_claims_of_a_known_token() -> None:

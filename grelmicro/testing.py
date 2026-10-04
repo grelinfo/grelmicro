@@ -64,6 +64,9 @@ __all__ = [
 
 _BEARER = "bearer "
 
+_YEAR_2100 = 4_102_444_800
+"""The default `exp`: 2100-01-01T00:00:00Z, in whole seconds."""
+
 _MAX_SECONDS = 2**64
 """The first time a verified token cannot carry, past an unsigned 64-bit."""
 
@@ -198,9 +201,13 @@ def fake_claims(
         str | Sequence[str] | None, Doc("The `aud` claim.")
     ] = None,
     expires_at: Annotated[
-        float | None,
-        Doc("The `exp` claim, in seconds. A fraction is rounded down."),
-    ] = None,
+        float,
+        Doc(
+            "The `exp` claim, in seconds. A fraction is rounded down. A "
+            "verified token always carries one, so it defaults to "
+            "2100-01-01, which no test outlives."
+        ),
+    ] = _YEAR_2100,
     issued_at: Annotated[
         float | None,
         Doc("The `iat` claim, in seconds. A fraction is rounded down."),
@@ -214,9 +221,9 @@ def fake_claims(
 ) -> JWTClaims:
     """Build the claims of a verified token, for a test.
 
-    A registered claim left out stays unset, so by default the claims never
-    expire. `claims` carries every claim given, as a token would, read-only
-    like a verified token's.
+    `exp` defaults to 2100-01-01, so the claims never expire in a test, and
+    the other registered claims left out stay unset. `claims` carries every
+    claim given, as a token would, read-only like a verified token's.
 
     Raises:
         TypeError: If a scope is not a string, an extra claim is a
