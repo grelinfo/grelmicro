@@ -135,3 +135,18 @@ def test_fake_claims_rejects_a_registered_claim_as_extra(name: str) -> None:
     # Act / Assert
     with pytest.raises(TypeError, match=name):
         fake_claims("alice", **{name: "x"})
+
+
+@pytest.mark.parametrize("scope", ["orders:read orders:write", "", "a\tb"])
+def test_fake_claims_rejects_a_scope_a_token_would_split(scope: str) -> None:
+    """fake_claims refuses a scope that is empty or holds whitespace."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="scope"):
+        fake_claims("alice", scope)
+
+
+def test_fake_claims_rejects_an_empty_subject() -> None:
+    """fake_claims refuses an empty subject, which a verified token never has."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="subject"):
+        fake_claims("")

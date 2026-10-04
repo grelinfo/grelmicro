@@ -189,7 +189,19 @@ def fake_claims(
     Raises:
         TypeError: If an extra claim is a registered one, such as `scope`
             or `exp`. Pass the subject and the scopes as arguments instead.
+        ValueError: If `subject` is empty, or a scope is empty or holds
+            whitespace, since a verified token never carries either.
     """
+    if not subject:
+        msg = "fake_claims() needs a non-empty subject."
+        raise ValueError(msg)
+    for scope in scopes:
+        if not scope or scope != "".join(scope.split()):
+            msg = (
+                f"fake_claims() takes one scope per argument, got scope "
+                f"{scope!r}. Pass each scope as its own argument."
+            )
+            raise ValueError(msg)
     clash = sorted(_REGISTERED.intersection(claims))
     if clash:
         msg = (
