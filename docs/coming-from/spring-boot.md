@@ -16,7 +16,7 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 | `@Cacheable`, `@CacheEvict` | `@cached(cache, tags=[...])`, `cache.delete_tags(...)` | [@cached](../cache/cached.md) |
 | `@Cacheable(sync = true)` | `@cached(...)`, whose default `lock="local"` folds misses in one process. `lock=True` folds them across replicas | [Stampede protection](../cache/cached.md#stampede-protection) |
 | Resilience4j CircuitBreaker, Retry, RateLimiter, Bulkhead, TimeLimiter | `CircuitBreaker`, `@retry`, `RateLimiter`, `Bulkhead`, `Timeout` | [Resilience](../resilience/index.md) |
-| SLF4J MDC | `@instrument`, `span()` and `add_context()` | [Tracing](../tracing.md) |
+| SLF4J MDC | `add_context()` in a handler, `@instrument` and `span()` | [Tracing](../tracing.md) |
 | OAuth2 resource server with JWT | `AuthenticatedRequests` with a `JWTVerifier` | [Authentication](../http/authentication.md) |
 | `hasAuthority("SCOPE_x")` | `Authenticated(scopes=["x"])` | [Authentication](../http/authentication.md) |
 | OAuth2 client credentials | `OAuthClient` with `ClientCredentials` | [Tokens](../security/tokens.md) |
@@ -53,7 +53,7 @@ Resilience4j wraps a call as `Retry(CircuitBreaker(RateLimiter(TimeLimiter(Bulkh
 
 ### Context lives on the call, not the thread
 
-MDC is a map for each thread that you can write to anywhere. grelmicro context follows the call across `await`, and only `@instrument` and `span()` open it. Inside a route handler, wrap the work in `with span("checkout", user_id=...)` before you call `add_context`. Called outside a span, `add_context` does nothing.
+MDC is a map for each thread that you can write to anywhere. grelmicro context follows the call across `await`. `micro.install(app)` opens one for each request and message, and `@instrument` and `span()` open one for a block, so `add_context` in a route handler adds its fields to every log record until the response. Outside all of them, `add_context` does nothing.
 
 ### The outbox survives a crash
 

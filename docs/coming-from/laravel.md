@@ -19,7 +19,7 @@ grelmicro is not a web framework and has no ORM. It runs inside FastAPI, Starlet
 | `failed_jobs`, `queue:retry` | The outbox dead-letter state, `outbox.redrive(...)` | [Outbox](../outbox/index.md) |
 | Passport `auth:api` with `CheckToken::using(...)` | `AuthenticatedRequests` with a `JWTVerifier`, `Authenticated(scopes=[...])` | [Authentication](../http/authentication.md) |
 | `Http::retry(3, 100)` | `@retry(when=httpx.HTTPError, attempts=3)` | [Retry](../resilience/retry.md) |
-| `Log::withContext([...])` | `add_context()` inside a `span()` | [Tracing](../tracing.md) |
+| `Log::withContext([...])` | `add_context()` in a handler | [Tracing](../tracing.md) |
 | The `/up` health route | `HealthChecks` with `/livez`, `/readyz` and `/healthz` | [Health](../health.md) |
 | HTTP tests, `$this->get('/')` | Your framework's `TestClient` with `micro.fake()` | [Testing](../testing.md) |
 
@@ -47,7 +47,7 @@ A Laravel tagged item can only be read with its tags. A grelmicro tag only marks
 
 ### Context lives on the call
 
-`Log::withContext([...])` adds fields to every later log line. grelmicro context follows the call across `await`, and only `@instrument` and `span()` open it. Inside a route handler, open a `span(...)` before you call `add_context`. Called outside a span, `add_context` does nothing.
+`Log::withContext([...])` adds fields to every later log line. grelmicro context follows the call across `await`. `micro.install(app)` opens one for each request and message, and `@instrument` and `span()` open one for a block, so `add_context` in a route handler adds its fields to every log record until the response. Outside all of them, `add_context` does nothing.
 
 ### The outbox is a table in your transaction
 
@@ -138,7 +138,7 @@ Pass `key=` to `RateLimitedRequests` to count per user instead of per client add
 | middleware groups | The `web` and `api` groups | No groups. A component adds its own ASGI middleware through `micro.install(app)` |
 | tags | Cache tags that scope reads and flushes | Cache tags that only drive `delete_tags` |
 | channels | Log channels, or broadcasting channels | Where a configuration warning shows up: as a Python warning and in the log |
-| context | The `Context` facade, carried into queued jobs | The fields `add_context` adds inside a span. The trace context follows an outbox message, other fields do not |
+| context | The `Context` facade, carried into queued jobs | The fields `add_context` adds for one request, message or span. The trace context follows an outbox message, other fields do not |
 
 ## No equivalent, do this instead
 
