@@ -62,10 +62,18 @@ __all__ = [
 
 _BEARER = "bearer "
 
-_REGISTERED = frozenset(
-    {"aud", "exp", "iat", "iss", "jti", "nbf", "scope", "scopes", "scp", "sub"}
-)
-"""Claims `fake_claims` sets itself, refused among the extra claims."""
+_REGISTERED = {
+    "aud": "with audience=",
+    "exp": "with expires_at=",
+    "iat": "with issued_at=",
+    "iss": "with issuer=",
+    "jti": "with token_id=",
+    "scope": "by passing each scope as a positional argument",
+    "scopes": "by passing each scope as a positional argument",
+    "scp": "by passing each scope as a positional argument",
+    "sub": "by passing the subject as the first argument",
+}
+"""Claims `fake_claims` sets itself, with how to set each one."""
 
 
 @dataclass(frozen=True)
@@ -259,7 +267,7 @@ def _check_caller(subject: object, scopes: tuple[object, ...]) -> None:
 
 def _check_extras(claims: Mapping[str, object]) -> None:
     """Refuse an extra claim that is registered or not a JSON value."""
-    clash = sorted(_REGISTERED.intersection(claims))
+    clash = sorted(set(_REGISTERED).intersection(claims))
     if clash:
         names = ", ".join(clash)
         verb = (
@@ -267,10 +275,8 @@ def _check_extras(claims: Mapping[str, object]) -> None:
             if len(clash) == 1
             else "are registered claims"
         )
-        msg = (
-            f"fake_claims(): {names} {verb}, not an extra claim. Pass the "
-            "subject first and each scope as a positional argument."
-        )
+        how = " ".join(f"Set {name} {_REGISTERED[name]}." for name in clash)
+        msg = f"fake_claims(): {names} {verb}, not an extra claim. {how}"
         raise TypeError(msg)
     for name, value in claims.items():
         if not _is_json(value):

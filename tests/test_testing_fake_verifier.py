@@ -135,7 +135,7 @@ def test_fake_claims_are_read_only_like_verified_claims() -> None:
 
 
 @pytest.mark.parametrize(
-    "name", ["sub", "scope", "scp", "iss", "aud", "exp", "nbf", "iat", "jti"]
+    "name", ["sub", "scope", "scp", "iss", "aud", "exp", "iat", "jti"]
 )
 def test_fake_claims_rejects_a_registered_claim_as_extra(name: str) -> None:
     """fake_claims refuses a registered claim passed as an extra."""
@@ -282,3 +282,36 @@ def test_fake_claims_rejects_a_registered_claim_of_the_wrong_type(
     # Act / Assert
     with pytest.raises(TypeError):
         fake_claims("alice", **arguments)
+
+
+@pytest.mark.parametrize(
+    ("claim", "hint"),
+    [
+        ("exp", "expires_at="),
+        ("iss", "issuer="),
+        ("aud", "audience="),
+        ("iat", "issued_at="),
+        ("jti", "token_id="),
+        ("sub", "first argument"),
+        ("scope", "positional"),
+    ],
+)
+def test_fake_claims_registered_claim_error_names_the_parameter(
+    claim: str, hint: str
+) -> None:
+    """The refusal of a registered claim names the parameter that sets it."""
+    # Arrange
+    extras: dict[str, Any] = {claim: "x"}
+
+    # Act / Assert
+    with pytest.raises(TypeError, match=hint):
+        fake_claims("alice", **extras)
+
+
+def test_fake_claims_accepts_nbf_as_an_extra_claim() -> None:
+    """fake_claims carries nbf as a raw claim, which a token may hold."""
+    # Act
+    claims = fake_claims("alice", nbf=_ISSUED_AT)
+
+    # Assert
+    assert claims.claims["nbf"] == _ISSUED_AT
