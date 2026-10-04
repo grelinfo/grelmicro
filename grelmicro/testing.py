@@ -64,6 +64,9 @@ __all__ = [
 
 _BEARER = "bearer "
 
+_MAX_SECONDS = 2**64
+"""The first time a verified token cannot carry, past an unsigned 64-bit."""
+
 _REGISTERED = {
     "aud": "with audience=",
     "exp": "with expires_at=",
@@ -315,8 +318,7 @@ def _check_registered(
         if value is not None and (
             isinstance(value, bool)
             or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or value < 0
+            or not 0 <= value < _MAX_SECONDS
         ):
             msg = f"fake_claims(): {name} must be seconds, got {value!r}."
             raise TypeError(msg)

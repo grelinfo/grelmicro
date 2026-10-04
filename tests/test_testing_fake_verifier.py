@@ -280,6 +280,8 @@ def test_fake_claims_rounds_a_fractional_expiry_down() -> None:
         {"not_before": -5},
         {"expires_at": -5},
         {"issued_at": -5},
+        {"expires_at": 2**64},
+        {"not_before": 10**400},
     ],
 )
 def test_fake_claims_rejects_a_registered_claim_of_the_wrong_type(
