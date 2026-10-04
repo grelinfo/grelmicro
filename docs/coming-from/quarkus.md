@@ -49,7 +49,7 @@ A MicroProfile circuit breaker and a SmallRye rate limit keep their state in one
 
 ### Every route is protected by default
 
-Quarkus endpoints are open unless annotated, or unless `deny-unannotated-endpoints` is set. Once `AuthenticatedRequests` is registered, grelmicro requires a token on every route. Open a route with `Anonymous()` or `exclude=`. grelmicro checks scopes. There are no roles: read a `groups` claim in a `check=` hook when you need one.
+Quarkus endpoints are open unless annotated, or unless `deny-unannotated-endpoints` is set. Once `AuthenticatedRequests` is registered, grelmicro requires a token on every route. Open a route with `Anonymous()` or `exclude=`. grelmicro checks scopes. There are no roles: read the `groups` claim with `Claims` in the handler and answer `403` when you need one.
 
 ### The outbox needs no broker
 
@@ -66,8 +66,8 @@ MDC is a map for each thread. grelmicro context follows the call across `await`,
 === "Quarkus"
 
     ```java
-    @Retry(maxRetries = 4)
-    @Timeout(250)
+    @Retry(maxRetries = 2)
+    @Timeout(1000)
     @CircuitBreaker(requestVolumeThreshold = 4)
     @Fallback(fallbackMethod = "fallbackRecommendations")
     public List<Coffee> recommendations(int id) {
@@ -169,6 +169,6 @@ MDC is a map for each thread. grelmicro context follows the call across `await`,
 - **Dev Services**: start containers with testcontainers-python in a pytest fixture, or use `micro.fake()` when the test is about your code.
 - **Health groups and the startup probe**: use `critical=False`, `?exclude=`, and point `startupProbe` at `/livez`.
 - **A failure-ratio circuit breaker**: grelmicro has the consecutive count only.
-- **Roles with `@RolesAllowed`**: use scopes, or read the claim in a `check=` hook.
+- **Roles with `@RolesAllowed`**: use scopes, or read the claim with `Claims` in the handler and answer `403`.
 - **The Vert.x event bus**: call the function. Use the [Outbox](../outbox/index.md) for work after a commit, and FastStream for a broker.
 - **Panache and Hibernate**: use SQLAlchemy or SQLModel. `Outbox.publish` takes their `AsyncSession`.

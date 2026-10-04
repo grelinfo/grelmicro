@@ -35,7 +35,7 @@ Messenger routes messages to transports such as Doctrine, AMQP or Redis. The gre
 
 ### Scopes, not roles
 
-`Authenticated(scopes=[...])` checks the scopes in the token. There are no roles and no voters. Pass `check=` to add a check after the token verifies.
+`Authenticated(scopes=[...])` checks the scopes in the token. There are no roles and no voters. To check a role, read its claim with `Claims` in the handler and answer `403`.
 
 ### Locks are not reentrant
 

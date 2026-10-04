@@ -8,7 +8,7 @@ grelmicro is not a web framework and has no ORM. It runs inside FastAPI, Starlet
 |---|---|---|
 | `Schedule::call(...)->everyMinute()`, `->cron(...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | `->onOneServer()` | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
-| `->withoutOverlapping()` | Nothing to add on one worker. `gate="claim"` across workers | [Task Scheduler](../task.md#interval-task) |
+| `->withoutOverlapping()` | Nothing to add on one worker. Across workers, `gate="claim"` on an interval task | [Task Scheduler](../task.md#interval-task) |
 | `Cache::lock('name', 10)` | `Lock("name", lease_duration=10)` | [Lock](../coordination/lock.md) |
 | `Cache::remember(...)` | `@cached(cache)`, `cache.get_or_set(...)` | [@cached](../cache/cached.md) |
 | `Cache::flexible(...)` | `@cached(cache, early=0.1)`, a fraction of the TTL, not seconds | [Stampede protection](../cache/cached.md#stampede-protection) |
@@ -35,7 +35,7 @@ Laravel runs `schedule:run` from a system cron entry every minute. grelmicro run
 
 ### A task never overlaps itself
 
-In Laravel, a task runs even while the previous run is still going, unless you add `withoutOverlapping()`. A grelmicro task waits for its previous run on the same worker. Add `gate="claim"` to cover the other workers too.
+In Laravel, a task runs even while the previous run is still going, unless you add `withoutOverlapping()`. A grelmicro task waits for its previous run on the same worker. On an interval task, `gate="claim"` covers the other workers too. A claimed cron task can still overlap a long run on another worker, so take a `Lock` inside its body when runs must never overlap.
 
 ### Locks wait unless you say otherwise
 
@@ -144,7 +144,7 @@ Pass `key=` to `RateLimitedRequests` to count per user instead of per client add
 
 - **Issuing tokens with Sanctum or Passport**: use an identity provider and `JWTVerifier.discover(...)`.
 - **Cookie sessions for a single-page app**: keep them in your framework. grelmicro authenticates bearer tokens.
-- **Gates and policies**: check ownership in the handler, with `CurrentPrincipal`. Use `check=` for rules about the caller.
+- **Gates and policies**: check ownership in the handler, with `CurrentPrincipal`, and answer `403` when the caller may not act.
 - **A job queue, Horizon and batches**: use the [Outbox](../outbox/index.md) for work after a commit, and Celery, Dramatiq, taskiq or FastStream for a queue.
 - **`Cache::funnel()` across servers**: `Bulkhead` limits concurrency in one process. Use a `Lock` for one at a time across replicas.
 - **Pulse and Telescope**: send [Metrics](../metrics.md) to Prometheus and [Tracing](../tracing.md) to any OpenTelemetry backend.

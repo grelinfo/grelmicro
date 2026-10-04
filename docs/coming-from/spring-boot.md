@@ -14,7 +14,7 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 | `@Scheduled(fixedDelay = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | ShedLock `@SchedulerLock` | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
 | `@Cacheable`, `@CacheEvict` | `@cached(cache, tags=[...])`, `cache.delete_tags(...)` | [@cached](../cache/cached.md) |
-| `@Cacheable(sync = true)` | `@cached(..., lock=True)` | [Stampede protection](../cache/cached.md#stampede-protection) |
+| `@Cacheable(sync = true)` | `@cached(...)`, whose default `lock="local"` folds misses in one process. `lock=True` folds them across replicas | [Stampede protection](../cache/cached.md#stampede-protection) |
 | Resilience4j CircuitBreaker, Retry, RateLimiter, Bulkhead, TimeLimiter | `CircuitBreaker`, `@retry`, `RateLimiter`, `Bulkhead`, `Timeout` | [Resilience](../resilience/index.md) |
 | SLF4J MDC | `@instrument`, `span()` and `add_context()` | [Tracing](../tracing.md) |
 | OAuth2 resource server with JWT | `AuthenticatedRequests` with a `JWTVerifier` | [Authentication](../http/authentication.md) |
