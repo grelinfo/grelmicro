@@ -240,3 +240,45 @@ def test_fake_claims_rejects_a_subject_that_is_not_a_string() -> None:
     # Act / Assert
     with pytest.raises(TypeError, match="subject"):
         fake_claims(42)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_fake_claims_freezes_an_audience_list() -> None:
+    """fake_claims stores a list audience as a tuple in both places."""
+    # Act
+    claims = fake_claims("alice", audience=["orders-api", "billing-api"])
+
+    # Assert
+    assert claims.audience == ("orders-api", "billing-api")
+    assert claims.claims["aud"] == ("orders-api", "billing-api")
+
+
+def test_fake_claims_rounds_a_fractional_expiry_down() -> None:
+    """fake_claims rounds expires_at and issued_at down, as the verifier does."""
+    # Act
+    claims = fake_claims(
+        "alice", expires_at=_EXPIRES_AT + 0.9, issued_at=_ISSUED_AT + 0.5
+    )
+
+    # Assert
+    assert claims.expires_at == _EXPIRES_AT
+    assert claims.issued_at == _ISSUED_AT
+    assert claims.claims["exp"] == _EXPIRES_AT + 0.9
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"expires_at": True},
+        {"issued_at": "soon"},
+        {"audience": ("a", 1)},
+        {"issuer": 5},
+        {"token_id": 5},
+    ],
+)
+def test_fake_claims_rejects_a_registered_claim_of_the_wrong_type(
+    arguments: dict[str, Any],
+) -> None:
+    """fake_claims refuses a registered claim a token could not carry."""
+    # Act / Assert
+    with pytest.raises(TypeError):
+        fake_claims("alice", **arguments)

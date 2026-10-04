@@ -46,10 +46,11 @@ from grelmicro.security.jwt import (
     TokenRejectedError,
     TokenRejectedReason,
     _frozen,
+    _whole_seconds,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
 __all__ = [
     "Call",
@@ -180,13 +181,15 @@ def fake_claims(
     *scopes: Annotated[str, Doc("The scopes the caller holds.")],
     issuer: Annotated[str | None, Doc("The `iss` claim.")] = None,
     audience: Annotated[
-        str | tuple[str, ...] | None, Doc("The `aud` claim.")
+        str | Sequence[str] | None, Doc("The `aud` claim.")
     ] = None,
     expires_at: Annotated[
-        int | None, Doc("The `exp` claim, in whole seconds.")
+        float | None,
+        Doc("The `exp` claim, in seconds. A fraction is rounded down."),
     ] = None,
     issued_at: Annotated[
-        int | None, Doc("The `iat` claim, in whole seconds.")
+        float | None,
+        Doc("The `iat` claim, in seconds. A fraction is rounded down."),
     ] = None,
     token_id: Annotated[str | None, Doc("The `jti` claim.")] = None,
     **claims: Annotated[object, Doc("Any other claim, such as `tenant`.")],
@@ -204,6 +207,38 @@ def fake_claims(
         ValueError: If `subject` is empty, or a scope is empty or holds
             whitespace, since a verified token never carries either.
     """
+    _check_caller(subject, scopes)
+    _check_extras(claims)
+    raw: dict[str, Any] = {"sub": subject}
+    if scopes:
+        raw["scope"] = " ".join(scopes)
+    aud = _audience(audience)
+    _check_registered(issuer, token_id, expires_at, issued_at)
+    registered = {
+        "iss": issuer,
+        "aud": list(aud) if isinstance(aud, tuple) else aud,
+        "exp": expires_at,
+        "iat": issued_at,
+        "jti": token_id,
+    }
+    raw.update(
+        {name: value for name, value in registered.items() if value is not None}
+    )
+    raw.update(claims)
+    return JWTClaims(
+        claims=_frozen(raw),
+        subject=subject,
+        issuer=issuer,
+        audience=aud,
+        expires_at=_whole_seconds(expires_at),
+        issued_at=_whole_seconds(issued_at),
+        token_id=token_id,
+        scopes=frozenset(scopes),
+    )
+
+
+def _check_caller(subject: object, scopes: tuple[object, ...]) -> None:
+    """Refuse a subject or a scope a verified token could not carry."""
     if not isinstance(subject, str):
         msg = f"fake_claims() takes the subject as a string, got {subject!r}."
         raise TypeError(msg)
@@ -220,6 +255,10 @@ def fake_claims(
                 f"{scope!r}. Pass each scope as its own argument."
             )
             raise ValueError(msg)
+
+
+def _check_extras(claims: Mapping[str, object]) -> None:
+    """Refuse an extra claim that is registered or not a JSON value."""
     clash = sorted(_REGISTERED.intersection(claims))
     if clash:
         names = ", ".join(clash)
@@ -240,30 +279,38 @@ def fake_claims(
                 "not a JSON value a token can carry."
             )
             raise TypeError(msg)
-    raw: dict[str, Any] = {"sub": subject}
-    if scopes:
-        raw["scope"] = " ".join(scopes)
-    registered = {
-        "iss": issuer,
-        "aud": list(audience) if isinstance(audience, tuple) else audience,
-        "exp": expires_at,
-        "iat": issued_at,
-        "jti": token_id,
-    }
-    raw.update(
-        {name: value for name, value in registered.items() if value is not None}
-    )
-    raw.update(claims)
-    return JWTClaims(
-        claims=_frozen(raw),
-        subject=subject,
-        issuer=issuer,
-        audience=audience,
-        expires_at=expires_at,
-        issued_at=issued_at,
-        token_id=token_id,
-        scopes=frozenset(scopes),
-    )
+
+
+def _check_registered(
+    issuer: object, token_id: object, expires_at: object, issued_at: object
+) -> None:
+    """Refuse a registered claim of a type a verified token never has."""
+    for name, value in (("issuer", issuer), ("token_id", token_id)):
+        if value is not None and not isinstance(value, str):
+            msg = f"fake_claims(): {name} must be a string, got {value!r}."
+            raise TypeError(msg)
+    for name, value in (("expires_at", expires_at), ("issued_at", issued_at)):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+        ):
+            msg = f"fake_claims(): {name} must be seconds, got {value!r}."
+            raise TypeError(msg)
+
+
+def _audience(
+    audience: str | Sequence[str] | None,
+) -> str | tuple[str, ...] | None:
+    """Return the audience as a verified token holds it: a string or a tuple."""
+    if audience is None or isinstance(audience, str):
+        return audience
+    audiences = tuple(audience)
+    if not all(isinstance(item, str) for item in audiences):
+        msg = (
+            "fake_claims(): audience must be a string or a sequence of "
+            f"strings, got {audience!r}."
+        )
+        raise TypeError(msg)
+    return audiences
 
 
 def _is_json(value: object) -> bool:
