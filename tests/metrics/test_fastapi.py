@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
-import sys
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -14,7 +12,8 @@ from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED
 
 from grelmicro import Grelmicro
 from grelmicro.errors import DependencyNotFoundError
-from grelmicro.metrics import Metrics, MetricsExporterType, metrics_router
+from grelmicro.integrations.fastapi import metrics_router
+from grelmicro.metrics import Metrics, MetricsExporterType
 from grelmicro.metrics.errors import MetricsError
 
 if TYPE_CHECKING:
@@ -131,24 +130,8 @@ async def test_metrics_endpoint_dependency_gate() -> None:
 
 def test_metrics_router_raises_without_fastapi() -> None:
     """metrics_router raises DependencyNotFoundError without FastAPI."""
-    with patch.dict(sys.modules, {"fastapi": None, "fastapi.responses": None}):
-        if "grelmicro.metrics.fastapi" in sys.modules:
-            del sys.modules["grelmicro.metrics.fastapi"]
-        module = importlib.import_module("grelmicro.metrics.fastapi")
-
-        with pytest.raises(DependencyNotFoundError):
-            module.metrics_router()
-
-    if "grelmicro.metrics.fastapi" in sys.modules:
-        del sys.modules["grelmicro.metrics.fastapi"]
-    importlib.import_module("grelmicro.metrics.fastapi")  # restore
-
-
-def test_metrics_package_unknown_attribute_raises() -> None:
-    """The metrics package raises AttributeError for a name it does not export."""
-    # Arrange
-    package = importlib.import_module("grelmicro.metrics")
-
-    # Act / Assert
-    with pytest.raises(AttributeError, match="no attribute 'missing'"):
-        _ = package.missing
+    with (
+        patch.dict(metrics_router.__globals__, {"HAS_FASTAPI": False}),
+        pytest.raises(DependencyNotFoundError),
+    ):
+        metrics_router()

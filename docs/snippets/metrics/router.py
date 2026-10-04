@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 
 from grelmicro import Grelmicro
-from grelmicro.metrics import Metrics, MetricsExporterType, metrics_router
+from grelmicro.integrations.fastapi import metrics_router
+from grelmicro.metrics import Metrics, MetricsExporterType
 
 micro = Grelmicro(uses=[Metrics(exporter=MetricsExporterType.PROMETHEUS)])
 

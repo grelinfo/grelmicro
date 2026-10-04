@@ -462,6 +462,9 @@
     "is_bound": {
       "()": "(app) -> 'bool'"
     },
+    "metrics_router": {
+      "()": "(component=None, *, prefix='', path='/metrics', include_in_schema=False, dependencies=None) -> APIRouter"
+    },
     "route_declarations": {
       "()": "(app) -> list[RouteDeclaration]"
     }
@@ -621,9 +624,6 @@
     },
     "metrics_asgi": {
       "()": "(component=None, *, prefix='', path='/metrics') -> 'ASGIApp'"
-    },
-    "metrics_router": {
-      "()": "(component=None, *, prefix='', path='/metrics', include_in_schema=False, dependencies=None) -> APIRouter"
     }
   },
   "grelmicro.outbox": {
