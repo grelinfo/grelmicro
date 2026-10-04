@@ -24,7 +24,7 @@ def get_context() -> dict[str, Any]:
 
 
 def add_context(**fields: object) -> None:
-    """Add fields to the current span's context.
+    """Add fields to the current context.
 
     Creates a new frame snapshot (safe for concurrent async tasks).
     Updates the active OTel span if tracing is configured.
