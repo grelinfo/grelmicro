@@ -8,6 +8,7 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 |---|---|---|
 | Actuator liveness and readiness probes | `HealthChecks` with `/livez`, `/readyz` and `/healthz` | [Health](../health.md) |
 | A health indicator left out of readiness | `@health.check(..., critical=False)` | [Health](../health.md) |
+| A health indicator added to the liveness group | `@health.check(..., liveness=True)` with `HealthChecks(liveness=Liveness(...))` | [Catch a stuck worker](../health.md#catch-a-stuck-worker) |
 | `management.server.port` | `OpsServer`, for a process that serves no HTTP | [Ops server](../http/server.md) |
 | Micrometer, `/actuator/prometheus` | `Metrics()` and `metrics_router()` | [Metrics](../metrics.md) |
 | `@Timed` | `@measure` | [Metrics](../metrics.md) |
@@ -37,7 +38,7 @@ A claimed cron task takes no lock at all. It records each fire it claims, and a 
 
 ### Health has three fixed endpoints, not groups
 
-Actuator groups are named sets you define. grelmicro has three endpoints: `/livez` runs no check, `/readyz` runs the critical checks, `/healthz` runs them all. A check with `critical=False` stays out of readiness, and its failure keeps the answer at `200`. There is no custom group.
+Actuator groups are named sets you define. grelmicro has three endpoints: `/livez` reflects the liveness checks, `/readyz` runs the critical checks, `/healthz` runs the rest. A check with `critical=False` stays out of readiness, and its failure keeps the answer at `200`. There is no custom group.
 
 ### Retry needs to know what to retry
 

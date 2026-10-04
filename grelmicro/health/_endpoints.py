@@ -120,6 +120,22 @@ def health_routes(
     def excluded(scope: Scope) -> frozenset[str]:
         return parse_exclude(query_value(scope, "exclude"))
 
+    async def live(_scope: Scope) -> Rendered:
+        """Answer whether the last liveness round passed, with the code alone.
+
+        With no health component to read, the process is alive.
+        """
+        from grelmicro._app import (  # noqa: PLC0415
+            ComponentNotRegisteredError,
+            NoActiveAppError,
+        )
+
+        try:
+            alive = resolve().is_alive
+        except NoActiveAppError, ComponentNotRegisteredError:
+            alive = True
+        return Rendered(HTTP_OK if alive else HTTP_SERVICE_UNAVAILABLE, b"")
+
     async def readyz(scope: Scope) -> Rendered:
         """Run the critical checks and answer with the code alone."""
         report = await resolve().run(
@@ -141,7 +157,7 @@ def health_routes(
         )
 
     return {
-        f"{prefix}/livez": livez,
+        f"{prefix}/livez": live,
         f"{prefix}/readyz": readyz,
         f"{prefix}/healthz": healthz,
     }
@@ -180,8 +196,9 @@ def health_asgi(
     [`health_router`][grelmicro.integrations.fastapi.health_router] serves,
     rendered by the same code, with no framework anywhere:
 
-    - ``GET/HEAD {prefix}/livez``: Liveness probe. Never runs checks.
-      Always ``200`` with an empty body.
+    - ``GET/HEAD {prefix}/livez``: Liveness probe. Runs no check per
+      request. ``503`` while a liveness check fails, else ``200``, with an
+      empty body.
     - ``GET/HEAD {prefix}/readyz``: Readiness probe. Runs critical checks
       only. ``200`` or ``503`` with an empty body.
     - ``GET/HEAD {prefix}/healthz``: Aggregate JSON report.

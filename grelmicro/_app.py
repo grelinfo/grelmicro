@@ -398,6 +398,8 @@ class Grelmicro:
         self._opening_items: dict[int, asyncio.Lock] = {}
         self._closing = False
         self._opened = False
+        self._opened_event = asyncio.Event()
+        """Set once every item is open, cleared when the app starts closing."""
         self._fakes: list[_Fake] = []
         """Fakes entered before open, applied by the next open."""
         self._unfaked: _Unfaked | None = None
@@ -1626,9 +1628,11 @@ class Grelmicro:
                     self._app_opened.add(_opened_key(item))
             self._instrument_providers()
             self._opened = True
+            self._opened_event.set()
         except BaseException:
             self._closing = True
             self._opened = False
+            self._opened_event.clear()
             with _active_apps_lock:
                 if self in _active_apps:  # pragma: no branch
                     _active_apps.remove(self)
@@ -1666,6 +1670,7 @@ class Grelmicro:
             raise OutOfContextError(msg)
         self._closing = True
         self._opened = False
+        self._opened_event.clear()
         try:
             # Keep `Grelmicro.current()` resolvable during teardown so items
             # that consult it from `__aexit__` still see the active app.

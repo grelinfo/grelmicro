@@ -1,6 +1,7 @@
 """Health Checks."""
 
 import asyncio
+import contextlib
 import re
 import time
 from collections.abc import Callable, Iterable
@@ -19,6 +20,8 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._markers import Registered, mark_registered
+from grelmicro.health import _liveness
+from grelmicro.health._liveness import Liveness, Watchdog
 from grelmicro.health._models import (
     CheckResult,
     HealthReport,
@@ -76,6 +79,7 @@ class _Entry:
     func: AsyncHealthCheckFunc  # always async after normalization
     critical: bool
     timeout: float
+    liveness: bool = False
     cached_result: CheckResult | None = None
     cached_at: float = 0.0
     inflight: asyncio.Event | None = field(default=None)
@@ -107,6 +111,17 @@ def _left_closed_by_fake(func: object) -> bool:
 
     provider = getattr(func, "__self__", None)
     return isinstance(provider, Provider) and provider._left_closed()  # noqa: SLF001
+
+
+async def _app_opened() -> None:
+    """Return once the active app finished opening, or at once without one."""
+    from grelmicro._app import Grelmicro, NoActiveAppError  # noqa: PLC0415
+
+    try:
+        app = Grelmicro.current()
+    except NoActiveAppError:
+        return
+    await app._opened_event.wait()  # noqa: SLF001
 
 
 class HealthChecks(Reconfigurable[HealthChecksConfig]):
@@ -174,6 +189,16 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 """
             ),
         ] = None,
+        liveness: Annotated[
+            Liveness | None,
+            Doc(
+                """
+                When the worker counts as stuck, and exits so it is
+                replaced. `None` (the default) runs no liveness check and
+                starts no watchdog, so `/livez` always answers `200`.
+                """
+            ),
+        ] = None,
         env_prefix: Annotated[
             str | None,
             Doc(
@@ -224,7 +249,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             env_prefix=resolved_env_prefix,
             env_load=env_load,
         )
-        self._setup(config, name=name, auto_health=auto_health)
+        self._setup(
+            config, name=name, auto_health=auto_health, liveness=liveness
+        )
         # Registers for external reload under `GREL_HEALTH_`. Only this path
         # tracks: `from_config` takes a pre-built config and stays static,
         # matching every other reconfigurable component.
@@ -259,10 +286,19 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 "every active `Provider` on startup. Off by default."
             ),
         ] = False,
+        liveness: Annotated[
+            Liveness | None,
+            Doc(
+                "When the worker counts as stuck, and exits so it is "
+                "replaced. `None` (the default) starts nothing."
+            ),
+        ] = None,
     ) -> Self:
         """Construct a `HealthChecks` from a pre-built `HealthChecksConfig`."""
         instance = cls.__new__(cls)
-        instance._setup(config, name=name, auto_health=auto_health)  # noqa: SLF001
+        instance._setup(  # noqa: SLF001
+            config, name=name, auto_health=auto_health, liveness=liveness
+        )
         return instance
 
     def _setup(
@@ -271,9 +307,14 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         *,
         name: str = "default",
         auto_health: bool = False,
+        liveness: Liveness | None = None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
         self._name = name
+        self._liveness = liveness
+        self._liveness_failures = 0
+        self._liveness_task: asyncio.Task[None] | None = None
+        self._watchdog: Watchdog | None = None
         self._config = config
         self._auto_health = auto_health
         self._reconfigure_lock = asyncio.Lock()
@@ -289,6 +330,15 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         """Return the registration name."""
         return self._name
 
+    @property
+    def is_alive(self) -> bool:
+        """Whether the last round of liveness checks passed.
+
+        `/livez` answers `503` while this is false. It is always true when
+        no `Liveness` is set.
+        """
+        return self._liveness_failures == 0
+
     async def __aenter__(self) -> Self:
         """Open the health checks.
 
@@ -298,6 +348,8 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._depth += 1
         if self._auto_health:
             self._register_active_providers()
+        if self._depth == 1 and self._liveness is not None:
+            self._start_liveness(self._liveness)
         return self
 
     async def __aexit__(
@@ -314,6 +366,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._depth -= 1
         if self._depth > 0:
             return
+        await self._stop_liveness()
         for check_name in self._auto_registered:
             self._entries.pop(check_name, None)
         self._auto_registered.clear()
@@ -347,6 +400,16 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 "default when omitted."
             ),
         ] = None,
+        liveness: Annotated[
+            bool,
+            Doc(
+                "Run this check for `/livez` instead of `/readyz` and "
+                "`/healthz`. A liveness check looks inside the process only, "
+                "such as whether a consumer made progress, never at a "
+                "database. It runs every `Liveness.interval` seconds, and "
+                "only when `HealthChecks(liveness=...)` is set."
+            ),
+        ] = False,
     ) -> None:
         """Register a health check function.
 
@@ -378,6 +441,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             func=_normalize(func),
             critical=critical,
             timeout=timeout if timeout is not None else config.timeout,
+            liveness=liveness,
         )
         mark_registered(func, Registered.HEALTH_CHECK, self)
         self._entries = dict(sorted(self._entries.items()))
@@ -394,6 +458,12 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             PositiveFloat | None,
             Doc("Per-check timeout override."),
         ] = None,
+        liveness: Annotated[
+            bool,
+            Doc(
+                "Run this check for `/livez` instead of `/readyz` and `/healthz`."
+            ),
+        ] = False,
     ) -> Callable[[FuncT], FuncT]:
         """Decorate an async function to register it as a health check.
 
@@ -408,7 +478,13 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         """
 
         def decorator(func: FuncT) -> FuncT:
-            self.add(name, func, critical=critical, timeout=timeout)
+            self.add(
+                name,
+                func,
+                critical=critical,
+                timeout=timeout,
+                liveness=liveness,
+            )
             return func
 
         return decorator
@@ -531,6 +607,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             (name, entry)
             for name, entry in self._entries.items()
             if name not in excluded
+            and not entry.liveness
             and (not critical_only or entry.critical)
             and not _left_closed_by_fake(entry.func)
         ]
@@ -554,6 +631,63 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             status=self._aggregate_status(ordered.values()),
             checks=ordered,
         )
+
+    def _start_liveness(self, liveness: Liveness) -> None:
+        """Start the liveness task, which also arms the loop watchdog."""
+        self._liveness_failures = 0
+        self._liveness_task = asyncio.create_task(
+            self._run_liveness(liveness), name="grelmicro-liveness"
+        )
+
+    async def _stop_liveness(self) -> None:
+        """Stop the liveness task and the watchdog."""
+        task, self._liveness_task = self._liveness_task, None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        watchdog, self._watchdog = self._watchdog, None
+        if watchdog is not None:
+            await asyncio.to_thread(watchdog.stop)
+
+    async def _run_liveness(self, liveness: Liveness) -> None:
+        """Arm the watchdog once the app opened, then run the liveness checks.
+
+        The watchdog waits for the app to open, so a component that blocks
+        the loop while it opens is not taken for a stuck worker.
+        """
+        await _app_opened()
+        if liveness.stall_timeout is not None:
+            self._watchdog = Watchdog(
+                asyncio.get_running_loop(), liveness.stall_timeout
+            )
+            self._watchdog.start()
+        while True:
+            await asyncio.sleep(liveness.interval)
+            entries = [e for e in self._entries.values() if e.liveness]
+            if not entries:
+                continue
+            results = await asyncio.gather(*(_run_check(e) for e in entries))
+            failed = [
+                entry.name
+                for entry, result in zip(entries, results, strict=True)
+                if result["status"] == HealthStatus.ERROR
+            ]
+            if not failed:
+                self._liveness_failures = 0
+                continue
+            self._liveness_failures += 1
+            if self._liveness_failures < liveness.failure_threshold:
+                continue
+            logger.critical(
+                "Liveness check failed %d times in a row: %s. Stopping the "
+                "worker so it is replaced.",
+                self._liveness_failures,
+                ", ".join(failed),
+            )
+            _liveness._stop_process()  # noqa: SLF001
+            _liveness._exit_after(liveness.shutdown_timeout)  # noqa: SLF001
+            return
 
     async def _get_or_run(
         self, entry: _Entry, *, cache_ttl: float

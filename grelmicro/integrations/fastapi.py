@@ -39,7 +39,11 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 from typing_extensions import Doc
 
-from grelmicro import Grelmicro
+from grelmicro import (
+    ComponentNotRegisteredError,
+    Grelmicro,
+    NoActiveAppError,
+)
 from grelmicro._caller import is_authenticated
 from grelmicro._endpoints import NO_STORE_HEADERS
 from grelmicro._guards import is_class, is_subclass
@@ -1955,8 +1959,9 @@ def health_router(
 
     Provides three endpoints:
 
-    - ``GET/HEAD {prefix}/livez``: Liveness probe. Never runs
-      checkers. Always returns ``200`` with an empty body.
+    - ``GET/HEAD {prefix}/livez``: Liveness probe. Runs no check per
+      request. ``503`` while a liveness check fails, else ``200``, with
+      an empty body.
     - ``GET/HEAD {prefix}/readyz``: Readiness probe. Runs critical
       checkers only. Returns ``200`` or ``503`` with an empty body.
     - ``GET/HEAD {prefix}/healthz``: Aggregate JSON report.
@@ -1996,8 +2001,13 @@ def health_router(
     @router.get("/livez", status_code=HTTP_200_OK, response_class=Response)
     @router.head("/livez", include_in_schema=False)
     async def livez() -> Response:
-        """Liveness probe. Always returns ``200`` with an empty body."""
-        return Response(status_code=HTTP_200_OK, headers=NO_STORE_HEADERS)
+        """Liveness probe: ``503`` while a liveness check fails, else ``200``."""
+        try:
+            alive = _resolve_component().is_alive
+        except NoActiveAppError, ComponentNotRegisteredError:
+            alive = True
+        code = HTTP_200_OK if alive else HTTP_503_SERVICE_UNAVAILABLE
+        return Response(status_code=code, headers=NO_STORE_HEADERS)
 
     @router.get(
         "/readyz",
