@@ -112,3 +112,26 @@ def test_fake_verifier_drives_an_authenticated_app() -> None:
     assert anonymous.status_code == HTTPStatus.UNAUTHORIZED
     assert alice.json() == {"subject": "alice"}
     assert bob.status_code == HTTPStatus.FORBIDDEN
+
+
+def test_fake_claims_are_read_only_like_verified_claims() -> None:
+    """fake_claims freezes the claims, as a verified token's are."""
+    # Act
+    claims = fake_claims("alice", roles=["admin"], profile={"team": "core"})
+
+    # Assert
+    assert claims.claims["roles"] == ("admin",)
+    with pytest.raises(TypeError):
+        claims.claims["sub"] = "bob"  # type: ignore[index]  # ty: ignore[invalid-assignment]
+    with pytest.raises(TypeError):
+        claims.claims["profile"]["team"] = "edge"
+
+
+@pytest.mark.parametrize(
+    "name", ["sub", "scope", "scp", "iss", "aud", "exp", "nbf", "iat", "jti"]
+)
+def test_fake_claims_rejects_a_registered_claim_as_extra(name: str) -> None:
+    """fake_claims refuses a registered claim passed as an extra."""
+    # Act / Assert
+    with pytest.raises(TypeError, match=name):
+        fake_claims("alice", **{name: "x"})

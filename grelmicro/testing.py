@@ -45,6 +45,7 @@ from grelmicro.security.jwt import (
     JWTClaims,
     TokenRejectedError,
     TokenRejectedReason,
+    _frozen,
 )
 
 if TYPE_CHECKING:
@@ -59,6 +60,11 @@ __all__ = [
 ]
 
 _BEARER = "bearer "
+
+_REGISTERED = frozenset(
+    {"aud", "exp", "iat", "iss", "jti", "nbf", "scope", "scp", "sub"}
+)
+"""Claims `fake_claims` sets itself, refused among the extra claims."""
 
 
 @dataclass(frozen=True)
@@ -178,14 +184,25 @@ def fake_claims(
 
     The registered claims other than `sub` stay unset, so the claims never
     expire. `claims` carries `sub`, `scope` when scopes are given, and the
-    extra claims.
+    extra claims, read-only like a verified token's.
+
+    Raises:
+        TypeError: If an extra claim is a registered one, such as `scope`
+            or `exp`. Pass the subject and the scopes as arguments instead.
     """
+    clash = sorted(_REGISTERED.intersection(claims))
+    if clash:
+        msg = (
+            f"fake_claims() sets {', '.join(clash)} itself. Pass the subject "
+            "first and each scope as a positional argument."
+        )
+        raise TypeError(msg)
     raw: dict[str, Any] = {"sub": subject}
     if scopes:
         raw["scope"] = " ".join(scopes)
     raw.update(claims)
     return JWTClaims(
-        claims=raw,
+        claims=_frozen(raw),
         subject=subject,
         issuer=None,
         audience=None,
