@@ -377,3 +377,34 @@ def test_fake_verifier_accepts_a_token_within_its_lifetime() -> None:
 
     # Act / Assert
     assert verifier.verify("alice") is alice
+
+
+_NOW = 1_950_000_000.5
+"""A frozen current time, half a second into its second."""
+
+
+@pytest.mark.parametrize(
+    ("arguments", "outcome"),
+    [
+        ({"not_before": _NOW - 0.3}, "accepted"),
+        ({"not_before": _NOW + 0.6}, "refused"),
+        ({"expires_at": _NOW - 0.9}, "accepted"),
+        ({"expires_at": _NOW - 1.2}, "refused"),
+        ({"issued_at": _NOW - 0.1}, "accepted"),
+        ({"issued_at": _NOW + 0.1}, "refused"),
+    ],
+)
+def test_fake_verifier_times_tokens_like_the_real_verifier(
+    monkeypatch: pytest.MonkeyPatch, arguments: dict[str, Any], outcome: str
+) -> None:
+    """FakeVerifier rounds exp and nbf to the second, and compares iat exactly."""
+    # Arrange
+    monkeypatch.setattr("grelmicro.testing.time", lambda: _NOW)
+    verifier = FakeVerifier(token=fake_claims("alice", **arguments))
+
+    # Act / Assert
+    if outcome == "refused":
+        with pytest.raises(TokenRejectedError):
+            verifier.verify("token")
+    else:
+        assert verifier.verify("token").subject == "alice"

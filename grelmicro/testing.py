@@ -338,6 +338,11 @@ def _audience(
     return audiences
 
 
+def _nearest_second(value: float) -> int:
+    """Return `value` rounded to the nearest second, a half rounded up."""
+    return math.floor(value + 0.5)
+
+
 def _is_json(value: object) -> bool:
     """Return whether `value` is a JSON value, as a token's claims are."""
     if isinstance(value, float):
@@ -407,21 +412,27 @@ class FakeVerifier:
     ) -> JWTClaims:
         """Return the claims of `token`, or raise `TokenRejectedError`.
 
-        A token past its `exp` is refused as `expired`, and one whose `nbf`
-        or `iat` is still to come as `not-yet-valid`, with no leeway.
+        The times are checked as `JWTVerifier` checks them with no leeway.
+        `exp` and `nbf` are rounded to the nearest second and compared with
+        the current second: a token is `expired` once its `exp` is before it,
+        and `not-yet-valid` while its `nbf` is after it. An `iat` after the
+        current time is `not-yet-valid` too.
         """
         try:
             claims = self._tokens[token]
         except KeyError:
             raise TokenRejectedError(TokenRejectedReason.INVALID) from None
-        now = int(time())
-        if claims.expires_at is not None and claims.expires_at < now:
+        now = time()
+        second = int(now)
+        expires = claims.claims.get("exp", claims.expires_at)
+        if expires is not None and _nearest_second(expires) < second:
             raise TokenRejectedError(
                 TokenRejectedReason.EXPIRED, subject=claims.subject
             )
         starts = claims.claims.get("nbf")
-        if (starts is not None and starts > now) or (
-            claims.issued_at is not None and claims.issued_at > now
+        issued = claims.claims.get("iat", claims.issued_at)
+        if (starts is not None and _nearest_second(starts) > second) or (
+            issued is not None and issued > now
         ):
             raise TokenRejectedError(
                 TokenRejectedReason.NOT_YET_VALID, subject=claims.subject
