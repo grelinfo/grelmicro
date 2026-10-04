@@ -281,11 +281,7 @@ def test_fake_claims_rounds_a_fractional_expiry_down() -> None:
         {"token_id": 5},
         {"not_before": "tomorrow"},
         {"not_before": True},
-        {"not_before": -5},
-        {"expires_at": -5},
-        {"issued_at": -5},
-        {"expires_at": 2**64},
-        {"not_before": 10**400},
+        {"expires_at": None},
     ],
 )
 def test_fake_claims_rejects_a_registered_claim_of_the_wrong_type(
@@ -331,14 +327,26 @@ def test_fake_claims_sets_not_before() -> None:
     assert claims.claims["nbf"] == _ISSUED_AT
 
 
-@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
-def test_fake_claims_rejects_a_non_finite_number(value: float) -> None:
-    """fake_claims refuses inf and nan, which no JSON token carries."""
+@pytest.mark.parametrize(
+    "value", [-5, 2**64, 10**400, math.inf, -math.inf, math.nan]
+)
+@pytest.mark.parametrize("name", ["expires_at", "issued_at", "not_before"])
+def test_fake_claims_rejects_a_time_out_of_range(
+    name: str, value: float
+) -> None:
+    """fake_claims refuses a time that is negative, too large or not finite."""
+    # Arrange
+    arguments: dict[str, Any] = {name: value}
+
     # Act / Assert
-    with pytest.raises(TypeError):
-        fake_claims("alice", expires_at=value)
-    with pytest.raises(TypeError):
-        fake_claims("alice", issued_at=value)
+    with pytest.raises(ValueError, match=name):
+        fake_claims("alice", **arguments)
+
+
+@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
+def test_fake_claims_rejects_a_non_finite_extra_claim(value: float) -> None:
+    """fake_claims refuses inf and nan as an extra claim, which JSON cannot hold."""
+    # Act / Assert
     with pytest.raises(TypeError, match="JSON"):
         fake_claims("alice", extra=value)
 

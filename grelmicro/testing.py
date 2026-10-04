@@ -226,11 +226,14 @@ def fake_claims(
     claim given, as a token would, read-only like a verified token's.
 
     Raises:
-        TypeError: If a scope is not a string, an extra claim is a
-            registered one such as `scope` or `exp`, or an extra claim is not
-            a JSON value: a string, number, boolean, `None`, list or dict.
-        ValueError: If `subject` is empty, or a scope is empty or holds
-            whitespace, since a verified token never carries either.
+        TypeError: If the subject, a scope, the issuer, the audience or the
+            token id is not a string, a time is not a number or
+            `expires_at` is `None`, an extra claim is a registered one such
+            as `scope` or `exp`, or an extra claim is not a JSON value: a
+            string, number, boolean, `None`, list or dict.
+        ValueError: If `subject` is empty, a scope is empty or holds
+            whitespace, or a time is negative, not finite or past 2**64
+            seconds, since a verified token never carries any of them.
     """
     _check_caller(subject, scopes)
     _check_extras(claims)
@@ -312,23 +315,30 @@ def _check_registered(
     issued_at: object,
     not_before: object,
 ) -> None:
-    """Refuse a registered claim of a type a verified token never has."""
+    """Refuse a registered claim a verified token never has."""
     for name, value in (("issuer", issuer), ("token_id", token_id)):
         if value is not None and not isinstance(value, str):
             msg = f"fake_claims(): {name} must be a string, got {value!r}."
             raise TypeError(msg)
+    if expires_at is None:
+        msg = "fake_claims(): expires_at is required, as a verified token has exp."
+        raise TypeError(msg)
     for name, value in (
         ("expires_at", expires_at),
         ("issued_at", issued_at),
         ("not_before", not_before),
     ):
-        if value is not None and (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not 0 <= value < _MAX_SECONDS
-        ):
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             msg = f"fake_claims(): {name} must be seconds, got {value!r}."
             raise TypeError(msg)
+        if not 0 <= value < _MAX_SECONDS:
+            msg = (
+                f"fake_claims(): {name} must be a finite time from 0 up to "
+                f"2**64 seconds, got {value!r}."
+            )
+            raise ValueError(msg)
 
 
 def _audience(
