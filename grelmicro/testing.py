@@ -1,4 +1,4 @@
-"""Test helpers for asserting on protocol-level interactions.
+"""Test helpers for protocol-level interactions and authenticated apps.
 
 `record(backend)` instruments a backend's public async methods in place and
 returns a `CallLog`. The backend keeps its real type and behavior, so it drops
@@ -18,25 +18,71 @@ async with micro:
 
 assert log.count("acquire", name="user:u1") == 1
 ```
+
+`FakeVerifier` stands in for a `JWTVerifier`: each token is a name for the
+claims it carries, built with `fake_claims`, so no key is generated and no
+token is signed.
+
+```python
+from grelmicro.http import AuthenticatedRequests
+from grelmicro.testing import FakeVerifier, fake_claims
+
+verifier = FakeVerifier(alice=fake_claims("alice", "orders:read"))
+micro = Grelmicro(uses=[AuthenticatedRequests(verifier)])
+```
 """
 
 from __future__ import annotations
 
 import functools
 import inspect
+import math
 from dataclasses import dataclass, field
+from time import time
 from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro.security.jwt import (
+    JWTClaims,
+    TokenRejectedError,
+    TokenRejectedReason,
+    _frozen,
+    _whole_seconds,
+)
+
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
 __all__ = [
     "Call",
     "CallLog",
+    "FakeVerifier",
+    "fake_claims",
     "record",
 ]
+
+_BEARER = "bearer "
+
+_YEAR_2100 = 4_102_444_800
+"""The default `exp`: 2100-01-01T00:00:00Z, in whole seconds."""
+
+_MAX_SECONDS = 2**64
+"""The first time a verified token cannot carry, past an unsigned 64-bit."""
+
+_REGISTERED = {
+    "aud": "with audience=",
+    "exp": "with expires_at=",
+    "iat": "with issued_at=",
+    "iss": "with issuer=",
+    "jti": "with token_id=",
+    "nbf": "with not_before=",
+    "scope": "by passing each scope as a positional argument",
+    "scopes": "by passing each scope as a positional argument",
+    "scp": "by passing each scope as a positional argument",
+    "sub": "by passing the subject as the first argument",
+}
+"""Claims `fake_claims` sets itself, with how to set each one."""
 
 
 @dataclass(frozen=True)
@@ -145,3 +191,281 @@ def _wrap(
         return await method(*args, **kwargs)
 
     return wrapper
+
+
+def fake_claims(
+    subject: Annotated[str, Doc("The `sub` claim, who the caller is.")],
+    *scopes: Annotated[str, Doc("The scopes the caller holds.")],
+    issuer: Annotated[str | None, Doc("The `iss` claim.")] = None,
+    audience: Annotated[
+        str | Sequence[str] | None, Doc("The `aud` claim.")
+    ] = None,
+    expires_at: Annotated[
+        float,
+        Doc(
+            "The `exp` claim, in seconds. A fraction is rounded down. A "
+            "verified token always carries one, so it defaults to "
+            "2100-01-01, which no test outlives."
+        ),
+    ] = _YEAR_2100,
+    issued_at: Annotated[
+        float | None,
+        Doc("The `iat` claim, in seconds. A fraction is rounded down."),
+    ] = None,
+    token_id: Annotated[str | None, Doc("The `jti` claim.")] = None,
+    not_before: Annotated[
+        float | None,
+        Doc("The `nbf` claim, in seconds. The token is refused before it."),
+    ] = None,
+    **claims: Annotated[object, Doc("Any other claim, such as `tenant`.")],
+) -> JWTClaims:
+    """Build the claims of a verified token, for a test.
+
+    `exp` defaults to 2100-01-01, so the claims never expire in a test, and
+    the other registered claims left out stay unset. `claims` carries every
+    claim given, as a token would, read-only like a verified token's.
+
+    Raises:
+        TypeError: If the subject, a scope, the issuer, the audience or the
+            token id is not a string, a time is not a number or
+            `expires_at` is `None`, an extra claim is a registered one such
+            as `scope` or `exp`, or an extra claim is not a JSON value: a
+            string, number, boolean, `None`, list or dict.
+        ValueError: If `subject` is empty, a scope is empty or holds
+            whitespace, or a time is negative, not finite or past 2**64
+            seconds, since a verified token never carries any of them.
+    """
+    _check_caller(subject, scopes)
+    _check_extras(claims)
+    raw: dict[str, Any] = {"sub": subject}
+    if scopes:
+        raw["scope"] = " ".join(scopes)
+    aud = _audience(audience)
+    _check_registered(issuer, token_id, expires_at, issued_at, not_before)
+    registered = {
+        "iss": issuer,
+        "aud": list(aud) if isinstance(aud, tuple) else aud,
+        "exp": expires_at,
+        "iat": issued_at,
+        "jti": token_id,
+        "nbf": not_before,
+    }
+    raw.update(
+        {name: value for name, value in registered.items() if value is not None}
+    )
+    raw.update(claims)
+    return JWTClaims(
+        claims=_frozen(raw),
+        subject=subject,
+        issuer=issuer,
+        audience=aud,
+        expires_at=_whole_seconds(expires_at),
+        issued_at=_whole_seconds(issued_at),
+        token_id=token_id,
+        scopes=frozenset(scopes),
+    )
+
+
+def _check_caller(subject: object, scopes: tuple[object, ...]) -> None:
+    """Refuse a subject or a scope a verified token could not carry."""
+    if not isinstance(subject, str):
+        msg = f"fake_claims() takes the subject as a string, got {subject!r}."
+        raise TypeError(msg)
+    if not subject:
+        msg = "fake_claims() needs a non-empty subject."
+        raise ValueError(msg)
+    for scope in scopes:
+        if not isinstance(scope, str):
+            msg = f"fake_claims() takes each scope as a string, got {scope!r}."
+            raise TypeError(msg)
+        if not scope or scope != "".join(scope.split()):
+            msg = (
+                f"fake_claims() takes one scope per argument, got scope "
+                f"{scope!r}. Pass each scope as its own argument."
+            )
+            raise ValueError(msg)
+
+
+def _check_extras(claims: Mapping[str, object]) -> None:
+    """Refuse an extra claim that is registered or not a JSON value."""
+    clash = sorted(set(_REGISTERED).intersection(claims))
+    if clash:
+        names = ", ".join(clash)
+        verb = (
+            "is a registered claim"
+            if len(clash) == 1
+            else "are registered claims"
+        )
+        how = " ".join(f"Set {name} {_REGISTERED[name]}." for name in clash)
+        msg = f"fake_claims(): {names} {verb}, not an extra claim. {how}"
+        raise TypeError(msg)
+    for name, value in claims.items():
+        if not _is_json(value):
+            msg = (
+                f"fake_claims(): claim {name!r} is {type(value).__name__}, "
+                "not a JSON value a token can carry."
+            )
+            raise TypeError(msg)
+
+
+def _check_registered(
+    issuer: object,
+    token_id: object,
+    expires_at: object,
+    issued_at: object,
+    not_before: object,
+) -> None:
+    """Refuse a registered claim a verified token never has."""
+    for name, value in (("issuer", issuer), ("token_id", token_id)):
+        if value is not None and not isinstance(value, str):
+            msg = f"fake_claims(): {name} must be a string, got {value!r}."
+            raise TypeError(msg)
+    if expires_at is None:
+        msg = "fake_claims(): expires_at is required, as a verified token has exp."
+        raise TypeError(msg)
+    for name, value in (
+        ("expires_at", expires_at),
+        ("issued_at", issued_at),
+        ("not_before", not_before),
+    ):
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            msg = f"fake_claims(): {name} must be seconds, got {value!r}."
+            raise TypeError(msg)
+        if not 0 <= value < _MAX_SECONDS:
+            msg = (
+                f"fake_claims(): {name} must be a finite time from 0 up to "
+                f"2**64 seconds, got {value!r}."
+            )
+            raise ValueError(msg)
+
+
+def _audience(
+    audience: str | Sequence[str] | None,
+) -> str | tuple[str, ...] | None:
+    """Return the audience as a verified token holds it: a string or a tuple."""
+    if audience is None or isinstance(audience, str):
+        return audience
+    audiences = tuple(audience)
+    if not all(isinstance(item, str) for item in audiences):
+        msg = (
+            "fake_claims(): audience must be a string or a sequence of "
+            f"strings, got {audience!r}."
+        )
+        raise TypeError(msg)
+    return audiences
+
+
+def _nearest_second(value: float) -> int:
+    """Return `value` rounded to the nearest second, a half rounded up."""
+    return math.floor(value + 0.5)
+
+
+def _is_json(value: object) -> bool:
+    """Return whether `value` is a JSON value, as a token's claims are."""
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if value is None or isinstance(value, (str, int, bool)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json(item)
+            for key, item in value.items()
+        )
+    return False
+
+
+class FakeVerifier:
+    """A verifier for tests: each token is a name for the claims it carries.
+
+    It answers `verify` and `verify_header` like `JWTVerifier`, so it drops
+    into `AuthenticatedRequests`. A token it does not know is refused as
+    `invalid`, a header with no bearer token as `scheme`, an expired token
+    as `expired`, and one not valid yet as `not-yet-valid`.
+
+    ```python
+    verifier = FakeVerifier(
+        alice=fake_claims("alice", "orders:read"),
+        bob=fake_claims("bob"),
+    )
+    verifier.verify_header("Bearer alice").subject  # "alice"
+    ```
+    """
+
+    def __init__(
+        self,
+        tokens: Annotated[
+            Mapping[str, JWTClaims] | None,
+            Doc(
+                "Tokens mapped to their claims, for a token that is not a name."
+            ),
+        ] = None,
+        /,
+        **named: Annotated[
+            JWTClaims, Doc("Tokens given as keyword arguments.")
+        ],
+    ) -> None:
+        """Map each token to the claims it stands for.
+
+        Raises:
+            TypeError: If a token maps to anything but `JWTClaims`, such as
+                a mapping passed by keyword as `tokens=`.
+        """
+        self._tokens: dict[str, JWTClaims] = {**(tokens or {}), **named}
+        for token, claims in self._tokens.items():
+            if not isinstance(claims, JWTClaims):
+                msg = (
+                    f"FakeVerifier token {token!r} maps to "
+                    f"{type(claims).__name__}, not JWTClaims. Build the claims "
+                    "with fake_claims(), and pass a mapping of tokens as the "
+                    "first positional argument."
+                )
+                raise TypeError(msg)
+
+    def verify(
+        self,
+        token: Annotated[str, Doc("The token, with no scheme prefix.")],
+    ) -> JWTClaims:
+        """Return the claims of `token`, or raise `TokenRejectedError`.
+
+        The times are checked as `JWTVerifier` checks them with no leeway.
+        `exp` and `nbf` are rounded to the nearest second and compared with
+        the current second: a token is `expired` once its `exp` is before it,
+        and `not-yet-valid` while its `nbf` is after it. An `iat` after the
+        current time is `not-yet-valid` too.
+        """
+        try:
+            claims = self._tokens[token]
+        except KeyError:
+            raise TokenRejectedError(TokenRejectedReason.INVALID) from None
+        now = time()
+        second = int(now)
+        expires = claims.claims.get("exp", claims.expires_at)
+        if expires is not None and _nearest_second(expires) < second:
+            raise TokenRejectedError(
+                TokenRejectedReason.EXPIRED, subject=claims.subject
+            )
+        starts = claims.claims.get("nbf")
+        issued = claims.claims.get("iat", claims.issued_at)
+        if (starts is not None and _nearest_second(starts) > second) or (
+            issued is not None and issued > now
+        ):
+            raise TokenRejectedError(
+                TokenRejectedReason.NOT_YET_VALID, subject=claims.subject
+            )
+        return claims
+
+    def verify_header(
+        self,
+        header: Annotated[
+            str | None, Doc("The `Authorization` header value, or `None`.")
+        ],
+    ) -> JWTClaims:
+        """Return the claims of the bearer token in `header`."""
+        token = (header or "")[len(_BEARER) :].lstrip(" ")
+        if not header or header[: len(_BEARER)].lower() != _BEARER or not token:
+            raise TokenRejectedError(TokenRejectedReason.SCHEME)
+        return self.verify(token)

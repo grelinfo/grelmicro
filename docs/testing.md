@@ -106,8 +106,9 @@ async def test_login_takes_the_lock() -> None:
 ## Test an authenticated app
 
 `AuthenticatedRequests` takes any verifier that answers `verify(token)`. In a
-test, hand it one that maps a token to the caller it stands for, so no key is
-generated and no token is signed:
+test, hand it a `FakeVerifier`: each token is a name for the claims it carries,
+built with `fake_claims(subject, *scopes)`, so no key is generated and no token
+is signed:
 
 ```python
 --8<-- "http/authentication_testing.py"
