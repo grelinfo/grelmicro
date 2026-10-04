@@ -67,8 +67,7 @@ Sanctum and Passport issue tokens. grelmicro only verifies them: it checks a JWT
     use Illuminate\Support\Facades\Schedule;
 
     Schedule::command('report:generate')
-        ->fridays()
-        ->at('17:00')
+        ->everyFiveMinutes()
         ->onOneServer();
     ```
 

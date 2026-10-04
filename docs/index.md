@@ -76,12 +76,16 @@ async def send_report() -> None:
     print("report sent by this copy")
 ```
 
-Start Redis and two copies of the app:
+Start Redis, then run each copy of the app in its own terminal:
 
 ```bash
 docker run -d -p 6379:6379 redis
 pip install "grelmicro[fastapi,redis]" "fastapi[standard]"
+
+# Terminal 1
 fastapi run main.py
+
+# Terminal 2
 fastapi run main.py --port 8001
 ```
 
