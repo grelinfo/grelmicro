@@ -48,7 +48,7 @@ Your FastAPI, Starlette, Litestar or FastStream service keeps its routes, its li
 
 Use one pattern, a few, or all of them. Each one you add works with the ones you have. Pay only for what you import: grelmicro needs three dependencies, each backend is an extra, and a module loads only what it uses.
 
-One line says where the shared state lives: Redis, Valkey, PostgreSQL, SQLite or Kubernetes. Change that line and the rest of the code stays the same.
+One line says where the shared state lives: Redis, Valkey, PostgreSQL or SQLite. Change that line and the rest of the code stays the same.
 
 Every pattern behaves the same on each framework, and a [parity test](https://grelmicro.grel.info/frameworks/#how-the-claim-is-held) holds the claim. The hot paths run in a compiled Rust core: a JWT signature check is about four times faster than in a pure-Python library.
 
