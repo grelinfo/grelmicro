@@ -24,11 +24,15 @@ def get_context() -> dict[str, Any]:
 
 
 def add_context(**fields: object) -> None:
-    """Add fields to the current span's context.
+    """Add fields to the current context.
 
     Creates a new frame snapshot (safe for concurrent async tasks).
     Updates the active OTel span if tracing is configured.
-    No-op if called outside a span.
+
+    `@instrument` and `span()` open a context, and so does every request,
+    WebSocket connection and message handler once `micro.install(app)`
+    wired the app with its default `ambient=True`. Outside all of them,
+    the call does nothing.
 
     Example::
 

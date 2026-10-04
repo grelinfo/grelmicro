@@ -57,7 +57,7 @@ The Debezium outbox extension writes the event in your transaction, and a CDC co
 
 ### Context lives on the call
 
-MDC is a map for each thread. grelmicro context follows the call across `await`, and only `@instrument` and `span()` open it. Inside a route handler, open a `span(...)` before you call `add_context`.
+MDC is a map for each thread. grelmicro context follows the call across `await`. `micro.install(app)` opens one for each request and message, and `@instrument` and `span()` open one for a block, so `add_context` in a route handler adds its fields to every log record until the response. Outside all of them, `add_context` does nothing.
 
 ## Side by side
 

@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 from faststream import BaseMiddleware
 from typing_extensions import Doc
 
+from grelmicro._context import pop_context, push_context
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -95,9 +97,11 @@ class _GrelmicroBrokerMiddleware(BaseMiddleware):
     ) -> Any:  # noqa: ANN401
         """Bind the app for the handler, reset the binding after it returns."""
         token = self.micro._bind_current()  # noqa: SLF001
+        context = push_context({})
         try:
             return await call_next(msg)
         finally:
+            pop_context(context)
             self.micro._reset_current(token)  # noqa: SLF001
 
 
