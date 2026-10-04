@@ -70,6 +70,7 @@ _REGISTERED = {
     "iat": "with issued_at=",
     "iss": "with issuer=",
     "jti": "with token_id=",
+    "nbf": "with not_before=",
     "scope": "by passing each scope as a positional argument",
     "scopes": "by passing each scope as a positional argument",
     "scp": "by passing each scope as a positional argument",
@@ -202,6 +203,10 @@ def fake_claims(
         Doc("The `iat` claim, in seconds. A fraction is rounded down."),
     ] = None,
     token_id: Annotated[str | None, Doc("The `jti` claim.")] = None,
+    not_before: Annotated[
+        float | None,
+        Doc("The `nbf` claim, in seconds. The token is refused before it."),
+    ] = None,
     **claims: Annotated[object, Doc("Any other claim, such as `tenant`.")],
 ) -> JWTClaims:
     """Build the claims of a verified token, for a test.
@@ -223,13 +228,14 @@ def fake_claims(
     if scopes:
         raw["scope"] = " ".join(scopes)
     aud = _audience(audience)
-    _check_registered(issuer, token_id, expires_at, issued_at)
+    _check_registered(issuer, token_id, expires_at, issued_at, not_before)
     registered = {
         "iss": issuer,
         "aud": list(aud) if isinstance(aud, tuple) else aud,
         "exp": expires_at,
         "iat": issued_at,
         "jti": token_id,
+        "nbf": not_before,
     }
     raw.update(
         {name: value for name, value in registered.items() if value is not None}
@@ -290,18 +296,27 @@ def _check_extras(claims: Mapping[str, object]) -> None:
 
 
 def _check_registered(
-    issuer: object, token_id: object, expires_at: object, issued_at: object
+    issuer: object,
+    token_id: object,
+    expires_at: object,
+    issued_at: object,
+    not_before: object,
 ) -> None:
     """Refuse a registered claim of a type a verified token never has."""
     for name, value in (("issuer", issuer), ("token_id", token_id)):
         if value is not None and not isinstance(value, str):
             msg = f"fake_claims(): {name} must be a string, got {value!r}."
             raise TypeError(msg)
-    for name, value in (("expires_at", expires_at), ("issued_at", issued_at)):
+    for name, value in (
+        ("expires_at", expires_at),
+        ("issued_at", issued_at),
+        ("not_before", not_before),
+    ):
         if value is not None and (
             isinstance(value, bool)
             or not isinstance(value, (int, float))
             or not math.isfinite(value)
+            or value < 0
         ):
             msg = f"fake_claims(): {name} must be seconds, got {value!r}."
             raise TypeError(msg)
@@ -405,11 +420,9 @@ class FakeVerifier:
                 TokenRejectedReason.EXPIRED, subject=claims.subject
             )
         starts = claims.claims.get("nbf")
-        if (
-            isinstance(starts, (int, float))
-            and not isinstance(starts, bool)
-            and starts > now
-        ) or (claims.issued_at is not None and claims.issued_at > now):
+        if (starts is not None and starts > now) or (
+            claims.issued_at is not None and claims.issued_at > now
+        ):
             raise TokenRejectedError(
                 TokenRejectedReason.NOT_YET_VALID, subject=claims.subject
             )

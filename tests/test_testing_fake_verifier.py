@@ -275,6 +275,11 @@ def test_fake_claims_rounds_a_fractional_expiry_down() -> None:
         {"audience": ("a", 1)},
         {"issuer": 5},
         {"token_id": 5},
+        {"not_before": "tomorrow"},
+        {"not_before": True},
+        {"not_before": -5},
+        {"expires_at": -5},
+        {"issued_at": -5},
     ],
 )
 def test_fake_claims_rejects_a_registered_claim_of_the_wrong_type(
@@ -294,6 +299,7 @@ def test_fake_claims_rejects_a_registered_claim_of_the_wrong_type(
         ("aud", "audience="),
         ("iat", "issued_at="),
         ("jti", "token_id="),
+        ("nbf", "not_before="),
         ("sub", "first argument"),
         ("scope", "positional"),
     ],
@@ -310,10 +316,10 @@ def test_fake_claims_registered_claim_error_names_the_parameter(
         fake_claims("alice", **extras)
 
 
-def test_fake_claims_accepts_nbf_as_an_extra_claim() -> None:
-    """fake_claims carries nbf as a raw claim, which a token may hold."""
+def test_fake_claims_sets_not_before() -> None:
+    """fake_claims carries not_before as the raw nbf claim."""
     # Act
-    claims = fake_claims("alice", nbf=_ISSUED_AT)
+    claims = fake_claims("alice", not_before=_ISSUED_AT)
 
     # Assert
     assert claims.claims["nbf"] == _ISSUED_AT
@@ -350,7 +356,7 @@ def test_fake_verifier_refuses_a_token_not_yet_valid(claim: str) -> None:
     # Arrange
     later = int(time.time()) + 60
     claims = (
-        fake_claims("alice", nbf=later)
+        fake_claims("alice", not_before=later)
         if claim == "nbf"
         else fake_claims("alice", issued_at=later)
     )
