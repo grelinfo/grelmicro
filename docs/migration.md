@@ -46,6 +46,7 @@ that a client library used to accept.
 | `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
+| `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to seconds` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
 
 ## 0.42
