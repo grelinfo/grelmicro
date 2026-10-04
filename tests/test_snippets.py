@@ -26,6 +26,7 @@ a snippet's output has to match what that snippet prints.
 from __future__ import annotations
 
 import ast
+import asyncio
 import contextlib
 import importlib
 import importlib.util
@@ -364,7 +365,9 @@ def _snippets_with_plain_tests() -> list[str]:
         rel
         for rel in _RUNNABLE
         if rel not in _NEEDS_SERVICE
-        and re.search(r"^def test_\w+\(\)", _source(rel), re.MULTILINE)
+        and re.search(
+            r"^(?:async )?def test_\w+\(\)", _source(rel), re.MULTILINE
+        )
     ]
 
 
@@ -385,7 +388,9 @@ def test_snippet_shown_test_passes(
 
     # Act
     for test in tests:
-        test()
+        result = test()
+        if inspect.iscoroutine(result):
+            asyncio.run(result)
 
     # Assert
     assert tests
