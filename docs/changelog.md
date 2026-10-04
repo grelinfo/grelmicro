@@ -75,6 +75,7 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `FakeVerifier` and `fake_claims` in `grelmicro.testing` stand in for a `JWTVerifier` in a test: each token is a name for the claims it carries. ([#981](https://github.com/grelinfo/grelmicro/pull/981))
 * ✨ Starlette and Litestar requests get the request span and the HTTP server metrics FastAPI records, exported by `Trace` and `Metrics`. ([#964](https://github.com/grelinfo/grelmicro/issues/964))
 * ✨ `Trace(instrument=...)` takes `"starlette"` and `"litestar"`, and `OTEL_PYTHON_STARLETTE_EXCLUDED_URLS` and `OTEL_PYTHON_LITESTAR_EXCLUDED_URLS` leave URLs out. ([#964](https://github.com/grelinfo/grelmicro/issues/964))
 * ✨ A FastAPI app mounted under a Starlette app is one request span, named by its full route. ([#964](https://github.com/grelinfo/grelmicro/issues/964))

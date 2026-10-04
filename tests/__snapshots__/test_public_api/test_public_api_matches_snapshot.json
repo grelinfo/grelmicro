@@ -1137,6 +1137,12 @@
     "CallLog": {
       "()": "(calls=<factory>) -> None"
     },
+    "FakeVerifier": {
+      "()": "(tokens=None, /, **named) -> 'None'"
+    },
+    "fake_claims": {
+      "()": "(subject, *scopes, **claims) -> 'JWTClaims'"
+    },
     "record": {
       "()": "(backend) -> 'CallLog'"
     }

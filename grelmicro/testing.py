@@ -1,4 +1,4 @@
-"""Test helpers for asserting on protocol-level interactions.
+"""Test helpers for protocol-level interactions and authenticated apps.
 
 `record(backend)` instruments a backend's public async methods in place and
 returns a `CallLog`. The backend keeps its real type and behavior, so it drops
@@ -18,6 +18,18 @@ async with micro:
 
 assert log.count("acquire", name="user:u1") == 1
 ```
+
+`FakeVerifier` stands in for a `JWTVerifier`: each token is a name for the
+claims it carries, built with `fake_claims`, so no key is generated and no
+token is signed.
+
+```python
+from grelmicro.http import AuthenticatedRequests
+from grelmicro.testing import FakeVerifier, fake_claims
+
+verifier = FakeVerifier(alice=fake_claims("alice", "orders:read"))
+micro = Grelmicro(uses=[AuthenticatedRequests(verifier)])
+```
 """
 
 from __future__ import annotations
@@ -29,14 +41,24 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from typing_extensions import Doc
 
+from grelmicro.security.jwt import (
+    JWTClaims,
+    TokenRejectedError,
+    TokenRejectedReason,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
 __all__ = [
     "Call",
     "CallLog",
+    "FakeVerifier",
+    "fake_claims",
     "record",
 ]
+
+_BEARER = "bearer "
 
 
 @dataclass(frozen=True)
@@ -145,3 +167,85 @@ def _wrap(
         return await method(*args, **kwargs)
 
     return wrapper
+
+
+def fake_claims(
+    subject: Annotated[str, Doc("The `sub` claim, who the caller is.")],
+    *scopes: Annotated[str, Doc("The scopes the caller holds.")],
+    **claims: Annotated[object, Doc("Any other claim, such as `tenant`.")],
+) -> JWTClaims:
+    """Build the claims of a verified token, for a test.
+
+    The registered claims other than `sub` stay unset, so the claims never
+    expire. `claims` carries `sub`, `scope` when scopes are given, and the
+    extra claims.
+    """
+    raw: dict[str, Any] = {"sub": subject}
+    if scopes:
+        raw["scope"] = " ".join(scopes)
+    raw.update(claims)
+    return JWTClaims(
+        claims=raw,
+        subject=subject,
+        issuer=None,
+        audience=None,
+        expires_at=None,
+        issued_at=None,
+        token_id=None,
+        scopes=frozenset(scopes),
+    )
+
+
+class FakeVerifier:
+    """A verifier for tests: each token is a name for the claims it carries.
+
+    It answers `verify` and `verify_header` like `JWTVerifier`, so it drops
+    into `AuthenticatedRequests`. A token it does not know is refused as
+    `invalid`, and a header with no bearer token as `scheme`.
+
+    ```python
+    verifier = FakeVerifier(
+        alice=fake_claims("alice", "orders:read"),
+        bob=fake_claims("bob"),
+    )
+    verifier.verify_header("Bearer alice").subject  # "alice"
+    ```
+    """
+
+    def __init__(
+        self,
+        tokens: Annotated[
+            Mapping[str, JWTClaims] | None,
+            Doc(
+                "Tokens mapped to their claims, for a token that is not a name."
+            ),
+        ] = None,
+        /,
+        **named: Annotated[
+            JWTClaims, Doc("Tokens given as keyword arguments.")
+        ],
+    ) -> None:
+        """Map each token to the claims it stands for."""
+        self._tokens: dict[str, JWTClaims] = {**(tokens or {}), **named}
+
+    def verify(
+        self,
+        token: Annotated[str, Doc("The token, with no scheme prefix.")],
+    ) -> JWTClaims:
+        """Return the claims of `token`, or raise `TokenRejectedError`."""
+        try:
+            return self._tokens[token]
+        except KeyError:
+            raise TokenRejectedError(TokenRejectedReason.INVALID) from None
+
+    def verify_header(
+        self,
+        header: Annotated[
+            str | None, Doc("The `Authorization` header value, or `None`.")
+        ],
+    ) -> JWTClaims:
+        """Return the claims of the bearer token in `header`."""
+        token = (header or "")[len(_BEARER) :].lstrip(" ")
+        if not header or header[: len(_BEARER)].lower() != _BEARER or not token:
+            raise TokenRejectedError(TokenRejectedReason.SCHEME)
+        return self.verify(token)
