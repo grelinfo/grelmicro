@@ -5,12 +5,12 @@ from faststream.redis import RedisBroker
 
 from grelmicro.task import Tasks
 
-task = Tasks()
+tasks = Tasks()
 
 
 @asynccontextmanager
 async def lifespan(context: ContextRepo):
-    async with task:
+    async with tasks:
         yield
 
 

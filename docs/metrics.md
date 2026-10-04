@@ -320,6 +320,8 @@ zero means nobody is running the leader-gated work:
 sum by (grelmicro_leader_election_name) (grelmicro_leader_election_leading) != 1
 ```
 
+A split brain is two replicas that each believe they lead.
+
 ### Every fire lands on `grelmicro.task.runs`
 
 Every fire a worker evaluates is counted once, whatever happens to it.

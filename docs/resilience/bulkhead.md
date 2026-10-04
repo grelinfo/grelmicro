@@ -34,7 +34,7 @@ The default fails fast: with no `max_wait`, a full bulkhead rejects immediately.
 --8<-- "resilience/bulkhead_uses.py"
 ```
 
-The bulkhead opens its `uses=` on first entry and closes them when the app shuts down, so an active `Grelmicro` app is required. Order inside `uses=` does not matter: a Provider listed after the Component that borrows it is moved ahead of it. The scope never adopts a Provider you left out, where `Grelmicro(uses=[...])` would, because it opens on the app's exit stack and would close a Provider the app still holds.
+The bulkhead opens its `uses=` on first entry and closes them when the app shuts down, so an active `Grelmicro` app is required. Order inside `uses=` does not matter: a Provider listed after the Component that borrows it is moved ahead of it. The scope never adopts a Provider you left out, where `Grelmicro(uses=[...])` would, because it opens on the app's exit stack and would close a Provider the app still holds. The exit stack is the list of things the app closes at shutdown, in reverse order.
 
 The scope belongs to one app run: whichever enters the bulkhead first. A later run in the same process opens every item again from the start. A run that overlaps the owner borrows the open items instead of opening a second set, and gives them up when the owner closes them, so give overlapping apps their own `Bulkhead` when their lifetimes differ.
 
@@ -48,7 +48,7 @@ These Components are not registered on the app, so the [backend check](../deploy
 
 ## Configuration
 
-`Bulkhead` follows the three-paths configuration contract.
+Configure `Bulkhead` with keyword arguments, `GREL_BULKHEAD_*` environment variables, or a mounted file, as every component is. See [Configuration](../config.md).
 
 ### Environmental
 

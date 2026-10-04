@@ -192,7 +192,7 @@ A few categories the comparison page does not cover, because grelmicro does not 
 | Publish/subscribe and message brokers | [FastStream](https://faststream.airt.ai/), [aio_pika](https://github.com/mosquito/aio-pika) |
 | Background workers (queues) | [Celery](https://docs.celeryq.dev/), [dramatiq](https://github.com/Bogdanp/dramatiq), [taskiq](https://github.com/taskiq-python/taskiq) |
 | ORM | [SQLAlchemy](https://www.sqlalchemy.org/), [SQLModel](https://sqlmodel.tiangolo.com/), [tortoise-orm](https://tortoise.github.io/) |
-| Auth | [Authlib](https://authlib.org/), [authx](https://github.com/yezz123/authx), [fastapi-users](https://github.com/fastapi-users/fastapi-users) |
+| Login and token issuing | [Authlib](https://authlib.org/), [authx](https://github.com/yezz123/authx), [fastapi-users](https://github.com/fastapi-users/fastapi-users) |
 | Service mesh / discovery | [Istio](https://istio.io/), [Linkerd](https://linkerd.io/), Kubernetes DNS, [Consul](https://www.consul.io/) |
 | API gateway | [Envoy](https://www.envoyproxy.io/), [Nginx](https://nginx.org/), [Kong](https://konghq.com/) |
 

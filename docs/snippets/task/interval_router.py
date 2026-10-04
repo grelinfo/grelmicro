@@ -1,8 +1,8 @@
 from grelmicro.task import TaskRouter
 
-task = TaskRouter()
+router = TaskRouter()
 
 
-@task.every(seconds=5)
+@router.every(seconds=5)
 async def my_task():
     print("Hello, World!")

@@ -26,9 +26,11 @@ a snippet's output has to match what that snippet prints.
 from __future__ import annotations
 
 import ast
+import asyncio
 import contextlib
 import importlib
 import importlib.util
+import inspect
 import logging
 import os
 import pkgutil
@@ -356,6 +358,42 @@ def test_snippet_runs_as_script(
     for key, value in _ENV.get(rel, {}).items():
         monkeypatch.setenv(key, value)
     runpy.run_path(str(_SNIPPETS_DIR / rel), run_name="__main__")
+
+
+def _snippets_with_plain_tests() -> list[str]:
+    return [
+        rel
+        for rel in _RUNNABLE
+        if rel not in _NEEDS_SERVICE
+        and re.search(
+            r"^(?:async )?def test_\w+\(\)", _source(rel), re.MULTILINE
+        )
+    ]
+
+
+@pytest.mark.parametrize("rel", _snippets_with_plain_tests())
+def test_snippet_shown_test_passes(
+    rel: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each fixture-free test a snippet shows passes."""
+    # Arrange
+    for key, value in _ENV.get(rel, {}).items():
+        monkeypatch.setenv(key, value)
+    module = _import_snippet(rel)
+    tests = [
+        value
+        for name, value in vars(module).items()
+        if name.startswith("test_") and not inspect.signature(value).parameters
+    ]
+
+    # Act
+    for test in tests:
+        result = test()
+        if inspect.iscoroutine(result):
+            asyncio.run(result)
+
+    # Assert
+    assert tests
 
 
 def _fastapi_snippets() -> list[str]:

@@ -11,5 +11,5 @@ async def my_task():
 
 from grelmicro.task import Tasks
 
-task = Tasks()
-task.include_router(router)
+tasks = Tasks()
+tasks.include_router(router)

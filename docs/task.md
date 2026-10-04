@@ -170,7 +170,7 @@ A claimed cron task (`gate="claim"` or a `LeaderElection`) stores its last fire 
 Set `misfire_grace_seconds` to bound how late a missed fire may run:
 
 ```python
-@task.cron("0 * * * *", gate="claim", misfire_grace_seconds=600)
+@tasks.cron("0 * * * *", gate="claim", misfire_grace_seconds=600)
 async def hourly_rollup():
     ...
 ```
@@ -227,7 +227,7 @@ Add the [`LeaderElection`](coordination/leader-election.md) to the `Tasks` too, 
     A cron claim advances the last-fire state **before** the body runs. A body that checks leadership and returns early still consumes the fire, so the work is lost until the next one:
 
     ```python
-    @task.cron("0 3 * * *", gate="claim")
+    @tasks.cron("0 3 * * *", gate="claim")
     async def nightly():
         if not leader.is_leader():
             return  # the fire is already claimed, so it is now lost

@@ -11,6 +11,7 @@ Each primitive is a protocol, so Redis, PostgreSQL, SQLite, Kubernetes, and in-m
 - [First steps](https://grelmicro.grel.info/first-steps/): wire an app and use your first primitive.
 - [Wiring](https://grelmicro.grel.info/wiring/): providers, components, and `micro.install(app)`, the one call that wires a framework.
 - [Frameworks](https://grelmicro.grel.info/frameworks/): what `install` wires for FastAPI, Starlette, Litestar, and FastStream.
+- Coming from another stack: [Spring Boot](https://grelmicro.grel.info/coming-from/spring-boot/), [Quarkus](https://grelmicro.grel.info/coming-from/quarkus/), [Django](https://grelmicro.grel.info/coming-from/django/), [Laravel](https://grelmicro.grel.info/coming-from/laravel/), and [Symfony](https://grelmicro.grel.info/coming-from/symfony/) map their concepts to grelmicro.
 
 ## User guide
 

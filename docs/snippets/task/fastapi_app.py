@@ -4,12 +4,12 @@ from fastapi import FastAPI
 
 from grelmicro.task import Tasks
 
-task = Tasks()
+tasks = Tasks()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with task:
+    async with tasks:
         yield
 
 
