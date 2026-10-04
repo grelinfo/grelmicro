@@ -237,11 +237,30 @@ A pod that serves no HTTP, a consumer or a scheduler, gets the same three
 endpoints on a port of its own from [`OpsServer`](http/server.md), and points
 its probes at that port.
 
-Keep the readiness period short and the liveness period long. Readiness
-reacts to a lost backend, liveness only to a process that is gone. Use a
+Keep the readiness period short and the liveness period long. Readiness reacts
+to a lost backend, liveness only to a process that is gone or stuck. Use a
 `startupProbe` on `/livez` instead of a long `initialDelaySeconds`, so a slow
 first connection never counts as a liveness failure.
 [Health checks](health.md) covers the component and the endpoint behavior.
+
+### One worker per container
+
+Run one server worker per container and scale with replicas. The liveness
+probe then reaches the only event loop there is, so a loop blocked by a long
+synchronous call stops answering and the container restarts.
+
+With several workers in one container, the probe reaches whichever worker
+accepts the connection, so an idle worker answers for a blocked one. The
+process manager has to catch it instead:
+
+| Setup | A blocked event loop is caught by |
+|---|---|
+| One worker per container | The liveness probe |
+| Gunicorn with `uvicorn-worker` | Gunicorn, which restarts a worker silent for `--timeout` seconds |
+| `uvicorn --workers N` | Nothing: its health check answers from a thread outside the loop |
+
+So when one container needs several workers, run them under Gunicorn with
+`uvicorn-worker` and set `--timeout` to how long a loop may stall.
 
 ## Shutdown
 
