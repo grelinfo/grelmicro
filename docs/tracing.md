@@ -87,7 +87,7 @@ async def create_order(order_id: str) -> None:
     logger.info("order received")  # includes order_id
 ```
 
-Outside a span and outside a handler, `add_context` does nothing.
+A WebSocket gets one context for the whole connection, not one per message. With `micro.install(app, ambient=False)`, no middleware opens the context, so open a `span()` in the handler. Outside a span and outside a handler, `add_context` does nothing.
 
 ## Configuration
 
