@@ -31,7 +31,7 @@ Laravel runs `schedule:run` from a system cron entry every minute. grelmicro run
 
 ### A claimed task renews its claim
 
-`onOneServer()` takes an atomic lock for each run. A claimed interval task renews its lease while the body runs, so a slow run never overlaps the next interval on another server. A claimed cron task records each fire it claims, and runs a fire missed while every worker was down, once.
+`onOneServer()` takes an atomic lock for each run. A claimed interval task renews its lease while the body runs, so a slow run does not overlap the next interval on another server. If the backend stays unreachable for a whole lease, the claim is lost and another worker may run. Add a `Lock` as `sync` for work that must never overlap. A claimed cron task records each fire it claims, and runs a fire missed while every worker was down, once.
 
 ### A task never overlaps itself
 

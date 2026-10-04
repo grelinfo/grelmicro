@@ -11,7 +11,7 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 | `management.server.port` | `OpsServer`, for a process that serves no HTTP | [Ops server](../http/server.md) |
 | Micrometer, `/actuator/prometheus` | `Metrics()` and `metrics_router()` | [Metrics](../metrics.md) |
 | `@Timed` | `@measure` | [Metrics](../metrics.md) |
-| `@Scheduled(fixedRate = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
+| `@Scheduled(fixedDelay = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | ShedLock `@SchedulerLock` | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
 | `@Cacheable`, `@CacheEvict` | `@cached(cache, tags=[...])`, `cache.delete_tags(...)` | [@cached](../cache/cached.md) |
 | `@Cacheable(sync = true)` | `@cached(..., lock=True)` | [Stampede protection](../cache/cached.md#stampede-protection) |
@@ -30,6 +30,10 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 ShedLock always releases the lock after `lockAtMostFor`. A task that runs longer can run on a second node at the same time. A grelmicro task with `gate="claim"` renews its lease while the body runs, so `lease_duration` only bounds how long a crashed worker keeps the claim. A bare `async with TaskLock(...)` does not renew and behaves like ShedLock: `lockAtLeastFor` is `min_hold_duration` and `lockAtMostFor` is `lease_duration`.
 
 A claimed cron task takes no lock at all. It records each fire it claims, and a fire missed while every worker was down runs once when a worker comes back.
+
+### An interval waits for the previous run
+
+`@tasks.every(seconds=60)` counts from the end of one run to the start of the next, like `fixedDelay`. There is no `fixedRate` equivalent: a run that takes 20 seconds starts the next one 80 seconds after it started.
 
 ### Health has three fixed endpoints, not groups
 
@@ -62,7 +66,7 @@ MDC is a map for each thread that you can write to anywhere. grelmicro context f
 === "Spring Boot"
 
     ```java
-    @Scheduled(fixedRate = 60_000)
+    @Scheduled(fixedDelay = 60_000)
     @SchedulerLock(name = "cleanup", lockAtMostFor = "5m", lockAtLeastFor = "30s")
     public void cleanup() {
         // ...

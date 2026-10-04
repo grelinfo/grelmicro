@@ -87,7 +87,7 @@ MDC is a map for each thread. grelmicro context follows the call across `await`,
 
     ```java
     @Transactional
-    @Scheduled(every = "10s", identity = "task-job")
+    @Scheduled(every = "60s", identity = "task-job")
     void schedule() {
         Task task = new Task();
         task.persist();
