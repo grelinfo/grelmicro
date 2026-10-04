@@ -187,8 +187,9 @@ def fake_claims(
     extra claims, read-only like a verified token's.
 
     Raises:
-        TypeError: If an extra claim is a registered one, such as `scope`
-            or `exp`. Pass the subject and the scopes as arguments instead.
+        TypeError: If a scope is not a string, an extra claim is a
+            registered one such as `scope` or `exp`, or an extra claim is not
+            a JSON value: a string, number, boolean, `None`, list or dict.
         ValueError: If `subject` is empty, or a scope is empty or holds
             whitespace, since a verified token never carries either.
     """
@@ -196,6 +197,9 @@ def fake_claims(
         msg = "fake_claims() needs a non-empty subject."
         raise ValueError(msg)
     for scope in scopes:
+        if not isinstance(scope, str):
+            msg = f"fake_claims() takes each scope as a string, got {scope!r}."
+            raise TypeError(msg)
         if not scope or scope != "".join(scope.split()):
             msg = (
                 f"fake_claims() takes one scope per argument, got scope "
@@ -204,11 +208,24 @@ def fake_claims(
             raise ValueError(msg)
     clash = sorted(_REGISTERED.intersection(claims))
     if clash:
+        names = ", ".join(clash)
+        verb = (
+            "is a registered claim"
+            if len(clash) == 1
+            else "are registered claims"
+        )
         msg = (
-            f"fake_claims() sets {', '.join(clash)} itself. Pass the subject "
-            "first and each scope as a positional argument."
+            f"fake_claims(): {names} {verb}, not an extra claim. Pass the "
+            "subject first and each scope as a positional argument."
         )
         raise TypeError(msg)
+    for name, value in claims.items():
+        if not _is_json(value):
+            msg = (
+                f"fake_claims(): claim {name!r} is {type(value).__name__}, "
+                "not a JSON value a token can carry."
+            )
+            raise TypeError(msg)
     raw: dict[str, Any] = {"sub": subject}
     if scopes:
         raw["scope"] = " ".join(scopes)
@@ -223,6 +240,20 @@ def fake_claims(
         token_id=None,
         scopes=frozenset(scopes),
     )
+
+
+def _is_json(value: object) -> bool:
+    """Return whether `value` is a JSON value, as a token's claims are."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return True
+    if isinstance(value, list):
+        return all(_is_json(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json(item)
+            for key, item in value.items()
+        )
+    return False
 
 
 class FakeVerifier:

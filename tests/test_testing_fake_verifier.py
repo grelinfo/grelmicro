@@ -164,3 +164,34 @@ def test_fake_verifier_rejects_a_value_that_is_not_claims() -> None:
     # Act / Assert
     with pytest.raises(TypeError, match="tokens"):
         FakeVerifier(tokens={"tok-1": fake_claims("alice")})  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+def test_fake_claims_rejects_a_scope_that_is_not_a_string() -> None:
+    """fake_claims refuses a scope that is not a string."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="scope"):
+        fake_claims("alice", 5)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("value", [({"k": 1},), {"a"}, b"raw", object()])
+def test_fake_claims_rejects_a_claim_a_token_cannot_carry(
+    value: object,
+) -> None:
+    """fake_claims refuses an extra claim that is not a JSON value."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="JSON"):
+        fake_claims("alice", extra=value)
+
+
+def test_fake_claims_registered_claim_error_names_the_claim() -> None:
+    """The refusal of a registered claim says it is not an extra."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="exp is a registered claim"):
+        fake_claims("alice", exp=1)
+
+
+def test_fake_claims_registered_claims_error_names_every_claim() -> None:
+    """The refusal of several registered claims names them all."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="exp, iss are registered claims"):
+        fake_claims("alice", iss="https://auth.example.com/", exp=1)
