@@ -171,6 +171,7 @@
 * ⚡ Redacting a URL with nothing to hide returns it without parsing it. A clean URL with a query string costs about 0.6 µs instead of 8 µs, and one with no query about 0.3 µs. ([#841](https://github.com/grelinfo/grelmicro/issues/841))
 
 ### Docs
+* 📝 The health page says why `/livez` runs no check, and which failures it still catches. ([#982](https://github.com/grelinfo/grelmicro/pull/982))
 * 📝 The bulkhead page says each `Bulkhead` object counts its own calls, in one process, not across replicas. ([#977](https://github.com/grelinfo/grelmicro/pull/977))
 * 📝 The landing page starts with one pattern, a job that runs once across replicas, then adds the next one and states one guarantee per module. ([#884](https://github.com/grelinfo/grelmicro/issues/884))
 * 📝 Coming from Spring Boot, Quarkus, Django, Laravel or Symfony: one page each maps the concepts, the false friends and what has no equivalent. ([#884](https://github.com/grelinfo/grelmicro/issues/884))

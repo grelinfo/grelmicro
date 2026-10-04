@@ -45,7 +45,7 @@ A MicroProfile circuit breaker and a SmallRye rate limit keep their state in one
 
 ### Health has three fixed endpoints
 
-`/livez` runs no check, `/readyz` runs the critical checks, and `/healthz` runs them all. There are no health groups and no startup endpoint. A check with `critical=False` stays out of readiness. A Quarkus liveness check, such as a deadlock detector, has no endpoint of its own: put it in `/healthz` with `critical=False`.
+`/livez` runs no check, `/readyz` runs the critical checks, and `/healthz` runs them all. There are no health groups and no startup endpoint. A check with `critical=False` stays out of readiness. A Quarkus liveness check, such as a deadlock detector, has no equivalent yet: `/livez` fails when the process stops answering or the event loop is blocked, not when coroutines or worker threads deadlock while the loop runs. Until then, add the check with `critical=False` so `/healthz` reports it.
 
 ### Every route is protected by default
 
