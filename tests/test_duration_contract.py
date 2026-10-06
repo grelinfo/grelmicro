@@ -2,7 +2,6 @@
 
 import importlib
 import pkgutil
-import types
 import typing
 from datetime import timedelta
 
@@ -47,6 +46,7 @@ WAITS = frozenset(
 
 NOT_MOVED_YET = frozenset(
     {
+        ("CachedResponsesConfig", "include"),
         ("CachedResponsesConfig", "ttl"),
         ("ClientBansConfig", "duration"),
         ("ClientBansConfig", "window"),
@@ -110,32 +110,41 @@ def _subclasses(cls: type[BaseModel]) -> set[type[BaseModel]]:
     return found
 
 
-def _takes(annotation: object, kind: type) -> bool:
+def _bare(annotation: object, kind: type) -> bool:
+    """Return whether `kind` appears in `annotation` outside `Duration`."""
     if annotation is kind:
         return True
-    if isinstance(annotation, types.UnionType) or typing.get_origin(
-        annotation
-    ) in (typing.Union, typing.Annotated):
-        return any(_takes(arg, kind) for arg in typing.get_args(annotation))
-    return False
+    args = typing.get_args(annotation)
+    if typing.get_origin(annotation) is typing.Annotated:
+        if all(check in args[1:] for check in _DURATION_CHECKS):
+            return False
+        return _bare(args[0], kind)
+    return any(_bare(arg, kind) for arg in args)
 
 
 def _unshared(config: type[BaseModel], name: str) -> bool:
     field = config.model_fields[name]
-    if _takes(field.annotation, float):
+    if _bare(field.annotation, float):
         return True
-    return _takes(field.annotation, timedelta) and not all(
-        check in field.metadata for check in _DURATION_CHECKS
-    )
+    if all(check in field.metadata for check in _DURATION_CHECKS):
+        return False
+    return _bare(field.annotation, timedelta)
 
 
-def _listed_fields() -> set[tuple[str, str]]:
+def _configs() -> list[type[BaseModel]]:
     _import_all()
-    return {
-        (config.__name__, name)
+    return [
+        config
         for config in _subclasses(BaseModel)
         if config.__module__.startswith("grelmicro")
         and config.__name__.endswith("Config")
+    ]
+
+
+def _listed_fields() -> set[tuple[str, str]]:
+    return {
+        (config.__name__, name)
+        for config in _configs()
         for name in config.model_fields
         if _unshared(config, name)
     }
@@ -155,3 +164,29 @@ def test_no_duration_is_both_a_wait_and_not_moved() -> None:
     """A field is in one list at most."""
     assert not WAITS & NOT_MOVED_YET
     assert not (WAITS | NOT_MOVED_YET) & NOT_DURATIONS
+
+
+def test_every_config_name_is_unique() -> None:
+    """No two `*Config` classes share a name, so the lists name one each."""
+    names = [config.__name__ for config in _configs()]
+    assert sorted(name for name in set(names) if names.count(name) > 1) == []
+
+
+class _OptionalDuration(BaseModel):
+    ttl: Duration | None = None
+
+
+class _FloatsInside(BaseModel):
+    delays: tuple[float, ...] = ()
+    by_name: dict[str, timedelta] = {}
+
+
+def test_an_optional_duration_is_shared() -> None:
+    """A `Duration | None` field is on the shared type."""
+    assert not _unshared(_OptionalDuration, "ttl")
+
+
+def test_a_float_or_timedelta_inside_a_container_is_found() -> None:
+    """A float or timedelta inside a tuple or a dict is found."""
+    assert _unshared(_FloatsInside, "delays")
+    assert _unshared(_FloatsInside, "by_name")

@@ -218,7 +218,7 @@ RateLimit-Policy: "api";q=100;w=60
 RateLimit: "api";r=50;t=30
 ```
 
-`RateLimit-Policy` describes the policy rather than the request, so its window (`w=`) is not on the result. Read it from the config you built the limiter with, such as `SlidingWindowConfig.window`. The policy line is the same on every response, so render it once.
+`RateLimit-Policy` describes the policy rather than the request, so its window (`w=`) is not on the result. Read it from the config you built the limiter with. `SlidingWindowConfig.window` is a `timedelta`, so render it as `int(config.window.total_seconds())`. The policy line is the same on every response, so render it once.
 
 ### Weighted requests
 

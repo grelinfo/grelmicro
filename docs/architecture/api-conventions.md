@@ -121,12 +121,20 @@ RateLimiter.sliding_window("api", limit=100, window=60)
 RateLimiter.sliding_window("burst", limit=10, window=timedelta(milliseconds=500))
 ```
 
-Both are whole microseconds from the start, so a backend stores exactly what
-was asked. A float such as `1.001` is `1000999.9999999999` microseconds, and
-a component that took it would have to guess what was meant. From text, such
-as an environment variable, a duration reads whole seconds (`"60"`) or an
-ISO 8601 duration (`"PT0.5S"`). A duration is greater than zero and at most
-100 years. Once validated, the config holds a `timedelta`.
+Both are whole microseconds from the start, so nothing has to guess what
+was meant. A float such as `1.001` is `1000999.9999999999` microseconds.
+
+From text, such as an environment variable, a duration reads whole seconds
+(`"60"`) or an ISO 8601 duration in weeks, days, hours, minutes and seconds
+(`"PT0.5S"`, `"P1DT12H"`). Only the seconds take a fraction, up to the
+microsecond. Years and months are refused, since their length depends on the
+calendar. A duration is greater than zero and at most 100 years.
+
+Once validated, the config holds a `timedelta`, and its field is typed
+`timedelta`. A component parameter is typed `int | timedelta`, so
+`RateLimiter.sliding_window("api", limit=100, window=60)` type-checks. A
+`*Config` built directly takes a `timedelta` in typed code, since a type
+checker reads its parameters from the field types.
 
 A wait, a timeout passed to I/O and the sleep between two runs of a
 background loop stay a float of seconds, the type `asyncio` and HTTP clients
@@ -142,7 +150,7 @@ take.
 | `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | not yet |
 | `OutboxConfig.lease_duration`, `.keep_delivered` | `int \| timedelta` | not yet |
 | `TTLCacheConfig.ttl`, `cached(ttl, stale_ttl)` | `int \| timedelta` | not yet |
-| `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl` | `int \| timedelta` | not yet |
+| `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs | `int \| timedelta` | not yet |
 | `DuplicateFilterConfig.ttl` | `int \| timedelta` | not yet |
 | `HealthChecksConfig.cache_ttl` | `int \| timedelta` | not yet |
 | `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | not yet |
