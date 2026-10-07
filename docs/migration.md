@@ -52,6 +52,10 @@ that a client library used to accept.
 | `TypeError: TaskRouter.every() got an unexpected keyword argument 'seconds'` | 0.42 | [Pass `interval=`](#0-42-durations) |
 | `TypeError: ... got an unexpected keyword argument 'misfire_grace_seconds'` | 0.42 | [Pass `misfire_grace=`](#0-42-durations) |
 | `TypeError: ... declares cache=60` on a route | 0.42 | [Pass `True` or a `timedelta`](#0-42-durations) |
+| `TypeError: ... got an unexpected keyword argument 'ignore_exceptions'` from a `CircuitBreaker` | 0.42 | [Pass `when=`](#0-42-when) |
+| `TypeError: ... got an unexpected keyword argument 'timeout_errors'` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
+| `SettingsValidationError: ... when: Field required` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
+| `TypeError: '_ShieldDecorator' object is not callable` from a bare `@shield` | 0.42 | [Pass a preset and `when=`](#0-42-when) |
 
 ## 0.42
 
@@ -142,6 +146,59 @@ timers each run their own tick. A `TaskLock` you still pass as the gate needs a
 A gated task with no backend reports a coordination error on every fire
 instead of running on every worker. Register a `Coordination` component, or
 drop the gate when every worker should run it.
+
+### Every resilience pattern takes `when=` {#0-42-when}
+
+`CircuitBreaker` and `Shield` name the errors they react to with `when=`, like
+`Retry` and `Fallback`. It takes an exception class, a tuple of classes, a
+predicate or a `Match`.
+
+A breaker's `when=` names the errors that count as failures, and every
+`Exception` counts by default. An error you ignored becomes an exclusion:
+
+```python
+# Before
+CircuitBreaker.consecutive_count("payments", ignore_exceptions=ValidationError)
+
+# After
+CircuitBreaker.consecutive_count(
+    "payments", when=Match.not_exception(ValidationError)
+)
+```
+
+A Shield's `when=` names the errors that count as transient, and it is
+required. `TimeoutError` still always counts:
+
+```python
+# Before
+@shield.api(timeout_errors=(httpx.TimeoutException,))
+async def fetch(url: str) -> bytes: ...
+
+
+# After
+@shield.api(when=httpx.TimeoutException)
+async def fetch(url: str) -> bytes: ...
+```
+
+The bare `@shield` is gone, because it had no way to take `when=`. Name a
+preset and the errors instead:
+
+```python
+# Before
+@shield
+async def ping() -> None: ...
+
+
+# After
+@shield.api(when=TimeoutError)
+async def ping() -> None: ...
+```
+
+The same rename applies to `ConsecutiveCountConfig`, the Shield profile
+configs and the environment: `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS`
+and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` become `GREL_CIRCUITBREAKER_{NAME}_WHEN`
+and `GREL_SHIELD_{NAME}_WHEN`. An ignore list in the environment cannot be
+written as an exclusion, so list the errors that count as failures instead.
 
 ### `metrics_router` moved to `grelmicro.integrations.fastapi` {#0-42-metrics-router-moved}
 

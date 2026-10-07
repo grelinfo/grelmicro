@@ -16,7 +16,7 @@ Pick the front door first, the algorithm second, the backend third.
 * `Timeout("name", seconds=...)` for deadlines.
 * `Bulkhead("name", max_concurrent=...)` or the `@bulkhead`
   decorator to cap concurrent in-flight calls.
-* `Shield("name")` or the `@shield(...)` decorator for the bundled
+* `Shield("name", when=...)` or the `@shield.api(when=...)` decorator for the bundled
   timeout + retry + adaptive rate-limit + cache + fallback profile.
 * `Stack("name", patterns=[...])` to apply several of the above to
   one call in the safe order, whatever order you list them in.

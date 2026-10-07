@@ -12,7 +12,7 @@ from grelmicro.resilience.errors import ResilienceError
 
 
 class _SignalError(Exception):
-    """Test-only retryable error used as a `timeout_errors` member."""
+    """Test-only retryable error that `when=` names."""
 
 
 class _PermanentError(Exception):
@@ -23,7 +23,7 @@ def _shield(**overrides: Any) -> Shield:  # noqa: ANN401
     """Build an api-profile Shield with deterministic test sources."""
     return Shield.api(
         "test",
-        timeout_errors=(_SignalError,),
+        when=_SignalError,
         **overrides,
     )
 
@@ -96,7 +96,7 @@ async def test_budget_exhausted_stops_loop_silently() -> None:
 
 
 async def test_non_timeout_exception_propagates_without_retry() -> None:
-    """Non-`timeout_errors` Exception propagates immediately."""
+    """An `Exception` `when=` does not match propagates immediately."""
     s = _shield()
     attempts = {"count": 0}
 
@@ -146,7 +146,7 @@ async def test_resilience_error_skips_cache_and_fallback() -> None:
 
     s = Shield.api(
         "rescue",
-        timeout_errors=(TimeoutError,),
+        when=TimeoutError,
         cache=_StubCache(),
         fallback=synth,
     )
@@ -175,9 +175,12 @@ async def test_base_exception_propagates_without_retry() -> None:
     assert attempts["count"] == 1
 
 
-async def test_timeout_errors_tuple_merged_with_timeout_error() -> None:
-    """Both user types and `TimeoutError` are retryable."""
-    s = Shield.api("merged", timeout_errors=(_SignalError,))
+async def test_shield_timeout_error_retried_even_if_when_leaves_it_out() -> (
+    None
+):
+    """`TimeoutError` is retried even when `when=` names only other errors."""
+    # Arrange
+    s = Shield.api("merged", when=_SignalError)
     attempts = {"count": 0}
 
     async def flaky() -> str:
@@ -186,7 +189,11 @@ async def test_timeout_errors_tuple_merged_with_timeout_error() -> None:
             raise TimeoutError
         return "ok"
 
-    assert await s.run(flaky) == "ok"
+    # Act
+    result = await s.run(flaky)
+
+    # Assert
+    assert result == "ok"
     assert attempts["count"] == 2  # noqa: PLR2004
 
 
@@ -232,7 +239,7 @@ async def test_state_shared_across_calls_through_one_instance() -> None:
 
 async def test_from_config_constructs_instance() -> None:
     """`Shield.from_config` accepts a pre-built profile config."""
-    config = ApiShieldConfig(timeout_errors=(_SignalError,))
+    config = ApiShieldConfig(when=_SignalError)
     s = Shield.from_config("by_config", config)
     assert s.name == "by_config"
     assert s.config is config
@@ -277,6 +284,6 @@ async def test_run_accepts_functools_partial() -> None:
 async def test_reconfigure_swaps_state() -> None:
     """`reconfigure` publishes a fresh config and rebuilds derived state."""
     s = _shield()
-    new = ApiShieldConfig(timeout_errors=(_SignalError,), max_rate=42.0)
+    new = ApiShieldConfig(when=_SignalError, max_rate=42.0)
     await s.reconfigure(new)
     assert s.config.max_rate == 42.0  # noqa: PLR2004

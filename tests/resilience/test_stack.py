@@ -163,7 +163,7 @@ def test_something_that_is_not_a_pattern_is_refused() -> None:
 @pytest.mark.parametrize(
     ("item", "match"),
     [
-        (Shield("sh"), "Shield is a stack of its own"),
+        (Shield("sh", when=TimeoutError), "Shield is a stack of its own"),
         (LeaderElection("le"), "runs as a service"),
         (Lock("lk"), "held around a block"),
         (ReadWriteLock("rw"), "held around a block"),

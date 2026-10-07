@@ -9,14 +9,14 @@ class MyRpcTimeout(Exception): ...  # noqa: N818
 class MyLLMError(Exception): ...
 
 
-@shield.internal(timeout_errors=(MyRpcTimeout,))
+@shield.internal(when=MyRpcTimeout)
 async def call_internal_rpc() -> None: ...
 
 
-@shield.api(timeout_errors=(httpx.TimeoutException, httpx.ConnectError))
+@shield.api(when=(httpx.TimeoutException, httpx.ConnectError))
 async def call_external_api() -> None: ...
 
 
-@shield.slow(timeout_errors=(MyLLMError,))
+@shield.slow(when=MyLLMError)
 async def call_llm(prompt: str) -> str:
     return prompt

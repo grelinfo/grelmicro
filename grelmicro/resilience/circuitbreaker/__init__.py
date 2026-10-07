@@ -29,9 +29,12 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._guards import is_subclass
 from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic
 from grelmicro.metrics import _emit
+from grelmicro.resilience._match import matches_raised_type
+from grelmicro.resilience._outcome import Outcome
 from grelmicro.resilience.errors import CircuitBreakerError
 
 _STATE_CODE = {
@@ -65,6 +68,29 @@ the cool-down it is waiting out.
 """
 
 
+def _counts_as_success(
+    config: CircuitBreakerConfig,
+    exc_type: type[BaseException] | None,
+    exc_value: BaseException | None,
+) -> bool:
+    """Return whether a call that ended this way counts as a success.
+
+    A call that raised nothing, or raised an `Exception` that `when` does
+    not match, is a success. An exit given a type without an instance is a
+    success when `when` names classes only and the type is none of them.
+    """
+    if exc_type is None:
+        return True
+    if exc_value is None:
+        return (
+            is_subclass(exc_type, Exception)
+            and matches_raised_type(config.when, exc_type) is False
+        )
+    return isinstance(exc_value, Exception) and not config.when(
+        Outcome.from_exception(exc_value)
+    )
+
+
 def _resolve_state_ttl(reset_timeout: timedelta) -> timedelta:
     """Return the stored-state lifetime for a circuit's `reset_timeout`."""
     return max(_STATE_TTL, _STATE_TTL_RESET_FACTOR * reset_timeout)
@@ -81,6 +107,7 @@ if TYPE_CHECKING:
         CircuitBreakerSnapshot,
         CircuitBreakerStrategy,
     )
+    from grelmicro.resilience._when import WhenInput
     from grelmicro.resilience.circuitbreaker.consecutive_count import (
         ConsecutiveCountConfig,
     )
@@ -375,9 +402,15 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             Doc("Name of the circuit breaker instance."),
         ],
         *,
-        ignore_exceptions: Annotated[
-            type[Exception] | str | tuple[type[Exception] | str, ...] | None,
-            Doc("Exceptions ignored by the breaker."),
+        when: Annotated[
+            WhenInput | None,
+            Doc(
+                "Outcome filter naming the errors that count as failures. "
+                "Pass a [`Match`][grelmicro.resilience.Match] or a "
+                "shorthand (exception class, tuple, callable). A raised "
+                "exception it does not match counts as a success. "
+                "Default: every `Exception` counts as a failure."
+            ),
         ] = None,
         error_threshold: Annotated[
             PositiveInt | None,
@@ -442,7 +475,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             _resolve_algorithm(
                 name,
                 {
-                    "ignore_exceptions": ignore_exceptions,
+                    "when": when,
                     "error_threshold": error_threshold,
                     "success_threshold": success_threshold,
                     "reset_timeout": reset_timeout,
@@ -508,8 +541,8 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         self._from_thread: _ThreadAdapter | None = None
         # Per-call config stack for in-flight reconfigure correctness.
         # Each `__aenter__` pushes the config captured at admission;
-        # `__aexit__` pops it and uses it for `ignore_exceptions`
-        # classification. ContextVar isolates concurrent `async with cb:`
+        # `__aexit__` pops it and uses its `when` filter to classify the
+        # outcome. ContextVar isolates concurrent `async with cb:`
         # calls across tasks and supports nesting in the same task.
         self._enter_stack: ContextVar[tuple[CircuitBreakerConfig, ...]] = (
             ContextVar(f"_cb_enter_stack_{id(self)}", default=())
@@ -693,7 +726,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         Strategy parameters (thresholds, capacities) reflect the
         currently published config. Calls that entered before a
         ``reconfigure`` keep their entry config in ``_enter_stack`` and
-        use it for ``ignore_exceptions`` classification on exit, so the
+        use its ``when`` filter to classify the outcome on exit, so the
         admission decision and the outcome classification stay
         consistent for an in-flight call. Threshold checks happen
         inside the strategy and use the freshly bound values.
@@ -750,7 +783,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         self._release_call()
         state = self._state
         strategy = state.strategy or self._resolve_strategy(state)
-        if not exc_type or issubclass(exc_type, config.ignore_exceptions):
+        if _counts_as_success(config, exc_type, exc_value):
             snapshot = await strategy.record_outcome(success=True)
             self._total_success_count += 1
             result = "success"
@@ -1124,7 +1157,7 @@ async def _async_handle_exit(
     cb._release_call()  # noqa: SLF001
     state = cb._state  # noqa: SLF001
     strategy = state.strategy or cb._resolve_strategy(state)  # noqa: SLF001
-    if not exc_type or issubclass(exc_type, config.ignore_exceptions):
+    if _counts_as_success(config, exc_type, exc_value):
         snapshot = await strategy.record_outcome(success=True)
         cb._total_success_count += 1  # noqa: SLF001
     elif isinstance(exc_value, Exception):

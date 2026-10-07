@@ -6,7 +6,7 @@ class APIConnectionError(Exception): ...
 
 @shield.api(
     "stripe",
-    timeout_errors=(APIConnectionError,),
+    when=APIConnectionError,
     max_rate=10.0,
 )
 async def charge_card(amount: int) -> None:

@@ -5,7 +5,7 @@ from grelmicro.resilience import Shield
 
 github = Shield.api(
     "github",
-    timeout_errors=(httpx.TimeoutException, httpx.ConnectError),
+    when=(httpx.TimeoutException, httpx.ConnectError),
 )
 
 

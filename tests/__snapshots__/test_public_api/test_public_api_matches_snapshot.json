@@ -666,7 +666,7 @@
   },
   "grelmicro.resilience": {
     "ApiShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
     },
     "Bulkhead": {
       "()": "(name, *, max_concurrent=None, max_wait=None, max_workers=None, uses=(), env_load=None) -> 'None'",
@@ -680,7 +680,7 @@
     },
     "CircuitBreaker": {
       "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> 'None'",
-      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
+      ".consecutive_count": "(name, *, when=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
       ".from_config": "(name, config, *, backend=None, maxsize=1024) -> 'Self'"
     },
     "CircuitBreakerBackend": {
@@ -708,7 +708,7 @@
       "()": "(*args, **kwargs)"
     },
     "ConsecutiveCountConfig": {
-      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
+      "()": "(*, kind='consecutive_count', when=Match.exception(Exception), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
     },
     "ConstantBackoff": {
       "()": "(*, kind='constant', delay=1.0) -> None"
@@ -736,7 +736,7 @@
       "()": "(*, kind='fibonacci', base_delay=1.0, max_delay=30.0) -> None"
     },
     "InternalShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
     },
     "LinearBackoff": {
       "()": "(*, kind='linear', base_delay=1.0, max_delay=30.0) -> None"
@@ -841,11 +841,11 @@
       "()": "(*, provider=None, env_prefix='SQLITE_', prefix='', table_name='grelmicro_rate_limiter', auto_migrate=True) -> 'None'"
     },
     "Shield": {
-      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
-      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      "()": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
+      ".api": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
       ".from_config": "(name, config) -> 'Self'",
-      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
-      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
+      ".internal": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".slow": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
     },
     "ShieldConfig": {
       "()": "(*args, **kwargs)"
@@ -854,7 +854,7 @@
       "()": "(*, fail_open=False, kind='sliding_window', limit, window) -> None"
     },
     "SlowShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
     },
     "Stack": {
       "()": "(name, *, patterns) -> 'None'"
@@ -881,9 +881,7 @@
     "retrying": {
       "()": "(*, when, attempts=3, backoff=None) -> 'AsyncIterator[RetryAttempt]'"
     },
-    "shield": {
-      "()": "(fn) -> '_AsyncFn'"
-    }
+    "shield": null
   },
   "grelmicro.resilience.backoffs": {
     "ConstantBackoff": {
@@ -908,7 +906,7 @@
   "grelmicro.resilience.circuitbreaker": {
     "CircuitBreaker": {
       "()": "(name, *, backend=None, maxsize=1024, env_load=None) -> 'None'",
-      ".consecutive_count": "(name, *, ignore_exceptions=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
+      ".consecutive_count": "(name, *, when=None, error_threshold=None, success_threshold=None, reset_timeout=None, half_open_capacity=None, log_level=None, backend=None, maxsize=1024, env_load=None) -> 'Self'",
       ".from_config": "(name, config, *, backend=None, maxsize=1024) -> 'Self'"
     },
     "CircuitBreakerConfig": {
@@ -924,7 +922,7 @@
       "()": "(*values)"
     },
     "ConsecutiveCountConfig": {
-      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
+      "()": "(*, kind='consecutive_count', when=Match.exception(Exception), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
     },
     "ErrorDetails": {
       "()": "(time, type, msg) -> None"
@@ -952,27 +950,25 @@
   },
   "grelmicro.resilience.shield": {
     "ApiShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='api') -> None"
     },
     "InternalShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='internal') -> None"
     },
     "Shield": {
-      "()": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
-      ".api": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      "()": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None, env_load=None, time_source=None, random_source=None) -> 'None'",
+      ".api": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
       ".from_config": "(name, config) -> 'Self'",
-      ".internal": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
-      ".slow": "(name, *, timeout_errors=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
+      ".internal": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'",
+      ".slow": "(name, *, when=None, max_rate=None, cache=None, cache_key=None, fallback=None) -> 'Self'"
     },
     "ShieldConfig": {
       "()": "(*args, **kwargs)"
     },
     "SlowShieldConfig": {
-      "()": "(*, timeout_errors=(<class 'TimeoutError'>,), max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
+      "()": "(*, when, max_rate=None, cache=None, cache_key=None, fallback=None, kind='slow') -> None"
     },
-    "shield": {
-      "()": "(fn) -> '_AsyncFn'"
-    }
+    "shield": null
   },
   "grelmicro.security": {
     "ABUSIVE_REASONS": null,

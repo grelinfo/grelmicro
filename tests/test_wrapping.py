@@ -157,9 +157,8 @@ def _decorators() -> list[tuple[str, Callable[[Any], Any]]]:
         ("@retry", retry(when=Exception)),
         ("Fallback", Fallback("f", when=Exception, default=None)),
         ("@fallback", fallback(when=Exception, default=None)),
-        ("Shield", Shield.api("sh")),
-        ("@shield", shield),
-        ("@shield.api", shield.api()),
+        ("Shield", Shield.api("sh", when=TimeoutError)),
+        ("@shield.api", shield.api(when=TimeoutError)),
         ("CircuitBreaker", CircuitBreaker("cb", backend=cb_backend)),
         ("Bulkhead", Bulkhead("b", max_concurrent=1)),
         ("Timeout", Timeout("t", seconds=1)),
@@ -993,11 +992,8 @@ def test_a_shield_refusal_names_the_decorator_the_user_wrote() -> None:
     async def check_db() -> None:
         """Answer a probe."""
 
-    with pytest.raises(TypeError, match=r"@shield would only"):
-        shield(check_db)
-
     with pytest.raises(TypeError, match=r"@shield\.api would only"):
-        shield.api()(check_db)
+        shield.api(when=TimeoutError)(check_db)
 
 
 def test_a_task_whose_function_attribute_raises_is_still_added() -> None:

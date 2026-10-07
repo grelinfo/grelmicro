@@ -1,10 +1,10 @@
 from datetime import timedelta
 
-from grelmicro.resilience import CircuitBreaker, ConsecutiveCountConfig
+from grelmicro.resilience import CircuitBreaker, ConsecutiveCountConfig, Match
 
 config = ConsecutiveCountConfig(
     error_threshold=10,
     reset_timeout=timedelta(seconds=60),
-    ignore_exceptions=(ValueError,),
+    when=Match.not_exception(ValueError),
 )
 cb = CircuitBreaker.from_config("payments", config)

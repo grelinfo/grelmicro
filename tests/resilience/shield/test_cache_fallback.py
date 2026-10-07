@@ -48,7 +48,7 @@ class _SpyCache:
 
 
 def _shield(**overrides: Any) -> Shield:  # noqa: ANN401
-    return Shield.api("cached", timeout_errors=(_SignalError,), **overrides)
+    return Shield.api("cached", when=_SignalError, **overrides)
 
 
 async def test_cache_set_fires_on_success() -> None:
