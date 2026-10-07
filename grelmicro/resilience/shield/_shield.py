@@ -7,10 +7,10 @@ import functools
 import inspect
 import os
 import random
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from logging import getLogger
-from typing import Annotated, Any, Self, TypeVar
+from typing import Annotated, Any, ClassVar, Literal, Self, TypeVar
 
 from pydantic import Discriminator, PositiveFloat, ValidationError
 from typing_extensions import Doc
@@ -62,32 +62,22 @@ _GIVE_UP_ATTEMPTS = "attempts exhausted"
 _GIVE_UP_NON_RETRY = "non-retryable exception"
 
 
-_PROFILE_BY_NAME: dict[str, type[_BaseShieldConfig]] = {
+_Profile = Literal["internal", "api", "slow"]
+"""The name of a Shield preset."""
+
+
+_PROFILE_FIX = (
+    "is no longer read, choose the preset in code with "
+    "Shield.api, Shield.internal or Shield.slow"
+)
+"""The reason a `PROFILE` variable or mounted key is refused."""
+
+
+_PROFILE_BY_NAME: dict[_Profile, type[_BaseShieldConfig]] = {
     "internal": InternalShieldConfig,
     "api": ApiShieldConfig,
     "slow": SlowShieldConfig,
 }
-
-
-def _load_profile_from_env(name: str) -> str:
-    """Return the profile name from env, defaulting to `api`.
-
-    Falls back from the instance address to the kind address, which is the
-    order R5 applies to every other value.
-    """
-    instance_prefix, kind_prefix = env_prefixes("SHIELD", name)
-    env_key = f"{instance_prefix}PROFILE"
-    value = os.environ.get(env_key, "").strip().lower()
-    if not value and kind_prefix:
-        env_key = f"{kind_prefix}PROFILE"
-        value = os.environ.get(env_key, "").strip().lower()
-    if value and value not in _PROFILE_BY_NAME:
-        msg = (
-            f"{env_key} is not a valid profile. "
-            f"Expected one of: internal, api, slow."
-        )
-        raise SettingsValidationError(msg)
-    return value or "api"
 
 
 def _validate(
@@ -146,25 +136,25 @@ def _fill_from_env(
 def _resolve_config_from_env(
     name: str,
     *,
-    profile: str | None,
+    profile: _Profile,
     when: Any,  # noqa: ANN401
     max_rate: float | None,
     cache: Any,  # noqa: ANN401
     cache_key: Callable[..., str] | None,
     fallback: Callable[..., Any] | None,
 ) -> _BaseShieldConfig:
-    """Build a `_BaseShieldConfig` reading defaults from environment variables.
+    """Build the `profile` preset, filling unpassed values from the environment.
 
-    `profile` is the preset the calling door pinned. Only the bare
-    constructor leaves it `None`, and only then is `GREL_SHIELD_{NAME}_PROFILE`
-    consulted. A factory names the preset in code, so the variable cannot
-    override it, which is the ordinary rule that a keyword beats the
-    environment.
+    Raises `SettingsValidationError` when `GREL_SHIELD_{NAME}_PROFILE` or
+    `GREL_SHIELD_PROFILE` is set.
     """
-    if profile is None:
-        profile = _load_profile_from_env(name)
     cls = _PROFILE_BY_NAME[profile]
     env_prefix, kind_prefix = env_prefixes("SHIELD", name)
+    for prefix in (env_prefix, kind_prefix):
+        env_key = f"{prefix}PROFILE"
+        if prefix and env_key in os.environ:
+            msg = f"- {env_key}: {_PROFILE_FIX}"
+            raise SettingsValidationError(msg)
 
     def _env(field: str) -> tuple[str, str] | None:
         """Read the instance variable, falling back to the kind-wide one.
@@ -196,8 +186,7 @@ def _resolve_config_from_env(
 def _build_config(
     name: str,
     *,
-    profile: str,
-    pinned_profile: str | None = None,
+    profile: _Profile,
     when: Any,  # noqa: ANN401
     max_rate: float | None,
     cache: Any,  # noqa: ANN401
@@ -212,7 +201,7 @@ def _build_config(
     if env_load:
         return _resolve_config_from_env(
             name,
-            profile=pinned_profile,
+            profile=profile,
             when=when,
             max_rate=max_rate,
             cache=cache,
@@ -330,6 +319,10 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
 
     Read more in the [Shield](../resilience/shield.md) docs.
     """
+
+    _RETIRED_RECONFIGURE_FIELDS: ClassVar[Mapping[str, str]] = {
+        "profile": _PROFILE_FIX
+    }
 
     def __init__(
         self,
@@ -556,7 +549,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         cls,
         *,
         name: str,
-        profile: str,
+        profile: _Profile,
         when: WhenInput | None,
         max_rate: PositiveFloat | None,
         cache: Any,  # noqa: ANN401
@@ -564,16 +557,14 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         fallback: Callable[..., Any] | None,
         env_load: bool | None = None,
     ) -> Self:
-        """Build a Shield with the preset pinned by the calling factory.
+        """Build a Shield with the preset named by the calling factory.
 
         Values still resolve from the environment when the gate is on, the
-        same way every other pattern's factory behaves. The preset is code's
-        to choose, so `GREL_SHIELD_{NAME}_PROFILE` cannot override it here.
+        same way every other pattern's factory behaves.
         """
         config = _build_config(
             name,
             profile=profile,
-            pinned_profile=profile,
             when=when,
             max_rate=max_rate,
             cache=cache,

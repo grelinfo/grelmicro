@@ -63,6 +63,7 @@ that a client library used to accept.
 | `TypeError: key must be a function, use key_template= for a template` from `@cached` or `@limiter` | 0.42 | [Pass `key_template=`](#0-42-key-function) |
 | `TypeError: ... got an unexpected keyword argument 'key_maker'` | 0.42 | [Pass `key=`](#0-42-key-function) |
 | `ImportError: cannot import name 'IdempotencyKeyMakerError'` | 0.42 | [Catch `IdempotencyKeyFunctionError`](#0-42-key-function) |
+| `SettingsValidationError` naming `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE`: `is no longer read` | 0.42 | [Choose the preset in code](#0-42-shield-profile-env) |
 
 ## 0.42
 
@@ -206,6 +207,28 @@ configs and the environment: `GREL_CIRCUITBREAKER_{NAME}_IGNORE_EXCEPTIONS`
 and `GREL_SHIELD_{NAME}_TIMEOUT_ERRORS` become `GREL_CIRCUITBREAKER_{NAME}_WHEN`
 and `GREL_SHIELD_{NAME}_WHEN`. An ignore list in the environment cannot be
 written as an exclusion, so list the errors that count as failures instead.
+
+### The environment no longer picks a Shield preset {#0-42-shield-profile-env}
+
+`GREL_SHIELD_{NAME}_PROFILE` and `GREL_SHIELD_PROFILE` are no longer read. With
+environment reads on, a Shield refuses to build while either is set, so a preset
+never changes in silence. The environment tunes a Shield's values, and code
+chooses its preset. A bare `Shield(...)` builds `api`. Remove the variable and
+name the preset it used to pick:
+
+```python
+# Before: GREL_SHIELD_DB_PROFILE=internal
+db = Shield("db", when=TimeoutError)
+
+# After
+db = Shield.internal("db", when=TimeoutError)
+```
+
+The decorators follow the same rule: write `@shield.internal(...)` or
+`@shield.slow(...)`. `GREL_SHIELD_{NAME}_WHEN` and
+`GREL_SHIELD_{NAME}_MAX_RATE` still tune the preset code chose. A `PROFILE` key
+in a mounted ConfigMap or Secret is refused the same way: the Shield keeps its
+running config and a warning names the key.
 
 ### `metrics_router` moved to `grelmicro.integrations.fastapi` {#0-42-metrics-router-moved}
 

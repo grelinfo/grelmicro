@@ -182,11 +182,10 @@ Prefix: `GREL_SHIELD_{NAME_UPPER}_`. The default instance drops the name segment
 
 | Env var | Field | Type | Default |
 |---|---|---|---|
-| `GREL_SHIELD_{NAME_UPPER}_PROFILE` | profile | `internal` / `api` / `slow` | `api` |
 | `GREL_SHIELD_{NAME_UPPER}_WHEN` | `when` | CSV or JSON list of FQN strings (e.g. `httpx.TimeoutException,httpx.ConnectError`). Coerced to `Match.exception(...)`. Predicate forms cannot come from env. | required |
 | `GREL_SHIELD_{NAME_UPPER}_MAX_RATE` | `max_rate` | `float` or empty | unset |
 
-The `cache`, `cache_key`, and `fallback` arguments cannot come from env. Pass them as keyword arguments.
+The profile, `cache`, `cache_key`, and `fallback` cannot come from env. Pick the profile with `Shield.internal`, `Shield.api` or `Shield.slow`, and pass the rest as keyword arguments.
 
 ```python
 --8<-- "resilience/shield_environmental.py"

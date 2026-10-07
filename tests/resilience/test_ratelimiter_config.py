@@ -212,3 +212,15 @@ def test_sliding_window_refuses_decimal_seconds_from_text() -> None:
     """Text with a decimal number of seconds is refused, as a float is."""
     with pytest.raises(ValueError, match="window"):
         SlidingWindowConfig.model_validate({"limit": LIMIT, "window": "1.5"})
+
+
+def test_rate_limiter_algorithms_declare_different_fields() -> None:
+    """`TokenBucketConfig` and `SlidingWindowConfig` declare different fields."""
+    # Arrange
+    bucket = set(TokenBucketConfig.model_fields)
+
+    # Act
+    window = set(SlidingWindowConfig.model_fields)
+
+    # Assert
+    assert bucket != window
