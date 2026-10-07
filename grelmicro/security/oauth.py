@@ -25,12 +25,13 @@ import secrets
 import string
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from datetime import timedelta
 from email.utils import parsedate_to_datetime
 from functools import cache
 from http import HTTPStatus
 from importlib import import_module
 from pathlib import Path
-from time import monotonic, time
+from time import monotonic, monotonic_ns, time, time_ns
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -49,6 +50,7 @@ from pydantic import (
     BeforeValidator,
     Field,
     SecretStr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -60,6 +62,13 @@ from grelmicro._config import (
     env_prefixes,
     parse_csv_or_json,
     resolve_config,
+)
+from grelmicro._duration import (
+    NANOSECONDS_PER_SECOND,
+    Duration,
+    check_finite,
+    nanoseconds,
+    nanoseconds_from_seconds,
 )
 from grelmicro.errors import (
     DependencyNotFoundError,
@@ -520,16 +529,20 @@ class OAuthClientConfig(
         Doc("The assertion file, for `ClientAuth.assertion_file`."),
     ] = None
     refresh_before: Annotated[
-        float,
+        Duration,
         Doc(
-            "Seconds before expiry a token is refreshed, capped at half its"
-            " lifetime."
+            "A token is refreshed at least this long before it expires,"
+            " capped at half its lifetime, in whole seconds or as a"
+            " `timedelta`. A float is refused."
         ),
-    ] = 60.0
+    ] = timedelta(minutes=1)
     default_lifetime: Annotated[
-        float,
-        Doc("Seconds a token lives when its response omits `expires_in`."),
-    ] = 300.0
+        Duration,
+        Doc(
+            "How long a token lives when its response omits `expires_in`,"
+            " in whole seconds or as a `timedelta`. A float is refused."
+        ),
+    ] = timedelta(minutes=5)
     timeout: Annotated[
         float, Doc("Seconds to wait for the authorization server.")
     ] = 5.0
@@ -558,9 +571,13 @@ class OAuthClientConfig(
             raise ValueError(msg)
         return value
 
-    @field_validator(
-        "refresh_before", "default_lifetime", "timeout", "max_bytes"
-    )
+    @field_validator("timeout", "retry_interval")
+    @classmethod
+    def _check_finite(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
+        """Refuse a wait that is not a finite number."""
+        return check_finite(value, info.field_name or "value")
+
+    @field_validator("timeout", "max_bytes")
     @classmethod
     def _check_positive(cls, value: Any) -> Any:  # noqa: ANN401
         """Refuse a value that is not above zero."""
@@ -653,11 +670,11 @@ class _Request(NamedTuple):
 
 
 class _Entry(NamedTuple):
-    """A cached token and the monotonic times that bound it."""
+    """A cached token and the monotonic times that bound it, in nanoseconds."""
 
     token: AccessToken
-    refresh_at: float
-    expires: float
+    refresh_at: int
+    expires: int
 
 
 class _Failure(Exception):  # noqa: N818
@@ -699,17 +716,17 @@ class _TokenCache:
         """Start empty, holding at most `size` tokens."""
         self._size = size
         self._entries: dict[Hashable, _Entry] = {}
-        self._refused: dict[Hashable, tuple[float, TokenUnavailableError]] = {}
-        self._dropped: dict[Hashable, float] = {}
+        self._refused: dict[Hashable, tuple[int, TokenUnavailableError]] = {}
+        self._dropped: dict[Hashable, int] = {}
 
-    def get(self, key: Hashable, now: float) -> _Entry | None:
+    def get(self, key: Hashable, now: int) -> _Entry | None:
         """Return the token for `key` while it has not expired."""
         entry = self._entries.get(key)
         if entry is None or now >= entry.expires:
             return None
         return entry
 
-    def put(self, key: Hashable, entry: _Entry, now: float) -> None:
+    def put(self, key: Hashable, entry: _Entry, now: int) -> None:
         """Hold `entry` for `key`, evicting what the size requires."""
         if self._size <= 0:
             return
@@ -724,9 +741,7 @@ class _TokenCache:
         entries[key] = entry
         self._refused.pop(key, None)
 
-    def drop(
-        self, key: Hashable, value: str, now: float, interval: float
-    ) -> bool:
+    def drop(self, key: Hashable, value: str, now: int, interval: int) -> bool:
         """Drop the token for `key` while it is still `value`, and say whether to fetch.
 
         A token is dropped at most once per `interval` for a key. One refused
@@ -747,9 +762,7 @@ class _TokenCache:
         self._dropped[key] = now
         return True
 
-    def refused(
-        self, key: Hashable, now: float
-    ) -> TokenUnavailableError | None:
+    def refused(self, key: Hashable, now: int) -> TokenUnavailableError | None:
         """Return the refusal remembered for `key`, while it lasts."""
         remembered = self._refused.get(key)
         if remembered is None:
@@ -760,7 +773,7 @@ class _TokenCache:
         return remembered[1]
 
     def refuse(
-        self, key: Hashable, until: float, error: TokenUnavailableError
+        self, key: Hashable, until: int, error: TokenUnavailableError
     ) -> None:
         """Remember that `key` was refused, until `until`."""
         refused = self._refused
@@ -839,12 +852,19 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             ),
         ] = None,
         refresh_before: Annotated[
-            float | None,
-            Doc("Seconds before expiry a token is refreshed."),
+            int | timedelta | None,
+            Doc(
+                "A token is refreshed at least this long before it expires,"
+                " in whole seconds or as a `timedelta`. A float is refused."
+            ),
         ] = None,
         default_lifetime: Annotated[
-            float | None,
-            Doc("Seconds a token lives when its response omits `expires_in`."),
+            int | timedelta | None,
+            Doc(
+                "How long a token lives when its response omits"
+                " `expires_in`, in whole seconds or as a `timedelta`. A"
+                " float is refused."
+            ),
         ] = None,
         timeout: Annotated[
             float | None, Doc("Seconds to wait for the authorization server.")
@@ -937,12 +957,19 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             ),
         ] = None,
         refresh_before: Annotated[
-            float | None,
-            Doc("Seconds before expiry a token is refreshed."),
+            int | timedelta | None,
+            Doc(
+                "A token is refreshed at least this long before it expires,"
+                " in whole seconds or as a `timedelta`. A float is refused."
+            ),
         ] = None,
         default_lifetime: Annotated[
-            float | None,
-            Doc("Seconds a token lives when its response omits `expires_in`."),
+            int | timedelta | None,
+            Doc(
+                "How long a token lives when its response omits"
+                " `expires_in`, in whole seconds or as a `timedelta`. A"
+                " float is refused."
+            ),
         ] = None,
         timeout: Annotated[
             float | None, Doc("Seconds to wait for the authorization server.")
@@ -1104,11 +1131,9 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         self._auth_methods = None
         self._discovery = None
         self._inflight = {}
-        self._down_until = 0.0
+        self._down_until = 0
         self._down = None
-        self._refused_grants: dict[
-            str, tuple[float, TokenUnavailableError]
-        ] = {}
+        self._refused_grants: dict[str, tuple[int, TokenUnavailableError]] = {}
 
     _auth: ClientAuth
     _name: str
@@ -1120,7 +1145,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
     _auth_methods: frozenset[str] | None
     _discovery: asyncio.Task[str] | None
     _inflight: dict[Hashable, asyncio.Task[AccessToken]]
-    _down_until: float
+    _down_until: int
     _down: TokenUnavailableError | None
 
     @property
@@ -1244,7 +1269,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                 self._token(cache, key, request, not_after=not_after), loop
             )
             return await asyncio.wrap_future(future)
-        now = monotonic()
+        now = monotonic_ns()
         flight = (id(cache), key)
         entry = cache.get(key, now)
         if entry is not None:
@@ -1264,7 +1289,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         return await asyncio.shield(task)
 
     def _failure(
-        self, cache: _TokenCache, key: Hashable, grant: str, now: float
+        self, cache: _TokenCache, key: Hashable, grant: str, now: int
     ) -> TokenUnavailableError | None:
         """Return the failure remembered for the client, the grant or `key`."""
         if self._down is not None and now < self._down_until:
@@ -1292,7 +1317,12 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                 self._drop(cache, key, value), loop
             )
             return await asyncio.wrap_future(future)
-        return cache.drop(key, value, monotonic(), self._config.retry_interval)
+        return cache.drop(
+            key,
+            value,
+            monotonic_ns(),
+            nanoseconds_from_seconds(self._config.retry_interval),
+        )
 
     def _start(
         self,
@@ -1348,7 +1378,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                 token, lifetime, refresh_in = await self._issue(request)
         except _Failure as failure:
             error = failure.error
-            until = monotonic() + failure.seconds
+            until = monotonic_ns() + nanoseconds_from_seconds(failure.seconds)
             if failure.scope == "client":
                 self._remember_down(failure)
             elif failure.scope == "grant":
@@ -1365,17 +1395,17 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
                     error,
                 )
             raise _again(error) from None
-        now = monotonic()
-        wall = time()
+        now = monotonic_ns()
+        wall = time_ns()
         expires = now + lifetime
         expires_at = wall + lifetime
         capped = False
         if not_after is not None:
-            until_caller = not_after - wall
+            until_caller = not_after * NANOSECONDS_PER_SECOND - wall
             capped = until_caller < lifetime
             expires = min(expires, now + until_caller)
-            expires_at = min(expires_at, float(not_after))
-        token = replace(token, expires_at=math.floor(expires_at))
+            expires_at = min(expires_at, not_after * NANOSECONDS_PER_SECOND)
+        token = replace(token, expires_at=expires_at // NANOSECONDS_PER_SECOND)
         remaining = expires - now
         if request.cacheable and remaining > 0:
             # A token cut short by the caller's own expiry cannot be renewed
@@ -1383,34 +1413,42 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             refresh_at = (
                 expires
                 if capped
-                else self._refresh_at(now, remaining, refresh_in)
+                else self._refresh_at(
+                    now,
+                    remaining,
+                    refresh_in,
+                )
             )
             cache.put(key, _Entry(token, refresh_at, expires), now)
         _record(attributes, "success", None, started)
         return token
 
     def _refresh_at(
-        self, now: float, lifetime: float, refresh_in: float | None
-    ) -> float:
-        """Return when a token living `lifetime` seconds from `now` refreshes.
+        self, now: int, lifetime: int, refresh_in: int | None
+    ) -> int:
+        """Return when a token living `lifetime` from `now` refreshes.
 
-        A server's `refresh_in` decides. Otherwise the token refreshes
-        `refresh_before` ahead, at most half its lifetime, at a random point
-        in the first half of that window.
+        Every time is in monotonic nanoseconds. A server's `refresh_in`
+        decides. Otherwise the token refreshes at least `refresh_before`
+        before it expires, capped at half its lifetime, and at random up to
+        half of that earlier than that, never before `now`.
         """
         if refresh_in is not None and refresh_in < lifetime:
             return now + refresh_in
-        before = min(self._config.refresh_before, lifetime / 2)
-        return now + lifetime - before + random.uniform(0, before / 2)  # noqa: S311
+        before = min(nanoseconds(self._config.refresh_before), lifetime // 2)
+        jitter = random.randint(0, before // 2)  # noqa: S311
+        return max(now, now + lifetime - before - jitter)
 
     def _remember_down(self, failure: _Failure) -> None:
         """Remember a failure that applies to every token of the client."""
-        self._down_until = monotonic() + failure.seconds
+        self._down_until = monotonic_ns() + nanoseconds_from_seconds(
+            failure.seconds
+        )
         self._down = failure.error
 
     async def _issue(
         self, request: _Request
-    ) -> tuple[AccessToken, float, float | None]:
+    ) -> tuple[AccessToken, int, int | None]:
         """Send `request` to the token endpoint and read the token it returns.
 
         A connection lost before any answer is sent again once, with its
@@ -1512,7 +1550,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
 
     def _read(
         self, status: int, body: bytes, retry_after: str | None
-    ) -> tuple[AccessToken, float, float | None]:
+    ) -> tuple[AccessToken, int, int | None]:
         """Read a token response, or raise how it failed.
 
         Raises:
@@ -1592,8 +1630,11 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             outcome="refused",
         )
 
-    def _issued(self, body: bytes) -> tuple[AccessToken, float, float | None]:
+    def _issued(self, body: bytes) -> tuple[AccessToken, int, int | None]:
         """Read the token a successful response carries.
+
+        Returns the token, its lifetime, and when the server asks it be
+        refreshed, if it says, both in nanoseconds.
 
         Raises:
             _Failure: If the response carries no usable bearer token.
@@ -1611,6 +1652,7 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
             msg = "the token response carries a token type other than Bearer"
             raise self._down_failure(msg)
         lifetime = _lifetime(parsed.get("expires_in"))
+        refresh_in = _seconds(parsed.get("refresh_in"))
         scope = parsed.get("scope")
         token = AccessToken(
             value=value,
@@ -1622,8 +1664,12 @@ class OAuthClient(Reconfigurable[OAuthClientConfig]):
         )
         return (
             token,
-            self._config.default_lifetime if lifetime is None else lifetime,
-            _seconds(parsed.get("refresh_in")),
+            nanoseconds(self._config.default_lifetime)
+            if lifetime is None
+            else nanoseconds_from_seconds(lifetime),
+            None
+            if refresh_in is None
+            else nanoseconds_from_seconds(refresh_in),
         )
 
     def _down_failure(self, message: str) -> _Failure:

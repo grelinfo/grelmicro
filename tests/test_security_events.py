@@ -906,7 +906,7 @@ class TestBans:
         self, events: list[logging.LogRecord]
     ) -> None:
         """The ban is the event, and each refusal it answers is only counted."""
-        bans = ClientBans(failures=1, duration=60.0, name="edge")
+        bans = ClientBans(failures=1, duration=60, name="edge")
         client = TestClient(
             app_with(
                 AuthenticatedRequests(
@@ -945,7 +945,7 @@ class TestBans:
         self, events: list[logging.LogRecord]
     ) -> None:
         """Only a ban that starts is an event."""
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
 
         for _ in range(3):
             bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
@@ -960,12 +960,12 @@ class TestBans:
         """A new ban is a new event."""
         from grelmicro.security import bans as module  # noqa: PLC0415
 
-        clock = [1000.0]
-        monkeypatch.setattr(module, "monotonic", lambda: clock[0])
-        bans = ClientBans(failures=1, window=1.0, duration=5.0)
+        clock = [1_000_000_000_000]
+        monkeypatch.setattr(module, "monotonic_ns", lambda: clock[0])
+        bans = ClientBans(failures=1, window=1, duration=5)
 
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
-        clock[0] += 10.0
+        clock[0] += 10_000_000_000
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
 
         assert len(events) == 2  # noqa: PLR2004
@@ -976,17 +976,17 @@ class TestBans:
         """A ban that ran out is not counted."""
         from grelmicro.security import bans as module  # noqa: PLC0415
 
-        clock = [1000.0]
-        monkeypatch.setattr(module, "monotonic", lambda: clock[0])
+        clock = [1_000_000_000_000]
+        monkeypatch.setattr(module, "monotonic_ns", lambda: clock[0])
         bans = ClientBans.from_config(
-            ClientBansConfig(failures=1, duration=5.0), name="edge"
+            ClientBansConfig(failures=1, duration=5), name="edge"
         )
 
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
         bans.record("203.0.113.8", TokenRejectedReason.SIGNATURE)
         assert bans.active() == 2  # noqa: PLR2004
         assert bans.name == "edge"
-        clock[0] += 10.0
+        clock[0] += 10_000_000_000
         assert bans.active() == 0
 
     def test_a_silenced_logger_still_counts_the_ban(
@@ -1457,12 +1457,12 @@ class TestMutationGaps:
         """A ban is over at its end, so a failure then starts a new one."""
         from grelmicro.security import bans as module  # noqa: PLC0415
 
-        clock = [1000.0]
-        monkeypatch.setattr(module, "monotonic", lambda: clock[0])
-        bans = ClientBans(failures=1, window=1.0, duration=5.0)
+        clock = [1_000_000_000_000]
+        monkeypatch.setattr(module, "monotonic_ns", lambda: clock[0])
+        bans = ClientBans(failures=1, window=1, duration=5)
 
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
-        clock[0] = 1005.0
+        clock[0] = 1_005_000_000_000
         assert bans.active() == 0
         bans.record(ADDRESS, TokenRejectedReason.SIGNATURE)
 
@@ -1472,7 +1472,7 @@ class TestMutationGaps:
         self, events: list[logging.LogRecord]
     ) -> None:
         """`until` is a UTC instant after the ban started."""
-        ClientBans(failures=1, duration=60.0).record(
+        ClientBans(failures=1, duration=60).record(
             ADDRESS, TokenRejectedReason.SIGNATURE
         )
 

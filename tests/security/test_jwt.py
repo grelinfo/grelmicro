@@ -13,12 +13,14 @@ import threading
 import time
 from collections import deque
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any, Literal
 
 import pytest
 from pydantic import ValidationError
 
 from grelmicro._config import reconfigure_all
+from grelmicro._duration import NANOSECONDS_PER_SECOND
 from grelmicro.errors import DependencyNotFoundError, SettingsValidationError
 from grelmicro.security import (
     JWTClaims,
@@ -41,7 +43,7 @@ CACHE_SIZE = 4
 RACE_CACHE_SIZE = 8
 RACE_THREADS = 12
 RACE_TOKENS = 64
-TTL = 300.0
+TTL = 300
 SKEW = 60
 
 SIGNER = Signer()
@@ -104,6 +106,10 @@ def frozen(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """
     clock = [time.time()]
     monkeypatch.setattr("grelmicro.security.jwt.time", lambda: clock[0])
+    monkeypatch.setattr(
+        "grelmicro.security.jwt.time_ns",
+        lambda: round(clock[0] * NANOSECONDS_PER_SECOND),
+    )
     return clock
 
 
@@ -680,7 +686,7 @@ class TestCache:
 
         assert result.expires_at is not None
         deadline = loaded(verifier).cache[verifier._key(token)][0]
-        assert deadline <= result.expires_at + SKEW
+        assert deadline <= (result.expires_at + SKEW) * NANOSECONDS_PER_SECOND
 
     def test_the_ttl_bounds_a_long_lived_token(self) -> None:
         """A day-long token is held for the TTL, not for the day."""
@@ -690,8 +696,8 @@ class TestCache:
         verifier.verify(token)
 
         deadline = loaded(verifier).cache[verifier._key(token)][0]
-        assert deadline <= time.time() + TTL
-        assert deadline < int(time.time()) + DAY
+        assert deadline <= time.time_ns() + TTL * NANOSECONDS_PER_SECOND
+        assert deadline < (int(time.time()) + DAY) * NANOSECONDS_PER_SECOND
 
     def test_an_expired_entry_is_dropped_and_verified_again(
         self, frozen: list[float]
@@ -773,11 +779,35 @@ class TestCache:
 
         assert loaded(verifier).cache == {}
 
-    def test_a_zero_ttl_holds_nothing(self) -> None:
+    def test_jwt_verifier_cache_expired_claim_set_not_stored(self) -> None:
         """A deadline that has already passed is not worth storing."""
+        # Arrange
+        verifier = build()
+        expired = JWTClaims(
+            claims={},
+            subject="nobody",
+            issuer=None,
+            audience=None,
+            expires_at=int(time.time()) - HOUR,
+            issued_at=None,
+            token_id=None,
+        )
+
+        # Act
+        verifier._store(loaded(verifier), "any-key", expired)
+
+        # Assert
+        assert loaded(verifier).cache == {}
+
+    def test_jwt_verifier_zero_cache_ttl_holds_nothing(self) -> None:
+        """`cache_ttl=0` turns the cache off."""
+        # Arrange
         verifier = build(cache_ttl=0)
+
+        # Act
         verifier.verify(issue())
 
+        # Assert
         assert loaded(verifier).cache == {}
 
     def test_making_room_drains_expired_entries_first(
@@ -826,7 +856,9 @@ class TestCacheUnderThreads:
 
     def test_concurrent_verification_never_raises(self) -> None:
         """Twelve threads, a cache too small to hold them, nothing escapes."""
-        verifier = build(cache_size=RACE_CACHE_SIZE, cache_ttl=0.002)
+        verifier = build(
+            cache_size=RACE_CACHE_SIZE, cache_ttl=timedelta(milliseconds=2)
+        )
         tokens = [
             issue(sub=f"user-{index}").encode() for index in range(RACE_TOKENS)
         ]

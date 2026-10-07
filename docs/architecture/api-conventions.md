@@ -138,6 +138,9 @@ Once validated, the config holds a `timedelta`, and its field is typed
 `*Config` built directly takes a `timedelta` in typed code, since a type
 checker reads its parameters from the field types.
 
+`cache_ttl=0` turns that cache off. No other duration accepts zero, and `None`
+never means off.
+
 A wait, a timeout passed to I/O and the sleep between two runs of a
 background loop stay a float of seconds, the type `asyncio` and HTTP clients
 take.
@@ -145,7 +148,7 @@ take.
 | Parameter | Type | Moved |
 | --- | --- | --- |
 | `SlidingWindowConfig.window` | `int \| timedelta` | yes |
-| `ClientBansConfig.window`, `.duration` | `int \| timedelta` | not yet |
+| `ClientBansConfig.window`, `.duration` | `int \| timedelta` | yes |
 | `ConsecutiveCountConfig.reset_timeout` | `int \| timedelta` | yes |
 | `LockConfig.lease_duration`, `ReadWriteLockConfig.lease_duration` | `int \| timedelta` | yes |
 | `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | yes |
@@ -155,8 +158,8 @@ take.
 | `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs, `CachedResponse(ttl)` | `int \| timedelta` | yes |
 | `DuplicateFilterConfig.ttl` | `int \| timedelta` | not yet |
 | `HealthChecksConfig.cache_ttl` | `int \| timedelta` | not yet |
-| `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | not yet |
-| `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | not yet |
+| `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | yes |
+| `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | yes |
 | `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | yes |
 | cron `misfire_grace_seconds`, renamed `misfire_grace` | `int \| timedelta` | yes |
 | `max_wait` on the rate limiter and the bulkhead | `float` | stays |

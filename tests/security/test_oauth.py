@@ -16,7 +16,6 @@ import hashlib
 import importlib
 import json
 import logging
-import math
 import sys
 import threading
 from typing import TYPE_CHECKING, Any
@@ -34,6 +33,7 @@ from hypothesis import strategies as st
 from pydantic import SecretStr
 
 from grelmicro import Grelmicro
+from grelmicro._duration import NANOSECONDS_PER_SECOND
 from grelmicro.errors import (
     DependencyNotFoundError,
     OutOfContextError,
@@ -193,25 +193,42 @@ def assert_fetches(server: AuthServer, count: int) -> None:
 
 
 class Clock:
-    """A clock the test moves, standing in for `monotonic` and `time`."""
+    """A clock the test moves, standing in for `monotonic` and `time`.
+
+    Both clocks count whole nanoseconds, so a boundary is exact.
+    """
 
     def __init__(self) -> None:
         """Start at a fixed monotonic and wall time."""
-        self.now = 1_000.0
-        self.wall = 1_800_000_000.0
+        self.now_ns = 1_000 * NANOSECONDS_PER_SECOND
+        self.wall_ns = 1_800_000_000 * NANOSECONDS_PER_SECOND
+
+    @property
+    def wall(self) -> float:
+        """Return the wall time in seconds."""
+        return self.wall_ns / NANOSECONDS_PER_SECOND
 
     def monotonic(self) -> float:
-        """Return the monotonic time."""
-        return self.now
+        """Return the monotonic time in seconds."""
+        return self.now_ns / NANOSECONDS_PER_SECOND
+
+    def monotonic_ns(self) -> int:
+        """Return the monotonic time in nanoseconds."""
+        return self.now_ns
 
     def time(self) -> float:
-        """Return the wall time."""
+        """Return the wall time in seconds."""
         return self.wall
 
-    def advance(self, seconds: float) -> None:
+    def time_ns(self) -> int:
+        """Return the wall time in nanoseconds."""
+        return self.wall_ns
+
+    def advance(self, seconds: float, nanoseconds: int = 0) -> None:
         """Move both clocks forward."""
-        self.now += seconds
-        self.wall += seconds
+        step = round(seconds * NANOSECONDS_PER_SECOND) + nanoseconds
+        self.now_ns += step
+        self.wall_ns += step
 
 
 @pytest.fixture
@@ -233,8 +250,10 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
     """Freeze time, and put the refresh jitter at the start of its window."""
     frozen = Clock()
     monkeypatch.setattr(oauth, "monotonic", frozen.monotonic)
+    monkeypatch.setattr(oauth, "monotonic_ns", frozen.monotonic_ns)
     monkeypatch.setattr(oauth, "time", frozen.time)
-    monkeypatch.setattr(oauth.random, "uniform", lambda low, _high: low)
+    monkeypatch.setattr(oauth, "time_ns", frozen.time_ns)
+    monkeypatch.setattr(oauth.random, "randint", lambda low, _high: low)
     return frozen
 
 
@@ -849,6 +868,109 @@ class TestClientCredentials:
             await settle()
 
         assert_fetches(server, 2)
+
+    async def test_oauth_client_refresh_starts_exactly_refresh_before_ahead(
+        self, server: AuthServer, clock: Clock
+    ) -> None:
+        """A token refreshes `refresh_before` ahead of expiry, to the nanosecond."""
+        # Arrange
+        refresh_before = datetime.timedelta(milliseconds=1500)
+        async with secret_client(refresh_before=refresh_before) as client:
+            pattern = payments(client)
+            await pattern.token()
+
+            # Act
+            clock.advance(HOUR - 1.5, -1)
+            await pattern.token()
+            await settle()
+            before_window = len(server.token_requests)
+            clock.advance(0, 1)
+            await pattern.token()
+            await settle()
+
+        # Assert
+        assert before_window == 1
+        assert_fetches(server, 2)
+
+    async def test_oauth_client_default_lifetime_under_a_second_kept_exactly(
+        self, server: AuthServer, clock: Clock
+    ) -> None:
+        """A token sent without `expires_in` is served until its default lifetime ends."""
+        # Arrange
+        lifetime = datetime.timedelta(milliseconds=500)
+        server.answers.append(token_response("short", expires_in=None))
+        async with secret_client(default_lifetime=lifetime) as client:
+            pattern = payments(client)
+            await pattern.token()
+            server.gate = asyncio.Event()
+
+            # Act
+            clock.advance(0.5, -1)
+            held = await pattern.token()
+            clock.advance(0, 1)
+            waiting = asyncio.create_task(pattern.token())
+            await settle()
+            served_from_cache = waiting.done()
+            server.gate.set()
+            fresh = await waiting
+
+        # Assert
+        assert held.value == "short"
+        assert not served_from_cache
+        assert fresh.value == "token-1"
+
+    @settings(max_examples=50, deadline=None)
+    @given(
+        now=st.integers(min_value=0, max_value=10**15),
+        lifetime=st.integers(min_value=1, max_value=10**15),
+        before=st.timedeltas(
+            min_value=datetime.timedelta(microseconds=1),
+            max_value=datetime.timedelta(days=2),
+        ),
+    )
+    def test_oauth_client_refresh_never_later_than_refresh_before(
+        self, now: int, lifetime: int, before: datetime.timedelta
+    ) -> None:
+        """A token refreshes at least `refresh_before` ahead, at most half again earlier."""
+        # Arrange
+        client = OAuthClient.endpoint(
+            TOKEN_ENDPOINT,
+            client_id="orders-api",
+            client_auth=ClientAuth.secret(SECRET),
+            refresh_before=before,
+            env_load=False,
+        )
+        ahead = min(
+            before // datetime.timedelta(microseconds=1) * 1_000, lifetime // 2
+        )
+        expires = now + lifetime
+
+        # Act
+        refresh_at = client._refresh_at(now, lifetime, None)
+
+        # Assert
+        assert now <= expires - ahead - ahead // 2 <= refresh_at
+        assert refresh_at <= expires - ahead
+
+    def test_oauth_client_refresh_jitter_moves_the_refresh_earlier(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The largest jitter refreshes half of `refresh_before` earlier, never later."""
+        # Arrange
+        monkeypatch.setattr(oauth.random, "randint", lambda _low, high: high)
+        client = OAuthClient.endpoint(
+            TOKEN_ENDPOINT,
+            client_id="orders-api",
+            client_auth=ClientAuth.secret(SECRET),
+            refresh_before=60,
+            env_load=False,
+        )
+
+        # Act
+        refresh_at = client._refresh_at(0, HOUR * NANOSECONDS_PER_SECOND, None)
+
+        # Assert
+        assert refresh_at == (HOUR - 90) * NANOSECONDS_PER_SECOND
 
     async def test_concurrent_callers_share_one_fetch(
         self, server: AuthServer
@@ -2388,7 +2510,7 @@ class TestUnreadableNumbers:
     def test_any_lifetime_a_server_sends_is_read_or_ignored(
         self, expires_in: object, refresh_in: object
     ) -> None:
-        """A lifetime is always finite and never negative, and a hint is positive or absent."""
+        """A lifetime is whole nanoseconds, never negative, and a hint is too or absent."""
         client = OAuthClient.endpoint(
             TOKEN_ENDPOINT,
             client_id="orders-api",
@@ -2406,9 +2528,9 @@ class TestUnreadableNumbers:
 
         _, lifetime, hint = client._issued(body)
 
-        assert math.isfinite(lifetime)
+        assert isinstance(lifetime, int)
         assert lifetime >= 0
-        assert hint is None or (math.isfinite(hint) and hint > 0)
+        assert hint is None or (isinstance(hint, int) and hint >= 0)
 
     async def test_a_token_expired_on_arrival_is_used_once_and_not_cached(
         self, server: AuthServer, clock: Clock

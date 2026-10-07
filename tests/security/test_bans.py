@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -35,15 +36,17 @@ RACE_THREADS = 8
 RACE_CLIENTS = 256
 RACE_TRACKED = 32
 MIN_FAILURES = 5
-MAX_BAN_SECONDS = 900
+MAX_BAN = timedelta(minutes=15)
 MIN_TRACKED = 1000
-BAN = 60.0
+BAN = 60
+SHORT = timedelta(milliseconds=50)
+TINY = timedelta(milliseconds=10)
 
 
 def bans(**overrides: Any) -> ClientBans:  # noqa: ANN401
     """Return a ban table that trips quickly."""
     overrides.setdefault("failures", FAILURES)
-    overrides.setdefault("window", 60.0)
+    overrides.setdefault("window", 60)
     overrides.setdefault("duration", BAN)
     return ClientBans(**overrides)
 
@@ -84,7 +87,7 @@ class TestBanning:
 
     def test_a_ban_expires(self) -> None:
         """Addresses are shared, so a ban is a pause and not a verdict."""
-        table = bans(duration=0.05)
+        table = bans(duration=SHORT)
         for _ in range(FAILURES):
             table.record(CLIENT, "signature")
         assert table.banned(CLIENT) is True
@@ -104,7 +107,7 @@ class TestBanning:
 
     def test_failures_outside_the_window_start_over(self) -> None:
         """Occasional failures spread out are not a pattern."""
-        table = bans(window=0.05)
+        table = bans(window=SHORT)
         for _ in range(FAILURES - 1):
             table.record(CLIENT, "signature")
 
@@ -120,7 +123,7 @@ class TestBanning:
         keeps sending forged tokens rolls its window over while still banned.
         Starting the count again must not take the ban with it.
         """
-        table = bans(window=0.05, duration=30.0)
+        table = bans(window=SHORT, duration=30)
         for _ in range(FAILURES):
             table.record(CLIENT, "signature")
         assert table.banned(CLIENT) is True
@@ -146,7 +149,7 @@ class TestBanning:
 
     def test_an_expired_ban_is_not_reported_again(self) -> None:
         """A failure after a ban ran out bans nobody until the count does."""
-        table = bans(duration=0.05, window=0.05)
+        table = bans(duration=SHORT, window=SHORT)
         for _ in range(FAILURES):
             table.record(CLIENT, "signature")
 
@@ -191,7 +194,7 @@ class TestRetryAfter:
 
     def test_an_expired_ban_leaves_no_wait(self) -> None:
         """A ban that has run out is never reported as a negative delay."""
-        table = bans(duration=0.05)
+        table = bans(duration=SHORT)
         for _ in range(FAILURES):
             table.record(CLIENT, "signature")
 
@@ -258,8 +261,8 @@ class TestWhatIsNotAbuse:
         """A service that wants expiry counted can say so."""
         table = ClientBans(
             failures=2,
-            window=60.0,
-            duration=60.0,
+            window=60,
+            duration=60,
             reasons=frozenset({"expired"}),
         )
 
@@ -359,10 +362,8 @@ class TestConfiguration:
             ClientBansConfig(**settings)
 
     @pytest.mark.parametrize("setting", ["window", "duration"])
-    @pytest.mark.parametrize("value", [0, -1.0])
-    def test_durations_must_be_positive(
-        self, setting: str, value: float
-    ) -> None:
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_durations_must_be_positive(self, setting: str, value: int) -> None:
         """A ban of no seconds is not a ban."""
         settings: dict[str, Any] = {setting: value}
 
@@ -377,7 +378,7 @@ class TestConfiguration:
     def test_from_config_takes_the_config_as_it_is(self) -> None:
         """A config assembled elsewhere builds the same table."""
         table = ClientBans.from_config(
-            ClientBansConfig(failures=1, window=60.0, duration=BAN),
+            ClientBansConfig(failures=1, window=60, duration=BAN),
             reasons=frozenset({"expired"}),
         )
 
@@ -389,7 +390,7 @@ class TestConfiguration:
         settings = ClientBansConfig()
 
         assert settings.failures >= MIN_FAILURES
-        assert settings.duration <= MAX_BAN_SECONDS
+        assert settings.duration <= MAX_BAN
         assert settings.max_clients >= MIN_TRACKED
 
     def test_it_works_with_no_configuration(self) -> None:
@@ -402,7 +403,7 @@ class TestUnderThreads:
 
     def test_concurrent_use_never_raises(self) -> None:
         """Reads never take the lock, and interleave with every write."""
-        table = bans(max_clients=RACE_TRACKED, duration=0.01, window=0.01)
+        table = bans(max_clients=RACE_TRACKED, duration=TINY, window=TINY)
         escaped: list[str] = []
         stop = threading.Event()
 

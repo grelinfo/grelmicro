@@ -12,6 +12,7 @@ import json
 import logging
 import sys
 import time
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import anyio
@@ -53,6 +54,7 @@ MAX_KEYS = 64
 MIN_RETRY_INTERVAL = 60
 LEEWAY = 30
 OVERSIZED = 5000
+TEN_MS = timedelta(milliseconds=10)
 
 SIGNER = Signer()
 ROTATED = Signer()
@@ -236,7 +238,7 @@ class TestRefresh:
         """Past the TTL the key set is fetched even without a rotation."""
         endpoint = Endpoint(document())
         verifier = JWTVerifier.from_config(
-            config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+            config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
         )
         await verifier.refresh()
         await anyio.sleep(0.05)
@@ -248,7 +250,7 @@ class TestRefresh:
     async def test_a_failed_refresh_keeps_the_loaded_keys(self) -> None:
         """A provider going down must not take authentication down."""
         endpoint = Endpoint(document())
-        verifier = JWTVerifier.from_config(config(ttl=0.01), fetch=endpoint)
+        verifier = JWTVerifier.from_config(config(ttl=TEN_MS), fetch=endpoint)
         await verifier.refresh()
         endpoint.body = SigningKeysUnavailableError("endpoint is down")
 
@@ -572,7 +574,7 @@ class TestLifecycle:
 
         with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
             async with JWTVerifier.from_config(
-                config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+                config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
             ) as verifier:
                 endpoint.body = OSError("connection reset")
                 await until(lambda: "OSError" in caplog.text)
@@ -623,7 +625,7 @@ class TestLifecycle:
 
         with caplog.at_level(logging.ERROR, logger="grelmicro.security.jwt"):
             async with JWTVerifier.from_config(
-                config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+                config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
             ) as verifier:
                 endpoint.body = DependencyNotFoundError(module="httpx")
                 await until(lambda: "could not be refreshed" in caplog.text)
@@ -684,7 +686,7 @@ class TestLifecycle:
 
         with caplog.at_level(logging.WARNING, logger="grelmicro.security.jwt"):
             async with JWTVerifier.from_config(
-                config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+                config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
             ) as verifier:
                 endpoint.body = SigningKeysUnavailableError("endpoint is down")
 
@@ -696,7 +698,7 @@ class TestLifecycle:
         """Nothing keeps fetching after the verifier closes."""
         endpoint = Endpoint(document())
         verifier = JWTVerifier.from_config(
-            config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+            config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
         )
 
         async with verifier:
@@ -732,7 +734,7 @@ class TestLifecycle:
         """A fetch still running when the verifier closes is cancelled."""
         endpoint = Slow(document())
         verifier = JWTVerifier.from_config(
-            config(ttl=0.01, retry_interval=0.01), fetch=endpoint
+            config(ttl=TEN_MS, retry_interval=0.01), fetch=endpoint
         )
 
         async with verifier:

@@ -267,7 +267,8 @@ client cancels it.
 A server that sends `refresh_in` decides the window. Otherwise it is
 `refresh_before`, capped at half the token's lifetime. A token living sixty
 seconds would otherwise be inside its window the moment it arrived, and every
-request would start a fetch. The point inside the window is random, so replicas
+request would start a fetch. The refresh happens at least that window before
+expiry, and at random up to half the window earlier than that, so replicas
 started together spread their fetches out.
 
 An exchanged token cut short by the caller's own expiry is kept to its end and
