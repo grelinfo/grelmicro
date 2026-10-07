@@ -4,6 +4,7 @@ import asyncio
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from time import monotonic
 
 import pytest
@@ -56,8 +57,8 @@ def test_tasklock_config_valid() -> None:
         min_hold_duration=LOCK_AT_LEAST_FOR,
         lease_duration=LOCK_AT_MOST_FOR,
     )
-    assert config.min_hold_duration == LOCK_AT_LEAST_FOR
-    assert config.lease_duration == LOCK_AT_MOST_FOR
+    assert config.min_hold_duration == timedelta(seconds=LOCK_AT_LEAST_FOR)
+    assert config.lease_duration == timedelta(seconds=LOCK_AT_MOST_FOR)
 
 
 def test_tasklock_config_at_least_greater_than_at_most() -> None:
@@ -189,7 +190,7 @@ async def test_tasklock_acquire_release(backend: LockBackend) -> None:
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.001,
+        min_hold_duration=timedelta(milliseconds=1),
         lease_duration=10,
     )
 
@@ -241,7 +242,7 @@ async def test_tasklock_stays_locked_when_elapsed_less_than_at_least(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.5,
+        min_hold_duration=timedelta(milliseconds=500),
         lease_duration=10,
     )
 
@@ -267,8 +268,8 @@ async def test_tasklock_auto_expires(backend: LockBackend) -> None:
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.01,
-        lease_duration=0.05,
+        min_hold_duration=timedelta(milliseconds=10),
+        lease_duration=timedelta(milliseconds=50),
     )
 
     with pytest.raises(LockNotOwnedError):  # noqa: PT012
@@ -291,7 +292,7 @@ async def test_tasklock_same_worker_reacquire(backend: LockBackend) -> None:
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.001,
+        min_hold_duration=timedelta(milliseconds=1),
         lease_duration=10,
     )
 
@@ -317,8 +318,8 @@ async def test_tasklock_release_expired_raises(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.01,
-        lease_duration=0.05,
+        min_hold_duration=timedelta(milliseconds=10),
+        lease_duration=timedelta(milliseconds=50),
     )
 
     with pytest.raises(LockNotOwnedError):
@@ -372,7 +373,7 @@ async def test_tasklock_release_backend_error(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.001,
+        min_hold_duration=timedelta(milliseconds=1),
         lease_duration=10,
     )
 
@@ -390,8 +391,8 @@ async def test_tasklock_reacquire_backend_error(
     backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock raises LockReleaseError on backend error during re-acquire in exit."""
-    min_hold_duration = 10
-    lease_duration = 60
+    min_hold_duration = timedelta(seconds=10)
+    lease_duration = timedelta(seconds=60)
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
@@ -403,7 +404,7 @@ async def test_tasklock_reacquire_backend_error(
     original_acquire = backend.acquire
 
     async def fail_on_reacquire(
-        *, name: str, token: str, duration: float
+        *, name: str, token: str, duration: timedelta
     ) -> int | None:
         # Let initial acquire succeed, fail on re-acquire (shorter duration)
         if duration < lease_duration:
@@ -428,8 +429,8 @@ async def test_tasklock_state_cleaned_up_after_failed_reacquire(
     state, regardless of backend errors. The TTL (lease_duration) acts
     as deadlock protection for the backend-side lock.
     """
-    min_hold_duration = 10
-    lease_duration = 60
+    min_hold_duration = timedelta(seconds=10)
+    lease_duration = timedelta(seconds=60)
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
@@ -441,7 +442,7 @@ async def test_tasklock_state_cleaned_up_after_failed_reacquire(
     original_acquire = backend.acquire
 
     async def fail_on_reacquire(
-        *, name: str, token: str, duration: float
+        *, name: str, token: str, duration: timedelta
     ) -> int | None:
         # Let initial acquire succeed, fail on re-acquire (shorter duration)
         if duration < lease_duration:
@@ -465,8 +466,8 @@ async def test_tasklock_reacquire_lost_raises(
     mocker: MockerFixture,
 ) -> None:
     """Test TaskLock raises LockNotOwnedError when re-acquire returns False."""
-    min_hold_duration = 10
-    lease_duration = 60
+    min_hold_duration = timedelta(seconds=10)
+    lease_duration = timedelta(seconds=60)
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
@@ -478,7 +479,7 @@ async def test_tasklock_reacquire_lost_raises(
     original_acquire = backend.acquire
 
     async def reject_reacquire(
-        *, name: str, token: str, duration: float
+        *, name: str, token: str, duration: timedelta
     ) -> int | None:
         # Let initial acquire succeed, return None (not acquired) on re-acquire
         if duration < lease_duration:
@@ -503,7 +504,7 @@ async def test_tasklock_from_thread_acquire_release(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.001,
+        min_hold_duration=timedelta(milliseconds=1),
         lease_duration=10,
     )
     locked_before = False
@@ -544,7 +545,7 @@ async def test_tasklock_from_thread_on_another_loop_is_served(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.001,
+        min_hold_duration=timedelta(milliseconds=1),
         lease_duration=10,
     )
 
@@ -592,7 +593,7 @@ async def test_tasklock_from_thread_stays_locked(backend: LockBackend) -> None:
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.5,
+        min_hold_duration=timedelta(milliseconds=500),
         lease_duration=10,
     )
     locked_after = False
@@ -637,7 +638,7 @@ async def test_tasklock_from_thread_release_backend_error(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.001,
+        min_hold_duration=timedelta(milliseconds=1),
         lease_duration=10,
     )
 
@@ -656,8 +657,8 @@ async def test_tasklock_from_thread_reacquire_backend_error(
     backend: LockBackend, mocker: MockerFixture
 ) -> None:
     """Test TaskLock from thread raises LockReleaseError on backend error during re-acquire."""
-    min_hold_duration = 10
-    lease_duration = 60
+    min_hold_duration = timedelta(seconds=10)
+    lease_duration = timedelta(seconds=60)
     task_lock = TaskLock(
         LOCK_NAME,
         backend=backend,
@@ -669,7 +670,7 @@ async def test_tasklock_from_thread_reacquire_backend_error(
     original_acquire = backend.acquire
 
     async def fail_on_reacquire(
-        *, name: str, token: str, duration: float
+        *, name: str, token: str, duration: timedelta
     ) -> int | None:
         if duration < lease_duration:
             msg = "Backend Error"
@@ -693,8 +694,8 @@ async def test_tasklock_from_thread_release_expired_raises(
         LOCK_NAME,
         backend=backend,
         worker=WORKER_1,
-        min_hold_duration=0.01,
-        lease_duration=0.05,
+        min_hold_duration=timedelta(milliseconds=10),
+        lease_duration=timedelta(milliseconds=50),
     )
 
     def sync() -> None:
@@ -713,8 +714,8 @@ async def test_task_lock_config_property(backend: LockBackend) -> None:
         min_hold_duration=1,
         lease_duration=10,
     )
-    expected_min = 1
-    expected_max = 10
+    expected_min = timedelta(seconds=1)
+    expected_max = timedelta(seconds=10)
     assert task_lock.name == LOCK_NAME
     config = task_lock.config
     assert config.min_hold_duration == expected_min
@@ -746,7 +747,10 @@ async def test_tasklock_reconfigure_swaps_config(backend: LockBackend) -> None:
         lease_duration=10,
     )
     new_config = task_lock.config.model_copy(
-        update={"min_hold_duration": 2, "lease_duration": 20},
+        update={
+            "min_hold_duration": timedelta(seconds=2),
+            "lease_duration": timedelta(seconds=20),
+        },
     )
 
     await task_lock.reconfigure(new_config)
@@ -802,7 +806,9 @@ async def test_tasklock_reconfigure_changes_max_lock_for_next_acquire(
         lease_duration=10,
     )
     spy = mocker.spy(backend, "acquire")
-    new_config = task_lock.config.model_copy(update={"lease_duration": 42})
+    new_config = task_lock.config.model_copy(
+        update={"lease_duration": timedelta(seconds=42)}
+    )
 
     await task_lock.reconfigure(new_config)
     async with task_lock:
@@ -811,7 +817,7 @@ async def test_tasklock_reconfigure_changes_max_lock_for_next_acquire(
     # First call is the entry acquire (uses lease_duration);
     # the second is the exit re-acquire that holds the lock until
     # min_hold_duration elapsed.
-    assert spy.call_args_list[0].kwargs["duration"] == 42  # noqa: PLR2004
+    assert spy.call_args_list[0].kwargs["duration"] == timedelta(seconds=42)
 
 
 async def test_tasklock_reconfigure_rejects_different_config_type(
@@ -923,7 +929,7 @@ class _RoundingLockAdapter(MemoryLockAdapter):
     """
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire with the duration rounded up past what was asked."""
         return await super().acquire(
@@ -931,8 +937,8 @@ class _RoundingLockAdapter(MemoryLockAdapter):
         )
 
 
-ROUNDING = 0.5
-HOLD = 0.05
+ROUNDING = timedelta(milliseconds=500)
+HOLD = timedelta(milliseconds=50)
 
 
 async def test_tasklock_takes_back_its_own_hold_once_it_ran_out() -> None:
@@ -958,7 +964,7 @@ async def test_tasklock_takes_back_its_own_hold_once_it_ran_out() -> None:
         )
         async with holder:
             pass
-        await sleep(HOLD * 2)
+        await sleep((HOLD * 2).total_seconds())
 
         with pytest.raises(WouldBlock):
             async with peer:

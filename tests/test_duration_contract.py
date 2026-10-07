@@ -60,17 +60,11 @@ NOT_MOVED_YET = frozenset(
         ("JWKSConfig", "cache_ttl"),
         ("JWKSConfig", "ttl"),
         ("JWTKeysConfig", "cache_ttl"),
-        ("LeaderElectionConfig", "lease_duration"),
-        ("LeaderElectionConfig", "renew_deadline"),
-        ("LockConfig", "lease_duration"),
         ("OAuthClientConfig", "default_lifetime"),
         ("OAuthClientConfig", "refresh_before"),
         ("OutboxConfig", "keep_delivered"),
         ("OutboxConfig", "lease_duration"),
-        ("ReadWriteLockConfig", "lease_duration"),
         ("TTLCacheConfig", "ttl"),
-        ("TaskLockConfig", "lease_duration"),
-        ("TaskLockConfig", "min_hold_duration"),
     }
 )
 """Stored or enforced durations that do not take the shared duration type yet."""

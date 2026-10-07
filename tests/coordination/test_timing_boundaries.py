@@ -27,7 +27,9 @@ def test_renew_deadline_reached_at_exact_deadline(
     config = election._config
     election._state_updated_at = _UPDATED_AT
     monkeypatch.setattr(
-        le_module, "monotonic", lambda: _UPDATED_AT + config.renew_deadline
+        le_module,
+        "monotonic",
+        lambda: _UPDATED_AT + config.renew_deadline.total_seconds(),
     )
 
     assert election._is_renew_deadline_reached(config) is True

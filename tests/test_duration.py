@@ -9,7 +9,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from grelmicro._duration import MAX_DURATION, Duration
+from grelmicro._duration import MAX_DURATION, Duration, round_up
 
 
 class _Model(BaseModel):
@@ -135,3 +135,26 @@ def test_every_duration_reads_back_from_its_json(value: timedelta) -> None:
     dumped = _Model(ttl=value).model_dump(mode="json")["ttl"]
 
     assert _Model.model_validate({"ttl": dumped}).ttl == value
+
+
+@pytest.mark.parametrize(
+    ("duration", "unit", "expected"),
+    [
+        (timedelta(seconds=2), timedelta(seconds=1), 2),
+        (timedelta(seconds=2, microseconds=1), timedelta(seconds=1), 3),
+        (timedelta(milliseconds=1001), timedelta(milliseconds=1), 1001),
+        (timedelta(microseconds=1_000_001), timedelta(milliseconds=1), 1001),
+        (timedelta(microseconds=1), timedelta(milliseconds=1), 1),
+        (
+            timedelta(microseconds=1_000_001),
+            timedelta(microseconds=1),
+            1_000_001,
+        ),
+        (MAX_DURATION, timedelta(seconds=1), 3_153_600_000),
+    ],
+)
+def test_duration_round_up_counts_whole_units_never_fewer(
+    duration: timedelta, unit: timedelta, expected: int
+) -> None:
+    """An exact multiple keeps its count, and one microsecond over adds a unit."""
+    assert round_up(duration, unit) == expected

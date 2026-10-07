@@ -88,7 +88,9 @@ async def test_sync_backend_out_of_context_errors() -> None:
 
     # Act / Assert
     with pytest.raises(OutOfContextError):
-        await backend.acquire(name=name, token=key, duration=1)
+        await backend.acquire(
+            name=name, token=key, duration=timedelta(seconds=1)
+        )
     with pytest.raises(OutOfContextError):
         await backend.release(name=name, token=key)
     with pytest.raises(OutOfContextError):
@@ -238,7 +240,9 @@ async def test_acquire_creates_when_not_found() -> None:
     )
 
     # Act
-    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+    result = await backend.acquire(
+        name="lock", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     # Assert
     assert result == 1
@@ -262,7 +266,9 @@ async def test_acquire_replaces_expired_lease_bumps_transitions() -> None:
     )
 
     # Act
-    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+    result = await backend.acquire(
+        name="lock", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     # Assert
     assert result == 5  # noqa: PLR2004
@@ -282,7 +288,9 @@ async def test_acquire_extend_same_holder_keeps_transitions() -> None:
     )
 
     # Act
-    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+    result = await backend.acquire(
+        name="lock", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     # Assert
     assert result == 3  # noqa: PLR2004
@@ -307,7 +315,9 @@ async def test_acquire_takeover_vacated_lease_bumps_transitions() -> None:
     )
 
     # Act
-    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+    result = await backend.acquire(
+        name="lock", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     # Assert
     assert result == 3  # noqa: PLR2004
@@ -326,7 +336,9 @@ async def test_acquire_returns_none_when_held_by_other() -> None:
     )
 
     # Act
-    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+    result = await backend.acquire(
+        name="lock", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     # Assert
     assert result is None
@@ -464,7 +476,9 @@ async def test_owned_wrong_token() -> None:
 @pytest.mark.parametrize(
     "method_caller",
     [
-        lambda b: b.acquire(name="lock", token=TOKEN, duration=1),
+        lambda b: b.acquire(
+            name="lock", token=TOKEN, duration=timedelta(seconds=1)
+        ),
         lambda b: b.release(name="lock", token=TOKEN),
         lambda b: b.locked(name="lock"),
         lambda b: b.owned(name="lock", token=TOKEN),
@@ -494,7 +508,9 @@ async def test_acquire_conflict_on_create() -> None:
     )
 
     # Act
-    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+    result = await backend.acquire(
+        name="lock", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     # Assert
     assert result is None
@@ -510,7 +526,9 @@ async def test_acquire_raises_on_create_non_409() -> None:
 
     # Act / Assert
     with pytest.raises(ApiError):
-        await backend.acquire(name="lock", token=TOKEN, duration=1)
+        await backend.acquire(
+            name="lock", token=TOKEN, duration=timedelta(seconds=1)
+        )
 
 
 async def test_acquire_conflict_on_replace() -> None:
@@ -522,7 +540,9 @@ async def test_acquire_conflict_on_replace() -> None:
     )
 
     # Act
-    result = await backend.acquire(name="lock", token=TOKEN, duration=1)
+    result = await backend.acquire(
+        name="lock", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     # Assert
     assert result is None
@@ -538,7 +558,9 @@ async def test_acquire_raises_on_replace_non_409() -> None:
 
     # Act / Assert
     with pytest.raises(ApiError):
-        await backend.acquire(name="lock", token=TOKEN, duration=1)
+        await backend.acquire(
+            name="lock", token=TOKEN, duration=timedelta(seconds=1)
+        )
 
 
 @pytest.mark.parametrize("code", [404, 409])
@@ -672,3 +694,42 @@ async def test_aexit_skips_already_vacated_lease() -> None:
     # Assert
     mock_client.replace.assert_not_called()
     assert backend._client is None
+
+
+_LONGEST_LEASE = timedelta(seconds=2**31 - 1)
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [_LONGEST_LEASE + timedelta(microseconds=1), timedelta(days=36_500)],
+)
+async def test_kubernetes_lock_acquire_refused_when_lease_exceeds_int32(
+    duration: timedelta,
+) -> None:
+    """A lease past 2**31 - 1 seconds is refused before the API is called."""
+    # Arrange
+    get = AsyncMock()
+    backend = _make_mocked_backend(get=get)
+
+    # Act
+    with pytest.raises(ValueError, match="about 68 years"):
+        await backend.acquire(name="lock", token=TOKEN, duration=duration)
+
+    # Assert
+    get.assert_not_awaited()
+
+
+async def test_kubernetes_lock_acquire_takes_the_longest_lease() -> None:
+    """A lease of exactly 2**31 - 1 seconds reaches the API."""
+    # Arrange
+    create = AsyncMock()
+    backend = _make_mocked_backend(
+        get=AsyncMock(side_effect=_make_api_error(404)), create=create
+    )
+
+    # Act
+    await backend.acquire(name="lock", token=TOKEN, duration=_LONGEST_LEASE)
+
+    # Assert
+    assert create.await_args is not None
+    assert create.await_args.args[0].spec.leaseDurationSeconds == 2**31 - 1

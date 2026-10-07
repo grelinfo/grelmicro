@@ -1,5 +1,7 @@
 """Tests for the three-paths Lock construction."""
 
+from datetime import timedelta
+
 import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
@@ -10,10 +12,10 @@ from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 
-LEASE_KWARG = 30.0
-LEASE_ENV = 120.0
+LEASE_KWARG = 30
+LEASE_ENV = 120
 RETRY_ENV = 0.25
-DEFAULT_LEASE = 60.0
+DEFAULT_LEASE = 60
 DEFAULT_RETRY = 0.1
 
 
@@ -44,7 +46,7 @@ def test_programmatic_path_uses_kwargs(backend: LockBackend) -> None:
     """Plain kwargs build a config, falling back to LockConfig defaults."""
     lock = Lock("cart", backend=backend, lease_duration=LEASE_KWARG)
     assert lock.name == "cart"
-    assert lock.config.lease_duration == LEASE_KWARG
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_KWARG)
     assert lock.config.retry_interval == DEFAULT_RETRY
 
 
@@ -74,7 +76,7 @@ def test_from_config_bypasses_env(
         retry_interval=DEFAULT_RETRY,
     )
     lock = Lock.from_config("cart", cfg, backend=backend)
-    assert lock.config.lease_duration == LEASE_KWARG
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_KWARG)
 
 
 def test_environmental_path_reads_grel_prefixed_env(
@@ -85,7 +87,7 @@ def test_environmental_path_reads_grel_prefixed_env(
     monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_ENV))
     monkeypatch.setenv("GREL_LOCK_CART_RETRY_INTERVAL", str(RETRY_ENV))
     lock = Lock("cart", backend=backend)
-    assert lock.config.lease_duration == LEASE_ENV
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_ENV)
     assert lock.config.retry_interval == RETRY_ENV
 
 
@@ -96,7 +98,7 @@ def test_default_instance_drops_name_segment(
     """The default instance reads the bare ``GREL_LOCK_*`` prefix."""
     monkeypatch.setenv("GREL_LOCK_LEASE_DURATION", str(LEASE_ENV))
     lock = Lock("default", backend=backend)
-    assert lock.config.lease_duration == LEASE_ENV
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_ENV)
 
 
 def test_kwargs_override_env(
@@ -106,7 +108,7 @@ def test_kwargs_override_env(
     """Caller kwargs win over env vars."""
     monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_ENV))
     lock = Lock("cart", backend=backend, lease_duration=LEASE_KWARG)
-    assert lock.config.lease_duration == LEASE_KWARG
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_KWARG)
 
 
 def test_env_prefix_override(
@@ -120,7 +122,7 @@ def test_env_prefix_override(
         backend=backend,
         env_prefix="MYAPP_LOCK_CART_",
     )
-    assert lock.config.lease_duration == LEASE_ENV
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_ENV)
 
 
 def test_env_load_false_ignores_env(
@@ -130,7 +132,7 @@ def test_env_load_false_ignores_env(
     """``env_load=False`` skips env reads entirely."""
     monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_ENV))
     lock = Lock("cart", backend=backend, env_load=False)
-    assert lock.config.lease_duration == DEFAULT_LEASE
+    assert lock.config.lease_duration == timedelta(seconds=DEFAULT_LEASE)
 
 
 def test_zero_config_uses_lockconfig_defaults(
@@ -141,7 +143,7 @@ def test_zero_config_uses_lockconfig_defaults(
     monkeypatch.delenv("GREL_LOCK_CART_LEASE_DURATION", raising=False)
     monkeypatch.delenv("GREL_LOCK_CART_RETRY_INTERVAL", raising=False)
     lock = Lock("cart", backend=backend)
-    assert lock.config.lease_duration == DEFAULT_LEASE
+    assert lock.config.lease_duration == timedelta(seconds=DEFAULT_LEASE)
     assert lock.config.retry_interval == DEFAULT_RETRY
 
 
@@ -167,7 +169,7 @@ def test_name_with_punctuation_normalises_env_prefix(
     """A name with hyphens normalises into a valid env prefix."""
     monkeypatch.setenv("GREL_LOCK_PAYMENTS_EU_LEASE_DURATION", str(LEASE_ENV))
     lock = Lock("payments-eu", backend=backend)
-    assert lock.config.lease_duration == LEASE_ENV
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_ENV)
     assert lock.name == "payments-eu"
 
 
@@ -178,7 +180,7 @@ def test_name_with_dots_normalises_env_prefix(
     """A name with dots normalises into a valid env prefix."""
     monkeypatch.setenv("GREL_LOCK_CART_V2_LEASE_DURATION", str(LEASE_ENV))
     lock = Lock("cart.v2", backend=backend)
-    assert lock.config.lease_duration == LEASE_ENV
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_ENV)
 
 
 # --- retry_jitter validation ---

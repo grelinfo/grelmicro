@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from types import TracebackType
 from typing import Self
 
@@ -39,7 +40,7 @@ pytestmark = [pytest.mark.timeout(10, func_only=True)]
 _READERS = 3
 _RETAKEN_FENCE = 2
 _ENV_LEASE_DURATION = 12
-_RECONFIGURED_LEASE_DURATION = 30
+_RECONFIGURED_LEASE_DURATION = timedelta(seconds=30)
 
 
 @pytest.fixture
@@ -74,12 +75,12 @@ class _FailingBackend:
         return None
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise RuntimeError(name or token or duration)
 
     async def acquire_write(
-        self, *, name: str, token: str, duration: float, intent: bool = True
+        self, *, name: str, token: str, duration: timedelta, intent: bool = True
     ) -> WriteGrant | None:
         raise RuntimeError(name or token or duration or intent)
 
@@ -93,7 +94,7 @@ class _FailingBackend:
         raise RuntimeError(name or token)
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise RuntimeError(name or token or duration)
 
@@ -188,7 +189,9 @@ async def test_waiting_writer_holds_new_readers_out(
     assert (await lock.state()).waiting_writers == 1
     assert (
         await backend.acquire_read(
-            name="rwlock:catalog", token="latecomer", duration=5
+            name="rwlock:catalog",
+            token="latecomer",
+            duration=timedelta(seconds=5),
         )
         is None
     )
@@ -328,7 +331,9 @@ async def test_extend_reports_a_lost_read_lease(
     reading = await lock.read.acquire()
     await backend.release_read(name="rwlock:catalog", token=reading.token)
     await backend.acquire_write(
-        name="rwlock:catalog", token="someone-else", duration=5
+        name="rwlock:catalog",
+        token="someone-else",
+        duration=timedelta(seconds=5),
     )
 
     with pytest.raises(LockNotOwnedError):
@@ -358,7 +363,9 @@ async def test_extend_after_the_write_lease_moved(
     writing = await lock.write.acquire()
     await backend.release_write(name="rwlock:catalog", token=writing.token)
     await backend.acquire_write(
-        name="rwlock:catalog", token="someone-else", duration=5
+        name="rwlock:catalog",
+        token="someone-else",
+        duration=timedelta(seconds=5),
     )
 
     with pytest.raises(LockNotOwnedError):
@@ -507,7 +514,7 @@ async def test_environment_configuration(
 
     lock = ReadWriteLock("catalog", backend=backend)
 
-    assert lock.config.lease_duration == _ENV_LEASE_DURATION
+    assert lock.config.lease_duration == timedelta(seconds=_ENV_LEASE_DURATION)
 
 
 async def test_reconfigure_keeps_the_worker(
@@ -665,8 +672,12 @@ async def test_expired_intent_is_reaped(
     backend: MemoryReadWriteLockAdapter,
 ) -> None:
     """An intent left by a writer that died stops holding readers out."""
-    await backend.acquire_read(name="catalog", token="reader", duration=10)
-    await backend.acquire_write(name="catalog", token="dead", duration=0.05)
+    await backend.acquire_read(
+        name="catalog", token="reader", duration=timedelta(seconds=10)
+    )
+    await backend.acquire_write(
+        name="catalog", token="dead", duration=timedelta(milliseconds=50)
+    )
     await asyncio.sleep(0.1)
 
     state = await backend.state(name="catalog")
@@ -674,7 +685,7 @@ async def test_expired_intent_is_reaped(
     assert state.waiting_writers == 0
     assert (
         await backend.acquire_read(
-            name="catalog", token="latecomer", duration=10
+            name="catalog", token="latecomer", duration=timedelta(seconds=10)
         )
         is not None
     )

@@ -235,7 +235,7 @@ def test_router_interval_with_lock_and_custom_least() -> None:
         gate=TaskLock(
             backend=backend,
             lease_duration=300,
-            min_hold_duration=min_hold_duration,
+            min_hold_duration=timedelta(seconds=min_hold_duration),
         ),
     )(test1)
 
@@ -245,7 +245,9 @@ def test_router_interval_with_lock_and_custom_least() -> None:
     assert isinstance(task, IntervalTask)
     task_lock = task._sync_primitives[0]
     assert isinstance(task_lock, TaskLock)
-    assert task_lock.config.min_hold_duration == min_hold_duration
+    assert task_lock.config.min_hold_duration == timedelta(
+        seconds=min_hold_duration
+    )
 
 
 def test_router_interval_min_hold_less_than_seconds_raises() -> None:

@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+from datetime import timedelta
 from types import TracebackType
 from typing import Annotated, ClassVar, Final, Self
 from uuid import UUID
@@ -21,6 +22,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._duration import Duration
 from grelmicro._environment import record_coordination
 from grelmicro.coordination._base import (
     BaseLock,
@@ -98,13 +100,18 @@ class LockConfig(BaseLockConfig):
     """Lock Config."""
 
     lease_duration: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The lease duration in seconds for the lock.
+            The lease duration for the lock, in whole seconds or as a
+            `timedelta`.
+
+            A float is refused. From text, such as an environment
+            variable, it reads whole seconds (`"60"`) or an ISO 8601
+            duration (`"PT0.5S"`).
             """,
         ),
-    ] = 60
+    ] = timedelta(seconds=60)
     retry_interval: Annotated[
         Seconds,
         Doc(
@@ -193,10 +200,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The duration in seconds for the lock to be held by default.
+                How long the lock is held by default, in whole seconds or
+                as a `timedelta`. A float is refused.
 
                 Default: 60. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the environment
@@ -600,14 +608,16 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         return await self.do_owned(generate_task_token(self._config.worker))
 
-    async def do_acquire(self, token: str, *, duration: Seconds) -> int | None:
+    async def do_acquire(
+        self, token: str, *, duration: timedelta
+    ) -> int | None:
         """Acquire the lock.
 
         This method should not be called directly. Use `acquire` instead.
 
         Args:
             token: The token to register on the backend.
-            duration: The lease duration to request, in seconds. The
+            duration: The lease duration to request. The
                 caller captures this from `self._config.lease_duration`
                 at the start of the operation so the request is
                 consistent across retries even when `reconfigure`
@@ -631,7 +641,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         return fencing_token
 
     async def _backend_acquire(
-        self, token: str, duration: Seconds
+        self, token: str, duration: timedelta
     ) -> int | None:
         """Ask the backend for the lease, without counting the outcome.
 

@@ -47,7 +47,7 @@ Prefix: `GREL_LOCK_{NAME_UPPER}_`. The default instance drops the name segment a
 | Env var                                      | Config field     | Type            | Default          |
 |----------------------------------------------|------------------|-----------------|------------------|
 | `GREL_LOCK_{NAME_UPPER}_WORKER`              | `worker`         | `str \| UUID`   | generated UUID   |
-| `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION`      | `lease_duration` | `float` (> 0)   | `60`             |
+| `GREL_LOCK_{NAME_UPPER}_LEASE_DURATION`      | `lease_duration` | whole seconds or ISO 8601 | `60`   |
 | `GREL_LOCK_{NAME_UPPER}_RETRY_INTERVAL`      | `retry_interval` | `float` (>= 0.001) | `0.1`         |
 | `GREL_LOCK_{NAME_UPPER}_RETRY_JITTER`        | `retry_jitter`   | `float` [0, 1)     | `0.1`         |
 

@@ -86,9 +86,13 @@ async def test_out_of_context_errors() -> None:
     adapter = KubernetesReadWriteLockAdapter(namespace="default")
 
     with pytest.raises(OutOfContextError):
-        await adapter.acquire_read(name="catalog", token=TOKEN, duration=1)
+        await adapter.acquire_read(
+            name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+        )
     with pytest.raises(OutOfContextError):
-        await adapter.acquire_write(name="catalog", token=TOKEN, duration=1)
+        await adapter.acquire_write(
+            name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+        )
     with pytest.raises(OutOfContextError):
         await adapter.state(name="catalog")
 
@@ -130,7 +134,9 @@ async def test_write_reraises_a_non_conflict_error() -> None:
     )
 
     with pytest.raises(ApiError):
-        await adapter.acquire_read(name="catalog", token=TOKEN, duration=1)
+        await adapter.acquire_read(
+            name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+        )
 
 
 async def test_acquire_read_gives_up_after_repeated_conflicts() -> None:
@@ -141,7 +147,7 @@ async def test_acquire_read_gives_up_after_repeated_conflicts() -> None:
     )
 
     granted = await adapter.acquire_read(
-        name="catalog", token=TOKEN, duration=1
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1)
     )
 
     assert granted is None
@@ -155,7 +161,7 @@ async def test_acquire_write_gives_up_after_repeated_conflicts() -> None:
     )
 
     granted = await adapter.acquire_write(
-        name="catalog", token=TOKEN, duration=1
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1)
     )
 
     assert granted is None
@@ -169,7 +175,7 @@ async def test_write_renewal_retries_on_conflict() -> None:
     )
 
     granted = await adapter.acquire_write(
-        name="catalog", token=TOKEN, duration=1
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1)
     )
 
     assert granted is None
@@ -183,7 +189,7 @@ async def test_intent_write_retries_on_conflict() -> None:
     )
 
     granted = await adapter.acquire_write(
-        name="catalog", token=TOKEN, duration=1
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1)
     )
 
     assert granted is None
@@ -198,7 +204,7 @@ async def test_nowait_writer_behind_a_reader_records_nothing() -> None:
     )
 
     granted = await adapter.acquire_write(
-        name="catalog", token=TOKEN, duration=1, intent=False
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1), intent=False
     )
 
     assert granted is None
@@ -214,8 +220,11 @@ async def test_release_and_downgrade_on_a_missing_lease() -> None:
     assert not await adapter.release_read(name="catalog", token=TOKEN)
     assert not await adapter.release_write(name="catalog", token=TOKEN)
     assert not await adapter.cancel_intent(name="catalog", token=TOKEN)
-    assert await adapter.downgrade(name="catalog", token=TOKEN, duration=1) is (
-        None
+    assert (
+        await adapter.downgrade(
+            name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+        )
+        is None
     )
     assert not await adapter.owned_read(name="catalog", token=TOKEN)
     assert not await adapter.owned_write(name="catalog", token=TOKEN)
@@ -228,8 +237,11 @@ async def test_release_write_by_a_non_holder() -> None:
     adapter = _adapter(get=AsyncMock(return_value=_lease(holder=OTHER)))
 
     assert not await adapter.release_write(name="catalog", token=TOKEN)
-    assert await adapter.downgrade(name="catalog", token=TOKEN, duration=1) is (
-        None
+    assert (
+        await adapter.downgrade(
+            name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+        )
+        is None
     )
 
 
@@ -267,8 +279,11 @@ async def test_downgrade_gives_up_after_repeated_conflicts() -> None:
         replace=AsyncMock(side_effect=_api_error(HTTPStatus.CONFLICT)),
     )
 
-    assert await adapter.downgrade(name="catalog", token=TOKEN, duration=1) is (
-        None
+    assert (
+        await adapter.downgrade(
+            name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+        )
+        is None
     )
 
 
@@ -280,9 +295,11 @@ async def test_an_expired_writer_reads_as_free() -> None:
     )
 
     generation = await adapter.acquire_read(
-        name="catalog", token=TOKEN, duration=1
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1)
     )
-    grant = await adapter.acquire_write(name="catalog", token=TOKEN, duration=1)
+    grant = await adapter.acquire_write(
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     assert generation == 0
     assert grant is not None
@@ -331,7 +348,9 @@ async def test_a_reader_keeps_an_expired_writer_on_record() -> None:
     replace = AsyncMock()
     adapter = _adapter(get=AsyncMock(return_value=lease), replace=replace)
 
-    await adapter.acquire_read(name="catalog", token=TOKEN, duration=1)
+    await adapter.acquire_read(
+        name="catalog", token=TOKEN, duration=timedelta(seconds=1)
+    )
 
     call = replace.await_args
     assert call is not None
@@ -349,7 +368,9 @@ async def test_an_intent_does_not_touch_the_writer_lease() -> None:
     replace = AsyncMock()
     adapter = _adapter(get=AsyncMock(return_value=lease), replace=replace)
 
-    await adapter.acquire_write(name="catalog", token=TOKEN, duration=900)
+    await adapter.acquire_write(
+        name="catalog", token=TOKEN, duration=timedelta(seconds=900)
+    )
 
     call = replace.await_args
     assert call is not None
@@ -357,3 +378,18 @@ async def test_an_intent_does_not_touch_the_writer_lease() -> None:
     assert written.spec.leaseDurationSeconds == stored_duration
     assert written.spec.renewTime == stored_renew
     assert written.spec.holderIdentity == OTHER
+
+
+async def test_kubernetes_rwlock_acquire_write_refused_when_lease_exceeds_int32() -> (
+    None
+):
+    """A writer lease past 2**31 - 1 seconds is refused before the API is called."""
+    get = AsyncMock()
+    adapter = _adapter(get=get)
+
+    with pytest.raises(ValueError, match="about 68 years"):
+        await adapter.acquire_write(
+            name="catalog", token=TOKEN, duration=timedelta(seconds=2**31)
+        )
+
+    get.assert_not_awaited()

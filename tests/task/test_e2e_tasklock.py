@@ -5,6 +5,7 @@ These tests build the task through a shared factory that wires a
 """
 
 import asyncio
+from datetime import timedelta
 from itertools import pairwise
 
 import pytest
@@ -34,7 +35,7 @@ async def test_tasklock_basic_execution(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=INTERVAL,
+        min_hold_duration=timedelta(seconds=INTERVAL),
         lease_duration=10,
     )
 
@@ -89,7 +90,7 @@ async def test_tasklock_min_hold_duration(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=min_lock,
+        min_hold_duration=timedelta(seconds=min_lock),
         lease_duration=10,
     )
     task_2 = task_factory(
@@ -98,7 +99,7 @@ async def test_tasklock_min_hold_duration(
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_hold_duration=min_lock,
+        min_hold_duration=timedelta(seconds=min_lock),
         lease_duration=10,
     )
 
@@ -130,8 +131,8 @@ async def test_tasklock_lease_renewed_while_the_body_runs(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=INTERVAL,
-        lease_duration=max_lock,
+        min_hold_duration=timedelta(seconds=INTERVAL),
+        lease_duration=timedelta(seconds=max_lock),
     )
     task_2 = task_factory(
         seconds=INTERVAL,
@@ -139,8 +140,8 @@ async def test_tasklock_lease_renewed_while_the_body_runs(
         name="e2e_task",
         backend=backend,
         worker="worker_2",
-        min_hold_duration=INTERVAL,
-        lease_duration=max_lock,
+        min_hold_duration=timedelta(seconds=INTERVAL),
+        lease_duration=timedelta(seconds=max_lock),
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -215,7 +216,7 @@ async def test_tasklock_same_worker_blocked_by_min_lock(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=min_lock,
+        min_hold_duration=timedelta(seconds=min_lock),
         lease_duration=10,
     )
 
@@ -240,7 +241,7 @@ async def test_tasklock_sequential_executions(
         name="e2e_task",
         backend=backend,
         worker="worker_1",
-        min_hold_duration=INTERVAL,
+        min_hold_duration=timedelta(seconds=INTERVAL),
         lease_duration=10,
     )
 
@@ -290,7 +291,9 @@ async def test_gate_lock_refreshes_from_the_body(
 ) -> None:
     """The handle passed as the gate is the one the task holds, so it renews."""
     samples.gate_lock = TaskLock(
-        backend=backend, lease_duration=10, min_hold_duration=INTERVAL
+        backend=backend,
+        lease_duration=10,
+        min_hold_duration=timedelta(seconds=INTERVAL),
     )
     task = IntervalTask(
         seconds=INTERVAL,

@@ -92,7 +92,7 @@ class LeaderWatch:
         if election.is_running():
             self._settled = True
             return
-        if monotonic() - since < election.config.lease_duration:
+        if monotonic() - since < election.config.lease_duration.total_seconds():
             return
         self._settled = True
         msg = diagnostic(

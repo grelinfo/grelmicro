@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar, Self
 
 import pytest
@@ -125,7 +126,7 @@ class _RecordingLockAdapter:
         return None
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise NotImplementedError
 
@@ -166,7 +167,7 @@ class _RecordingElectionAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         metadata: Mapping[str, str] | None = None,
     ) -> LeaderRecord:
         raise NotImplementedError
@@ -234,7 +235,7 @@ class _RecordingReadWriteLockAdapter:
         return None
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise NotImplementedError
 
@@ -246,7 +247,7 @@ class _RecordingReadWriteLockAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         intent: bool = True,
     ) -> WriteGrant | None:
         raise NotImplementedError
@@ -258,7 +259,7 @@ class _RecordingReadWriteLockAdapter:
         raise NotImplementedError
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise NotImplementedError
 

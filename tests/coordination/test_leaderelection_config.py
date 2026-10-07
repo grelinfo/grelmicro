@@ -1,5 +1,7 @@
 """Tests for the three-paths LeaderElection construction."""
 
+from datetime import timedelta
+
 import pytest
 from pydantic import ValidationError
 from pytest_mock import MockerFixture
@@ -13,11 +15,11 @@ from grelmicro.coordination.leaderelection import (
 )
 from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 
-LEASE_KWARG = 12.0
+LEASE_KWARG = 12
 RETRY_KWARG = 1.0
-LEASE_ENV = 30.0
+LEASE_ENV = 30
 RETRY_ENV = 3.0
-DEFAULT_LEASE = 15.0
+DEFAULT_LEASE = 15
 DEFAULT_RETRY = 2.0
 
 
@@ -59,7 +61,7 @@ def test_programmatic_path_uses_kwargs(backend: LeaderElectionBackend) -> None:
         retry_interval=RETRY_KWARG,
     )
     assert le.name == "cron"
-    assert le.config.lease_duration == LEASE_KWARG
+    assert le.config.lease_duration == timedelta(seconds=LEASE_KWARG)
     assert le.config.retry_interval == RETRY_KWARG
 
 
@@ -91,7 +93,7 @@ def test_from_config_bypasses_env(
         retry_interval=RETRY_KWARG,
     )
     le = LeaderElection.from_config("cron", cfg, backend=backend)
-    assert le.config.lease_duration == LEASE_KWARG
+    assert le.config.lease_duration == timedelta(seconds=LEASE_KWARG)
 
 
 def test_environmental_path_reads_grel_prefixed_env(
@@ -106,7 +108,7 @@ def test_environmental_path_reads_grel_prefixed_env(
         "GREL_LEADERELECTION_CRON_RETRY_INTERVAL", str(RETRY_ENV)
     )
     le = LeaderElection("cron", backend=backend)
-    assert le.config.lease_duration == LEASE_ENV
+    assert le.config.lease_duration == timedelta(seconds=LEASE_ENV)
     assert le.config.retry_interval == RETRY_ENV
 
 
@@ -119,7 +121,7 @@ def test_kwargs_override_env(
         "GREL_LEADERELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
     le = LeaderElection("cron", backend=backend, lease_duration=LEASE_KWARG)
-    assert le.config.lease_duration == LEASE_KWARG
+    assert le.config.lease_duration == timedelta(seconds=LEASE_KWARG)
 
 
 def test_env_prefix_override(
@@ -135,7 +137,7 @@ def test_env_prefix_override(
         backend=backend,
         env_prefix="MYAPP_LEADER_ELECTION_CRON_",
     )
-    assert le.config.lease_duration == LEASE_ENV
+    assert le.config.lease_duration == timedelta(seconds=LEASE_ENV)
 
 
 def test_env_load_false_ignores_env(
@@ -147,7 +149,7 @@ def test_env_load_false_ignores_env(
         "GREL_LEADERELECTION_CRON_LEASE_DURATION", str(LEASE_ENV)
     )
     le = LeaderElection("cron", backend=backend, env_load=False)
-    assert le.config.lease_duration == DEFAULT_LEASE
+    assert le.config.lease_duration == timedelta(seconds=DEFAULT_LEASE)
 
 
 def test_zero_config_uses_leaderelectionconfig_defaults(
@@ -158,7 +160,7 @@ def test_zero_config_uses_leaderelectionconfig_defaults(
     monkeypatch.delenv("GREL_LEADERELECTION_CRON_LEASE_DURATION", raising=False)
     monkeypatch.delenv("GREL_LEADERELECTION_CRON_RETRY_INTERVAL", raising=False)
     le = LeaderElection("cron", backend=backend)
-    assert le.config.lease_duration == DEFAULT_LEASE
+    assert le.config.lease_duration == timedelta(seconds=DEFAULT_LEASE)
     assert le.config.retry_interval == DEFAULT_RETRY
 
 

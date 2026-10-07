@@ -2,6 +2,7 @@
 
 import logging
 import warnings
+from datetime import timedelta
 
 import pytest
 
@@ -14,8 +15,8 @@ from grelmicro._config import (
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
 
-LEASE_OVERRIDE = 999.0
-LEASE_FROM_ENV = 42.0
+LEASE_OVERRIDE = 999
+LEASE_FROM_ENV = 42
 DEFAULT_LEASE = LockConfig.model_fields["lease_duration"].default
 
 
@@ -55,9 +56,7 @@ def test_env_ignored_when_flag_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without the global flag, env vars are not read, and that is reported."""
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
     with pytest.warns(
         GrelmicroConfigWarning, match="GREL_LOCK_CART_LEASE_DURATION"
     ):
@@ -71,9 +70,7 @@ def test_ignored_env_is_reported_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The same ignored variable is reported once, not on every construction."""
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
     with pytest.warns(
         GrelmicroConfigWarning, match="GREL_LOCK_CART_LEASE_DURATION"
     ):
@@ -93,9 +90,7 @@ def test_ignored_env_waits_for_logging_then_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The report reaches the `grelmicro` logger once logging is configured."""
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
 
     with caplog.at_level(logging.WARNING, logger="grelmicro"):
         with pytest.warns(GrelmicroConfigWarning):
@@ -117,9 +112,7 @@ def test_ignored_env_is_logged_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Configuring logging twice does not repeat the report."""
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
 
     with caplog.at_level(logging.WARNING, logger="grelmicro"):
         with pytest.warns(GrelmicroConfigWarning):
@@ -139,9 +132,7 @@ def test_ignored_env_after_logging_is_logged_straight_away(
 ) -> None:
     """A component built after logging is configured reports without waiting."""
     flush_ignored_env_reports()
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
 
     with (
         caplog.at_level(logging.WARNING, logger="grelmicro"),
@@ -181,16 +172,14 @@ def test_field_passed_as_kwarg_is_not_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A keyword argument outranks the environment, so there is nothing to report."""
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         lock = Lock("cart", backend=backend, lease_duration=LEASE_FROM_ENV)
 
     assert [w for w in caught if w.category is GrelmicroConfigWarning] == []
-    assert lock.config.lease_duration == LEASE_FROM_ENV
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_FROM_ENV)
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
@@ -198,9 +187,7 @@ def test_explicit_env_load_false_is_not_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An explicit opt-out is a decision, so it is never reported."""
-    monkeypatch.setenv(
-        "GREL_LOCK_TEST_LEASE_DURATION", str(int(LEASE_FROM_ENV))
-    )
+    monkeypatch.setenv("GREL_LOCK_TEST_LEASE_DURATION", str(LEASE_FROM_ENV))
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -221,11 +208,9 @@ def test_per_call_env_load_true_overrides_flag_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`env_load=True` reads env even when the global flag is off."""
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
     lock = Lock("cart", backend=backend, env_load=True)
-    assert lock.config.lease_duration == LEASE_OVERRIDE
+    assert lock.config.lease_duration == timedelta(seconds=LEASE_OVERRIDE)
 
 
 def test_per_call_env_load_false_overrides_flag_on(
@@ -234,9 +219,7 @@ def test_per_call_env_load_false_overrides_flag_on(
 ) -> None:
     """`env_load=False` ignores env even when the global flag is on."""
     # autouse fixture sets GREL_ENV_LOAD=true
-    monkeypatch.setenv(
-        "GREL_LOCK_CART_LEASE_DURATION", str(int(LEASE_OVERRIDE))
-    )
+    monkeypatch.setenv("GREL_LOCK_CART_LEASE_DURATION", str(LEASE_OVERRIDE))
     lock = Lock("cart", backend=backend, env_load=False)
     assert lock.config.lease_duration == DEFAULT_LEASE
 
@@ -246,9 +229,7 @@ def test_resolve_config_respects_global_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`resolve_config(env_load=None)` follows the global flag."""
-    monkeypatch.setenv(
-        "GREL_LOCK_TEST_LEASE_DURATION", str(int(LEASE_FROM_ENV))
-    )
+    monkeypatch.setenv("GREL_LOCK_TEST_LEASE_DURATION", str(LEASE_FROM_ENV))
     with pytest.warns(
         GrelmicroConfigWarning, match="GREL_LOCK_TEST_LEASE_DURATION"
     ):
@@ -269,4 +250,6 @@ def test_resolve_config_respects_global_flag(
         env_prefix="GREL_LOCK_TEST_",
         env_load=None,
     )
-    assert cfg2.lease_duration == LEASE_FROM_ENV  # flag on, env read
+    assert cfg2.lease_duration == timedelta(
+        seconds=LEASE_FROM_ENV
+    )  # flag on, env read

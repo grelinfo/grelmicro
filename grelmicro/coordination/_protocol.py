@@ -17,7 +17,7 @@ from typing_extensions import Doc
 if TYPE_CHECKING:
     import asyncio
     from collections.abc import Mapping
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from types import TracebackType
 
 
@@ -62,11 +62,12 @@ class LockBackend(Protocol):
             ),
         ],
         duration: Annotated[
-            float,
+            timedelta,
             Doc(
-                "Seconds the lock is held before the backend may release"
-                " it automatically. The acquirer should renew before"
-                " this elapses."
+                "How long the lock is held before the backend may release"
+                " it automatically. The backend rounds it up to its own"
+                " resolution, never down. The acquirer should renew"
+                " before this elapses."
             ),
         ],
     ) -> int | None:
@@ -241,8 +242,11 @@ class ReadWriteLockBackend(Protocol):
             Doc("Caller-supplied reader token, unique per holder."),
         ],
         duration: Annotated[
-            float,
-            Doc("Seconds this reader's lease is held before it expires."),
+            timedelta,
+            Doc(
+                "How long this reader's lease is held before it expires,"
+                " rounded up to the backend's resolution."
+            ),
         ],
     ) -> int | None:
         """Acquire the lock for reading.
@@ -266,10 +270,11 @@ class ReadWriteLockBackend(Protocol):
             Doc("Caller-supplied writer token, unique per holder."),
         ],
         duration: Annotated[
-            float,
+            timedelta,
             Doc(
-                "Seconds the writer's lease, or its intent while waiting,"
-                " is held before it expires."
+                "How long the writer's lease, or its intent while waiting,"
+                " is held before it expires, rounded up to the backend's"
+                " resolution."
             ),
         ],
         intent: Annotated[
@@ -335,8 +340,11 @@ class ReadWriteLockBackend(Protocol):
         name: Annotated[str, Doc("Identifier of the lock to downgrade.")],
         token: Annotated[str, Doc("Writer token that holds the lock.")],
         duration: Annotated[
-            float,
-            Doc("Seconds the resulting reader lease is held."),
+            timedelta,
+            Doc(
+                "How long the resulting reader lease is held, rounded up"
+                " to the backend's resolution."
+            ),
         ],
     ) -> int | None:
         """Turn a held write lease into a read lease in one step.
@@ -461,8 +469,11 @@ class LeaderRecord:
         Doc("Token of the worker that currently holds the lease."),
     ]
     lease_duration: Annotated[
-        float,
-        Doc("Seconds the lease is valid from `renewed_at` before it expires."),
+        timedelta,
+        Doc(
+            "How long the lease is valid from `renewed_at` before it"
+            " expires, at the backend's resolution."
+        ),
     ]
     acquired_at: Annotated[
         datetime,
@@ -524,10 +535,11 @@ class LeaderElectionBackend(Protocol):
             ),
         ],
         duration: Annotated[
-            float,
+            timedelta,
             Doc(
-                "Seconds the lease is held before it expires. The leader"
-                " renews before this elapses."
+                "How long the lease is held before it expires, rounded up"
+                " to the backend's resolution. The leader renews before"
+                " this elapses."
             ),
         ],
         metadata: Annotated[

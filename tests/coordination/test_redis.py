@@ -1,6 +1,8 @@
 """Tests for the Redis Leader Election Backend."""
 
+import time
 from collections.abc import AsyncGenerator, Generator
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Self
 from unittest.mock import MagicMock
@@ -17,8 +19,10 @@ pytestmark = [pytest.mark.timeout(30)]
 
 URL = "redis://:test_password@test_host:1234/0"
 
-DURATION = 1.0
-WAIT = DURATION + 0.3
+DURATION = timedelta(seconds=1)
+WAIT = DURATION.total_seconds() + 0.3
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+_MICROSECOND = timedelta(microseconds=1)
 
 
 def test_backend_with_implicit_env_provider(
@@ -321,3 +325,81 @@ async def test_metadata_round_trips(
 
     assert record is not None
     assert record.metadata == metadata
+
+
+@pytest.mark.integration
+async def test_a_lease_is_rounded_up_never_down(
+    backend: RedisLeaderElectionAdapter,
+) -> None:
+    """A lease of 1001 ms reads back exact, is held, and is gone well before 2 s."""
+    name = "rounding" + uuid4().hex
+    token = uuid4().hex
+    before = time.monotonic()
+
+    record = await backend.acquire_or_renew(
+        name=name, token=token, duration=timedelta(milliseconds=1001)
+    )
+    after = time.monotonic()
+    await sleep(0.5 - (time.monotonic() - before))
+    held = await backend.get(name=name)
+    await sleep(1.6 - (time.monotonic() - after))
+    gone = await backend.get(name=name)
+
+    assert record.lease_duration == timedelta(milliseconds=1001)
+    assert held is not None
+    assert held.holder == token
+    assert gone is None
+
+
+@pytest.mark.integration
+async def test_redis_leader_record_reads_back_to_the_microsecond(
+    backend: RedisLeaderElectionAdapter,
+) -> None:
+    """The lease and its times read back exact to the microsecond."""
+    # Arrange
+    name = "exact" + uuid4().hex
+    token = uuid4().hex
+    lease = timedelta(microseconds=1_000_001)
+
+    # Act
+    record = await backend.acquire_or_renew(
+        name=name, token=token, duration=lease
+    )
+    stored = await backend.get(name=name)
+    renewed_us = await backend.provider.client.hget(
+        f"le_us:{name}", "renewed_at_us"
+    )
+
+    # Assert
+    assert record.lease_duration == lease
+    assert stored == record
+    assert renewed_us is not None
+    assert int(renewed_us) == (record.renewed_at - _EPOCH) // _MICROSECOND
+
+
+@pytest.mark.integration
+async def test_redis_leader_ignores_a_record_in_the_previous_format(
+    backend: RedisLeaderElectionAdapter,
+) -> None:
+    """A record stored in seconds under the old key never blocks a leader."""
+    # Arrange
+    name = "previous" + uuid4().hex
+    await backend.provider.client.hset(
+        name,
+        mapping={
+            "holder": "old-worker",
+            "lease_duration": "60",
+            "acquired_at": str(time.time()),
+            "renewed_at": str(time.time()),
+            "transitions": "0",
+            "metadata": "{}",
+        },
+    )
+
+    # Act
+    record = await backend.acquire_or_renew(
+        name=name, token="new-worker", duration=DURATION
+    )
+
+    # Assert
+    assert record.holder == "new-worker"

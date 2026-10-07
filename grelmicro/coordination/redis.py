@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import round_up
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
@@ -165,12 +166,12 @@ class RedisLockAdapter(LockBackend):
         return f"{self._key_prefix}fence:{name}"
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire the lock, returning the fencing token or `None`."""
         fence = await self._lua_acquire(
             keys=[f"{self._key_prefix}{name}", self._fence_key(name)],
-            args=[token, int(duration * 1000)],
+            args=[token, _duration_ms(duration)],
             client=self._provider.client,
         )
         return int(fence) if fence is not None else None
@@ -473,7 +474,7 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
         return [base, f"{base}:r", f"{base}:i"]
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a read lease, returning the generation or `None`."""
         generation = await self._lua_acquire_read(
@@ -484,7 +485,7 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
         return int(generation) if generation is not None else None
 
     async def acquire_write(
-        self, *, name: str, token: str, duration: float, intent: bool = True
+        self, *, name: str, token: str, duration: timedelta, intent: bool = True
     ) -> WriteGrant | None:
         """Acquire the write lease, returning the grant or `None`."""
         result = await self._lua_acquire_write(
@@ -528,7 +529,7 @@ class RedisReadWriteLockAdapter(ReadWriteLockBackend):
         )
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Turn a held write lease into a read lease."""
         generation = await self._lua_downgrade(
@@ -702,8 +703,9 @@ class RedisLeaderElectionAdapter:
     acquire-or-renew decision runs server-side in a Lua script, so it is
     atomic across processes and machines.
 
-    Expiry is computed inside Lua from the stored `renewed_at` plus
-    `lease_duration` against the Redis server clock, not a key TTL. The
+    The record keeps the lease and its times in whole microseconds, under a
+    `le_us:` key. Expiry is computed inside Lua from the stored renewal
+    time plus the lease against the Redis server clock, not a key TTL. The
     expired record is kept on purpose so a takeover by a different holder
     can increment `transitions`.
 
@@ -715,41 +717,44 @@ class RedisLeaderElectionAdapter:
     scope: ClassVar[BackendScope] = "cluster"
     """State is shared by every process that connects to it."""
 
-    _LUA_ACQUIRE_OR_RENEW = """
+    _KEY_PREFIX = "le_us:"
+    """Marks the record layout in whole microseconds."""
+
+    _FIELDS = """
+        'holder', 'lease_us', 'acquired_at_us',
+        'renewed_at_us', 'transitions', 'metadata'
+    """
+
+    _LUA_NOW_US = """
+        local now_pair = redis.call('TIME')
+        local now = tonumber(now_pair[1]) * 1000000 + tonumber(now_pair[2])
+    """
+
+    _LUA_ACQUIRE_OR_RENEW = f"""
         local key = KEYS[1]
         local token = ARGV[1]
-        local duration = tonumber(ARGV[2])
+        local lease = ARGV[2]
         local metadata = ARGV[3]
+        {_LUA_NOW_US}
+        local now_text = string.format('%.0f', now)
 
-        local now_pair = redis.call('TIME')
-        local now = now_pair[1] + (now_pair[2] / 1000000)
-
-        local stored = redis.call(
-            'HMGET', key,
-            'holder', 'lease_duration', 'acquired_at',
-            'renewed_at', 'transitions', 'metadata'
-        )
+        local stored = redis.call('HMGET', key, {_FIELDS})
 
         if stored[1] == false then
             -- No record ever existed: acquire fresh.
             redis.call(
                 'HSET', key,
                 'holder', token,
-                'lease_duration', tostring(duration),
-                'acquired_at', tostring(now),
-                'renewed_at', tostring(now),
+                'lease_us', lease,
+                'acquired_at_us', now_text,
+                'renewed_at_us', now_text,
                 'transitions', '0',
                 'metadata', metadata
             )
-            return redis.call(
-                'HMGET', key,
-                'holder', 'lease_duration', 'acquired_at',
-                'renewed_at', 'transitions', 'metadata'
-            )
+            return redis.call('HMGET', key, {_FIELDS})
         end
 
         local holder = stored[1]
-        local prev_acquired_at = stored[3]
         local prev_renewed_at = tonumber(stored[4])
         local prev_lease = tonumber(stored[2])
         local prev_transitions = tonumber(stored[5])
@@ -765,15 +770,11 @@ class RedisLeaderElectionAdapter:
             -- transitions.
             redis.call(
                 'HSET', key,
-                'lease_duration', tostring(duration),
-                'renewed_at', tostring(now),
+                'lease_us', lease,
+                'renewed_at_us', now_text,
                 'metadata', metadata
             )
-            return redis.call(
-                'HMGET', key,
-                'holder', 'lease_duration', 'acquired_at',
-                'renewed_at', 'transitions', 'metadata'
-            )
+            return redis.call('HMGET', key, {_FIELDS})
         end
 
         -- Expired record: acquire. Same holder keeps transitions, a
@@ -785,31 +786,25 @@ class RedisLeaderElectionAdapter:
         redis.call(
             'HSET', key,
             'holder', token,
-            'lease_duration', tostring(duration),
-            'acquired_at', tostring(now),
-            'renewed_at', tostring(now),
-            'transitions', tostring(transitions),
+            'lease_us', lease,
+            'acquired_at_us', now_text,
+            'renewed_at_us', now_text,
+            'transitions', string.format('%d', transitions),
             'metadata', metadata
         )
-        return redis.call(
-            'HMGET', key,
-            'holder', 'lease_duration', 'acquired_at',
-            'renewed_at', 'transitions', 'metadata'
-        )
+        return redis.call('HMGET', key, {_FIELDS})
     """
-    _LUA_RELEASE = """
+    _LUA_RELEASE = f"""
         local key = KEYS[1]
         local token = ARGV[1]
 
         local stored = redis.call(
-            'HMGET', key, 'holder', 'lease_duration', 'renewed_at'
+            'HMGET', key, 'holder', 'lease_us', 'renewed_at_us'
         )
         if stored[1] == false then
             return 0
         end
-
-        local now_pair = redis.call('TIME')
-        local now = now_pair[1] + (now_pair[2] / 1000000)
+        {_LUA_NOW_US}
         local live = now < (tonumber(stored[3]) + tonumber(stored[2]))
 
         if live and stored[1] == token then
@@ -818,19 +813,13 @@ class RedisLeaderElectionAdapter:
         end
         return 0
     """
-    _LUA_GET = """
+    _LUA_GET = f"""
         local key = KEYS[1]
-        local stored = redis.call(
-            'HMGET', key,
-            'holder', 'lease_duration', 'acquired_at',
-            'renewed_at', 'transitions', 'metadata'
-        )
+        local stored = redis.call('HMGET', key, {_FIELDS})
         if stored[1] == false then
             return nil
         end
-
-        local now_pair = redis.call('TIME')
-        local now = now_pair[1] + (now_pair[2] / 1000000)
+        {_LUA_NOW_US}
         local live = now < (tonumber(stored[4]) + tonumber(stored[2]))
         if not live then
             return nil
@@ -913,28 +902,24 @@ class RedisLeaderElectionAdapter:
 
     def _key(self, name: str) -> str:
         """Return the Redis key for an election name."""
-        return f"{self._key_prefix}{name}"
+        return f"{self._key_prefix}{self._KEY_PREFIX}{name}"
 
     @staticmethod
     def _to_record(raw: list[bytes | None]) -> LeaderRecord:
         """Build a `LeaderRecord` from a Redis HMGET result."""
         (
             holder,
-            lease_duration,
-            acquired_at,
-            renewed_at,
+            lease_us,
+            acquired_at_us,
+            renewed_at_us,
             transitions,
             metadata,
         ) = raw
         return LeaderRecord(
             holder=_as_str(holder),
-            lease_duration=float(_as_str(lease_duration)),
-            acquired_at=datetime.fromtimestamp(
-                float(_as_str(acquired_at)), tz=UTC
-            ),
-            renewed_at=datetime.fromtimestamp(
-                float(_as_str(renewed_at)), tz=UTC
-            ),
+            lease_duration=_microseconds(lease_us),
+            acquired_at=_EPOCH + _microseconds(acquired_at_us),
+            renewed_at=_EPOCH + _microseconds(renewed_at_us),
             transitions=int(_as_str(transitions)),
             metadata=json.loads(_as_str(metadata)),
         )
@@ -944,13 +929,17 @@ class RedisLeaderElectionAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         metadata: Mapping[str, str] | None = None,
     ) -> LeaderRecord:
         """Acquire or renew the lease, returning the resulting record."""
         raw = await self._lua_acquire(
             keys=[self._key(name)],
-            args=[token, duration, json.dumps(dict(metadata or {}))],
+            args=[
+                token,
+                round_up(duration, _MICROSECOND),
+                json.dumps(dict(metadata or {})),
+            ],
             client=self._provider.client,
         )
         return self._to_record(raw)
@@ -976,14 +965,23 @@ class RedisLeaderElectionAdapter:
         return self._to_record(raw)
 
 
-def _duration_ms(duration: float) -> int:
-    """Return the lease duration in whole milliseconds, never zero.
+_MICROSECOND = timedelta(microseconds=1)
 
-    A duration under a millisecond would floor to zero, and a lease that
-    expires the moment it is granted is never what a positive duration
-    asked for.
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _microseconds(value: bytes | str | None) -> timedelta:
+    """Read a stored count of whole microseconds as a timedelta."""
+    return timedelta(microseconds=int(_as_str(value)))
+
+
+def _duration_ms(duration: timedelta) -> int:
+    """Return the lease duration in whole milliseconds, rounded up.
+
+    A positive duration is at least one millisecond, so a lease never
+    expires the moment it is granted.
     """
-    return max(1, int(duration * 1000))
+    return max(1, round_up(duration, timedelta(milliseconds=1)))
 
 
 def _as_str(value: bytes | str | None) -> str:

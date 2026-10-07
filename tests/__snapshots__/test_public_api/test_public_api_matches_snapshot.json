@@ -137,7 +137,7 @@
       "()": "(*args, **kwargs)"
     },
     "LeaderElectionConfig": {
-      "()": "(*, worker=<factory>, lease_duration=15, renew_deadline=10, retry_interval=2, backend_timeout=5, error_interval=30, retry_jitter=0.1) -> None"
+      "()": "(*, worker=<factory>, lease_duration=datetime.timedelta(seconds=15), renew_deadline=datetime.timedelta(seconds=10), retry_interval=2, backend_timeout=5, error_interval=30, retry_jitter=0.1) -> None"
     },
     "LeaderRecord": {
       "()": "(holder, lease_duration, acquired_at, renewed_at, transitions, metadata=<factory>) -> None"
@@ -154,7 +154,7 @@
     },
     "LockBackendError": null,
     "LockConfig": {
-      "()": "(*, worker=<factory>, lease_duration=60, retry_interval=0.1, retry_jitter=0.1) -> None"
+      "()": "(*, worker=<factory>, lease_duration=datetime.timedelta(seconds=60), retry_interval=0.1, retry_jitter=0.1) -> None"
     },
     "LockHandle": {
       "()": "(name, token, fencing_token) -> None"
@@ -194,7 +194,7 @@
       "()": "(*args, **kwargs)"
     },
     "ReadWriteLockConfig": {
-      "()": "(*, worker=<factory>, lease_duration=60, retry_interval=0.1, retry_jitter=0.1) -> None"
+      "()": "(*, worker=<factory>, lease_duration=datetime.timedelta(seconds=60), retry_interval=0.1, retry_jitter=0.1) -> None"
     },
     "ReadWriteLockState": {
       "()": "(generation, writing, readers, waiting_writers) -> None"
@@ -207,7 +207,7 @@
       ".from_config": "(name, config, *, backend=None) -> Self"
     },
     "TaskLockConfig": {
-      "()": "(*, worker=<factory>, min_hold_duration=1, lease_duration=60) -> None"
+      "()": "(*, worker=<factory>, min_hold_duration=datetime.timedelta(seconds=1), lease_duration=datetime.timedelta(seconds=60)) -> None"
     },
     "WouldBlockError": null,
     "WriteGrant": {

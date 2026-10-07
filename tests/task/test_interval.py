@@ -101,14 +101,14 @@ def test_interval_task_lock_default_name_restamped() -> None:
         name="cleanup",
         gate=TaskLock(
             backend=backend,
-            lease_duration=lease_duration,
+            lease_duration=timedelta(seconds=lease_duration),
             min_hold_duration=60,
         ),
     )
     task_lock = task._sync_primitives[0]
     assert isinstance(task_lock, TaskLock)
     assert task_lock.name == "cleanup"
-    assert task_lock.config.lease_duration == lease_duration
+    assert task_lock.config.lease_duration == timedelta(seconds=lease_duration)
 
 
 def test_interval_task_lock_explicit_name_honored() -> None:
@@ -154,8 +154,8 @@ def test_interval_task_leader_auto_locks() -> None:
     task_locks = [p for p in task._sync_primitives if isinstance(p, TaskLock)]
     assert len(task_locks) == 1
     assert task_locks[0].name == "cleanup"
-    assert task_locks[0].config.lease_duration == seconds * 2
-    assert task_locks[0].config.min_hold_duration == seconds
+    assert task_locks[0].config.lease_duration == timedelta(seconds=seconds * 2)
+    assert task_locks[0].config.min_hold_duration == timedelta(seconds=seconds)
 
 
 def test_interval_task_local_no_sync() -> None:
@@ -178,8 +178,8 @@ def test_interval_task_claim_builds_interval_lock(
     (task_lock,) = task._sync_primitives
     assert isinstance(task_lock, TaskLock)
     assert task_lock.name == "cleanup"
-    assert task_lock.config.min_hold_duration == seconds
-    assert task_lock.config.lease_duration == seconds * 2
+    assert task_lock.config.min_hold_duration == timedelta(seconds=seconds)
+    assert task_lock.config.lease_duration == timedelta(seconds=seconds * 2)
 
 
 def test_interval_task_lock_gate_is_the_callers_handle() -> None:
@@ -459,16 +459,18 @@ async def test_interval_task_lock_gate_refuses_a_shorter_reconfigured_hold() -> 
     interval = 60
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 2,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 2),
+        min_hold_duration=timedelta(seconds=interval),
     )
     IntervalTask(seconds=interval, function=test1, name="cleanup", gate=lock)
-    shorter = lock.config.model_copy(update={"min_hold_duration": 1})
+    shorter = lock.config.model_copy(
+        update={"min_hold_duration": timedelta(seconds=1)}
+    )
 
     with pytest.raises(SettingsValidationError, match="min_hold_duration"):
         await lock.reconfigure(shorter)
 
-    assert lock.config.min_hold_duration == interval
+    assert lock.config.min_hold_duration == timedelta(seconds=interval)
 
 
 async def test_interval_task_lock_gate_takes_a_longer_reconfigured_hold() -> (
@@ -478,15 +480,17 @@ async def test_interval_task_lock_gate_takes_a_longer_reconfigured_hold() -> (
     interval = 60
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 5,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 5),
+        min_hold_duration=timedelta(seconds=interval),
     )
     IntervalTask(seconds=interval, function=test1, name="cleanup", gate=lock)
-    longer = lock.config.model_copy(update={"min_hold_duration": interval * 2})
+    longer = lock.config.model_copy(
+        update={"min_hold_duration": timedelta(seconds=interval * 2)}
+    )
 
     await lock.reconfigure(longer)
 
-    assert lock.config.min_hold_duration == interval * 2
+    assert lock.config.min_hold_duration == timedelta(seconds=interval * 2)
 
 
 @pytest.mark.parametrize("gate", ["claim", "leader"])
@@ -506,12 +510,14 @@ async def test_interval_task_built_claim_lock_refuses_a_shorter_hold(
         gate=resolved,  # ty: ignore[invalid-argument-type]
     )
     (lock,) = [p for p in task._sync_primitives if isinstance(p, TaskLock)]
-    shorter = lock.config.model_copy(update={"min_hold_duration": 1})
+    shorter = lock.config.model_copy(
+        update={"min_hold_duration": timedelta(seconds=1)}
+    )
 
     with pytest.raises(SettingsValidationError, match="min_hold_duration"):
         await lock.reconfigure(shorter)
 
-    assert lock.config.min_hold_duration == interval
+    assert lock.config.min_hold_duration == timedelta(seconds=interval)
 
 
 async def test_interval_task_renewal_stops_when_the_body_ends(
@@ -521,8 +527,8 @@ async def test_interval_task_renewal_stops_when_the_body_ends(
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 2,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 2),
+        min_hold_duration=timedelta(seconds=interval),
     )
     samples.long_body_seconds = interval * 4
     task = IntervalTask(
@@ -546,8 +552,8 @@ async def test_interval_task_lost_claim_warns_once_and_keeps_the_body(
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 2,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 2),
+        min_hold_duration=timedelta(seconds=interval),
     )
     samples.long_body_seconds = interval * 4
     task = IntervalTask(
@@ -574,8 +580,8 @@ async def test_interval_task_renewal_retries_until_the_deadline(
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 2,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 2),
+        min_hold_duration=timedelta(seconds=interval),
     )
     samples.long_body_seconds = interval * 6
     task = IntervalTask(
@@ -601,8 +607,8 @@ async def test_interval_task_logs_a_claim_lost_before_release(
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 2,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 2),
+        min_hold_duration=timedelta(seconds=interval),
     )
     samples.long_body_seconds = interval * 4
     task = IntervalTask(
@@ -628,8 +634,8 @@ async def test_interval_task_cancel_survives_a_claim_lost_on_release(
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 2,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 2),
+        min_hold_duration=timedelta(seconds=interval),
     )
     task = IntervalTask(
         seconds=interval, function=samples.worker_1_hold, gate=lock
@@ -653,8 +659,8 @@ async def test_interval_task_default_named_gate_reloads_under_its_task() -> (
     """A default-named gate lock takes external config under its task name."""
     first, second = (
         TaskLock(
-            lease_duration=RELOAD_INTERVAL * 10,
-            min_hold_duration=RELOAD_INTERVAL,
+            lease_duration=timedelta(seconds=RELOAD_INTERVAL * 10),
+            min_hold_duration=timedelta(seconds=RELOAD_INTERVAL),
             env_load=False,
         )
         for _ in range(2)
@@ -673,8 +679,8 @@ async def test_interval_task_default_named_gate_reloads_under_its_task() -> (
         }
     )
 
-    assert first.config.min_hold_duration == RELOAD_TUNED
-    assert second.config.min_hold_duration == RELOAD_INTERVAL
+    assert first.config.min_hold_duration == timedelta(seconds=RELOAD_TUNED)
+    assert second.config.min_hold_duration == timedelta(seconds=RELOAD_INTERVAL)
 
 
 async def test_interval_task_gate_built_from_config_stays_static() -> None:
@@ -683,8 +689,8 @@ async def test_interval_task_gate_built_from_config_stays_static() -> None:
         "default",
         TaskLockConfig(
             worker="worker",
-            lease_duration=RELOAD_INTERVAL * 10,
-            min_hold_duration=RELOAD_INTERVAL,
+            lease_duration=timedelta(seconds=RELOAD_INTERVAL * 10),
+            min_hold_duration=timedelta(seconds=RELOAD_INTERVAL),
         ),
         backend=MemoryLockAdapter(),
     )
@@ -696,7 +702,7 @@ async def test_interval_task_gate_built_from_config_stays_static() -> None:
         {"GREL_TASKLOCK_STATIC_MIN_HOLD_DURATION": str(RELOAD_TUNED)}
     )
 
-    assert lock.config.min_hold_duration == RELOAD_INTERVAL
+    assert lock.config.min_hold_duration == timedelta(seconds=RELOAD_INTERVAL)
 
 
 class _SlowLock(LockPrimitive):
@@ -725,8 +731,8 @@ async def test_interval_task_renews_the_claim_while_waiting_for_sync() -> None:
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 2,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 2),
+        min_hold_duration=timedelta(seconds=interval),
     )
     task = IntervalTask(
         seconds=interval,
@@ -748,15 +754,17 @@ async def test_interval_task_renewal_follows_a_reconfigured_lease(
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=interval * 20,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=interval * 20),
+        min_hold_duration=timedelta(seconds=interval),
     )
     samples.long_body_seconds = interval * 10
     task = IntervalTask(
         seconds=interval, function=samples.run_long_body, gate=lock
     )
     renewals = mocker.spy(lock, "_renew_held")
-    shorter = lock.config.model_copy(update={"lease_duration": interval * 3})
+    shorter = lock.config.model_copy(
+        update={"lease_duration": timedelta(seconds=interval * 3)}
+    )
 
     async def shorten() -> None:
         await sleep(interval)
@@ -778,8 +786,8 @@ async def test_interval_task_renewal_outlasts_a_short_backend_outage(
     lease = interval * 4
     lock = TaskLock(
         backend=MemoryLockAdapter(),
-        lease_duration=lease,
-        min_hold_duration=interval,
+        lease_duration=timedelta(seconds=lease),
+        min_hold_duration=timedelta(seconds=interval),
     )
     samples.long_body_seconds = lease * 1.5
     task = IntervalTask(
@@ -803,8 +811,8 @@ async def test_interval_task_renewal_outlasts_a_short_backend_outage(
 async def test_interval_task_default_gate_on_a_name_env_cannot_spell() -> None:
     """A task name no env var can spell still binds, and reload skips it."""
     lock = TaskLock(
-        lease_duration=RELOAD_INTERVAL * 2,
-        min_hold_duration=RELOAD_INTERVAL,
+        lease_duration=timedelta(seconds=RELOAD_INTERVAL * 2),
+        min_hold_duration=timedelta(seconds=RELOAD_INTERVAL),
         env_load=False,
     )
     IntervalTask(
@@ -816,4 +824,4 @@ async def test_interval_task_default_gate_on_a_name_env_cannot_spell() -> None:
     )
 
     assert lock.name == "5m-sync"
-    assert lock.config.min_hold_duration == RELOAD_INTERVAL
+    assert lock.config.min_hold_duration == timedelta(seconds=RELOAD_INTERVAL)

@@ -3,6 +3,7 @@
 import asyncio
 import sqlite3
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -49,7 +50,10 @@ def _busy_error() -> sqlite3.OperationalError:
 
 
 @_tasks.every(
-    seconds=0.05, gate=TaskLock(lease_duration=2, min_hold_duration=0.05)
+    seconds=0.05,
+    gate=TaskLock(
+        lease_duration=2, min_hold_duration=timedelta(milliseconds=50)
+    ),
 )
 async def _locked_job() -> None:
     """Interval task gated by a distributed lock on the shared file."""

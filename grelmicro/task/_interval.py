@@ -106,7 +106,9 @@ class IntervalTask(Task):
         if gate is None:
             return []
         if isinstance(gate, TaskLock):
-            gate._bind_task(self._name, interval=seconds)  # noqa: SLF001
+            gate._bind_task(  # noqa: SLF001
+                self._name, interval=timedelta(seconds=seconds)
+            )
             return [gate]
         if isinstance(gate, LeaderElection):
             return [gate.guard(), self._claim_lock(seconds)]
@@ -121,15 +123,16 @@ class IntervalTask(Task):
         The lock is built from a fixed config, so neither the environment
         nor an external reload retunes it.
         """
+        interval = timedelta(seconds=seconds)
         lock = TaskLock.from_config(
             self._name,
             TaskLockConfig(
                 worker=generate_worker_id(),
-                min_hold_duration=seconds,
-                lease_duration=seconds * 2,
+                min_hold_duration=interval,
+                lease_duration=interval * 2,
             ),
         )
-        lock._bind_task(self._name, interval=seconds)  # noqa: SLF001
+        lock._bind_task(self._name, interval=interval)  # noqa: SLF001
         return lock
 
     @property
@@ -259,7 +262,7 @@ class IntervalTask(Task):
         renewed_at = time.monotonic()
         failing = False
         while True:
-            lease = claim.config.lease_duration
+            lease = claim.config.lease_duration.total_seconds()
             delay = lease / 10 if failing else lease / 3
             if await sleep_or_stop(delay, done):
                 return

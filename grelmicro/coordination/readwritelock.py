@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from datetime import timedelta
 from time import monotonic
 from typing import TYPE_CHECKING, Annotated, ClassVar, Final, Self
 from weakref import WeakKeyDictionary
@@ -149,10 +150,11 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The duration in seconds a lease is held by default.
+                How long a lease is held by default, in whole seconds or as
+                a `timedelta`. A float is refused.
 
                 Default: 60. Covers a reader lease, a writer lease, and a
                 waiting writer's intent. When unset and env reads are enabled
@@ -554,7 +556,7 @@ class ReadMode(_Mode):
         return guard
 
     def _new_guard(
-        self, token: str, generation: int, duration: float
+        self, token: str, generation: int, duration: timedelta
     ) -> ReadGuard:
         """Build a guard for a granted read lease."""
         return ReadGuard(
@@ -562,7 +564,7 @@ class ReadMode(_Mode):
             name=self.name,
             token=token,
             generation=generation,
-            expires_at=monotonic() + duration,
+            expires_at=monotonic() + duration.total_seconds(),
         )
 
     async def _drop_lease(self, guard: ReadGuard) -> bool:
@@ -600,7 +602,9 @@ class ReadMode(_Mode):
         except Exception as exc:
             raise LockOwnedCheckError(name=self.name) from exc
 
-    async def do_acquire(self, token: str, *, duration: float) -> int | None:
+    async def do_acquire(
+        self, token: str, *, duration: timedelta
+    ) -> int | None:
         """Ask the backend for a read lease.
 
         Raises:
@@ -619,7 +623,9 @@ class ReadMode(_Mode):
             metrics.hold(1)
         return generation
 
-    async def _backend_acquire(self, token: str, duration: float) -> int | None:
+    async def _backend_acquire(
+        self, token: str, duration: timedelta
+    ) -> int | None:
         """Ask the backend for a read lease, without counting the outcome.
 
         Acquiring and renewing both land here and emit nothing, because
@@ -657,7 +663,7 @@ class ReadMode(_Mode):
             guard._invalidate()  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
         metrics.renewal(SUCCESS)
-        guard._renewed(monotonic() + duration)  # noqa: SLF001
+        guard._renewed(monotonic() + duration.total_seconds())  # noqa: SLF001
 
     def _adopt(self, guard: ReadGuard, holder: asyncio.Task[object]) -> None:
         """Register a guard produced by a downgrade."""
@@ -899,7 +905,7 @@ class WriteMode(_Mode):
         return guard
 
     def _new_guard(
-        self, token: str, grant: WriteGrant, duration: float
+        self, token: str, grant: WriteGrant, duration: timedelta
     ) -> WriteGuard:
         """Build a guard for a granted write lease."""
         return WriteGuard(
@@ -908,14 +914,14 @@ class WriteMode(_Mode):
             token=token,
             fencing_token=grant.fencing_token,
             poisoned=grant.poisoned,
-            expires_at=monotonic() + duration,
+            expires_at=monotonic() + duration.total_seconds(),
         )
 
     async def _acquire_with_intent(
         self,
         token: str,
         *,
-        duration: float,
+        duration: timedelta,
         timeout: float | None,  # noqa: ASYNC109
     ) -> WriteGrant:
         """Retry until granted, withdrawing the intent if the wait ends badly.
@@ -959,7 +965,7 @@ class WriteMode(_Mode):
         return released
 
     async def do_acquire(
-        self, token: str, *, duration: float, intent: bool
+        self, token: str, *, duration: timedelta, intent: bool
     ) -> WriteGrant | None:
         """Ask the backend for a write lease.
 
@@ -982,7 +988,7 @@ class WriteMode(_Mode):
         return grant
 
     async def _backend_acquire(
-        self, token: str, *, duration: float, intent: bool
+        self, token: str, *, duration: timedelta, intent: bool
     ) -> WriteGrant | None:
         """Ask the backend for a write lease, without counting the outcome.
 
@@ -1028,7 +1034,7 @@ class WriteMode(_Mode):
             guard._invalidate()  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
         metrics.renewal(SUCCESS)
-        guard._renewed(monotonic() + duration)  # noqa: SLF001
+        guard._renewed(monotonic() + duration.total_seconds())  # noqa: SLF001
         if grant.fencing_token != guard._fencing_token:  # noqa: SLF001
             guard._fencing_token = grant.fencing_token  # noqa: SLF001
             guard._poisoned = True  # noqa: SLF001

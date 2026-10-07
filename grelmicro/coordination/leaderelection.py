@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
+from datetime import timedelta
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
@@ -19,6 +20,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._duration import Duration
 from grelmicro._environment import record_coordination
 from grelmicro._task import Task
 from grelmicro.coordination._base import (
@@ -64,21 +66,28 @@ class LeaderElectionConfig(BaseLockConfig):
     """
 
     lease_duration: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The lease duration in seconds.
+            The lease duration, in whole seconds or as a `timedelta`.
+
+            A float is refused. From text, such as an environment
+            variable, it reads whole seconds (`"15"`) or an ISO 8601
+            duration (`"PT0.5S"`).
             """,
         ),
-    ] = 15
+    ] = timedelta(seconds=15)
     renew_deadline: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The renew deadline in seconds.
+            The renew deadline, in whole seconds or as a `timedelta`.
+
+            A float is refused. From text it reads like
+            `lease_duration`.
             """,
         ),
-    ] = 10
+    ] = timedelta(seconds=10)
     retry_interval: Annotated[
         Seconds,
         Doc(
@@ -120,10 +129,11 @@ class LeaderElectionConfig(BaseLockConfig):
         if self.renew_deadline >= self.lease_duration:
             msg = "Renew deadline must be shorter than lease duration"
             raise ValueError(msg)
-        if self.retry_interval >= self.renew_deadline:
+        renew_deadline = self.renew_deadline.total_seconds()
+        if self.retry_interval >= renew_deadline:
             msg = "Retry interval must be shorter than renew deadline"
             raise ValueError(msg)
-        if self.backend_timeout >= self.renew_deadline:
+        if self.backend_timeout >= renew_deadline:
             msg = "Backend timeout must be shorter than renew deadline"
             raise ValueError(msg)
         if not (0 <= self.retry_jitter < 1):
@@ -186,10 +196,11 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The duration in seconds after the lock will be released if not renewed.
+                How long the lease lasts when it is not renewed, in whole
+                seconds or as a `timedelta`. A float is refused.
 
                 Default: 15. If the worker becomes unavailable, the lock
                 can only be acquired by another worker after it has
@@ -204,11 +215,12 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             ),
         ] = None,
         renew_deadline: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The duration in seconds that the leader worker will try to acquire the lock before
-                giving up.
+                How long the leader worker tries to renew the lease before
+                giving up, in whole seconds or as a `timedelta`. A float is
+                refused.
 
                 Default: 10. Must be shorter than the lease duration.
                 In case of multiple errors, the leader worker will
@@ -764,7 +776,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         self, config: LeaderElectionConfig
     ) -> float:
         return max(
-            self._state_updated_at + config.lease_duration - monotonic(),
+            self._state_updated_at
+            + config.lease_duration.total_seconds()
+            - monotonic(),
             0,
         )
 
@@ -778,7 +792,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         return is_logging_allowed
 
     def _is_renew_deadline_reached(self, config: LeaderElectionConfig) -> bool:
-        return (monotonic() - self._state_updated_at) >= config.renew_deadline
+        return (
+            monotonic() - self._state_updated_at
+        ) >= config.renew_deadline.total_seconds()
 
     def guard(self) -> _LeaderGuard:
         """Return a non-blocking synchronization guard.

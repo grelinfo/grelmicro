@@ -147,9 +147,9 @@ take.
 | `SlidingWindowConfig.window` | `int \| timedelta` | yes |
 | `ClientBansConfig.window`, `.duration` | `int \| timedelta` | not yet |
 | `ConsecutiveCountConfig.reset_timeout` | `int \| timedelta` | not yet |
-| `LockConfig.lease_duration`, `ReadWriteLockConfig.lease_duration` | `int \| timedelta` | not yet |
-| `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | not yet |
-| `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | not yet |
+| `LockConfig.lease_duration`, `ReadWriteLockConfig.lease_duration` | `int \| timedelta` | yes |
+| `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | yes |
+| `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | yes |
 | `OutboxConfig.lease_duration`, `.keep_delivered` | `int \| timedelta` | not yet |
 | `TTLCacheConfig.ttl`, `cached(ttl, stale_ttl)` | `int \| timedelta` | not yet |
 | `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs | `int \| timedelta` | not yet |

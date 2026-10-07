@@ -8,6 +8,7 @@ unreachable, and a lease lost before the work under it finished.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
@@ -33,7 +34,7 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.timeout(5)]
 
-LEASE = 5.0
+LEASE = 5
 
 
 class _FailingLockBackend:
@@ -53,7 +54,7 @@ class _FailingLockBackend:
         return None
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         raise RuntimeError(name or token or duration)
 
@@ -279,7 +280,7 @@ async def test_task_lock_counts_its_own_mode(
             "sweep",
             backend=backend,
             lease_duration=LEASE,
-            min_hold_duration=0.01,
+            min_hold_duration=timedelta(milliseconds=10),
         )
         async with lock:
             await lock.refresh()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Self
 
 import pytest
@@ -145,7 +146,7 @@ async def test_reconfigure_all_applies_mutable_beside_immutable_worker() -> (
         backend=MemoryLockAdapter(),
         name="cart",
         worker="w1",
-        lease_duration=15.0,
+        lease_duration=15,
     )
 
     # Act
@@ -157,7 +158,7 @@ async def test_reconfigure_all_applies_mutable_beside_immutable_worker() -> (
     )
 
     # Assert: lease applied, worker left unchanged.
-    assert lock.config.lease_duration == 30.0  # noqa: PLR2004
+    assert lock.config.lease_duration == timedelta(seconds=30)
     assert str(lock.config.worker) == "w1"
 
 

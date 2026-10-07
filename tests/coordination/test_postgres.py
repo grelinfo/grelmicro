@@ -1,6 +1,8 @@
 """Tests for the Postgres leader election backend."""
 
+import time
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -47,7 +49,9 @@ async def test_out_of_context_errors() -> None:
     token = "token"
 
     with pytest.raises(OutOfContextError):
-        await backend.acquire_or_renew(name=name, token=token, duration=1)
+        await backend.acquire_or_renew(
+            name=name, token=token, duration=timedelta(seconds=1)
+        )
     with pytest.raises(OutOfContextError):
         await backend.release(name=name, token=token)
     with pytest.raises(OutOfContextError):
@@ -207,8 +211,8 @@ def test_decode_metadata(value: object, expected: dict[str, str]) -> None:
 
 pytestmark: list[pytest.MarkDecorator] = []
 
-_DURATION = 1.0
-_EXPIRE_WAIT = _DURATION + 0.3
+_DURATION = timedelta(seconds=1)
+_EXPIRE_WAIT = _DURATION.total_seconds() + 0.3
 
 
 @pytest.fixture(scope="module")
@@ -368,3 +372,30 @@ async def test_metadata_roundtrip(
     fetched = await backend.get(name=name)
     assert fetched is not None
     assert dict(fetched.metadata) == metadata
+
+
+@pytest.mark.integration
+@pytest.mark.timeout(60)
+async def test_a_lease_is_rounded_up_never_down(
+    backend: PostgresLeaderElectionAdapter,
+) -> None:
+    """A lease of 1001 ms reads back exact, is held, and is gone well before 2 s."""
+    from asyncio import sleep  # noqa: PLC0415
+
+    name = "rounding" + uuid4().hex
+    token = uuid4().hex
+    before = time.monotonic()
+
+    record = await backend.acquire_or_renew(
+        name=name, token=token, duration=timedelta(milliseconds=1001)
+    )
+    after = time.monotonic()
+    await sleep(0.5 - (time.monotonic() - before))
+    held = await backend.get(name=name)
+    await sleep(1.6 - (time.monotonic() - after))
+    gone = await backend.get(name=name)
+
+    assert record.lease_duration == timedelta(milliseconds=1001)
+    assert held is not None
+    assert held.holder == token
+    assert gone is None
