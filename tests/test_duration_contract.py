@@ -3,13 +3,13 @@
 import importlib
 import pkgutil
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import timedelta
 
 from pydantic import BaseModel
 
 import grelmicro
-from grelmicro._duration import Duration
+from grelmicro._duration import CacheTTL, Duration
 
 WAITS = frozenset(
     {
@@ -47,17 +47,8 @@ WAITS = frozenset(
 
 NOT_MOVED_YET = frozenset(
     {
-        ("ClientBansConfig", "duration"),
-        ("ClientBansConfig", "window"),
-        ("DiscoveryConfig", "cache_ttl"),
-        ("DiscoveryConfig", "ttl"),
         ("DuplicateFilterConfig", "ttl"),
         ("HealthChecksConfig", "cache_ttl"),
-        ("JWKSConfig", "cache_ttl"),
-        ("JWKSConfig", "ttl"),
-        ("JWTKeysConfig", "cache_ttl"),
-        ("OAuthClientConfig", "default_lifetime"),
-        ("OAuthClientConfig", "refresh_before"),
         ("OutboxConfig", "keep_delivered"),
         ("OutboxConfig", "lease_duration"),
     }
@@ -82,7 +73,17 @@ NOT_DURATIONS = frozenset(
 )
 """Floats that are rates, ratios or fractions, not durations."""
 
-_DURATION_CHECKS = typing.get_args(Duration)[1:]
+_SHARED_CHECKS = [
+    typing.get_args(shared)[1:] for shared in (Duration, CacheTTL)
+]
+"""The validators of each shared duration type."""
+
+
+def _shared(metadata: Collection[object]) -> bool:
+    """Return whether `metadata` carries every check of one shared type."""
+    return any(
+        all(check in metadata for check in checks) for checks in _SHARED_CHECKS
+    )
 
 
 def _import_all() -> None:
@@ -101,14 +102,14 @@ def _subclasses(cls: type[BaseModel]) -> set[type[BaseModel]]:
 
 
 def _bare(annotation: object, kind: type) -> bool:
-    """Return whether `kind` appears in `annotation` outside `Duration`."""
+    """Return whether `kind` appears in `annotation` outside a shared type."""
     if annotation is kind:
         return True
     if isinstance(annotation, list):
         return any(_bare(arg, kind) for arg in annotation)
     args = typing.get_args(annotation)
     if typing.get_origin(annotation) is typing.Annotated:
-        if all(check in args[1:] for check in _DURATION_CHECKS):
+        if _shared(args[1:]):
             return False
         return _bare(args[0], kind)
     return any(_bare(arg, kind) for arg in args)
@@ -118,7 +119,7 @@ def _unshared(config: type[BaseModel], name: str) -> bool:
     field = config.model_fields[name]
     if _bare(field.annotation, float):
         return True
-    if all(check in field.metadata for check in _DURATION_CHECKS):
+    if _shared(field.metadata):
         return False
     return _bare(field.annotation, timedelta)
 
@@ -168,6 +169,10 @@ class _OptionalDuration(BaseModel):
     ttl: Duration | None = None
 
 
+class _CacheLifetime(BaseModel):
+    cache_ttl: CacheTTL
+
+
 class _FloatsInside(BaseModel):
     delays: tuple[float, ...] = ()
     by_name: dict[str, timedelta] = {}
@@ -177,6 +182,12 @@ class _FloatsInside(BaseModel):
 def test_an_optional_duration_is_shared() -> None:
     """A `Duration | None` field is on the shared type."""
     assert not _unshared(_OptionalDuration, "ttl")
+
+
+def test_duration_contract_cache_ttl_counts_as_shared() -> None:
+    """A `CacheTTL` field is on a shared type."""
+    # Act / Assert
+    assert not _unshared(_CacheLifetime, "cache_ttl")
 
 
 def test_a_float_or_timedelta_inside_a_container_is_found() -> None:

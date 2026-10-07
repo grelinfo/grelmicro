@@ -6,6 +6,7 @@ A field typed `Duration` takes whole seconds as an `int` or a
 
 import re
 from datetime import timedelta
+from math import floor, isfinite
 from time import time_ns
 from typing import Annotated, Any
 
@@ -24,6 +25,9 @@ MILLISECOND = timedelta(milliseconds=1)
 
 SECOND = timedelta(seconds=1)
 """One second."""
+
+NANOSECONDS_PER_SECOND = 1_000_000_000
+"""Nanoseconds in one second, for a clock read in whole nanoseconds."""
 
 MAX_DURATION = timedelta(days=36_500)
 """Longest duration, a hundred years."""
@@ -102,6 +106,15 @@ def clock_microseconds_up() -> int:
     return -(-time_ns() // _NANOSECONDS_PER_MICROSECOND)
 
 
+def nanoseconds_from_seconds(seconds: float) -> int:
+    """Return a number of seconds from outside, in whole nanoseconds.
+
+    For a float a server or a wait setting gives. Rounded down, and capped
+    at a hundred years.
+    """
+    return floor(min(seconds, _MAX_SECONDS) * NANOSECONDS_PER_SECOND)
+
+
 def _name(info: ValidationInfo) -> str:
     """Return the field name, or `duration` outside a field."""
     return info.field_name or "duration"
@@ -174,8 +187,26 @@ def in_range(value: timedelta, name: str) -> timedelta:
     if value <= _ZERO:
         msg = f"{name} must be greater than zero"
         raise ValueError(msg)
+    return _at_most_a_century(value, name)
+
+
+def _at_most_a_century(value: timedelta, name: str) -> timedelta:
+    """Return `value`, refusing a duration over 100 years, named `name`."""
     if value > MAX_DURATION:
         msg = f"{name} must be at most 100 years"
+        raise ValueError(msg)
+    return value
+
+
+def check_finite(value: float, name: str) -> float:
+    """Return a wait of float seconds, refusing one that is not finite.
+
+    Raises:
+        ValueError: If `value` is NaN or infinite. The message names `name`
+            and never the value.
+    """
+    if not isfinite(value):
+        msg = f"{name} must be a finite number"
         raise ValueError(msg)
     return value
 
@@ -197,11 +228,23 @@ def _check_range(value: timedelta, info: ValidationInfo) -> timedelta:
     return in_range(value, _name(info))
 
 
+def _check_cache_range(value: timedelta, info: ValidationInfo) -> timedelta:
+    """Refuse a cache TTL below zero, or over a hundred years."""
+    name = _name(info)
+    if value < _ZERO:
+        msg = f"{name} must not be negative"
+        raise ValueError(msg)
+    return _at_most_a_century(value, name)
+
+
 def _to_text(value: timedelta) -> str:
     """Write `value` as ISO 8601 in days and smaller units.
 
-    Days take the place of years, so the text reads back exactly.
+    Days take the place of years, so the text reads back exactly. A
+    duration of nothing is written `PT0S`.
     """
+    if not value:
+        return "PT0S"
     minutes, seconds = divmod(value.seconds, 60)
     hours, minutes = divmod(minutes, 60)
     text = f"P{value.days}D" if value.days else "P"
@@ -231,6 +274,19 @@ seconds (`"60"`) or an ISO 8601 duration in weeks, days, hours, minutes
 and seconds (`"PT0.5S"`), exact to the microsecond. A decimal number of
 seconds, such as `"1.5"`, is refused, and so are years and months.
 In JSON it is written the same way, in days and smaller units.
+"""
+
+CacheTTL = Annotated[
+    timedelta,
+    BeforeValidator(_parse),
+    AfterValidator(_check_cache_range),
+    PlainSerializer(_to_text, when_used="json"),
+]
+"""How long a component's built-in cache keeps an entry, zero for off.
+
+Takes what a `Duration` takes, and zero too (`0`, `timedelta(0)`, `"0"`
+or `"PT0S"`), which turns that cache off. A negative value, or one over a
+hundred years, is refused.
 """
 
 

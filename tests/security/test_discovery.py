@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import timedelta
 from typing import Any
 
 import anyio
@@ -39,7 +40,7 @@ REALM_OIDC = (
     "https://auth.grel.info/realms/grel/.well-known/openid-configuration"
 )
 HOUR = 3600
-SHORT_TTL = 0.01
+SHORT_TTL = timedelta(milliseconds=10)
 LIVE_TTL = 5
 SIGNER = Signer()
 ROTATED = Signer()
@@ -147,7 +148,7 @@ class TestConfiguration:
         config = DiscoveryConfig(issuer=ISSUER, audience=AUDIENCE, ttl=LIVE_TTL)
 
         assert config.issuer == [ISSUER]
-        assert config.ttl == LIVE_TTL
+        assert config.ttl == timedelta(seconds=LIVE_TTL)
         assert config.timeout > 0
 
 
@@ -212,7 +213,7 @@ class TestDiscovery:
         provider = Provider({OIDC: metadata(), JWKS: key_set()})
         verifier = discovering(provider, ttl=SHORT_TTL)
         await verifier.refresh()
-        await anyio.sleep(SHORT_TTL * 2)
+        await anyio.sleep(SHORT_TTL.total_seconds() * 2)
         provider.calls.clear()
 
         await verifier.refresh(force=True)
@@ -314,7 +315,7 @@ class TestDiscovery:
         provider = Provider({OIDC: metadata(), JWKS: key_set()})
         verifier = discovering(provider, ttl=SHORT_TTL)
         await verifier.refresh()
-        await anyio.sleep(SHORT_TTL * 2)
+        await anyio.sleep(SHORT_TTL.total_seconds() * 2)
         provider.documents[OIDC] = metadata(
             issuer="https://other.grel.info/",
             jwks_uri="https://other.grel.info/keys",
@@ -333,7 +334,7 @@ class TestDiscovery:
         await verifier.reconfigure(
             verifier.config.model_copy(update={"ttl": SHORT_TTL})
         )
-        await anyio.sleep(SHORT_TTL * 2)
+        await anyio.sleep(SHORT_TTL.total_seconds() * 2)
         provider.calls.clear()
 
         await verifier.refresh(force=True)
@@ -363,7 +364,7 @@ class TestDiscovery:
         provider = Provider({OIDC: metadata(), JWKS: key_set()})
         verifier = discovering(provider, ttl=SHORT_TTL)
         await verifier.refresh()
-        await anyio.sleep(SHORT_TTL * 2)
+        await anyio.sleep(SHORT_TTL.total_seconds() * 2)
         provider.documents[OIDC] = b"<html>Down for maintenance</html>"
         provider.documents[JWKS] = rotated_key_set()
 
@@ -378,7 +379,7 @@ class TestDiscovery:
         provider = Provider({OIDC: metadata(), JWKS: key_set()})
         verifier = discovering(provider, ttl=SHORT_TTL)
         await verifier.refresh()
-        await anyio.sleep(SHORT_TTL * 2)
+        await anyio.sleep(SHORT_TTL.total_seconds() * 2)
         del provider.documents[OIDC]
         provider.documents[JWKS] = rotated_key_set()
 
@@ -395,7 +396,7 @@ class TestDiscovery:
         provider = Provider({OIDC: metadata(), JWKS: key_set()})
         verifier = discovering(provider, ttl=SHORT_TTL, retry_interval=HOUR)
         await verifier.refresh()
-        await anyio.sleep(SHORT_TTL * 2)
+        await anyio.sleep(SHORT_TTL.total_seconds() * 2)
         del provider.documents[OIDC]
         await verifier.refresh(force=True)
         provider.calls.clear()
@@ -474,6 +475,6 @@ class TestFactory:
 
         config = verifier.config
         assert isinstance(config, DiscoveryConfig)
-        assert config.ttl == LIVE_TTL
+        assert config.ttl == timedelta(seconds=LIVE_TTL)
         assert config.issuer == [ISSUER]
         assert verifier._source is config

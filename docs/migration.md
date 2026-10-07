@@ -96,6 +96,7 @@ What moved:
 - **Rate limiter**: the sliding window `window`.
 - **Circuit breaker**: `reset_timeout` on `CircuitBreaker.consecutive_count`
   and `ConsecutiveCountConfig`.
+- **Security**: `ClientBans` `window` and `duration`, `JWTVerifier` `ttl` and `cache_ttl` (`0` still turns the cache off), and `OAuthClient` `refresh_before` and `default_lifetime`.
 
 A backend of your own takes each lease, TTL or cool-down as a `timedelta`: the
 `LockBackend`, `ReadWriteLockBackend`, `LeaderElectionBackend` and

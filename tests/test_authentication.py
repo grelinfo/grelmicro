@@ -616,7 +616,7 @@ class TestBans:
 
     def test_a_forging_caller_is_banned(self) -> None:
         """The ban answers before the next token is even looked at."""
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
         app = app_with(
             AuthenticatedRequests(
                 verifier(), bans=bans, trusted=TrustedProxies(PROXIES)
@@ -633,7 +633,7 @@ class TestBans:
 
     def test_an_expired_token_is_never_counted(self) -> None:
         """A client whose token needs refreshing is not an attacker."""
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
         app = app_with(
             AuthenticatedRequests(
                 verifier(), bans=bans, trusted=TrustedProxies(PROXIES)
@@ -823,7 +823,7 @@ class TestCheck:
         """A revoked token is the service's decision, not an attack."""
         check = Revocations()
         check.revoked.add("t-4")
-        bans = ClientBans(failures=1, duration=60.0)
+        bans = ClientBans(failures=1, duration=60)
         client = TestClient(
             app_with(
                 AuthenticatedRequests(
