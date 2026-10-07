@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import timedelta
+from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
+from asyncpg.exceptions import LockNotAvailableError
 from typing_extensions import Doc
 
+from grelmicro._duration import microseconds
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
@@ -23,17 +25,12 @@ from grelmicro.providers.postgres import PostgresProvider
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import timedelta
     from types import TracebackType
 
     from grelmicro.types import BackendScope
 
-
-_MICROSECOND = timedelta(microseconds=1)
-
-
-def _microseconds(duration: timedelta) -> int:
-    """Return `duration` as a whole number of microseconds."""
-    return duration // _MICROSECOND
+logger = getLogger("grelmicro.coordination")
 
 
 class PostgresLockAdapter(LockBackend):
@@ -49,6 +46,11 @@ class PostgresLockAdapter(LockBackend):
     same-holder extend, returning the value with `RETURNING fence`. Release
     clears the holder and expiry but keeps the row and its fence, so the
     fence is strictly monotonic per name across release and re-acquire cycles.
+
+    Expiries live in an `expire_at TIMESTAMPTZ` column, so every session
+    reads the same instant whatever its `TimeZone` setting. Setup converts
+    an `expire_at TIMESTAMP` column left by an earlier release, reading its
+    values in the session time zone.
     """
 
     scope: ClassVar[BackendScope] = "cluster"
@@ -58,14 +60,51 @@ class PostgresLockAdapter(LockBackend):
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     name TEXT PRIMARY KEY,
                     token TEXT,
-                    expire_at TIMESTAMP,
+                    expire_at TIMESTAMPTZ,
                     fence BIGINT NOT NULL DEFAULT 0
                 );
-                ALTER TABLE {table_name}
-                    ADD COLUMN IF NOT EXISTS fence BIGINT NOT NULL DEFAULT 0;
-                ALTER TABLE {table_name} ALTER COLUMN token DROP NOT NULL;
-                ALTER TABLE {table_name} ALTER COLUMN expire_at DROP NOT NULL;
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_attribute
+                        WHERE attrelid = '{table_name}'::regclass
+                            AND attname = 'fence' AND NOT attisdropped
+                    ) THEN
+                        ALTER TABLE {table_name}
+                            ADD COLUMN fence BIGINT NOT NULL DEFAULT 0;
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM pg_attribute
+                        WHERE attrelid = '{table_name}'::regclass
+                            AND attname IN ('token', 'expire_at')
+                            AND attnotnull
+                    ) THEN
+                        ALTER TABLE {table_name}
+                            ALTER COLUMN token DROP NOT NULL,
+                            ALTER COLUMN expire_at DROP NOT NULL;
+                    END IF;
+                END
+                $$;
                 """
+
+    _SQL_MIGRATE_EXPIRE_AT_TIMESTAMPTZ = """
+                SET LOCAL lock_timeout = '{lock_timeout}';
+                DO $$
+                BEGIN
+                    IF (
+                        SELECT atttypid FROM pg_attribute
+                        WHERE attrelid = '{table_name}'::regclass
+                            AND attname = 'expire_at'
+                    ) = 'timestamp'::regtype THEN
+                        ALTER TABLE {table_name}
+                            ALTER COLUMN expire_at TYPE TIMESTAMPTZ;
+                    END IF;
+                END
+                $$;
+                """
+
+    _MIGRATE_LOCK_TIMEOUT = "2s"
+    """How long the expiry migration waits for the table lock."""
 
     _SQL_ACQUIRE_OR_EXTEND = """
                 INSERT INTO {table_name} (name, token, expire_at, fence)
@@ -178,9 +217,16 @@ class PostgresLockAdapter(LockBackend):
     async def _migrate(self) -> None:
         """Install the schema, guarded so replicas do not race.
 
-        `CREATE TABLE IF NOT EXISTS` checks and creates in two steps, so
-        two workers starting together can both pass the check and one then
-        fails on the row type the table creates.
+        Setup holds an advisory lock on the table name, then creates the
+        table and adds what an earlier release left out. It takes a table
+        lock only when a step has work to do.
+
+        Setup then turns an `expire_at TIMESTAMP` column into `TIMESTAMPTZ`,
+        reading each stored value in the session time zone. In a `UTC`
+        session the column changes in place without rewriting the table.
+        When the table lock is not granted within `_MIGRATE_LOCK_TIMEOUT`,
+        setup logs a warning and keeps the column for this start. The next
+        start tries again.
         """
         async with (
             self._provider.client.acquire() as conn,
@@ -194,6 +240,22 @@ class PostgresLockAdapter(LockBackend):
                     table_name=self._table_name
                 ),
             )
+            try:
+                async with conn.transaction():
+                    await conn.execute(
+                        self._SQL_MIGRATE_EXPIRE_AT_TIMESTAMPTZ.format(
+                            table_name=self._table_name,
+                            lock_timeout=self._MIGRATE_LOCK_TIMEOUT,
+                        ),
+                    )
+            except LockNotAvailableError:
+                logger.warning(
+                    "Postgres lock table %r keeps its TIMESTAMP expiry"
+                    " column: the table lock was not granted within %s."
+                    " The next start retries.",
+                    self._table_name,
+                    self._MIGRATE_LOCK_TIMEOUT,
+                )
 
     async def __aexit__(
         self,
@@ -213,7 +275,7 @@ class PostgresLockAdapter(LockBackend):
     ) -> int | None:
         """Acquire a lock, returning the fencing token or `None`."""
         fence = await self._provider.client.fetchval(
-            self._acquire_sql, name, token, _microseconds(duration)
+            self._acquire_sql, name, token, microseconds(duration)
         )
         return int(fence) if fence is not None else None
 
@@ -612,7 +674,7 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
     ) -> int | None:
         """Acquire a read lease, returning the generation or `None`."""
         generation = await self._provider.client.fetchval(
-            self._sql["acquire_read"], name, token, _microseconds(duration)
+            self._sql["acquire_read"], name, token, microseconds(duration)
         )
         return int(generation) if generation is not None else None
 
@@ -624,7 +686,7 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
             self._sql["acquire_write"],
             name,
             token,
-            _microseconds(duration),
+            microseconds(duration),
             intent,
         )
         if row is None:
@@ -663,7 +725,7 @@ class PostgresReadWriteLockAdapter(ReadWriteLockBackend):
     ) -> int | None:
         """Turn a held write lease into a read lease."""
         generation = await self._provider.client.fetchval(
-            self._sql["downgrade"], name, token, _microseconds(duration)
+            self._sql["downgrade"], name, token, microseconds(duration)
         )
         return int(generation) if generation is not None else None
 
@@ -1134,7 +1196,7 @@ class PostgresLeaderElectionAdapter:
             self._acquire_or_renew_sql,
             name,
             token,
-            _microseconds(duration),
+            microseconds(duration),
             payload,
         )
         return self._unpack(row)
