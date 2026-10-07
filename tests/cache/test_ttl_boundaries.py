@@ -14,7 +14,7 @@ from grelmicro import Grelmicro
 from grelmicro.cache import Cache, JsonSerializer, TTLCache
 from grelmicro.cache.memory import MemoryCacheAdapter
 
-_BASE_TTL = 60.0
+_BASE_TTL = 60
 _FILL = 5
 
 

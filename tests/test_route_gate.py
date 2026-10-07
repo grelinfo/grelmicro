@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import posixpath
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -326,7 +326,11 @@ class TestImpossibleDeclarations:
                 "cache and own_checks",
             ),
             (
-                RouteDeclaration("/a", methods=frozenset({"POST"}), cache=30),
+                RouteDeclaration(
+                    "/a",
+                    methods=frozenset({"POST"}),
+                    cache=timedelta(seconds=30),
+                ),
                 "Only a GET or HEAD",
             ),
             (RouteDeclaration("/a", cache=True), "every method"),
@@ -337,18 +341,26 @@ class TestImpossibleDeclarations:
                 "in capitals",
             ),
             (
-                RouteDeclaration("/a", methods=frozenset({"GET"}), cache=0),
-                "keeps nothing",
-            ),
-            (
-                RouteDeclaration("/a", methods=frozenset({"GET"}), cache=-1.5),
-                "keeps nothing",
+                RouteDeclaration(
+                    "/a", methods=frozenset({"GET"}), cache=timedelta(0)
+                ),
+                "cache must be greater than zero",
             ),
             (
                 RouteDeclaration(
-                    "/a", methods=frozenset({"GET"}), cache=math.nan
+                    "/a",
+                    methods=frozenset({"GET"}),
+                    cache=timedelta(seconds=-1),
                 ),
-                "keeps nothing",
+                "cache must be greater than zero",
+            ),
+            (
+                RouteDeclaration(
+                    "/a",
+                    methods=frozenset({"GET"}),
+                    cache=timedelta(days=36_501),
+                ),
+                "cache must be at most 100 years",
             ),
             (
                 RouteDeclaration("/a", scopes=frozenset({'a"b'})),
@@ -365,16 +377,22 @@ class TestImpossibleDeclarations:
 
         assert "/a" in str(refused.value)
 
-    def test_a_cache_that_is_not_a_number_is_refused(self) -> None:
-        """Only a boolean or a number of seconds says how long."""
-        with pytest.raises(TypeError, match="cache='soon'"):
+    @pytest.mark.parametrize("cache", ["soon", 30, 0.5])
+    def test_a_cache_that_is_not_a_timedelta_is_refused(
+        self, cache: object
+    ) -> None:
+        """Only a boolean or a `timedelta` says how long."""
+        with pytest.raises(TypeError, match=f"cache={cache!r}"):
             refuse_impossible(
-                RouteDeclaration("/a", methods=frozenset({"GET"}), cache="soon")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                RouteDeclaration("/a", methods=frozenset({"GET"}), cache=cache)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             )
 
-    @pytest.mark.parametrize("cache", [True, 30, 0.5])
-    def test_a_cached_read_holds(self, cache: float) -> None:
-        """A `GET` and its `HEAD` may be cached, for the TTL or for seconds."""
+    @pytest.mark.parametrize(
+        "cache",
+        [True, timedelta(seconds=30), timedelta(milliseconds=500)],
+    )
+    def test_a_cached_read_holds(self, *, cache: bool | timedelta) -> None:
+        """A `GET` and its `HEAD` may be cached, for the TTL or a `timedelta`."""
         refuse_impossible(
             RouteDeclaration(
                 "/a", methods=frozenset({"GET", "HEAD"}), cache=cache

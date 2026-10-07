@@ -18,6 +18,10 @@
 * 💥 `Lock`, `ReadWriteLock`, `LeaderElection` and `TaskLock` take their leases as whole seconds or a `timedelta`. A float is refused. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 💥 The coordination backend protocols take each lease as a `timedelta`, and `LeaderRecord.lease_duration` is a `timedelta`. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 💥 Redis leader election stores its record in whole microseconds under new `le_us:` keys, so a leader on the previous version is not seen. Upgrade every worker at once. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 💥 `TTLCache`, `Cache.ttl` and `@cached` take `ttl` and `stale_ttl` as whole seconds or a `timedelta`, up to 100 years. A float is refused. `TTLCacheConfig.ttl` reads back as a `timedelta`. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 💥 The cache backend protocol takes each TTL as a `timedelta`. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 💥 `RouteDeclaration.cache` takes `True` for the component TTL or a `timedelta`, up to 100 years. A number is refused. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 💥 `Idempotency`, `IdempotentRequests`, `CachedResponses`, its `include` lifetimes and `CachedResponse` take `ttl` as whole seconds or a `timedelta`, up to 100 years. A float is refused. Each config reads it back as a `timedelta`. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -127,7 +131,9 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 `IdempotentRequests(env_load=...)` decides whether its TTL is read from `GREL_IDEMPOTENCY_HTTP_TTL`, and `IdempotentRequests.from_config` reads no variable for it. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🐛 A lease is never shorter than asked. Redis rounds a lock lease up to the millisecond and keeps a leader lease to the microsecond. SQLite holds a lease to the millisecond, not up to two seconds longer. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 🐛 A cache entry is never kept shorter than its TTL. Redis rounds a TTL up to the millisecond, so a TTL under a millisecond is stored instead of failing the write. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🐛 `add_context` in a request or message handler adds its fields to the handler's log records. It did nothing unless the handler opened a span. ([#973](https://github.com/grelinfo/grelmicro/issues/973))
 * 🐛 On a Litestar app without middleware of its own, a raised `HTTPException`, or an exception the app maps to a response with a handler, is stored and replayed by idempotency, and carries the `RateLimit` fields. ([#945](https://github.com/grelinfo/grelmicro/issues/945))
 * 🐛 A request under a Starlette mount records the mount template in `http.route` in the access log and security events, not the values in its path. ([#969](https://github.com/grelinfo/grelmicro/issues/969))

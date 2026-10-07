@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from inspect import iscoroutinefunction
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any
@@ -76,13 +77,13 @@ HTTP_200_OK = 200
 HTTP_304_NOT_MODIFIED = 304
 HTTP_401_UNAUTHORIZED = 401
 HTTP_404_NOT_FOUND = 404
-TTL = 60.0
+TTL = timedelta(seconds=60)
 BIG = 2048
 TWICE = 2
-OTHER_TTL = 300.0
+OTHER_TTL = timedelta(seconds=300)
 READS = 3
 FOUR = 4
-SHARED_TTL = 50.0
+SHARED_SECONDS = 50.0
 BULK_ROUTES = 1000
 
 
@@ -2685,7 +2686,9 @@ def test_nonempty_auth_scopes_make_a_request_private() -> None:
 def _cache() -> TTLCache[Any]:
     """Return a cache over a backend of this test's own."""
     return TTLCache(
-        ttl=TTL, backend=MemoryCacheAdapter(), serializer=JsonSerializer()
+        ttl=TTL,
+        backend=MemoryCacheAdapter(),
+        serializer=JsonSerializer(),
     )
 
 
@@ -2709,7 +2712,9 @@ def _ran_twice(headers: list[tuple[bytes, bytes]]) -> int:
             middleware = CachedResponsesMiddleware(
                 app,
                 cache=TTLCache(
-                    ttl=TTL, backend=backend, serializer=JsonSerializer()
+                    ttl=TTL,
+                    backend=backend,
+                    serializer=JsonSerializer(),
                 ),
                 include={"/reads": TTL},
             )
@@ -2747,7 +2752,7 @@ class _BrokenStore(MemoryCacheAdapter):
         *,
         key: str,
         value: bytes,
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
         """Write, or refuse to."""
@@ -2775,7 +2780,9 @@ def _through_a_broken_store(failing: str, reads: int = 1) -> list[Any]:
             middleware = CachedResponsesMiddleware(
                 app,
                 cache=TTLCache(
-                    ttl=TTL, backend=backend, serializer=JsonSerializer()
+                    ttl=TTL,
+                    backend=backend,
+                    serializer=JsonSerializer(),
                 ),
                 include={"/reads": TTL},
             )
@@ -3458,19 +3465,24 @@ def test_two_hosts_are_two_resources() -> None:
     assert first.json() != second.json()
 
 
-@pytest.mark.parametrize("ttl", [0, -1.0], ids=["zero", "negative"])
+@pytest.mark.parametrize("ttl", [0, -1], ids=["zero", "negative"])
 def test_a_lifetime_a_response_cannot_be_kept_for_is_refused(
-    ttl: float,
+    ttl: int,
 ) -> None:
     """Zero is how a reader writes "not this one", and it is not that."""
     # Act / Assert
-    with pytest.raises(SettingsValidationError, match="number of seconds"):
+    with pytest.raises(
+        SettingsValidationError,
+        match="pattern 1 in include must be greater than zero",
+    ):
         CachedResponses(include={"/reads": ttl})
-    with pytest.raises(SettingsValidationError, match="number of seconds"):
+    with pytest.raises(
+        SettingsValidationError, match="ttl must be greater than zero"
+    ):
         CachedResponses(ttl=ttl)
     # The route dependency is not a settings field, so it refuses the way
-    # a wrong argument does and names what it was given.
-    with pytest.raises(ValueError, match="number of seconds"):
+    # a wrong argument does.
+    with pytest.raises(ValueError, match="ttl must be greater than zero"):
         CachedResponse(ttl=ttl)
 
 
@@ -3522,7 +3534,9 @@ def test_a_stored_response_survives_a_fold_that_fails_on_its_way_out() -> None:
             middleware = CachedResponsesMiddleware(
                 app,
                 cache=TTLCache(
-                    ttl=TTL, backend=backend, serializer=JsonSerializer()
+                    ttl=TTL,
+                    backend=backend,
+                    serializer=JsonSerializer(),
                 ),
                 include={"/reads": TTL},
             )
@@ -3554,7 +3568,9 @@ def test_a_response_lost_after_a_fold_that_never_kept_it_is_released() -> None:
             middleware = CachedResponsesMiddleware(
                 app,
                 cache=TTLCache(
-                    ttl=TTL, backend=backend, serializer=JsonSerializer()
+                    ttl=TTL,
+                    backend=backend,
+                    serializer=JsonSerializer(),
                 ),
                 include={"/reads": TTL},
             )
@@ -4207,7 +4223,7 @@ def test_the_smallest_shared_lifetime_wins() -> None:
     )
 
     # Assert
-    assert seconds == SHARED_TTL
+    assert seconds == SHARED_SECONDS
 
 
 def test_a_router_built_with_it_leaves_its_writes_alone() -> None:

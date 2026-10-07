@@ -171,7 +171,7 @@ async def test_shares_one_connection_with_another_component(
         await lock.acquire(
             name="lock", token="token", duration=timedelta(seconds=1)
         )
-        await cache.set(key="k", value=b"v", ttl=10)
+        await cache.set(key="k", value=b"v", ttl=timedelta(seconds=10))
 
         # Assert
         assert lock.provider.client is cache.provider.client

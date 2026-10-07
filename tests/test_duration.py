@@ -9,7 +9,17 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from grelmicro._duration import MAX_DURATION, Duration, round_up
+from grelmicro._duration import (
+    MAX_DURATION,
+    MICROSECOND,
+    MILLISECOND,
+    Duration,
+    check_duration,
+    microseconds,
+    nanoseconds,
+    read_duration,
+    round_up,
+)
 
 
 class _Model(BaseModel):
@@ -158,3 +168,128 @@ def test_duration_round_up_counts_whole_units_never_fewer(
 ) -> None:
     """An exact multiple keeps its count, and one microsecond over adds a unit."""
     assert round_up(duration, unit) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (60, timedelta(seconds=60)),
+        (timedelta(milliseconds=500), timedelta(milliseconds=500)),
+        (MAX_DURATION, MAX_DURATION),
+    ],
+)
+def test_duration_check_returns_a_timedelta(
+    raw: int | timedelta, expected: timedelta
+) -> None:
+    """Whole seconds or a timedelta, passed as an argument, read as a timedelta."""
+    # Act
+    checked = check_duration(raw, "stale_ttl")
+
+    # Assert
+    assert checked == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (1.5, r"^stale_ttl must be whole seconds or a timedelta$"),
+        (True, r"^stale_ttl must be whole seconds or a timedelta$"),
+        ("60", r"^stale_ttl must be whole seconds or a timedelta$"),
+        ("PT0.5S", r"^stale_ttl must be whole seconds or a timedelta$"),
+        (0, r"^stale_ttl must be greater than zero$"),
+        (timedelta(0), r"^stale_ttl must be greater than zero$"),
+        (10**20, r"^stale_ttl must be at most 100 years$"),
+        (timedelta(days=36_501), r"^stale_ttl must be at most 100 years$"),
+    ],
+)
+def test_duration_check_refusal_names_the_argument(
+    raw: object, message: str
+) -> None:
+    """A float, a bool, text, or a value out of range is refused by name."""
+    # Act / Assert
+    with pytest.raises(ValueError, match=message) as excinfo:
+        check_duration(raw, "stale_ttl")  # ty: ignore[invalid-argument-type]
+
+    # Assert
+    assert not isinstance(excinfo.value, ValidationError)
+
+
+def test_duration_check_runs_no_pydantic_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typed argument is checked without a Pydantic validation."""
+
+    # Arrange
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        msg = "Pydantic validation ran"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(TypeAdapter, "validate_python", refuse)
+
+    # Act
+    checked = check_duration(60, "ttl")
+
+    # Assert
+    assert checked == timedelta(seconds=60)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (60, timedelta(seconds=60)),
+        ("60", timedelta(seconds=60)),
+        ("PT0.5S", timedelta(milliseconds=500)),
+        (timedelta(milliseconds=500), timedelta(milliseconds=500)),
+    ],
+)
+def test_duration_read_takes_text_whole_seconds_or_a_timedelta(
+    raw: object, expected: timedelta
+) -> None:
+    """A configured value reads text as well as whole seconds or a timedelta."""
+    # Act
+    read = read_duration(raw, "pattern 1 in include")
+
+    # Assert
+    assert read == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (1.5, r"^pattern 1 in include must be whole seconds or a timedelta$"),
+        (
+            "1.5",
+            (
+                r"^pattern 1 in include must be whole seconds or an ISO 8601 "
+                r"duration$"
+            ),
+        ),
+        ("0", r"^pattern 1 in include must be greater than zero$"),
+        (0, r"^pattern 1 in include must be greater than zero$"),
+        ("P36501D", r"^pattern 1 in include must be at most 100 years$"),
+    ],
+)
+def test_duration_read_refusal_names_where_it_sits(
+    raw: object, message: str
+) -> None:
+    """A refused configured value is named by where it sits."""
+    # Act / Assert
+    with pytest.raises(ValueError, match=message):
+        read_duration(raw, "pattern 1 in include")
+
+
+@pytest.mark.parametrize(
+    ("duration", "micro", "nano"),
+    [
+        (MICROSECOND, 1, 1_000),
+        (MILLISECOND, 1_000, 1_000_000),
+        (MAX_DURATION, 3_153_600_000_000_000, 3_153_600_000_000_000_000),
+        (timedelta(seconds=-7200), -7_200_000_000, -7_200_000_000_000),
+    ],
+)
+def test_duration_whole_units_are_exact(
+    duration: timedelta, micro: int, nano: int
+) -> None:
+    """Whole microseconds and nanoseconds are exact, with no float."""
+    # Act / Assert
+    assert (microseconds(duration), nanoseconds(duration)) == (micro, nano)

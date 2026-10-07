@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+from datetime import timedelta
 from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import microseconds
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
@@ -96,7 +98,7 @@ class PostgresCacheAdapter(CacheBackend):
 
     _SQL_SET = (
         "INSERT INTO {table_name} (key, value, expires_at) "
-        "VALUES ($1, $2, NOW() + make_interval(secs => $3)) "
+        "VALUES ($1, $2, NOW() + $3::bigint * INTERVAL '1 microsecond') "
         "ON CONFLICT (key) DO UPDATE "
         "SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at;"
     )
@@ -300,16 +302,18 @@ class PostgresCacheAdapter(CacheBackend):
         *,
         key: str,
         value: bytes,
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
-        """Store raw bytes with a TTL in seconds and optional tags.
+        """Store raw bytes with a TTL and optional tags.
 
-        The value upsert and the tag rows commit in one transaction.
+        The TTL is kept to the microsecond. The value upsert and the tag
+        rows commit in one transaction.
         """
         full_key = f"{self._key_prefix}{key}"
+        whole = microseconds(ttl)
         async with self._provider.client.acquire() as conn, conn.transaction():
-            await conn.execute(self._set_sql, full_key, value, float(ttl))
+            await conn.execute(self._set_sql, full_key, value, whole)
             await conn.execute(self._delete_tags_of_key_sql, full_key)
             if tags:
                 await conn.executemany(
@@ -330,20 +334,21 @@ class PostgresCacheAdapter(CacheBackend):
         self,
         *,
         items: Mapping[str, bytes],
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
         """Store many keys with one TTL and optional tags.
 
-        Every value upsert and its tag rows commit in one transaction.
+        The TTL is kept to the microsecond. Every value upsert and its tag
+        rows commit in one transaction.
         """
         if not items:
             return
-        ttl_f = float(ttl)
+        whole = microseconds(ttl)
         async with self._provider.client.acquire() as conn, conn.transaction():
             for key, value in items.items():
                 full_key = f"{self._key_prefix}{key}"
-                await conn.execute(self._set_sql, full_key, value, ttl_f)
+                await conn.execute(self._set_sql, full_key, value, whole)
                 await conn.execute(self._delete_tags_of_key_sql, full_key)
                 if tags:
                     await conn.executemany(

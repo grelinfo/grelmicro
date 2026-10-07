@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -52,6 +53,9 @@ _SENTINEL = object()
 # The `\x1f` separator stays out of band (no real key uses it) and, unlike
 # `\x00`, is valid in a Postgres text key.
 _FINGERPRINT_SUFFIX = "\x1ffp"
+
+_FINGERPRINT_MARGIN = timedelta(seconds=1)
+"""How much longer the fingerprint is kept than the response it guards."""
 
 
 class Operation(Generic[T]):
@@ -307,7 +311,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
     """Idempotency keys for safe retries of an operation.
 
     Each named `Idempotency` stores a response under a caller-supplied
-    key for `ttl` seconds. A repeated key within that window replays the
+    key for `ttl`. A repeated key within that window replays the
     stored response without running the operation again. A duplicate
     arriving while the first execution is in flight waits and receives
     the stored response, across replicas when a lock backend is
@@ -351,12 +355,13 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         ],
         *,
         ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
                 """
-                Lifetime in seconds of a stored response.
+                Lifetime of a stored response, in whole seconds or as a
+                `timedelta`. A float is refused.
 
-                Default: 86400. When unset and env reads are enabled (see
+                Default: one day. When unset and env reads are enabled (see
                 `env_load` and `GREL_ENV_LOAD`), resolves from the
                 environment variable
                 `GREL_IDEMPOTENCY_TTL` for the default instance
@@ -746,6 +751,6 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             await cache._get_backend().set(  # noqa: SLF001
                 key=f"{_CACHE_PREFIX}:{scoped}{_FINGERPRINT_SUFFIX}",
                 value=fingerprint.encode(),
-                ttl=ttl + 1,
+                ttl=ttl + _FINGERPRINT_MARGIN,
             )
         await cache.set(scoped, response, ttl)

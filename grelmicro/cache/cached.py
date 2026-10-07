@@ -18,6 +18,7 @@ from collections.abc import (
     Coroutine,
     Sequence,
 )
+from datetime import timedelta
 from typing import (
     Annotated,
     Any,
@@ -26,6 +27,7 @@ from typing import (
     ParamSpec,
     Protocol,
     TypeVar,
+    cast,
     overload,
 )
 
@@ -37,6 +39,7 @@ from grelmicro._async import (
     raise_backend_not_open,
     raise_event_loop_deadlock,
 )
+from grelmicro._duration import check_duration
 from grelmicro._wrapping import refuse_registered
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
@@ -295,7 +298,9 @@ class _PrivateMemoryCacheAdapter(MemoryCacheAdapter):
         return await super().get(key=key)
 
 
-def _check_cache_choice(cache: TTLCache | None, ttl: float | None) -> None:
+def _check_cache_choice(
+    cache: TTLCache | None, ttl: int | timedelta | None
+) -> None:
     """Refuse both a cache and a `ttl=`, or neither.
 
     Raises:
@@ -318,7 +323,7 @@ def _check_cache_choice(cache: TTLCache | None, ttl: float | None) -> None:
 
 
 def _private_cache(
-    func: Callable[..., Any], ttl: float, maxsize: int
+    func: Callable[..., Any], ttl: timedelta, maxsize: int
 ) -> TTLCache:
     """Build the process-local cache `ttl=` asks for.
 
@@ -369,10 +374,11 @@ def cached(  # noqa: PLR0913, C901
     ] = None,
     *,
     ttl: Annotated[
-        float | None,
+        int | timedelta | None,
         Doc(
             """
-            TTL in seconds for the private process-local cache.
+            TTL for the private process-local cache, in whole seconds or
+            as a `timedelta`. A float is refused.
 
             Only valid when `cache` is omitted. It builds a private
             `TTLCache(maxsize=maxsize, ttl=ttl)` on a
@@ -475,15 +481,16 @@ def cached(  # noqa: PLR0913, C901
         ),
     ] = None,
     stale_ttl: Annotated[
-        float | None,
+        int | timedelta | None,
         Doc(
             """
-            Serve-stale-on-error budget in seconds. When set, each cached
-            result is also kept as a fallback copy for ``ttl + stale_ttl``
-            seconds. If a later recompute (on a miss) raises, the most
-            recent value is served instead of propagating the error, for
-            up to ``stale_ttl`` seconds past its TTL. A flaky upstream then
-            degrades to slightly stale data instead of an error storm.
+            Serve-stale-on-error budget, in whole seconds or as a
+            `timedelta`. A float is refused. When set, each cached result
+            is also kept as a fallback copy for ``ttl + stale_ttl``. If a
+            later recompute (on a miss) raises, the most recent value is
+            served instead of propagating the error, for up to
+            ``stale_ttl`` past its TTL. A flaky upstream then degrades to
+            slightly stale data instead of an error storm.
 
             Composes with ``lock`` and ``early``. Leave ``None`` to
             propagate errors as usual.
@@ -538,8 +545,8 @@ def cached(  # noqa: PLR0913, C901
             decorated function is a sync generator, or if the ``ttl=``
             form decorates a sync function.
         SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
-            ``"local"``, if ``early`` is outside ``[0, 1)``, or if
-            ``stale_ttl`` is not positive.
+            ``"local"``, if ``early`` is outside ``[0, 1)``, or if ``ttl``
+            or ``stale_ttl`` is a float, not positive, or over 100 years.
 
     Returns:
         A decorator that caches function results.
@@ -559,20 +566,26 @@ def cached(  # noqa: PLR0913, C901
     if early is not None and not 0 <= early < 1:
         msg = "early= must be a float in [0, 1)"
         raise SettingsValidationError(msg)
-    if stale_ttl is not None and stale_ttl <= 0:
-        msg = "stale_ttl= must be positive"
-        raise SettingsValidationError(msg)
+    try:
+        private_ttl = check_duration(ttl, "ttl") if ttl is not None else None
+        stale_duration = (
+            check_duration(stale_ttl, "stale_ttl")
+            if stale_ttl is not None
+            else None
+        )
+    except ValueError as error:
+        raise SettingsValidationError(str(error)) from None
 
     def decorator(
         func: Callable[P, R],
     ) -> Any:  # noqa: ANN401
         refuse_registered(func, "@cached")
         resolved_cache = (
-            # `ttl` is set whenever no cache was passed, which
-            # `_check_cache_choice` has already refused otherwise.
-            _private_cache(func, ttl or 0.0, maxsize)
-            if cache is None
-            else cache
+            # `ttl` is set exactly when no cache was passed, which
+            # `_check_cache_choice` has already enforced.
+            _private_cache(func, private_ttl, maxsize)
+            if private_ttl is not None
+            else cast("TTLCache", cache)
         )
         if inspect.isgeneratorfunction(func):
             name = getattr(func, "__qualname__", repr(func))
@@ -637,7 +650,7 @@ def cached(  # noqa: PLR0913, C901
                 per_key=per_key,
                 auto_distributed=auto_distributed,
                 early=early,
-                stale_ttl=stale_ttl,
+                stale_ttl=stale_duration,
                 tag_spec=tag_spec,
             )
         elif is_async_func:
@@ -650,7 +663,7 @@ def cached(  # noqa: PLR0913, C901
                 per_key=per_key,
                 auto_distributed=auto_distributed,
                 early=early,
-                stale_ttl=stale_ttl,
+                stale_ttl=stale_duration,
                 tag_spec=tag_spec,
             )
         else:
@@ -663,7 +676,7 @@ def cached(  # noqa: PLR0913, C901
                 per_key=per_key,
                 auto_distributed=auto_distributed,
                 early=early,
-                stale_ttl=stale_ttl,
+                stale_ttl=stale_duration,
                 tag_spec=tag_spec,
             )
         wrapper.cache_info = resolved_cache.cache_info
@@ -786,7 +799,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
     per_key: bool,
     auto_distributed: bool,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
     guard: AsyncStampedeGuard | None = None,
 ) -> Any:  # noqa: ANN401
@@ -904,14 +917,16 @@ async def _maybe_refresh_async(  # noqa: PLR0913, PLR0917
     key: str,
     skip: Callable[[Any], bool] | None,
     early: float,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     guard: AsyncStampedeGuard,
     tag_spec: _TagSpec,
     refresh_tasks: set[asyncio.Task[None]],
 ) -> None:
     """Schedule a background recompute when an entry is due for refresh."""
     meta = await _read_meta(cache, key)
-    if not _due_for_early_refresh(meta, cache.config.ttl, early):
+    if not _due_for_early_refresh(
+        meta, cache.config.ttl.total_seconds(), early
+    ):
         return
     the_lock = await guard.get_lock(key)
     if the_lock.locked():
@@ -983,7 +998,7 @@ async def _compute_and_cache(
     skip: Callable[[Any], bool] | None,
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Execute async function and store result in cache."""
@@ -1015,7 +1030,7 @@ def _build_async_gen_wrapper(
     per_key: bool,
     auto_distributed: bool,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Build the wrapper for an async generator producer."""
@@ -1134,7 +1149,7 @@ async def _stream_and_store(
     skip: Callable[[Any], bool] | None,
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> AsyncIterator[Any]:
     """Stream a producer live, storing the assembled list at the end.
@@ -1173,7 +1188,7 @@ def _build_sync_wrapper(  # noqa: C901
     per_key: bool,
     auto_distributed: bool,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Build sync wrapper for cached decorator.
@@ -1350,7 +1365,7 @@ async def _distributed_orchestrate(  # noqa: PLR0913
     loop: Any,  # noqa: ANN401
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
     peek: bool = True,
 ) -> Any:  # noqa: ANN401
@@ -1389,14 +1404,16 @@ def _maybe_refresh_sync(  # noqa: PLR0913, PLR0917
     key: str,
     skip: Callable[[Any], bool] | None,
     early: float,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     loop: Any,  # noqa: ANN401
     get_key_lock: Callable[[str], threading.Lock],
     tag_spec: _TagSpec,
 ) -> None:
     """Schedule a background recompute for a sync entry due for refresh."""
     meta = _run(_read_meta(cache, key), loop)
-    if not _due_for_early_refresh(meta, cache.config.ttl, early):
+    if not _due_for_early_refresh(
+        meta, cache.config.ttl.total_seconds(), early
+    ):
         return
     the_lock = get_key_lock(key)
     if not the_lock.acquire(blocking=False):
@@ -1450,7 +1467,7 @@ def _compute_and_cache_sync(
     loop: Any,  # noqa: ANN401
     *,
     early: float | None,
-    stale_ttl: float | None,
+    stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
 ) -> Any:  # noqa: ANN401
     """Execute sync function and store result in async cache."""

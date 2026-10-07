@@ -767,7 +767,7 @@ class RouteGate:
 
         Raises:
             TypeError: If there is no declaration, or a `cache` is neither
-                a boolean nor a number.
+                a boolean nor a `timedelta`.
             ValueError: If a declaration cannot hold, or two declarations
                 answer the same method, naming the route.
         """

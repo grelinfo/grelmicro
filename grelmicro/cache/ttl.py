@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -19,12 +20,12 @@ from typing import (
 from pydantic import (
     BaseModel,
     NonNegativeInt,
-    PositiveFloat,
     ValidationError,
 )
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
+from grelmicro._duration import Duration, check_duration
 from grelmicro.cache._stampede import (
     _SENTINEL,
     AsyncStampedeGuard,
@@ -83,14 +84,20 @@ class TTLCacheConfig(BaseModel, frozen=True, extra="forbid"):
     ] = 0
 
     ttl: Annotated[
-        PositiveFloat,
+        Duration,
         Doc(
             """
-            Default TTL in seconds applied when `set` is called without
-            a per-entry override.
+            Default TTL applied when `set` is called without a per-entry
+            override, in whole seconds or as a `timedelta`.
+
+            A float is refused. Use a `timedelta` for a TTL under a
+            second, such as `timedelta(milliseconds=500)`. From text it
+            reads whole seconds (`"60"`) or an ISO 8601 duration
+            (`"PT0.5S"`). It reads back as a `timedelta`, and is at most
+            100 years.
             """,
         ),
-    ] = 60
+    ] = timedelta(seconds=60)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +122,7 @@ class CacheInfo:
 _CACHE_PREFIX = "cache"
 
 # Suffix for the stale-reserve copy stored next to a value. The copy
-# outlives the value by `stale_ttl` seconds so `get_or_set` and `@cached`
+# outlives the value by `stale_ttl` so `get_or_set` and `@cached`
 # can serve it when a later recompute fails. The `\x1f` separator stays
 # out of band (no real key uses it) and, unlike `\x00`, is valid in a
 # Postgres text key.
@@ -146,9 +153,10 @@ class TTLCache(Generic[T]):
     parameter Pydantic cannot build a schema for.
 
     Raises:
-        SettingsValidationError: If `maxsize` is negative or `ttl` is not
-            positive. It subclasses `ValueError`, so an existing
-            `except ValueError:` block still catches it.
+        SettingsValidationError: If `maxsize` is negative, or `ttl` is a
+            float, not positive, or over 100 years. It subclasses
+            `ValueError`, so an existing `except ValueError:` block still
+            catches it.
     """
 
     def __init__(
@@ -163,10 +171,11 @@ class TTLCache(Generic[T]):
             ),
         ] = 0,
         ttl: Annotated[
-            float,
+            int | timedelta,
             Doc(
                 """
-                Default TTL in seconds for all entries.
+                Default TTL for all entries, in whole seconds or as a
+                `timedelta`. A float is refused.
                 """,
             ),
         ] = 60,
@@ -405,7 +414,7 @@ class TTLCache(Generic[T]):
         """Read the stale-reserve copy of a key, or `default` when absent.
 
         The copy is written by `set` when `stale_ttl` is given and lives
-        `stale_ttl` seconds past the value's TTL. Pass a sentinel as
+        `stale_ttl` past the value's TTL. Pass a sentinel as
         `default` to tell a stored `None` apart from an absent copy.
         """
         raw = await self._get_backend().get(
@@ -423,9 +432,10 @@ class TTLCache(Generic[T]):
             Doc("The value to store. Must be bytes or serializable."),
         ],
         ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
-                "Per-entry TTL override in seconds. Uses the default TTL if None."
+                "Per-entry TTL override, in whole seconds or as a `timedelta`."
+                " Uses the default TTL if None."
             ),
         ] = None,
         *,
@@ -437,12 +447,13 @@ class TTLCache(Generic[T]):
             ),
         ] = (),
         stale_ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
-                "Extra seconds to keep a fallback copy of the value past"
-                " its TTL. When set, `get_or_set` and `@cached` serve this"
-                " stale copy if a later recompute fails, until the extra"
-                " budget elapses. `None` (the default) keeps no fallback."
+                "Extra time to keep a fallback copy of the value past its"
+                " TTL, in whole seconds or as a `timedelta`. When set,"
+                " `get_or_set` and `@cached` serve this stale copy if a"
+                " later recompute fails, until the extra budget elapses."
+                " `None` (the default) keeps no fallback."
             ),
         ] = None,
     ) -> None:
@@ -452,17 +463,36 @@ class TTLCache(Generic[T]):
         used entry before storing.
 
         Raises:
-            ValueError: If ttl or stale_ttl is not positive.
+            ValueError: If ttl or stale_ttl is a float, not positive, or
+                over 100 years.
             TypeError: If value is not bytes and no serializer is set.
         """
-        if ttl is not None and ttl <= 0:
-            msg = "ttl must be positive"
-            raise ValueError(msg)
-        if stale_ttl is not None and stale_ttl <= 0:
-            msg = "stale_ttl must be positive"
-            raise ValueError(msg)
+        await self._store(
+            key,
+            value,
+            check_duration(ttl, "ttl") if ttl is not None else self._ttl,
+            tags=tags,
+            stale_ttl=(
+                check_duration(stale_ttl, "stale_ttl")
+                if stale_ttl is not None
+                else None
+            ),
+        )
 
-        entry_ttl = ttl if ttl is not None else self._ttl
+    async def _store(
+        self,
+        key: str,
+        value: T,
+        ttl: timedelta,
+        *,
+        tags: Sequence[str],
+        stale_ttl: timedelta | None,
+    ) -> None:
+        """Store a value under durations already checked.
+
+        Also writes the stale-reserve copy for `ttl + stale_ttl` when
+        `stale_ttl` is given, under the same tags.
+        """
         raw = self._serialize(value)
 
         # Evict if at capacity and this is a new key
@@ -471,7 +501,7 @@ class TTLCache(Generic[T]):
                 await self._evict()
 
         await self._get_backend().set(
-            key=f"{_CACHE_PREFIX}:{key}", value=raw, ttl=entry_ttl, tags=tags
+            key=f"{_CACHE_PREFIX}:{key}", value=raw, ttl=ttl, tags=tags
         )
         if stale_ttl is not None:
             # Carry the same tags so `delete_tags` invalidates the reserve
@@ -479,7 +509,7 @@ class TTLCache(Generic[T]):
             await self._get_backend().set(
                 key=f"{_CACHE_PREFIX}:{key}{_STALE_SUFFIX}",
                 value=raw,
-                ttl=entry_ttl + stale_ttl,
+                ttl=ttl + stale_ttl,
                 tags=tags,
             )
 
@@ -498,20 +528,24 @@ class TTLCache(Generic[T]):
         ],
         *,
         ttl: Annotated[
-            float | None,
-            Doc("Per-entry TTL override in seconds. Uses the default if None."),
+            int | timedelta | None,
+            Doc(
+                "Per-entry TTL override, in whole seconds or as a `timedelta`."
+                " Uses the default if None."
+            ),
         ] = None,
         tags: Annotated[
             Sequence[str],
             Doc("Tags to associate with the entry when it is computed."),
         ] = (),
         stale_ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
-                "Extra seconds to keep a fallback copy past the TTL. When"
-                " set and the ``factory`` raises on a miss, the most recent"
-                " value is served instead of propagating the error, until"
-                " the extra budget elapses. `None` (default) propagates."
+                "Extra time to keep a fallback copy past the TTL, in whole"
+                " seconds or as a `timedelta`. When set and the ``factory``"
+                " raises on a miss, the most recent value is served instead"
+                " of propagating the error, until the extra budget elapses."
+                " `None` (default) propagates."
             ),
         ] = None,
     ) -> T:
@@ -525,9 +559,19 @@ class TTLCache(Generic[T]):
         backend is configured.
 
         With ``stale_ttl`` set, a ``factory`` that raises on a miss serves
-        the most recent value (kept for ``stale_ttl`` seconds past its TTL)
+        the most recent value (kept for ``stale_ttl`` past its TTL)
         instead of propagating the error.
+
+        Raises:
+            ValueError: If ttl or stale_ttl is a float, not positive, or
+                over 100 years.
         """
+        entry_ttl = check_duration(ttl, "ttl") if ttl is not None else self._ttl
+        stale_duration = (
+            check_duration(stale_ttl, "stale_ttl")
+            if stale_ttl is not None
+            else None
+        )
         result = await self.get(key, cast("T", _SENTINEL))
         if result is not _SENTINEL:
             return cast("T", result)
@@ -539,12 +583,16 @@ class TTLCache(Generic[T]):
             # otherwise be stored unawaited.
             if inspect.isawaitable(value):
                 value = await value
-            await self.set(
-                key, cast("T", value), ttl, tags=tags, stale_ttl=stale_ttl
+            await self._store(
+                key,
+                cast("T", value),
+                entry_ttl,
+                tags=tags,
+                stale_ttl=stale_duration,
             )
             return cast("T", value)
 
-        if stale_ttl is None:
+        if stale_duration is None:
             return cast(
                 "T",
                 await compute_with_stampede(
@@ -626,8 +674,11 @@ class TTLCache(Generic[T]):
         ],
         *,
         ttl: Annotated[
-            float | None,
-            Doc("Per-entry TTL override in seconds. Uses the default if None."),
+            int | timedelta | None,
+            Doc(
+                "Per-entry TTL override, in whole seconds or as a `timedelta`."
+                " Uses the default if None."
+            ),
         ] = None,
         tags: Annotated[
             Sequence[str],
@@ -637,16 +688,13 @@ class TTLCache(Generic[T]):
         """Store many key to value pairs with one TTL and optional tags.
 
         Raises:
-            ValueError: If ttl is not positive.
+            ValueError: If ttl is a float, not positive, or over 100 years.
             TypeError: If a value is not bytes and no serializer is set.
         """
-        if ttl is not None and ttl <= 0:
-            msg = "ttl must be positive"
-            raise ValueError(msg)
+        entry_ttl = check_duration(ttl, "ttl") if ttl is not None else self._ttl
         if not mapping:
             return
 
-        entry_ttl = ttl if ttl is not None else self._ttl
         items = {
             f"{_CACHE_PREFIX}:{key}": self._serialize(value)
             for key, value in mapping.items()

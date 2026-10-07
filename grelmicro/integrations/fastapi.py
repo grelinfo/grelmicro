@@ -9,6 +9,7 @@ import inspect
 import logging
 import weakref
 from collections.abc import Callable, Collection, Sequence
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
 try:
@@ -269,7 +270,7 @@ def install_route_gate(
         RuntimeError: If FastAPI's router lacks what the gates rely on,
             naming it.
         TypeError: If a declaration's `cache` is neither a boolean nor a
-            number.
+            `timedelta`.
         ValueError: If a declaration cannot hold, naming its route.
     """
     gate_routes(app, gate)
@@ -452,9 +453,10 @@ def document_idempotency(
 def CachedResponse(  # noqa: N802
     *,
     ttl: Annotated[
-        float | None,
+        int | timedelta | None,
         Doc(
-            "Seconds this route's response is served from the cache. "
+            "How long this route's response is served from the cache, in "
+            "whole seconds or as a `timedelta`. A float is refused. "
             "Defaults to the `ttl` the registered `CachedResponses` "
             "carries."
         ),
@@ -488,7 +490,7 @@ def CachedResponse(  # noqa: N802
 
     Starlette and Litestar resolve no dependencies to hang this on, so
     they name their paths in `CachedResponses(include=...)` instead,
-    with the seconds each is kept for.
+    with how long each is kept for.
 
     Read more in the [Response Cache](../http/cache.md) docs.
     """

@@ -11,6 +11,7 @@ import asyncio
 import sys
 from collections.abc import AsyncIterator
 from contextlib import suppress
+from datetime import timedelta
 
 import pytest
 
@@ -30,7 +31,7 @@ EXPECTED_CALLS_2 = 2
 EXPECTED_PARTIAL = 2
 
 
-def _make_cache(ttl: float = 60) -> TTLCache:
+def _make_cache(ttl: int | timedelta = 60) -> TTLCache:
     """Create a TTLCache on the in-memory backend."""
     backend = MemoryCacheAdapter()
     with suppress(RuntimeError):
@@ -460,7 +461,7 @@ class TestStaleOnError:
     ) -> None:
         """Nothing was yielded, so the reserve replays without a seam."""
         # Arrange
-        cache = _make_cache(ttl=0.05)
+        cache = _make_cache(ttl=timedelta(milliseconds=50))
         fail = False
 
         @cached(cache, key="s", stale_ttl=60)
@@ -481,7 +482,7 @@ class TestStaleOnError:
     async def test_propagates_when_the_producer_fails_part_way(self) -> None:
         """The caller already holds live items, so a replay would repeat."""
         # Arrange
-        cache = _make_cache(ttl=0.05)
+        cache = _make_cache(ttl=timedelta(milliseconds=50))
         fail = False
 
         @cached(cache, key="s", stale_ttl=60)
@@ -527,7 +528,7 @@ class TestStaleOnError:
         cancellation into a stale serve and swallow the cancel.
         """
         # Arrange
-        cache = _make_cache(ttl=0.05)
+        cache = _make_cache(ttl=timedelta(milliseconds=50))
         hang = False
 
         @cached(cache, key="s", stale_ttl=60)

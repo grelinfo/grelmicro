@@ -9,6 +9,7 @@ nothing a file says can start caching what the static path would refuse.
 
 import logging
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -62,10 +63,10 @@ from grelmicro.security import TrustedProxies
 
 pytestmark = pytest.mark.anyio
 
-DEFAULT_TTL = 60.0
+DEFAULT_TTL = timedelta(seconds=60)
 """What the file below says a response is kept for."""
 
-HOT_TTL = 300.0
+HOT_TTL = timedelta(seconds=300)
 """What it says the one hot path is kept for."""
 
 WINDOW = 3600
@@ -74,19 +75,19 @@ WINDOW = 3600
 MAX_WAIT = 0.5
 """Seconds it says a throttled request waits."""
 
-DECLARED_TTL = 30.0
+DECLARED_TTL = timedelta(seconds=30)
 """What a component built from a config of its own was given."""
 
-TUPLE_TTL = 45.0
+TUPLE_TTL = timedelta(seconds=45)
 """What a tuple `include` keeps every path it names for."""
 
 DECLARED_COST = 2
 """Tokens the declared rate limiter spends per request."""
 
-KIND_TTL = 120.0
+KIND_TTL = timedelta(seconds=120)
 """What a kind-wide key retunes every cache to."""
 
-NAMED_TTL = 600.0
+NAMED_TTL = timedelta(seconds=600)
 """What the named instance's own key retunes it to instead."""
 
 BUILT = 5
@@ -218,7 +219,7 @@ async def test_the_window_is_tuned_where_the_store_lives(
     # Act
     async with ExternalConfig(_mounted(tmp_path), reload_interval=60):
         # Assert
-        assert component.idempotency.config.ttl == WINDOW
+        assert component.idempotency.config.ttl == timedelta(seconds=WINDOW)
 
 
 async def test_a_reload_reaches_the_middleware_without_rebuilding_it() -> None:
@@ -274,7 +275,12 @@ async def test_a_live_include_cannot_cache_a_gated_read() -> None:
 
     # Assert
     assert component.config is before
-    assert component._live.state.policies.ttl_for("/private", 60) is None
+    assert (
+        component._live.state.policies.ttl_for(
+            "/private", timedelta(seconds=60)
+        )
+        is None
+    )
 
 
 async def test_a_bad_live_value_keeps_the_running_config(
@@ -950,7 +956,7 @@ async def test_what_the_schema_states_is_not_live(
     path = tmp_path / "config.env"
     path.write_text(
         f"{prefix}{field.upper()}=true\n"
-        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL:g}\n"
+        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL.total_seconds():g}\n"
     )
     before = getattr(component.config, field)
 
@@ -995,7 +1001,7 @@ async def test_what_protects_a_client_is_wired_in_code(
     path = tmp_path / "config.env"
     path.write_text(
         f"{prefix}{field.upper()}={value}\n"
-        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL:g}\n"
+        f"GREL_CACHED_RESPONSES_TTL={KIND_TTL.total_seconds():g}\n"
     )
     before = getattr(component.config, field)
 

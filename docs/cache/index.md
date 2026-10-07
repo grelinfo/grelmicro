@@ -120,6 +120,8 @@ cache = TTLCache(maxsize=100, ttl=300)
 cache = TTLCache(maxsize=100, ttl=300, backend=my_backend)
 ```
 
+A TTL takes whole seconds or a `timedelta`. A float is refused. Write `ttl=timedelta(milliseconds=500)` for a TTL under a second. `cache.config.ttl` reads it back as a `timedelta`. Every backend keeps an entry at least as long as its TTL, and Redis rounds it up to the millisecond.
+
 All `TTLCache` methods are async:
 
 ```python title="fragment"
@@ -205,7 +207,7 @@ With no type parameter and no serializer, only `bytes` values are accepted. `TTL
 Override the default TTL for individual entries:
 
 ```python title="fragment"
-await cache.set("session", b"token", ttl=3600)  # 1 hour instead of default
+await cache.set("session", b"token", ttl=timedelta(hours=1))
 ```
 
 ### Get or Set

@@ -44,6 +44,7 @@ from grelmicro.integrations import _fastapi_internals as fastapi
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, MutableMapping
+    from datetime import timedelta
 
     from grelmicro.http import Gate
 
@@ -357,8 +358,8 @@ def _dependant_declaration(
         for dependency in route.dependant.dependencies  # codespell:ignore
     } - above
     anonymous = False
-    cache: bool | float = False
-    kept_here: bool | float = False
+    cache: bool | timedelta = False
+    kept_here: bool | timedelta = False
     for dependency in declared:
         call = dependency.call
         anonymous = anonymous or is_anonymous_declaration(call)

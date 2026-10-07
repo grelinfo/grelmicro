@@ -151,8 +151,8 @@ take.
 | `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | yes |
 | `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | yes |
 | `OutboxConfig.lease_duration`, `.keep_delivered` | `int \| timedelta` | not yet |
-| `TTLCacheConfig.ttl`, `cached(ttl, stale_ttl)` | `int \| timedelta` | not yet |
-| `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs | `int \| timedelta` | not yet |
+| `TTLCacheConfig.ttl`, `Cache.ttl(ttl)`, `cached(ttl, stale_ttl)`, `TTLCache.set(ttl, stale_ttl)`, `.get_or_set(ttl, stale_ttl)`, `.set_many(ttl)` | `int \| timedelta` | yes |
+| `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs, `CachedResponse(ttl)` | `int \| timedelta` | yes |
 | `DuplicateFilterConfig.ttl` | `int \| timedelta` | not yet |
 | `HealthChecksConfig.cache_ttl` | `int \| timedelta` | not yet |
 | `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | not yet |

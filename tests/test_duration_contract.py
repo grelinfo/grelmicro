@@ -47,8 +47,6 @@ WAITS = frozenset(
 
 NOT_MOVED_YET = frozenset(
     {
-        ("CachedResponsesConfig", "include"),
-        ("CachedResponsesConfig", "ttl"),
         ("ClientBansConfig", "duration"),
         ("ClientBansConfig", "window"),
         ("ConsecutiveCountConfig", "reset_timeout"),
@@ -56,7 +54,6 @@ NOT_MOVED_YET = frozenset(
         ("DiscoveryConfig", "ttl"),
         ("DuplicateFilterConfig", "ttl"),
         ("HealthChecksConfig", "cache_ttl"),
-        ("IdempotencyConfig", "ttl"),
         ("JWKSConfig", "cache_ttl"),
         ("JWKSConfig", "ttl"),
         ("JWTKeysConfig", "cache_ttl"),
@@ -64,7 +61,6 @@ NOT_MOVED_YET = frozenset(
         ("OAuthClientConfig", "refresh_before"),
         ("OutboxConfig", "keep_delivered"),
         ("OutboxConfig", "lease_duration"),
-        ("TTLCacheConfig", "ttl"),
     }
 )
 """Stored or enforced durations that do not take the shared duration type yet."""

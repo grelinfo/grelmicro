@@ -210,6 +210,10 @@ is the matching every grelmicro middleware uses, the same as
 `{"/products/*": 60, "/products/hot": 300}` keeps the hot one for 300
 seconds.
 
+A TTL takes whole seconds or a `timedelta`, here and on `CachedResponse(ttl=...)`.
+A float is refused. From a file or an environment variable, a TTL reads whole
+seconds (`60`) or an ISO 8601 duration (`"PT0.5S"`).
+
 A tuple says the same thing when every path is kept for the same time, and
 reads like every other middleware:
 
@@ -297,8 +301,8 @@ same.
 
 | Option | What it does |
 |---|---|
-| `ttl` | seconds a response is kept when its route names none |
-| `include` | path patterns and the seconds each is cached for |
+| `ttl` | how long a response is kept when its route names none, in whole seconds or as a `timedelta` |
+| `include` | path patterns and how long each is cached for |
 | `exclude` | paths never cached, whatever else says |
 | `vary_by_headers` | request headers the key reads |
 | `vary_by_query` | query parameters the key reads |

@@ -182,6 +182,10 @@ Not guaranteed:
 
 ## Configuration
 
+`ttl` takes whole seconds or a `timedelta`. A float is refused. From an
+environment variable it reads whole seconds (`"3600"`) or an ISO 8601
+duration (`"PT1H"`).
+
 Build with keyword arguments and tune `ttl` in deployment. Set
 `GREL_IDEMPOTENCY_{NAME}_TTL` to change it without code changes (the default
 instance drops the name segment and reads `GREL_IDEMPOTENCY_TTL`). The instance

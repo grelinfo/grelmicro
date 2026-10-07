@@ -10,6 +10,7 @@ operator mutants diverge.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 
@@ -22,9 +23,9 @@ from grelmicro.coordination.memory import MemoryLockAdapter
 
 pytestmark = [pytest.mark.timeout(10)]
 
-_BASE_TTL = 60.0
-_OVERRIDE_TTL = 25.0
-_STALE_TTL = 40.0
+_BASE_TTL = 60
+_OVERRIDE_TTL = 25
+_STALE_TTL = 40
 
 
 @pytest.fixture
@@ -36,7 +37,7 @@ def backend() -> MemoryCacheAdapter:
 def test_default_ttl_is_sixty() -> None:
     """The unset TTL default is exactly 60 seconds."""
     cache = TTLCache()
-    assert cache.config.ttl == 60.0  # noqa: PLR2004
+    assert cache.config.ttl == timedelta(seconds=60)
 
 
 class TestMaxsizeGuard:
@@ -117,12 +118,12 @@ class TestPerCallTTLForwarding:
         cache = TTLCache(
             ttl=_BASE_TTL, backend=backend, serializer=JsonSerializer()
         )
-        now = 1000.0
+        now = 1000 * 10**9
         clock = [now]
-        monkeypatch.setattr(memory_module, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(memory_module, "monotonic_ns", lambda: clock[0])
 
         await cache.get_or_set("k", lambda: {"v": 1}, ttl=_OVERRIDE_TTL)
-        clock[0] = now + 30.0  # past the 25s override, before 60s base
+        clock[0] = now + 30 * 10**9  # past the 25s override, before 60s base
         assert await cache.get("k") is None
 
 

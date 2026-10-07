@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import MILLISECOND, round_up
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.providers.redis import RedisProvider, require_cluster_hash_tag
 
@@ -196,12 +198,15 @@ class RedisCacheAdapter(CacheBackend):
         *,
         key: str,
         value: bytes,
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
-        """Store raw bytes with a TTL in seconds and optional tags."""
+        """Store raw bytes with a TTL and optional tags.
+
+        The TTL is rounded up to the millisecond.
+        """
         full_key = self._full(key)
-        px = int(ttl * 1000)
+        px = round_up(ttl, MILLISECOND)
         # Always reconcile tags, even when empty, so re-setting a previously
         # tagged key drops its stale tag membership. The script handles the
         # no-tag case (it clears the old reverse-tag set and adds nothing).
@@ -233,13 +238,16 @@ class RedisCacheAdapter(CacheBackend):
         self,
         *,
         items: Mapping[str, bytes],
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
-        """Store many keys with one TTL and optional tags."""
+        """Store many keys with one TTL and optional tags.
+
+        The TTL is rounded up to the millisecond.
+        """
         if not items:
             return
-        px = int(ttl * 1000)
+        px = round_up(ttl, MILLISECOND)
         tag_keys = [self._tag_key(tag) for tag in tags]
         # Reconcile tags per key, even when empty, so re-setting a previously
         # tagged key without tags drops its stale membership. The script

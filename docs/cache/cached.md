@@ -198,7 +198,7 @@ async def get_homepage_feed() -> Feed:
 
 ## Serve Stale on Error
 
-Set `stale_ttl` to keep serving the last good value when a recompute fails. Each result is also kept as a fallback copy for `ttl + stale_ttl` seconds. After the TTL, the next miss recomputes as usual, but if that recompute raises, the most recent value is served instead of propagating the error, for up to `stale_ttl` seconds past the TTL.
+Set `stale_ttl` to keep serving the last good value when a recompute fails. Each result is also kept as a fallback copy for `ttl + stale_ttl`. After the TTL, the next miss recomputes as usual, but if that recompute raises, the most recent value is served instead of propagating the error, for up to `stale_ttl` past the TTL.
 
 ```python
 cache = TTLCache[Rates](ttl=60)
@@ -219,7 +219,7 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `cache` | `TTLCache` | `None` | The cache instance to store results in. Mutually exclusive with `ttl`. |
-| `ttl` | `float` | `None` | TTL in seconds for a private per-function cache. Mutually exclusive with `cache`. |
+| `ttl` | `int \| timedelta` | `None` | TTL for a private per-function cache, in whole seconds or as a `timedelta`. Mutually exclusive with `cache`. |
 | `maxsize` | `int` | `0` | Max entries in the private per-function cache, `0` means unlimited (used only when `ttl` is set). |
 | `key` | `str` | `None` | Key template rendered from the arguments, like `"user:{user_id}"`. Mutually exclusive with `key_maker`. |
 | `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. Mutually exclusive with `key`. |
@@ -227,7 +227,7 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
 | `lock` | `True`, `False`, or `"local"` | `"local"` | Concurrent-miss (stampede) protection. |
 | `early` | `float` in `[0, 1)` | `None` | Probabilistic early refresh in the late TTL window. |
-| `stale_ttl` | `float` | `None` | Serve-stale-on-error budget in seconds. Serve the last good value for this long past the TTL when a recompute fails. |
+| `stale_ttl` | `int \| timedelta` | `None` | Serve-stale-on-error budget, in whole seconds or as a `timedelta`. Serve the last good value for this long past the TTL when a recompute fails. |
 | `tags` | `Sequence[str]` | `()` | Tags to attach to each result. Templates like `"user:{user_id}"` fill in from the arguments. Invalidate with `cache.delete_tags(...)`. |
 
 ## Decorated Function Helpers

@@ -18,6 +18,7 @@ Two distinct failure modes, and they are NOT the same thing:
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
@@ -67,7 +68,7 @@ async def test_recompute_failure_after_ttl_serves_stale(
     reserve (still alive in Redis) is served instead of the error.
     """
     cache = TTLCache(
-        ttl=0.5,
+        ttl=timedelta(milliseconds=500),
         backend=cache_backend,
         serializer=JsonSerializer(),
     )

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
-from grelmicro._duration import round_up
+from grelmicro._duration import MILLISECOND, round_up
 from grelmicro.coordination._protocol import (
     LockBackend,
     ReadWriteLockBackend,
@@ -60,7 +60,7 @@ def _seconds_text(duration: timedelta) -> str:
 
     The duration is rounded up to the millisecond.
     """
-    milliseconds = round_up(duration, timedelta(milliseconds=1))
+    milliseconds = round_up(duration, MILLISECOND)
     return f"{milliseconds // 1000}.{milliseconds % 1000:03d}"
 
 

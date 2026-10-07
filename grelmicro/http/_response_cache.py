@@ -12,6 +12,7 @@ from collections import OrderedDict, abc
 # field's annotation, which pydantic resolves from module globals.
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from logging import getLogger
 from time import time as clock_time
 from typing import (
@@ -25,7 +26,7 @@ from typing import (
 )
 from urllib.parse import parse_qsl, unquote_plus
 
-from pydantic import AfterValidator, BaseModel, PositiveInt
+from pydantic import BaseModel, BeforeValidator, PositiveInt
 from typing_extensions import Doc
 
 from grelmicro._config import (
@@ -35,6 +36,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._duration import Duration, check_duration, read_duration
 from grelmicro._paths import (
     _PREFIX,
     BARE_STRING_MESSAGE,
@@ -122,8 +124,8 @@ _HTTP_200_OK = 200
 _HTTP_304_NOT_MODIFIED = 304
 """Status answering a read whose entity tag the client already holds."""
 
-_DEFAULT_TTL = 60.0
-"""Seconds a response is kept when neither the route nor the component says."""
+_DEFAULT_TTL = timedelta(seconds=60)
+"""How long a response is kept when neither the route nor the component says."""
 
 _DEFAULT_MAX_BODY_SIZE = 1024 * 1024
 """Largest response body held in memory to store, in bytes."""
@@ -175,85 +177,28 @@ class _Entry(TypedDict):
     kept: float
 
 
-NOT_SECONDS = "is not a number of seconds a response is kept for."
-"""Why a lifetime was refused, without repeating what it was.
+def _durations_per_path(value: Any) -> Any:  # noqa: ANN401
+    """Read each lifetime a mapping of patterns gives, named by position.
 
-`SettingsValidationError` takes the rejected value back out of the
-message, so a validator that named it would be quoting a blank.
-"""
-
-_LEAVE_THE_PATH_OUT = (
-    " Leave the path out, or name it in exclude=, to cache it not at all."
-)
-"""How to say `never` about one path, which is not what a zero says.
-
-Only for a pattern. A component-wide `ttl` has no path to leave out, and
-telling its operator to find one sends them looking for something that
-is not there.
-"""
-
-
-def _seconds(value: float) -> float:
-    """Return `value`, refusing a lifetime a response cannot be kept for.
-
-    Written as `not value > 0` rather than `value <= 0`, so a NaN is
-    refused too. Every comparison with a NaN is false, so the negated
-    test is the one that turns it away.
+    A tuple of patterns passes through. A refusal names the pattern by
+    its position, never by the pattern itself.
 
     Raises:
-        ValueError: If it is not a positive number of seconds.
+        ValueError: If a pattern names a lifetime that is not a valid
+            duration.
     """
-    if not value > 0:
-        msg = f"ttl {NOT_SECONDS}"
-        raise ValueError(msg)
-    return value
-
-
-def _seconds_per_path(
-    value: tuple[str, ...] | Mapping[str, float],
-) -> tuple[str, ...] | Mapping[str, float]:
-    """Return `value`, refusing a pattern that names an impossible lifetime.
-
-    Raises:
-        ValueError: If a pattern names a lifetime that is not a positive
-            number of seconds. Located by its position, never by the
-            pattern: this mapping can arrive from a mounted source, and
-            a key there is as much operator input as a value, which is
-            why the reload path keeps key names out of its logs too.
-    """
-    if isinstance(value, abc.Mapping):
-        for position, ttl in enumerate(value.values(), start=1):
-            if not ttl > 0:
-                msg = (
-                    f"pattern {position} in include "
-                    f"{NOT_SECONDS}{_LEAVE_THE_PATH_OUT}"
-                )
-                raise ValueError(msg)
-    return value
-
-
-def check_ttl(
-    ttl: Annotated[float | None, Doc("What was given as a lifetime.")],
-    where: Annotated[str, Doc("The argument's name, for the message.")],
-) -> None:
-    """Refuse a lifetime a response cannot be kept for.
-
-    Raises:
-        ValueError: If `ttl` is not a positive number of seconds.
-    """
-    if ttl is None or ttl > 0:
-        return
-    msg = (
-        f"{where}={ttl!r} is not a number of seconds a response is kept "
-        "for. Leave the path out, or name it in exclude=, to cache it "
-        "not at all."
-    )
-    raise ValueError(msg)
+    if not isinstance(value, abc.Mapping):
+        return value
+    return {
+        pattern: read_duration(ttl, f"pattern {position} in include")
+        for position, (pattern, ttl) in enumerate(value.items(), start=1)
+    }
 
 
 def declare_cached(
     ttl: Annotated[
-        float | None, Doc("Seconds the route's response is served from.")
+        int | timedelta | None,
+        Doc("How long the route's response is served from the cache."),
     ],
 ) -> Callable[[], Awaitable[None]]:
     """Return the callable a route declares to have its response cached.
@@ -264,9 +209,10 @@ def declare_cached(
     carries is the TTL, and where it is declared.
 
     Raises:
-        ValueError: If `ttl` is not a positive number of seconds.
+        ValueError: If `ttl` is not whole seconds or a `timedelta`, is not
+            greater than zero, or is over 100 years.
     """
-    check_ttl(ttl, "ttl")
+    duration = check_duration(ttl, "ttl") if ttl is not None else None
 
     async def cached_response() -> None:
         """Declare that this route's response is cached.
@@ -276,16 +222,15 @@ def declare_cached(
         declaration with nothing in it to run there.
         """
 
-    setattr(cached_response, _MARKER, ttl)
+    setattr(cached_response, _MARKER, duration)
     return cached_response
 
 
-def declared_cache(call: object) -> bool | float:
+def declared_cache(call: object) -> bool | timedelta:
     """Return what a dependency declares of its route's response cache.
 
     `False` for one that is not `CachedResponse()`, `True` for one keeping
-    the response for the component's TTL, and the seconds of its own TTL
-    otherwise.
+    the response for the component's TTL, and its own TTL otherwise.
     """
     ttl = getattr(call, _MARKER, _UNMARKED)
     if ttl is _UNMARKED:
@@ -356,7 +301,7 @@ class _Policies:
     def __init__(
         self,
         include: Annotated[
-            Mapping[str, float] | Sequence[str],
+            Mapping[str, timedelta] | Sequence[str],
             Doc(
                 "The paths cached. A sequence keeps each for the "
                 "component's own TTL, and a mapping gives each its own."
@@ -369,36 +314,30 @@ class _Policies:
     ) -> None:
         """Hold the path rules, with no routes read yet.
 
-        A bare string is refused before this: by the config on the
-        component's door, and by the middleware on the hand-wired one.
-
-        Raises:
-            ValueError: If a pattern names a lifetime a response cannot
-                be kept for.
+        A bare string, and a lifetime that is not a duration, are refused
+        before this: by the config on the component's door, and by the
+        middleware on the hand-wired one.
         """
-        # A sequence names the paths and leaves the seconds to the
+        # A sequence names the paths and leaves the lifetime to the
         # component, which is how every other middleware reads. `None`
         # stands for "whatever the component says", the same as a route
-        # that declared no seconds of its own.
-        items: list[tuple[str, float | None]] = (
+        # that declared no lifetime of its own.
+        items: list[tuple[str, timedelta | None]] = (
             [(pattern, None) for pattern in include]
             if not isinstance(include, abc.Mapping)
             else list(include.items())
         )
-        for pattern, ttl in items:
-            if ttl is not None:
-                check_ttl(ttl, f"include[{pattern!r}]")
         # Most specific first: an exact path beats a prefix, and a longer
         # prefix beats the shorter one it sits under, so a rule written
         # for one route is not answered by the one written for its router.
-        self._include: tuple[tuple[str, float | None], ...] = tuple(
+        self._include: tuple[tuple[str, timedelta | None], ...] = tuple(
             sorted(
                 items,
                 key=lambda item: (item[0].endswith("*"), -len(item[0])),
             )
         )
         self._exclude = exclude
-        self._routes: tuple[tuple[Pattern[str], float | None], ...] = ()
+        self._routes: tuple[tuple[Pattern[str], timedelta | None], ...] = ()
         self._refused: tuple[Pattern[str], ...] = ()
         self._refused_paths: frozenset[str] = frozenset()
         self._refused_templates: tuple[str, ...] = ()
@@ -494,7 +433,7 @@ class _Policies:
         sources: tuple[tuple[Any, bool], ...],
     ) -> None:
         """Read and publish routes from one coherent topology snapshot."""
-        found: list[tuple[Pattern[str], float | None]] = []
+        found: list[tuple[Pattern[str], timedelta | None]] = []
         refused: list[tuple[str, Pattern[str]]] = []
         for app, include_root in sources:
             app_found, app_refused = _marked_routes(
@@ -529,8 +468,8 @@ class _Policies:
     def pattern_ttl(
         self,
         path: Annotated[str, Doc("The path the request is asking for.")],
-        default: Annotated[float, Doc("The component's own TTL.")],
-    ) -> float | None:
+        default: Annotated[timedelta, Doc("The component's own TTL.")],
+    ) -> timedelta | None:
         """Return how long `include` keeps this path, or `None` for never.
 
         The patterns only. A route's own declaration is read off the
@@ -560,8 +499,8 @@ class _Policies:
     def ttl_for(
         self,
         path: Annotated[str, Doc("The path the request is asking for.")],
-        default: Annotated[float, Doc("The component's own TTL.")],
-    ) -> float | None:
+        default: Annotated[timedelta, Doc("The component's own TTL.")],
+    ) -> timedelta | None:
         """Return how long this path is cached, or `None` when it is not.
 
         A route that declared one says more than a pattern naming it, so
@@ -587,8 +526,8 @@ def declared_ttl(
         Doc("What was declared above it, outermost first."),
     ],
     declared: Annotated[str, Doc("The full path the route sits under.")],
-) -> tuple[bool, float | None]:
-    """Return whether this route declares a TTL, and the seconds it names.
+) -> tuple[bool, timedelta | None]:
+    """Return whether this route declares a TTL, and the TTL it names.
 
     The nearest declaration decides: the route's own beats the router it
     sits in, and an inner router beats the one that includes it. `None`
@@ -627,7 +566,8 @@ def _marked_routes(
     *,
     include_root_middleware: bool = False,
 ) -> tuple[
-    list[tuple[Pattern[str], float | None]], list[tuple[str, Pattern[str]]]
+    list[tuple[Pattern[str], timedelta | None]],
+    list[tuple[str, Pattern[str]]],
 ]:
     """Return the routes that declared a TTL, and the ones refused.
 
@@ -647,7 +587,7 @@ def _marked_routes(
             is refused the same way, because a hit answers over the gate
             whichever of the two put the path here.
     """
-    found: list[tuple[Pattern[str], float | None]] = []
+    found: list[tuple[Pattern[str], timedelta | None]] = []
     refused = [
         *_middleware_refusals(app, include_root=include_root_middleware),
         *_authentication_refusals(app, include_root=include_root_middleware),
@@ -699,7 +639,7 @@ def _marked_routes(
             # What cannot be answered from a cache is left to its handler
             # rather than refused.
             continue
-        found.append((compiled, cast("float | None", ttl)))
+        found.append((compiled, cast("timedelta | None", ttl)))
     _refuse_named_write(named, answered)
     return found, refused
 
@@ -1153,21 +1093,25 @@ class CachedResponsesConfig(BaseModel, frozen=True, extra="forbid"):
     `include` is the one field in the HTTP family whose patterns carry a
     value, because the cache is the one rule with something to say per
     path. A tuple names the paths at the component's own `ttl`, and a
-    mapping gives each its own seconds.
+    mapping gives each its own lifetime.
     """
 
     ttl: Annotated[
-        float,
-        AfterValidator(_seconds),
-        Doc("Seconds a response is kept when its route names none."),
+        Duration,
+        Doc(
+            "How long a response is kept when its route names none, in "
+            "whole seconds or as a `timedelta`. A float is refused. From "
+            'text it reads whole seconds (`"60"`) or an ISO 8601 duration '
+            '(`"PT0.5S"`).'
+        ),
     ] = _DEFAULT_TTL
     include: Annotated[
-        PathPatterns | Mapping[str, float],
-        AfterValidator(_seconds_per_path),
+        PathPatterns | Mapping[str, Duration],
+        BeforeValidator(_durations_per_path),
         Doc(
             "The paths cached. A tuple keeps each for `ttl`, and a "
             'mapping such as `{"/products/*": 60}` gives each its own '
-            "seconds. The most specific pattern decides."
+            "lifetime, read like `ttl`. The most specific pattern decides."
         ),
     ] = ()
     exclude: Annotated[
@@ -1287,14 +1231,17 @@ class CachedResponsesMiddleware:
             ),
         ] = None,
         ttl: Annotated[
-            float,
-            Doc("Seconds a response is kept when its route names none."),
+            int | timedelta,
+            Doc(
+                "How long a response is kept when its route names none, "
+                "in whole seconds or as a `timedelta`."
+            ),
         ] = _DEFAULT_TTL,
         include: Annotated[
-            Mapping[str, float] | tuple[str, ...] | None,
+            Mapping[str, int | timedelta] | tuple[str, ...] | None,
             Doc(
                 "The paths cached. A tuple keeps each for `ttl`, and a "
-                "mapping gives each its own seconds. Exact match unless "
+                "mapping gives each its own lifetime. Exact match unless "
                 "the pattern ends with `*`."
             ),
         ] = None,
@@ -1390,9 +1337,7 @@ class CachedResponsesMiddleware:
             owned_policies = (
                 policies
                 if policies is not None
-                else _Policies(
-                    include or {}, as_patterns(exclude, name="exclude")
-                )
+                else _Policies(config.include, config.exclude)
             )
             owned_policies.bind(app)
             if _is_starlette_routing_app(app):
@@ -1461,7 +1406,7 @@ class CachedResponsesMiddleware:
         *,
         state: _State,
         key: str,
-        ttl: float,
+        ttl: timedelta,
         path: str,
         authentication: _AuthenticationSnapshot,
     ) -> None:
@@ -1506,7 +1451,7 @@ class CachedResponsesMiddleware:
             await self._write(
                 storage_key,
                 attempt.entry,
-                ttl=min(ttl, attempt.entry["kept"]),
+                ttl=_kept_for(ttl, attempt.entry["kept"]),
             )
             return attempt.entry
 
@@ -1594,7 +1539,7 @@ class CachedResponsesMiddleware:
             return None
 
     async def _write(
-        self, storage_key: str, entry: _Entry, *, ttl: float
+        self, storage_key: str, entry: _Entry, *, ttl: timedelta
     ) -> None:
         """Keep the response, and let the caller have it either way."""
         try:
@@ -1946,6 +1891,18 @@ async def _serve(entry: _Entry, scope: Scope, send: Send) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+def _kept_for(ttl: timedelta, kept: float) -> timedelta:
+    """Return how long a response is stored: its TTL, or less if it says so.
+
+    `kept` is the freshness the response names, in seconds, or `inf` when
+    it names none. A freshness shorter than the TTL is rounded up to the
+    second, and never past the TTL.
+    """
+    if kept >= ttl.total_seconds():
+        return ttl
+    return min(ttl, timedelta(seconds=math.ceil(kept)))
+
+
 def _named_freshness(directives: set[str]) -> float | None:
     """Return the seconds a response says it stays fresh for.
 
@@ -2137,18 +2094,19 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         self,
         *,
         ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
-                "Seconds a response is kept when its route names none. "
+                "How long a response is kept when its route names none, in "
+                "whole seconds or as a `timedelta`. A float is refused. "
                 "`CachedResponse(ttl=...)` overrides it per route."
             ),
         ] = None,
         include: Annotated[
-            Mapping[str, float] | tuple[str, ...] | None,
+            Mapping[str, int | timedelta] | tuple[str, ...] | None,
             Doc(
                 "The paths cached, for a route that declares none. A "
                 "tuple keeps each for `ttl`, and a mapping gives each its "
-                'own seconds, as `{"/products/*": 60}`. Exact match '
+                'own lifetime, as `{"/products/*": 60}`. Exact match '
                 "unless the pattern ends with `*`."
             ),
         ] = None,
@@ -2229,7 +2187,8 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
 
         Raises:
             SettingsValidationError: If `ttl`, or one a pattern names, is
-                not a positive number of seconds.
+                not whole seconds or a `timedelta`, is not greater than
+                zero, or is over 100 years.
         """
         resolved_env_prefix, kind_prefix = env_prefixes(
             "CACHED_RESPONSES", name, env_prefix
@@ -2331,7 +2290,9 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             cache
             if cache is not None
             else TTLCache(
-                ttl=config.ttl, name=name, serializer=JsonSerializer()
+                ttl=config.ttl,
+                name=name,
+                serializer=JsonSerializer(),
             )
         )
         self._tag = f"grelmicro:{namespace}:{name}"
