@@ -15,14 +15,12 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from hypothesis import given, settings
-from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from grelmicro._duration import (
     MAX_DURATION,
     MICROSECOND,
     NANOSECONDS_PER_SECOND,
-    nanoseconds,
 )
 from grelmicro.errors import SettingsValidationError
 from grelmicro.security import (
@@ -39,6 +37,7 @@ from grelmicro.security import (
 )
 from grelmicro.security import bans as bans_module
 from grelmicro.security import jwt as jwt_module
+from tests._durations import DURATIONS, FLOATS, NANOSECOND, NanosecondClock
 from tests.security.jwt_signing import Signer
 
 if TYPE_CHECKING:
@@ -55,16 +54,8 @@ FAILURES = 3
 HOUR = 3600
 WHOLE = 12
 UNDER_A_SECOND = timedelta(seconds=12, milliseconds=500)
-NANOSECOND = 1
-START_NS = 1_000_000_000_000
 
 SIGNER = Signer()
-
-FLOATS = [
-    pytest.param(12.5, id="float"),
-    pytest.param(12.0, id="whole-float"),
-    pytest.param(True, id="bool"),
-]
 
 READ_BACK = [
     pytest.param(WHOLE, timedelta(seconds=WHOLE), id="int"),
@@ -75,9 +66,6 @@ FROM_TEXT = [
     pytest.param("12", timedelta(seconds=WHOLE), id="seconds"),
     pytest.param("PT12.5S", UNDER_A_SECOND, id="iso-8601"),
 ]
-
-DURATIONS = st.timedeltas(min_value=MICROSECOND, max_value=timedelta(days=2))
-"""Any duration a setting takes, to the microsecond."""
 
 
 def _key() -> JWTKey:
@@ -218,22 +206,6 @@ ENVIRONMENT: list[Any] = [
         id="oauth-default-lifetime",
     ),
 ]
-
-
-class NanosecondClock:
-    """A monotonic clock in whole nanoseconds that the test moves."""
-
-    def __init__(self) -> None:
-        """Start at a fixed point."""
-        self.now = START_NS
-
-    def __call__(self) -> int:
-        """Return the current time."""
-        return self.now
-
-    def advance(self, duration: timedelta, extra_ns: int = 0) -> None:
-        """Move forward by `duration`, plus `extra_ns` nanoseconds."""
-        self.now += nanoseconds(duration) + extra_ns
 
 
 @pytest.fixture

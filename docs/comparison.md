@@ -153,7 +153,7 @@ Liveness, readiness, and aggregate endpoints for orchestrators and load balancer
 |---|---|---|---|
 | Concurrent check execution | manual `asyncio.gather` | no | yes (`asyncio.TaskGroup`) |
 | Per-check timeout | manual | no | yes |
-| Per-check TTL cache + single-flight | manual | no | yes (default `cache_ttl=1.0`) |
+| Per-check TTL cache + single-flight | manual | no | yes (default `cache_ttl=1`) |
 | Critical vs non-critical | manual | no | yes (non-critical never flips `/readyz`) |
 | `/livez` + `/readyz` + `/healthz` triple | hand-rolled | no | yes (FastAPI router included) |
 | `?exclude` query | manual | no | yes |

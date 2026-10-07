@@ -10,10 +10,17 @@ import threading
 import time
 import traceback
 from logging import getLogger
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import BaseModel, PositiveFloat, PositiveInt
+from pydantic import (
+    BaseModel,
+    PositiveInt,
+    ValidationInfo,
+    field_validator,
+)
 from typing_extensions import Doc
+
+from grelmicro._duration import check_positive_wait
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,7 +43,7 @@ class Liveness(BaseModel, frozen=True, extra="forbid"):
     """
 
     stall_timeout: Annotated[
-        PositiveFloat | None,
+        float | None,
         Doc(
             "Seconds the event loop may go without running a callback. A "
             "watchdog thread checks four times per `stall_timeout`, at most "
@@ -46,7 +53,7 @@ class Liveness(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = None
     interval: Annotated[
-        PositiveFloat,
+        float,
         Doc("Seconds between two runs of the liveness checks."),
     ] = 10.0
     failure_threshold: Annotated[
@@ -57,13 +64,21 @@ class Liveness(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = 3
     shutdown_timeout: Annotated[
-        PositiveFloat,
+        float,
         Doc(
             "Seconds a worker stopped by failed liveness checks has to shut "
             "down. Past it, the worker exits at once, as it does when it runs "
             "as PID 1 with no `SIGTERM` handler or its shutdown hangs."
         ),
     ] = 30.0
+
+    @field_validator("stall_timeout", "interval", "shutdown_timeout")
+    @classmethod
+    def _check_wait(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
+        """Refuse a wait that is not a finite number, or is zero or below."""
+        if value is None:
+            return value
+        return check_positive_wait(value, info.field_name or "value")
 
 
 def _stop_process() -> None:

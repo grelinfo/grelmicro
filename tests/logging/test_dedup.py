@@ -379,7 +379,7 @@ def test_invalid_key_mode_rejected() -> None:
 def test_ttl_resets_counter_after_silence() -> None:
     """After ``ttl`` without hits, the counter resets."""
     with freeze_time() as frozen:
-        filt = DuplicateFilter(allowed_repetitions=1, ttl=10.0)
+        filt = DuplicateFilter(allowed_repetitions=1, ttl=10)
         record = _make_record(msg="flood")
 
         first = filt.filter(record)
@@ -395,7 +395,7 @@ def test_ttl_resets_counter_after_silence() -> None:
 def test_ttl_reemits_during_sustained_flood() -> None:
     """A flood that outlives ``ttl`` re-emits once per window."""
     with freeze_time() as frozen:
-        filt = DuplicateFilter(allowed_repetitions=1, ttl=10.0)
+        filt = DuplicateFilter(allowed_repetitions=1, ttl=10)
         record = _make_record(msg="flood")
 
         first = filt.filter(record)
@@ -415,7 +415,7 @@ def test_ttl_resets_counter_between_sweeps() -> None:
     sweep ran, so the per-record ttl check still has to reset it.
     """
     with freeze_time() as frozen:
-        filt = DuplicateFilter(allowed_repetitions=1, cache_size=100, ttl=10.0)
+        filt = DuplicateFilter(allowed_repetitions=1, cache_size=100, ttl=10)
         late = _make_record(msg="late")
 
         # t=0 runs the first sweep (empty) and schedules the next at t=10.
@@ -446,13 +446,6 @@ def test_ttl_none_disables_time_expiry() -> None:
         after_long_silence = filt.filter(record)
 
         assert not after_long_silence
-
-
-@pytest.mark.parametrize("bad_ttl", [0, -0.5, -1])
-def test_non_positive_ttl_rejected(bad_ttl: float) -> None:
-    """Non-positive ``ttl`` values raise a SettingsValidationError."""
-    with pytest.raises(SettingsValidationError, match="greater than 0"):
-        DuplicateFilter(ttl=bad_ttl)
 
 
 @pytest.mark.parametrize(

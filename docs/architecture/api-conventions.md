@@ -159,8 +159,8 @@ take.
 | `Outbox.purge(older_than)` | `int \| timedelta`, `0` purges every settled row | yes |
 | `TTLCacheConfig.ttl`, `Cache.ttl(ttl)`, `cached(ttl, stale_ttl)`, `TTLCache.set(ttl, stale_ttl)`, `.get_or_set(ttl, stale_ttl)`, `.set_many(ttl)` | `int \| timedelta` | yes |
 | `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs, `CachedResponse(ttl)` | `int \| timedelta` | yes |
-| `DuplicateFilterConfig.ttl` | `int \| timedelta` | not yet |
-| `HealthChecksConfig.cache_ttl` | `int \| timedelta` | not yet |
+| `DuplicateFilterConfig.ttl` | `int \| timedelta \| None`, `None` means no time limit | yes |
+| `HealthChecksConfig.cache_ttl` | `int \| timedelta`, `0` caches nothing | yes |
 | `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | yes |
 | `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | yes |
 | `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | yes |
@@ -170,5 +170,6 @@ take.
 | `timeout`, `wait_timeout`, `backend_timeout`, `request_timeout` | `float` | stays |
 | `shutdown_timeout`, `export_timeout`, `command_timeout` | `float` | stays |
 | `TimeoutConfig.seconds` | `float` | stays |
+| `Liveness.interval`, `.stall_timeout`, `.shutdown_timeout` | `float`, `stall_timeout=None` starts no watchdog | stays |
 | `RetryConfig.max_seconds`, backoff delays, outbox `retry_base` and `retry_max` | `float` | stays |
 | `Outbox.publish(delay)`, outbox `Retry(delay)` | `float \| timedelta` | stays |

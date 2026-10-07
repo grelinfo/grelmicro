@@ -1,16 +1,18 @@
 """Tests for the three-paths HealthChecks construction."""
 
+from datetime import timedelta
+
 import pytest
 
 from grelmicro.errors import SettingsValidationError
 from grelmicro.health._checks import HealthChecks, HealthChecksConfig
 
 TIMEOUT_KWARG = 2.5
-CACHE_TTL_KWARG = 0.5
+CACHE_TTL_KWARG = timedelta(milliseconds=500)
 TIMEOUT_ENV = 7.5
-CACHE_TTL_ENV = 3.0
+CACHE_TTL_ENV = timedelta(seconds=3)
 DEFAULT_TIMEOUT = 5.0
-DEFAULT_CACHE_TTL = 1.0
+DEFAULT_CACHE_TTL = timedelta(seconds=1)
 
 
 def test_programmatic_path_uses_kwargs() -> None:
@@ -40,7 +42,7 @@ def test_environmental_path_reads_grel_prefixed_env(
 ) -> None:
     """Env vars under ``GREL_HEALTH_*`` populate unset fields."""
     monkeypatch.setenv("GREL_HEALTH_TIMEOUT", str(TIMEOUT_ENV))
-    monkeypatch.setenv("GREL_HEALTH_CACHE_TTL", str(CACHE_TTL_ENV))
+    monkeypatch.setenv("GREL_HEALTH_CACHE_TTL", "3")
     health = HealthChecks()
     assert health._config.timeout == TIMEOUT_ENV
     assert health._config.cache_ttl == CACHE_TTL_ENV

@@ -45,12 +45,7 @@ WAITS = frozenset(
 )
 """Waits, timeouts passed to I/O and loop cadences, which stay float seconds."""
 
-NOT_MOVED_YET = frozenset(
-    {
-        ("DuplicateFilterConfig", "ttl"),
-        ("HealthChecksConfig", "cache_ttl"),
-    }
-)
+NOT_MOVED_YET: frozenset[tuple[str, str]] = frozenset()
 """Stored or enforced durations that do not take the shared duration type yet."""
 
 NOT_DURATIONS = frozenset(

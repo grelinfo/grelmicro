@@ -34,7 +34,7 @@ logger.addFilter(DuplicateFilter(key_mode="rendered"))
 logger.addFilter(DuplicateFilter(key=lambda r: (r.name, r.exc_info)))
 ```
 
-Set `ttl` to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators continue to receive periodic reminders:
+Set `ttl`, in whole seconds or as a `timedelta`, to re-emit a burst of `allowed_repetitions` records every window during sustained floods, so operators continue to receive periodic reminders:
 
 ```python
 logger.addFilter(DuplicateFilter(allowed_repetitions=5, ttl=300))

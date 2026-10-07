@@ -8,10 +8,12 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field, field_validator
 from typing_extensions import Doc
 
-from grelmicro._duration import Duration, Retention
-
-KEEP_FOREVER = "none"
-"""The text `keep_delivered` reads as `None`, keep delivered rows for good."""
+from grelmicro._duration import (
+    NO_LIMIT,
+    Duration,
+    Retention,
+    no_limit_from_text,
+)
 
 _BOOL_WORDS = frozenset(
     {"t", "f", "y", "n", "true", "false", "yes", "no", "on", "off"}
@@ -20,7 +22,7 @@ _BOOL_WORDS = frozenset(
 
 _NOT_A_BOOL = (
     "keep_delivered takes a duration, 0 to delete on delivery, or None "
-    f"({KEEP_FOREVER!r} from text) to keep forever, not a bool"
+    f"({NO_LIMIT!r} from text) to keep forever, not a bool"
 )
 
 
@@ -125,9 +127,8 @@ class OutboxConfig(BaseModel, frozen=True, extra="forbid"):
     @classmethod
     def _read_keep_delivered(cls, value: Any) -> Any:  # noqa: ANN401
         """Read `"none"` as `None`, and refuse a bool or its spelling in text."""
+        value = no_limit_from_text(value)
         text = value.strip().lower() if isinstance(value, str) else None
-        if text == KEEP_FOREVER:
-            return None
         if isinstance(value, bool) or text in _BOOL_WORDS:
             raise ValueError(_NOT_A_BOOL)
         return value

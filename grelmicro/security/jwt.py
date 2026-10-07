@@ -55,7 +55,7 @@ from grelmicro._duration import (
     NANOSECONDS_PER_SECOND,
     Duration,
     Retention,
-    check_finite,
+    check_positive_wait,
     nanoseconds,
     nanoseconds_from_seconds,
 )
@@ -708,11 +708,7 @@ class _KeyPublishing(BaseModel, frozen=True):
     @classmethod
     def _check_positive(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
         """Refuse a wait that is not a finite number, or is zero or below."""
-        name = info.field_name or "value"
-        if check_finite(value, name) <= 0:
-            msg = f"{name} must be greater than zero"
-            raise ValueError(msg)
-        return value
+        return check_positive_wait(value, info.field_name or "value")
 
     @field_validator("max_bytes", "max_keys")
     @classmethod

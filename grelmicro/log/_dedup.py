@@ -7,15 +7,17 @@ the logging user guide for semantics, examples, and trade-offs.
 
 from collections import OrderedDict
 from collections.abc import Callable, Hashable
+from datetime import timedelta
 from logging import Filter, LogRecord
 from threading import Lock
-from time import monotonic
-from typing import Annotated, Self
+from time import monotonic_ns
+from typing import Annotated, Any, Self
 
-from pydantic import BaseModel, PositiveFloat, PositiveInt
+from pydantic import BaseModel, PositiveInt, field_validator
 from typing_extensions import Doc
 
 from grelmicro._config import env_prefixes, resolve_config
+from grelmicro._duration import Duration, nanoseconds, no_limit_from_text
 from grelmicro.log._shared import KeyMode
 
 
@@ -50,15 +52,24 @@ class DuplicateFilterConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = "template"
     ttl: Annotated[
-        PositiveFloat | None,
+        Duration | None,
         Doc(
-            "Silence window for automatic counter reset. If a key "
+            "Silence window for automatic counter reset, in whole "
+            "seconds or as a `timedelta`. A float is refused. If a key "
             "has not been seen for ``ttl``, its counter "
             "resets the next time it appears. ``None`` (default) "
             "disables time-based expiry, so only LRU eviction can "
-            "reset a counter."
+            "reset a counter. From text, such as an environment "
+            'variable, it reads whole seconds (`"60"`), an ISO 8601 '
+            'duration (`"PT0.5S"`), or `"none"` for no time limit.'
         ),
     ] = None
+
+    @field_validator("ttl", mode="before")
+    @classmethod
+    def _read_no_limit(cls, value: Any) -> Any:  # noqa: ANN401
+        """Read the text `"none"` as `None`, no time limit."""
+        return no_limit_from_text(value)
 
 
 def _key_by_rendered(record: LogRecord) -> tuple[str, int, str]:
@@ -167,10 +178,11 @@ class DuplicateFilter(Filter):
             ),
         ] = None,
         ttl: Annotated[
-            PositiveFloat | None,
+            int | timedelta | None,
             Doc(
                 """
-                Silence window for automatic counter reset.
+                Silence window for automatic counter reset, in whole
+                seconds or as a `timedelta`. A float is refused.
                 ``None`` (default) disables time-based expiry.
                 """
             ),
@@ -283,12 +295,12 @@ class DuplicateFilter(Filter):
         """Wire the validated config and runtime deps onto the instance."""
         self._config = config
         self._allowed = config.allowed_repetitions
-        self._ttl = config.ttl
+        self._ttl = None if config.ttl is None else nanoseconds(config.ttl)
         self._cache_size = config.cache_size
         self._key_fn = key if key is not None else _KEY_FUNCS[config.key_mode]
-        self._counts: OrderedDict[Hashable, tuple[int, float]] = OrderedDict()
+        self._counts: OrderedDict[Hashable, tuple[int, int]] = OrderedDict()
         self._lock = Lock()
-        self._next_sweep = 0.0
+        self._next_sweep = 0
 
     @property
     def config(self) -> DuplicateFilterConfig:
@@ -302,12 +314,12 @@ class DuplicateFilter(Filter):
         allowed = self._allowed
         ttl = self._ttl
         cache_size = self._cache_size
-        now = monotonic()
+        now = monotonic_ns()
         with self._lock:
             if ttl is not None and now >= self._next_sweep:
                 # Time-bucketed cleanup. On high-cardinality floods the
                 # map fills with keys that will never repeat. Dropping
-                # entries unseen for longer than ``ttl`` in one pass lets
+                # entries unseen for ``ttl`` or longer in one pass lets
                 # stale keys leave before they force LRU eviction of keys
                 # that are still active. Bounded to once per ``ttl`` so
                 # the scan cost is amortized off the per-record path.
@@ -323,7 +335,7 @@ class DuplicateFilter(Filter):
                     counts.popitem(last=False)
                 return True
             count, last_seen = entry
-            if ttl is not None and now - last_seen > ttl:
+            if ttl is not None and now - last_seen >= ttl:
                 counts[key] = (1, now)
                 counts.move_to_end(key)
                 return True
