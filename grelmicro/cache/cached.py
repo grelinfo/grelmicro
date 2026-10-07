@@ -40,6 +40,7 @@ from grelmicro._async import (
     raise_event_loop_deadlock,
 )
 from grelmicro._duration import check_duration
+from grelmicro._key_checks import KeyFunction, check_key_choice
 from grelmicro._wrapping import refuse_registered
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
@@ -400,29 +401,31 @@ def cached(  # noqa: PLR0913, C901
         ),
     ] = 0,
     key: Annotated[
+        KeyFunction | None,
+        Doc(
+            """
+            Derive the cache key from the call. Receives
+            ``(func, args, kwargs)`` and returns the key string. Use it
+            for the fully dynamic case. For a key rendered from the
+            arguments, pass `key_template=` instead. A string raises
+            `TypeError`, and so does passing both `key` and
+            `key_template`. A `key` function fully determines the key,
+            so `typed` does not apply.
+            """,
+        ),
+    ] = None,
+    key_template: Annotated[
         str | None,
         Doc(
             """
             Cache key template rendered from the call's arguments, so
-            ``key="user:{user_id}"`` keys the entry under ``user:42`` for
-            a call with ``user_id=42``. A literal template with no
-            placeholders keys every call under the same string. Use it
-            instead of the default argument-repr key when you want a
-            stable, readable key. A `key` template fully determines the
-            key, so `typed` does not apply. Passing both `key` and
-            `key_maker` raises `TypeError`.
-            """,
-        ),
-    ] = None,
-    key_maker: Annotated[
-        Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], str]
-        | None,
-        Doc(
-            """
-            Optional custom key generation function. Receives
-            ``(func, args, kwargs)`` and must return a string key. Use it
-            for the fully dynamic case. For a simple template, pass `key=`
-            instead. Passing both `key` and `key_maker` raises `TypeError`.
+            ``key_template="user:{user_id}"`` keys the entry under
+            ``user:42`` for a call with ``user_id=42``. A literal template
+            with no placeholders keys every call under the same string.
+            Use it instead of the default argument-repr key when you want
+            a stable, readable key. A template fully determines the key,
+            so `typed` does not apply. Passing both `key` and
+            `key_template` raises `TypeError`.
             """,
         ),
     ] = None,
@@ -541,9 +544,10 @@ def cached(  # noqa: PLR0913, C901
 
     Raises:
         TypeError: If both ``cache`` and ``ttl`` are given, if neither is
-            given, if both ``key`` and ``key_maker`` are given, if the
-            decorated function is a sync generator, or if the ``ttl=``
-            form decorates a sync function.
+            given, if ``key`` is a string, if both ``key`` and
+            ``key_template`` are given, if the decorated function is a
+            sync generator, or if the ``ttl=`` form decorates a sync
+            function.
         SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
             ``"local"``, if ``early`` is outside ``[0, 1)``, or if ``ttl``
             or ``stale_ttl`` is a float, not positive, or over 100 years.
@@ -551,13 +555,7 @@ def cached(  # noqa: PLR0913, C901
     Returns:
         A decorator that caches function results.
     """
-    if key is not None and key_maker is not None:
-        msg = (
-            "cached() takes either key= or key_maker=, not both. Pass a "
-            "key= template for a stable key rendered from the arguments, "
-            "or a key_maker callable for the fully dynamic case."
-        )
-        raise TypeError(msg)
+    check_key_choice(key, key_template)
     is_private_cache = cache is None
     _check_cache_choice(cache, ttl)
     if lock not in (True, False, "local"):
@@ -596,16 +594,16 @@ def cached(  # noqa: PLR0913, C901
                 f"from the cache, or return a list to cache it whole."
             )
             raise TypeError(msg)
-        if key is None and key_maker is None and _takes_self(func):
+        if key is None and key_template is None and _takes_self(func):
             name = getattr(func, "__qualname__", repr(func))
             msg = (
-                f"@cached on {name} needs an explicit key= or key_maker=, "
+                f"@cached on {name} needs an explicit key= or key_template=, "
                 f"because the default key is built from repr() of every "
                 f"argument, and here that includes self. Two instances "
                 f"whose repr matches then share one entry, and a default "
                 f"repr carries a memory address, so the key changes on "
                 f"every restart. Name what identifies the entry, for "
-                f"example key='user:{{user_id}}'."
+                f"example key_template='user:{{user_id}}'."
             )
             raise TypeError(msg)
         is_async_gen_func = inspect.isasyncgenfunction(func)
@@ -621,30 +619,30 @@ def cached(  # noqa: PLR0913, C901
         per_key = lock is not False
         auto_distributed = lock is True
         tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
-        resolved_key_maker = key_maker
-        if key is not None and "{" in key:
-            key_spec = _TagSpec((key,), inspect.signature(func))
+        resolved_key_function = key
+        if key_template is not None and "{" in key_template:
+            key_spec = _TagSpec((key_template,), inspect.signature(func))
 
-            def resolved_key_maker(
+            def resolved_key_function(
                 _func: Callable[..., Any],
                 args: tuple[Any, ...],
                 kwargs: dict[str, Any],
             ) -> str:
                 return key_spec.render(args, kwargs)[0]
-        elif key is not None:
+        elif key_template is not None:
 
-            def resolved_key_maker(
+            def resolved_key_function(
                 _func: Callable[..., Any],
                 _args: tuple[Any, ...],
                 _kwargs: dict[str, Any],
             ) -> str:
-                return key
+                return key_template
 
         if is_async_gen_func:
             wrapper = _build_async_gen_wrapper(
                 func,
                 resolved_cache,
-                resolved_key_maker,
+                resolved_key_function,
                 skip,
                 typed=typed,
                 per_key=per_key,
@@ -657,7 +655,7 @@ def cached(  # noqa: PLR0913, C901
             wrapper = _build_async_wrapper(
                 func,
                 resolved_cache,
-                resolved_key_maker,
+                resolved_key_function,
                 skip,
                 typed=typed,
                 per_key=per_key,
@@ -670,7 +668,7 @@ def cached(  # noqa: PLR0913, C901
             wrapper = _build_sync_wrapper(
                 func,
                 resolved_cache,
-                resolved_key_maker,
+                resolved_key_function,
                 skip,
                 typed=typed,
                 per_key=per_key,
@@ -792,7 +790,7 @@ def _serve_stale_sync(cache: TTLCache, key: str, loop: Any) -> tuple[bool, Any]:
 def _build_async_wrapper(  # noqa: C901, PLR0913
     func: Any,  # noqa: ANN401
     cache: TTLCache,
-    key_maker: Any,  # noqa: ANN401
+    key_function: Any,  # noqa: ANN401
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
@@ -819,7 +817,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
 
     @functools.wraps(func)
     async def async_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         result = await cache.get(key, _SENTINEL)
         if result is not _SENTINEL:
             if early is not None:
@@ -877,7 +875,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
             raise
 
     async def async_refresh(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
 
         async def recompute() -> Any:  # noqa: ANN401
             return await _compute_and_cache(
@@ -1023,7 +1021,7 @@ async def _compute_and_cache(
 def _build_async_gen_wrapper(
     func: Any,  # noqa: ANN401
     cache: TTLCache,
-    key_maker: Any,  # noqa: ANN401
+    key_function: Any,  # noqa: ANN401
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
@@ -1047,7 +1045,7 @@ def _build_async_gen_wrapper(
     buffered = _build_async_wrapper(
         collector,
         cache,
-        key_maker,
+        key_function,
         skip,
         typed=typed,
         per_key=per_key,
@@ -1060,7 +1058,7 @@ def _build_async_gen_wrapper(
 
     @functools.wraps(func)
     async def stream_wrapper(*args: Any, **kwargs: Any) -> AsyncIterator[Any]:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         result: Any = await cache.get(key, _SENTINEL)
         if result is not _SENTINEL:
             if early is not None:
@@ -1181,7 +1179,7 @@ async def _stream_and_store(
 def _build_sync_wrapper(  # noqa: C901
     func: Any,  # noqa: ANN401
     cache: TTLCache,
-    key_maker: Any,  # noqa: ANN401
+    key_function: Any,  # noqa: ANN401
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
@@ -1225,7 +1223,7 @@ def _build_sync_wrapper(  # noqa: C901
             return the_lock
 
     def sync_refresh(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         loop = backend_loop()
 
         def recompute() -> Any:  # noqa: ANN401
@@ -1266,7 +1264,7 @@ def _build_sync_wrapper(  # noqa: C901
 
     @functools.wraps(func)
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        key = _make_key(func, args, kwargs, key_maker, typed=typed)
+        key = _derive_key(func, args, kwargs, key_function, typed=typed)
         loop = backend_loop()
         result = _run(cache.get(key, _SENTINEL), loop)
         if result is not _SENTINEL:
@@ -1492,17 +1490,14 @@ def _compute_and_cache_sync(
 # --- Shared helpers ---
 
 
-def _make_key(
+def _derive_key(
     func: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
-    key_maker: Callable[
-        [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
-    ]
-    | None,
+    key_function: KeyFunction | None,
     *,
     typed: bool,
 ) -> str:
-    if key_maker is not None:
-        return key_maker(func, args, kwargs)
+    if key_function is not None:
+        return key_function(func, args, kwargs)
     return make_cache_key(func, args, kwargs, typed=typed)

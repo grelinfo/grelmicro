@@ -27,7 +27,11 @@ from grelmicro import (
 )
 from grelmicro._paths import _routing_app
 from grelmicro.errors import SettingsValidationError
-from grelmicro.http import IdempotencyMiddleware, IdempotentRequests
+from grelmicro.http import (
+    IdempotencyMiddleware,
+    IdempotentRequests,
+    IdempotentRequestsConfig,
+)
 from grelmicro.http._idempotency import (
     _authentication_paths,
     _checked_key,
@@ -35,7 +39,7 @@ from grelmicro.http._idempotency import (
     _GatedRoutes,
 )
 from grelmicro.idempotency import Idempotency
-from grelmicro.idempotency.errors import IdempotencyKeyMakerError
+from grelmicro.idempotency.errors import IdempotencyKeyFunctionError
 from grelmicro.integrations.litestar import (
     install_middleware as install_litestar_middleware,
 )
@@ -47,6 +51,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
     from starlette.requests import Request
+    from starlette.types import Scope
 
 pytestmark = [pytest.mark.timeout(5)]
 
@@ -1045,7 +1050,7 @@ def test_an_identity_aware_key_makes_private_requests_idempotent() -> None:
         uses=[
             MemoryProvider(),
             IdempotentRequests(
-                key_maker=lambda scope, key: (
+                key=lambda scope, key: (
                     f"verified-user\x1f{scope['path']}\x1f{key}"
                 )
             ),
@@ -1206,8 +1211,8 @@ def test_litestar_leaves_a_middleware_the_app_already_wired() -> None:
     assert replay.headers["idempotent-replayed"] == "true"
 
 
-def test_a_key_maker_returning_a_hostile_value_is_named_not_printed() -> None:
-    """What a `key_maker` returns is caller data, and reading it runs code."""
+def test_idempotency_middleware_hostile_key_is_named_not_printed() -> None:
+    """What a key function returns is caller data, and reading it runs code."""
 
     # Arrange
     class Unbound:
@@ -1221,7 +1226,7 @@ def test_a_key_maker_returning_a_hostile_value_is_named_not_printed() -> None:
             raise RuntimeError(msg)
 
     # Act / Assert
-    with pytest.raises(IdempotencyKeyMakerError, match="expected a"):
+    with pytest.raises(IdempotencyKeyFunctionError, match="expected a"):
         _checked_key(Unbound(), "abc")
 
 
@@ -1430,3 +1435,100 @@ def test_a_parameter_a_mount_and_its_route_both_name_is_served() -> None:
 
     # Assert
     assert response.json() == {"amount": 100}
+
+
+def test_idempotency_middleware_key_function_builds_the_stored_key() -> None:
+    """A `key=` function receives the scope and the client key."""
+    # Arrange
+    middleware = IdempotencyMiddleware(
+        FastAPI(),
+        idempotency=Idempotency("custom"),
+        key=lambda scope, key: f"{scope['path']}\x1f{key}",
+    )
+    scope: Scope = {"type": "http", "method": "POST", "path": "/charge"}
+
+    # Act
+    stored = middleware._storage_key(scope, "key-1")
+
+    # Assert
+    assert stored == "/charge\x1fkey-1"
+
+
+def test_idempotent_requests_key_function_reaches_the_middleware() -> None:
+    """The component hands its `key=` function to the middleware it wires."""
+
+    # Arrange
+    def tenant_key(scope: Scope, key: str) -> str:
+        return f"{scope['path']}\x1f{key}"
+
+    component = IdempotentRequests(key=tenant_key)
+
+    # Act
+    _middleware, options = component.asgi_middleware()
+
+    # Assert
+    assert options["key"] is tenant_key
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda legacy: IdempotentRequests(**legacy), id="component"
+        ),
+        pytest.param(
+            lambda legacy: IdempotencyMiddleware(
+                FastAPI(), idempotency=Idempotency("custom"), **legacy
+            ),
+            id="middleware",
+        ),
+    ],
+)
+def test_idempotency_key_maker_is_an_unknown_argument(
+    build: Callable[[dict[str, Any]], object],
+) -> None:
+    """`key_maker=` is no longer accepted."""
+    # Arrange
+    legacy: dict[str, Any] = {"key_maker": lambda _scope, key: key}
+
+    # Act / Assert
+    with pytest.raises(TypeError, match="key_maker"):
+        build(legacy)
+
+
+def test_idempotency_key_function_error_names_the_key_parameter() -> None:
+    """A refused key names `key=` as the function that built it."""
+    # Act / Assert
+    with pytest.raises(
+        IdempotencyKeyFunctionError, match="key= returned an empty string"
+    ):
+        _checked_key("", "abc")
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda key: IdempotentRequests(key=key), id="component"),
+        pytest.param(
+            lambda key: IdempotentRequests.from_config(
+                IdempotentRequestsConfig(), key=key
+            ),
+            id="from_config",
+        ),
+        pytest.param(
+            lambda key: IdempotencyMiddleware(
+                FastAPI(), idempotency=Idempotency("custom"), key=key
+            ),
+            id="middleware",
+        ),
+    ],
+)
+@pytest.mark.parametrize("key", ["tenant:{path}", 42], ids=["string", "number"])
+def test_idempotency_key_that_is_not_a_function_is_refused(
+    build: Callable[[Any], object],
+    key: object,
+) -> None:
+    """A `key=` that is not a function is refused at construction."""
+    # Act / Assert
+    with pytest.raises(TypeError, match=r"^key must be a function$"):
+        build(key)

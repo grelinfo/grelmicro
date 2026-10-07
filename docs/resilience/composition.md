@@ -67,7 +67,7 @@ A refusal by the stack's own rate limiter, bulkhead, or circuit breaker is not a
 | `RateLimitExceededError` | its `CircuitBreaker` records no outcome |
 | `BulkheadFullError` | its `CircuitBreaker` records no outcome |
 
-Nothing that happens while the stack is admitting a call counts against its breaker either. A `key_maker` that raises, a `cost` above the limiter's capacity, and a limiter backend that is down are all refused without recording a dependency outcome, so a mistake in one tenant's key cannot open the circuit for every caller.
+Nothing that happens while the stack is admitting a call counts against its breaker either. A `key=` function that raises, a `cost` above the limiter's capacity, and a limiter backend that is down are all refused without recording a dependency outcome, so a mistake in one tenant's key cannot open the circuit for every caller.
 
 Everything else reaches every pattern exactly as that pattern's own `when=` decides. The stack changes no configuration.
 

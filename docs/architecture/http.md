@@ -96,7 +96,7 @@ reach of a mounted file:
 |---|---|
 | `CachedResponses` | `cache`, `key`, `skip`, `namespace` |
 | `ConditionalRequests` | `openapi`, read once when the schema is built |
-| `IdempotentRequests` | `cache`, `key_maker`, `skip`, `namespace`, `openapi` |
+| `IdempotentRequests` | `cache`, `key`, `skip`, `namespace`, `openapi` |
 | `RateLimitedRequests` | the limiters, `trusted`, `key` |
 | `AuthenticatedRequests` | the verifier, `bans`, `trusted`, `openapi` |
 

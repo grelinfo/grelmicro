@@ -2929,7 +2929,7 @@ class TestReport:
         """A replay is skipped for a request that carries a caller."""
         idempotent = SimpleNamespace(
             config=SimpleNamespace(methods=("POST",), include=(), exclude=()),
-            _key_maker=None,
+            _key_function=None,
             route_is_gated=lambda method, path: False,  # noqa: ARG005
             idempotency=SimpleNamespace(
                 config=SimpleNamespace(ttl=timedelta(hours=1))

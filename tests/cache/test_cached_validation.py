@@ -53,18 +53,18 @@ def test_method_with_an_explicit_key_is_accepted() -> None:
     """Naming what identifies the entry is what the guard asks for."""
 
     class Repo:
-        @cached(ttl=_TTL, key="repo:{key}")
+        @cached(ttl=_TTL, key_template="repo:{key}")
         async def load(self, key: str) -> str:
             return key
 
     assert Repo.load is not None
 
 
-def test_method_with_a_key_maker_is_accepted() -> None:
-    """A `key_maker` names the entry just as explicitly as `key`."""
+def test_cached_method_with_a_key_function_is_accepted() -> None:
+    """A `key` function names the entry just as explicitly as `key_template`."""
 
     class Repo:
-        @cached(ttl=_TTL, key_maker=lambda func, args, kwargs: "repo")  # noqa: ARG005
+        @cached(ttl=_TTL, key=lambda func, args, kwargs: "repo")  # noqa: ARG005
         async def load(self, key: str) -> str:
             return key
 

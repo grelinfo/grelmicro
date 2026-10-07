@@ -31,6 +31,7 @@ from grelmicro._config import (
     resolve_config,
 )
 from grelmicro._guards import is_instance
+from grelmicro._key_checks import KeyFunction, check_key_choice
 from grelmicro._wrapping import named, refuse_registered
 from grelmicro.clock import monotonic as clock_monotonic
 from grelmicro.clock import sleep as clock_sleep
@@ -707,11 +708,8 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         fn: None = None,
         /,
         *,
-        key: str | None = None,
-        key_maker: Callable[
-            [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
-        ]
-        | None = None,
+        key: KeyFunction | None = None,
+        key_template: str | None = None,
         cost: int = 1,
         max_wait: float = 0.0,
     ) -> RateLimiterBinding: ...
@@ -722,29 +720,29 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         /,
         *,
         key: Annotated[
-            str | None,
+            KeyFunction | None,
             Doc(
                 """
-                Bucket key, rendered from the call's arguments when it
-                carries a placeholder, so `key="user:{user_id}"` meters
-                a call with `user_id=42` under `user:42`. A template
-                names only parameters the decorated function has. A
-                literal with no placeholder meters every call under the
-                same key. `None` (the default) uses the limiter's
-                `default` bucket. Passing both `key` and `key_maker`
-                raises `TypeError`.
+                Derive the bucket key from the call. Receives
+                `(func, args, kwargs)` and returns the key string, for
+                the fully dynamic case. Pass `key_template` instead for
+                a template. A string raises `TypeError`, and so does
+                passing both `key` and `key_template`.
                 """
             ),
         ] = None,
-        key_maker: Annotated[
-            Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], str]
-            | None,
+        key_template: Annotated[
+            str | None,
             Doc(
                 """
-                Key function receiving `(func, args, kwargs)` and
-                returning the bucket key, for the fully dynamic case.
-                Pass `key` instead for a template. Passing both raises
-                `TypeError`.
+                Bucket key template, rendered from the call's arguments
+                when it carries a placeholder, so
+                `key_template="user:{user_id}"` meters a call with
+                `user_id=42` under `user:42`. A template names only
+                parameters the decorated function has. A literal with no
+                placeholder meters every call under the same key. With
+                neither `key` nor `key_template`, calls use the limiter's
+                `default` bucket. Passing both raises `TypeError`.
                 """
             ),
         ] = None,
@@ -769,28 +767,28 @@ class RateLimiter(Reconfigurable["RateLimiterConfig"]):
         """Decorate a function so each call consumes tokens first.
 
         `@limiter` meters the whole function under the limiter's
-        `default` bucket. `@limiter(key=...)` returns a
+        `default` bucket. `@limiter(key_template=...)` returns a
         `RateLimiterBinding`, which decorates and which
         `Stack(patterns=[...])` accepts.
 
         Raises:
-            TypeError: If the key is passed positionally, if both `key`
-                and `key_maker` are passed, or the decorated function
-                is not async.
-            ValueError: If `max_wait` is negative, or a `key` template
+            TypeError: If the key is passed positionally, if `key` is a
+                string, if both `key` and `key_template` are passed, or
+                the decorated function is not async.
+            ValueError: If `max_wait` is negative, or a `key_template`
                 names a parameter the function does not have.
         """
         if is_instance(fn, str):
             msg = (
                 f"RateLimiter {self._name!r} takes the key by name, so "
-                f"write `@limiter(key={fn!r})`. The first argument is "
+                f"write `@limiter(key_template={fn!r})`. The first argument is "
                 "the function to decorate."
             )
             raise TypeError(msg)
         binding = RateLimiterBinding(
             self,
             key=key,
-            key_maker=key_maker,
+            key_template=key_template,
             cost=cost,
             max_wait=max_wait,
         )
@@ -875,7 +873,7 @@ def _template_fields(template: str) -> list[str]:
 class RateLimiterBinding:
     """A rate limiter bound to a key, a cost, and a wait budget.
 
-    `limiter(key="user:{user_id}")` returns one. It decorates an async
+    `limiter(key_template="user:{user_id}")` returns one. It decorates an async
     function, and `Stack(patterns=[...])` accepts it wherever it accepts
     a bare `RateLimiter`.
 
@@ -886,8 +884,8 @@ class RateLimiterBinding:
         "_bound_resolvers",
         "_cost",
         "_fields",
-        "_key",
-        "_key_maker",
+        "_key_function",
+        "_key_template",
         "_limiter",
         "_max_wait",
         "_reads_signature",
@@ -902,29 +900,21 @@ class RateLimiterBinding:
         ],
         /,
         *,
-        key: str | None = None,
-        key_maker: Callable[
-            [Callable[..., Any], tuple[Any, ...], dict[str, Any]], str
-        ]
-        | None = None,
+        key: KeyFunction | None = None,
+        key_template: str | None = None,
         cost: int = 1,
         max_wait: float = 0.0,
     ) -> None:
         """Bind a limiter to one key, cost, and wait budget.
 
         Raises:
-            TypeError: If both `key` and `key_maker` are passed, or
-                `max_wait` is `None`.
+            TypeError: If `key` is a string, if both `key` and
+                `key_template` are passed, or `max_wait` is `None`.
             ValueError: If `cost` is below 1, `max_wait` is negative
-                or not finite, or `key` reads a positional field.
+                or not finite, or `key_template` reads a positional
+                field.
         """
-        if key is not None and key_maker is not None:
-            msg = (
-                "Pass key or key_maker, not both. `key` renders a "
-                "template from the call's arguments, `key_maker` "
-                "computes the key itself."
-            )
-            raise TypeError(msg)
+        check_key_choice(key, key_template)
         if not is_instance(cost, int) or is_instance(cost, bool):
             msg = (
                 "cost is a number of tokens, so it is a whole number, "
@@ -964,14 +954,14 @@ class RateLimiterBinding:
             )
             raise ValueError(msg)
         self._limiter = limiter
-        self._key = key
+        self._key_template = key_template
         self._fields = (
-            _template_fields(key)
-            if key_maker is None and key is not None and "{" in key
+            _template_fields(key_template)
+            if key_template is not None and "{" in key_template
             else ()
         )
         self._reads_signature = bool(self._fields)
-        self._key_maker = key_maker
+        self._key_function = key
         self._cost = cost
         self._max_wait = max_wait
         self._resolvers: WeakKeyDictionary[
@@ -990,10 +980,20 @@ class RateLimiterBinding:
 
     def __repr__(self) -> str:
         """Return the binding with the key it meters under."""
-        key = self._key if self._key is not None else _DEFAULT_KEY
-        if self._key_maker is not None:
-            key = getattr(self._key_maker, "__qualname__", "key_maker")
-        return f"<RateLimiterBinding {self._limiter.name!r} key={key!r}>"
+        name = self._limiter.name
+        if self._key_template is not None:
+            return (
+                f"<RateLimiterBinding {name!r} "
+                f"key_template={self._key_template!r}>"
+            )
+        key = _DEFAULT_KEY
+        if self._key_function is not None:
+            key = getattr(
+                self._key_function,
+                "__qualname__",
+                type(self._key_function).__qualname__,
+            )
+        return f"<RateLimiterBinding {name!r} key={key!r}>"
 
     def _resolver(
         self, fn: Callable[..., Any]
@@ -1034,21 +1034,21 @@ class RateLimiterBinding:
         Raises:
             ValueError: If the template names a parameter `fn` has not.
         """
-        key_maker = self._key_maker
-        if key_maker is not None:
-            return lambda args, kwargs: key_maker(fn, args, kwargs)
-        key = self._key
-        if key is None:
+        key_function = self._key_function
+        if key_function is not None:
+            return lambda args, kwargs: key_function(fn, args, kwargs)
+        template = self._key_template
+        if template is None:
             return lambda _args, _kwargs: _DEFAULT_KEY
         if not self._fields:
-            constant = key.format_map({}) if "{" in key else key
+            constant = template.format_map({}) if "{" in template else template
             return lambda _args, _kwargs: constant
         signature = inspect.signature(fn)
         unknown = sorted(set(self._fields) - set(signature.parameters))
         if unknown:
             names = ", ".join(unknown)
             msg = (
-                f"Rate limiter key template {key!r} names "
+                f"Rate limiter key template {template!r} names "
                 f"{names}, which {named(fn)} does not take."
             )
             raise ValueError(msg)
@@ -1062,7 +1062,7 @@ class RateLimiterBinding:
                 msg = f"{name}() {error}"
                 raise TypeError(msg) from None
             bound.apply_defaults()
-            return key.format_map(bound.arguments)
+            return template.format_map(bound.arguments)
 
         return render
 
@@ -1102,7 +1102,7 @@ class RateLimiterBinding:
         Raises:
             TypeError: If `fn` is not async, or a registrar already
                 holds it.
-            ValueError: If a `key` template names a parameter `fn` has
+            ValueError: If a `key_template` names a parameter `fn` has
                 not.
         """
         refuse_registered(fn, f"RateLimiter {self._limiter.name!r}")

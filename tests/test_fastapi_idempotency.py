@@ -70,7 +70,7 @@ from grelmicro.http._idempotency import (
     _dependency_methods,
 )
 from grelmicro.idempotency import Idempotency
-from grelmicro.idempotency.errors import IdempotencyKeyMakerError
+from grelmicro.idempotency.errors import IdempotencyKeyFunctionError
 from grelmicro.integrations.fastapi import document_idempotency
 from grelmicro.providers.sqlite import SQLiteProvider
 
@@ -1949,13 +1949,15 @@ def test_default_key_represents_query_presence_and_exclusion_policy() -> None:
     assert excluded_empty not in {missing, empty, present_none}
 
 
-def test_custom_key_maker_output_remains_exactly_unchanged() -> None:
-    """Structured encoding applies only to the built-in key maker."""
+def test_idempotency_middleware_key_function_output_is_stored_unchanged() -> (
+    None
+):
+    """Structured encoding applies only to the built-in key."""
     custom = "tenant\x1froute\x1fkey-1"
     middleware = IdempotencyMiddleware(
         FastAPI(),
         idempotency=Idempotency("custom"),
-        key_maker=lambda _scope, _key: custom,
+        key=lambda _scope, _key: custom,
     )
     scope: Scope = {
         "type": "http",
@@ -1981,13 +1983,13 @@ def test_middleware_query_string_is_part_of_the_key(
     assert second.json() == {"call": 2}
 
 
-def test_middleware_key_maker_isolates_two_callers(
+def test_idempotency_middleware_key_function_isolates_two_callers(
     client_factory: Callable[..., tuple[TestClient, dict[str, int]]],
 ) -> None:
     """One caller never replays another caller's stored response."""
     # Arrange
     client, _calls = client_factory(
-        key_maker=lambda scope, key: (
+        key=lambda scope, key: (
             dict(scope["headers"]).get(b"x-tenant", b"").decode()
             + "|"
             + scope["path"]
@@ -2315,15 +2317,15 @@ def test_middleware_resolves_the_cache_under_a_forking_middleware() -> None:
     assert calls == {"count": 1}
 
 
-def _app_with_key_maker(key_maker: Any) -> FastAPI:  # noqa: ANN401
-    """Build an installed app whose middleware uses `key_maker`."""
+def _app_with_key_function(key_function: Any) -> FastAPI:  # noqa: ANN401
+    """Build an installed app whose middleware uses `key_function`."""
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app = FastAPI()
     micro.install(app)
     app.add_middleware(
         IdempotencyMiddleware,
         idempotency=Idempotency("http", ttl=60),
-        key_maker=key_maker,
+        key=key_function,
     )
 
     @app.post("/charge")
@@ -2333,56 +2335,70 @@ def _app_with_key_maker(key_maker: Any) -> FastAPI:  # noqa: ANN401
     return app
 
 
-def test_key_maker_carrying_an_unresolved_none_is_refused() -> None:
+def test_idempotency_middleware_key_with_an_unresolved_none_is_refused() -> (
+    None
+):
     """A key built from a value that was not set yet merges every caller.
 
-    This is the shape a scope-reading `key_maker` takes when the middleware
+    This is the shape a scope-reading key function takes when the middleware
     it depends on runs inside this one. The key still looks per-caller and
     separates nobody, so it is refused rather than stored under.
     """
     # Arrange
-    app = _app_with_key_maker(
+    app = _app_with_key_function(
         lambda scope, key: f"{scope.get('state', {}).get('missing')}|{key}"
     )
 
-    # Act / Assert
+    # Act
     with (
         TestClient(app) as client,
-        pytest.raises(IdempotencyKeyMakerError, match="unresolved None"),
+        pytest.raises(
+            IdempotencyKeyFunctionError, match="unresolved None"
+        ) as caught,
     ):
         client.post("/charge", headers=KEY)
 
+    # Assert
+    assert "None|key-1" not in str(caught.value)
 
-def test_key_maker_dropping_the_client_key_is_refused() -> None:
+
+def test_idempotency_middleware_key_dropping_the_client_key_is_refused() -> (
+    None
+):
     """Without the client's key every request to the route shares one entry."""
     # Arrange
-    app = _app_with_key_maker(lambda scope, _key: scope["path"])
+    app = _app_with_key_function(lambda scope, _key: scope["path"])
 
-    # Act / Assert
+    # Act
     with (
         TestClient(app) as client,
-        pytest.raises(IdempotencyKeyMakerError, match="drops the client"),
+        pytest.raises(
+            IdempotencyKeyFunctionError, match="drops the client"
+        ) as caught,
     ):
         client.post("/charge", headers=KEY)
 
+    # Assert
+    assert "/charge" not in str(caught.value)
 
-def test_key_maker_returning_an_empty_key_is_refused() -> None:
+
+def test_idempotency_middleware_empty_key_is_refused() -> None:
     """An empty key is one bucket for the whole application."""
     # Arrange
-    app = _app_with_key_maker(lambda _scope, _key: "")
+    app = _app_with_key_function(lambda _scope, _key: "")
 
     # Act / Assert
     with (
         TestClient(app) as client,
-        pytest.raises(IdempotencyKeyMakerError, match="non-empty key"),
+        pytest.raises(IdempotencyKeyFunctionError, match="non-empty key"),
     ):
         client.post("/charge", headers=KEY)
 
 
-def test_key_maker_keeping_a_none_lookalike_is_accepted() -> None:
+def test_idempotency_middleware_key_with_a_none_lookalike_is_accepted() -> None:
     """A tenant whose name merely contains None is not a partial key."""
     # Arrange
-    app = _app_with_key_maker(lambda _scope, key: f"NoneSuchCorp\x1f{key}")
+    app = _app_with_key_function(lambda _scope, key: f"NoneSuchCorp\x1f{key}")
 
     # Act
     with TestClient(app) as client:

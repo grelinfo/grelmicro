@@ -25,7 +25,7 @@ recs_list = Stack(
         Fallback(CALL, when=Exception, default=[]),
         Retry.exponential(CALL, when=httpx.HTTPError, attempts=3),
         breaker,
-        limiter(key="user:{user_id}"),
+        limiter(key_template="user:{user_id}"),
         pool,
         Timeout(CALL, seconds=1.0),
     ],

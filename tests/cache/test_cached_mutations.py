@@ -1,7 +1,7 @@
 """Mutation-killing tests for the `@cached` decorator.
 
 These pin behavior the broader suite left under-asserted: private-cache
-config from `ttl=`/`maxsize=`, the `typed` and `key_maker` plumbing through
+config from `ttl=`/`maxsize=`, the `typed` and `key` plumbing through
 the wrapper builders, the early-refresh path actually storing a new value (not
 just rerunning the function), the recompute-duration sign, the sync per-key
 lock budget, and the distributed compute path's kwargs, skip, and tag
@@ -23,7 +23,7 @@ import pytest
 
 from grelmicro import Grelmicro
 from grelmicro.cache._stampede import _stampede_lock_name
-from grelmicro.cache.cached import _make_key, _read_meta, cached
+from grelmicro.cache.cached import _derive_key, _read_meta, cached
 from grelmicro.cache.memory import MemoryCacheAdapter
 from grelmicro.cache.serializers import PickleSerializer
 from grelmicro.cache.ttl import TTLCache
@@ -177,15 +177,17 @@ class TestTypedPlumbing:
         assert calls == 1
 
 
-class TestKeyMakerPlumbing:
-    """Pin that a custom key_maker reaches the async and sync wrappers."""
+class TestKeyFunctionPlumbing:
+    """Pin that a custom key function reaches the async and sync wrappers."""
 
-    async def test_custom_key_maker_collapses_entries_async(self) -> None:
-        """A fixed-key key_maker folds all async calls to one entry."""
+    async def test_cached_key_function_folds_async_calls_into_one_entry(
+        self,
+    ) -> None:
+        """A fixed-key key function folds all async calls to one entry."""
         cache = _make_cache()
         calls = 0
 
-        @cached(cache, key_maker=lambda _func, _args, _kwargs: "fixed")
+        @cached(cache, key=lambda _func, _args, _kwargs: "fixed")
         async def fetch(x: int) -> int:
             nonlocal calls
             calls += 1
@@ -196,12 +198,14 @@ class TestKeyMakerPlumbing:
         assert first == second == 1
         assert calls == 1
 
-    async def test_custom_key_maker_collapses_entries_sync(self) -> None:
-        """A fixed-key key_maker folds all sync calls to one entry."""
+    async def test_cached_key_function_folds_sync_calls_into_one_entry(
+        self,
+    ) -> None:
+        """A fixed-key key function folds all sync calls to one entry."""
         cache = _make_cache()
         calls = 0
 
-        @cached(cache, key_maker=lambda _func, _args, _kwargs: "fixed")
+        @cached(cache, key=lambda _func, _args, _kwargs: "fixed")
         def fetch(x: int) -> int:
             nonlocal calls
             calls += 1
@@ -212,20 +216,22 @@ class TestKeyMakerPlumbing:
         assert first == second == 1
         assert calls == 1
 
-    async def test_key_maker_receives_function_args_and_kwargs(self) -> None:
-        """The key_maker is called with `(func, args, kwargs)` intact.
+    async def test_cached_key_function_receives_function_args_and_kwargs(
+        self,
+    ) -> None:
+        """The key function is called with `(func, args, kwargs)` intact.
 
-        Asserting the kwargs reach the key_maker catches a mutation that
+        Asserting the kwargs reach the key function catches a mutation that
         passes `None` in place of the kwargs dict.
         """
         cache = _make_cache()
         seen: list[tuple[object, tuple, dict]] = []
 
-        def key_maker(func, args, kwargs) -> str:  # noqa: ANN001
+        def make_key(func, args, kwargs) -> str:  # noqa: ANN001
             seen.append((func, args, kwargs))
             return f"k:{args[0]}:{kwargs}"
 
-        @cached(cache, key_maker=key_maker)
+        @cached(cache, key=make_key)
         async def fetch(x: int, *, label: str) -> int:  # noqa: ARG001
             return x
 
@@ -320,7 +326,7 @@ class TestEarlyRefreshStoresValue:
 
         for _ in range(100):
             await asyncio.sleep(0.005)
-            key = _make_key(impl, (5,), {}, None, typed=False)
+            key = _derive_key(impl, (5,), {}, None, typed=False)
             stored = await cache._peek(key)
             if stored == 2:  # noqa: PLR2004
                 break
@@ -346,7 +352,7 @@ class TestEarlyRefreshStoresValue:
         fetch = cached(cache, early=0.5)(impl)
         await fetch(5)  # cold miss writes meta with the recompute delta
 
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         meta = await _read_meta(cache, key)
         assert meta is not None
         _written, delta = meta
@@ -410,7 +416,7 @@ class TestDistributedComputePath:
             return x * 2
 
         fetch = cached(cache, lock=True)(impl)
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         async with micro:
             async with Lock(_stampede_lock_name(key)):
                 waiter = asyncio.create_task(asyncio.to_thread(fetch, 5))
@@ -520,7 +526,7 @@ class TestSyncEarlyRefresh:
         clock.t = 1040  # inside the early window
         await asyncio.to_thread(lambda: fetch(5))  # hit, refresh stores 2
 
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         stored = None
         for _ in range(100):
             await asyncio.sleep(0.005)
@@ -547,7 +553,7 @@ class TestSyncEarlyRefresh:
         fetch = cached(cache, early=0.5)(impl)
         await asyncio.to_thread(lambda: fetch(5))
 
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         meta = await _read_meta(cache, key)
         assert meta is not None
         _written, delta = meta
@@ -582,7 +588,7 @@ class TestEarlyRefreshRewritesMeta:
         clock.t = 1040  # inside the early window
         await fetch(5)  # hit, schedules refresh writing meta at 1040
 
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         written = 1000.0
         for _ in range(100):
             await asyncio.sleep(0.005)
@@ -623,7 +629,7 @@ class TestEarlyRefreshRespectsStaleTtl:
         clock.t = 1040  # inside the early window
         await fetch(5)  # hit, refresh stores value 2 and reserve 2
 
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         reserve = None
         for _ in range(100):
             await asyncio.sleep(0.005)
@@ -652,7 +658,7 @@ class TestDistributedComputeDeltaAndStale:
         fetch = cached(cache, lock=True, early=0.5)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
-            key = _make_key(impl, (5,), {}, None, typed=False)
+            key = _derive_key(impl, (5,), {}, None, typed=False)
             meta = await _read_meta(cache, key)
         assert meta is not None
         _written, delta = meta
@@ -673,7 +679,7 @@ class TestDistributedComputeDeltaAndStale:
         fetch = cached(cache, lock=True, stale_ttl=30)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
-            key = _make_key(impl, (5,), {}, None, typed=False)
+            key = _derive_key(impl, (5,), {}, None, typed=False)
             reserve = await cache._read_stale(key)
         assert reserve == 10  # noqa: PLR2004
 
@@ -704,7 +710,7 @@ class TestSyncRefreshMetaAndStale:
         clock.t = 1040  # inside the early window
         await asyncio.to_thread(lambda: fetch(5))  # hit, refresh meta at 1040
 
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         written = 1000.0
         for _ in range(100):
             await asyncio.sleep(0.005)
@@ -740,7 +746,7 @@ class TestSyncRefreshMetaAndStale:
         clock.t = 1040  # inside the early window
         await asyncio.to_thread(lambda: fetch(5))  # hit, refresh reserve 2
 
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         reserve = None
         for _ in range(100):
             await asyncio.sleep(0.005)
@@ -757,7 +763,7 @@ async def test_a_reused_decorator_gives_each_function_its_own_cache() -> None:
     answers for that function alone.
     """
     calls = {"first": 0, "second": 0}
-    decorator = cached(ttl=60, key="{value}")
+    decorator = cached(ttl=60, key_template="{value}")
 
     @decorator
     async def first(value: int) -> str:
@@ -788,7 +794,7 @@ async def test_a_private_cache_is_never_named_after_an_address() -> None:
     """
     bound = functools.partial(_prefixed, "p")
 
-    wrapper = cached(ttl=30, key="{value}")(bound)
+    wrapper = cached(ttl=30, key_template="{value}")(bound)
 
     cache = _private_cache(wrapper)
     assert cache.name == "_prefixed"
@@ -814,7 +820,7 @@ async def test_a_sync_callable_object_gets_the_deadlock_message() -> None:
             def __call__(self, value: int) -> int:
                 return value
 
-        wrapped = cached(store, key="{value}")(Job())
+        wrapped = cached(store, key_template="{value}")(Job())
 
         with pytest.raises(EventLoopDeadlockError, match="Job"):
             wrapped(1)

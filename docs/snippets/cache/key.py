@@ -18,7 +18,7 @@ class User(BaseModel):
 ttl_cache = micro.cache.ttl(ttl=300, serializer=User)
 
 
-@cached(ttl_cache, key="user:{user_id}")
+@cached(ttl_cache, key_template="user:{user_id}")
 async def get_user(user_id: int) -> User:
     return User(id=user_id, name="Alice")
 
