@@ -14,7 +14,7 @@
 * 💥 Starlette 1.7 is the new floor. On a plain Starlette app, `http.route` carries the route template in the access log and security events. ([#956](https://github.com/grelinfo/grelmicro/pull/956))
 * 💥 Raise the dependency floors: Pydantic 2.12.4, pydantic-settings 2.12.0, FastDepends 3.0.5, Starlette 1.0, lightkube 1.0, redis 6.0, asyncpg 0.31, orjson 3.11.1, uvloop 0.22.1 and PyYAML 6.0.3. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 💥 A sliding window counts time in whole microseconds, on every backend, so each decision is exact. Its stored state moves to new keys (`gcra_us:`) and new Postgres functions, so limits start empty after the upgrade. A slot is its window divided by the limit, truncated to the microsecond, and a window that gives each request less than a microsecond is refused. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
-* 💥 A sliding window `window` takes whole seconds or a `timedelta`, up to 100 years. A float is refused. Write `window=timedelta(milliseconds=500)` for a window under a second. ([#957](https://github.com/grelinfo/grelmicro/pull/957))
+* 💥 A sliding window `window` takes whole seconds or a `timedelta`, up to 100 years. A float is refused. Write `window=timedelta(milliseconds=500)` for a window under a second. It reads back as a `timedelta`, and dumps to JSON as ISO 8601 in days and smaller units (`"PT1M"` not `60`, `"P400D"`). From text it reads `"60"` or an ISO 8601 duration such as `"PT0.5S"`, never years or months. ([#957](https://github.com/grelinfo/grelmicro/pull/957), [#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -195,6 +195,7 @@
 * 📝 The README describes the Task Scheduler as it behaves: every worker runs a task unless `gate=` picks one. ([#752](https://github.com/grelinfo/grelmicro/issues/752))
 
 ### Internal
+* ♻️ One shared duration type takes whole seconds or a `timedelta`, and a test fails when a `*Config` gains a float or `timedelta` field that no list names. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 👷 CI runs the tests on the oldest version of every dependency grelmicro allows. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 👷 One release ships `grelmicro` and `grelmicro-core`. When PyPI lacks the crate version, the release builds the core and publishes it first, so `grelmicro[jwt]` always resolves. A `jwt` pin that names another version, or a crate changed after its version was published, fails the pull request. ([#875](https://github.com/grelinfo/grelmicro/issues/875))
 
