@@ -245,6 +245,29 @@ async def test_from_config_constructs_instance() -> None:
     assert s.config is config
 
 
+async def test_shield_from_config_sources_given_are_used() -> None:
+    """`Shield.from_config` takes the clock and the jitter source."""
+
+    # Arrange
+    def clock() -> float:
+        return 42.0
+
+    def jitter() -> float:
+        return 0.5
+
+    # Act
+    s = Shield.from_config(
+        "sourced",
+        ApiShieldConfig(when=_SignalError),
+        time_source=clock,
+        random_source=jitter,
+    )
+
+    # Assert
+    assert s._time is clock
+    assert s._random is jitter
+
+
 async def test_name_is_required_on_factory() -> None:
     """`Shield.api(name)` requires the name positionally."""
     with pytest.raises(TypeError):

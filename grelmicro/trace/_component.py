@@ -217,6 +217,17 @@ class Trace:
             str,
             Doc("Registration name. Defaults to `'default'`."),
         ] = "default",
+        instrument: Annotated[
+            InstrumentDirective,
+            Doc(
+                """
+                Auto-instrumentation selection for active providers and the
+                FastAPI request spans, as `Trace(instrument=...)` takes it.
+                `True` (the default) instruments every active provider,
+                `False` instruments nothing.
+                """
+            ),
+        ] = True,
     ) -> Self:
         """Construct a `Trace` from a pre-built `TraceConfig`."""
         instance = cls.__new__(cls)
@@ -225,7 +236,7 @@ class Trace:
             config=config,
             kwargs={},
             env_load=None,
-            instrument=True,
+            instrument=instrument,
         )
         return instance
 

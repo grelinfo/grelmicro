@@ -1194,7 +1194,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             cache_key=cache_key,
             cache_ttl=cache_ttl,
         )
-        instance = cls.from_config(config)
+        instance = cls.from_config(config, name=name)
         instance._track_reconfigure(env_prefix)  # noqa: SLF001
         return instance
 
@@ -1335,7 +1335,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             cache_key=cache_key,
             cache_ttl=cache_ttl,
         )
-        instance = cls.from_config(config, fetch=fetch)
+        instance = cls.from_config(config, fetch=fetch, name=name)
         instance._track_reconfigure(env_prefix)  # noqa: SLF001
         return instance
 
@@ -1485,7 +1485,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             cache_key=cache_key,
             cache_ttl=cache_ttl,
         )
-        instance = cls.from_config(config, fetch=fetch)
+        instance = cls.from_config(config, fetch=fetch, name=name)
         instance._track_reconfigure(env_prefix)  # noqa: SLF001
         return instance
 
@@ -1562,6 +1562,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 " code."
             ),
         ] = None,
+        name: Annotated[str, Doc("Instance name.")] = "default",
     ) -> Self:
         """Build a verifier from a configuration that is already whole.
 
@@ -1573,7 +1574,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             TypeError: If `fetch` is given for keys held in code.
         """
         instance = cls.__new__(cls)
-        instance._setup(config, fetch=fetch)  # noqa: SLF001
+        instance._setup(config, fetch=fetch, name=name)  # noqa: SLF001
         return instance
 
     def _setup(
@@ -1581,6 +1582,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         config: JWTKeysConfig | JWKSConfig | DiscoveryConfig,
         *,
         fetch: Fetcher | None,
+        name: str,
     ) -> None:
         """Hold the policy, and load the keys when they are held in code."""
         if fetch is not None and isinstance(config, JWTKeysConfig):
@@ -1589,6 +1591,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
                 " are held in code, so there is nothing to fetch."
             )
             raise TypeError(msg)
+        self._name = name
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
         compiled = _core()
@@ -1674,6 +1677,11 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             )
             raise SigningKeysUnavailableError(msg)
         return self._key_set(config.model_copy(update={"keys": readable}))
+
+    @property
+    def name(self) -> str:
+        """The instance name."""
+        return self._name
 
     @property
     def ready(self) -> bool:

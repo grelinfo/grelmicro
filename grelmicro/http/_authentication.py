@@ -2736,16 +2736,16 @@ class AuthenticatedRequests:
     @classmethod
     def from_config(
         cls,
-        config: Annotated[
-            AuthenticatedRequestsConfig,
-            Doc("The pre-built authenticated requests configuration."),
-        ],
         verifier: Annotated[
             _Verifier,
             Doc(
                 "Verifies each bearer token, such as a `JWTVerifier`. Its"
                 " `verify` may answer with the caller or an awaitable of it."
             ),
+        ],
+        config: Annotated[
+            AuthenticatedRequestsConfig,
+            Doc("The pre-built authenticated requests configuration."),
         ],
         *,
         bans: Annotated[
@@ -2780,7 +2780,16 @@ class AuthenticatedRequests:
 
         The one declarative door. The verifier and the check stay beside
         the config, because they are objects rather than settings.
+
+        Raises:
+            TypeError: If a config is passed where the verifier goes.
         """
+        if isinstance(verifier, AuthenticatedRequestsConfig):
+            msg = (
+                "AuthenticatedRequests.from_config takes the verifier first:"
+                " pass from_config(verifier, config)"
+            )
+            raise TypeError(msg)
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001
             config,

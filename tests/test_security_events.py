@@ -821,7 +821,7 @@ class TestCaller:
         """`from_config` reads it like every other setting."""
         config = AuthenticatedRequestsConfig(enduser=True)
 
-        component = AuthenticatedRequests.from_config(config, verifier())
+        component = AuthenticatedRequests.from_config(verifier(), config)
 
         assert component.asgi_middleware()[1]["enduser"] is True
 

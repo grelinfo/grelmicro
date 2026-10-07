@@ -87,6 +87,25 @@ has no default algorithm, so it has no bare constructor: both algorithms need
 parameters the library cannot guess, which makes naming one part of building
 the object.
 
+## `from_config` mirrors the constructor
+
+`from_config` takes the constructor's positional arguments first, in order,
+then `config`, then the same keyword-only arguments. It leaves out what the
+config carries and the environment switches (`env_load`, `env_prefix`):
+
+```python
+Lock("cart", backend=backend)
+Lock.from_config("cart", config, backend=backend)
+
+TTLCache(name="sessions")
+TTLCache.from_config(config, name="sessions")
+```
+
+A class built only through factories, such as `JWTVerifier`, mirrors them:
+`JWTVerifier.from_config(config, fetch=fetch, name="partners")`. A
+constructor's `*args` follows `config`, as in
+`RateLimitedRequests.from_config(config, *limiters)`.
+
 ## The OpenAPI schema has two words, for two things
 
 `include_in_schema=` says whether a router grelmicro builds puts *its own*
