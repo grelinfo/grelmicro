@@ -1,7 +1,6 @@
 """Health Checks."""
 
 import asyncio
-import contextlib
 import re
 import time
 from collections.abc import Callable, Iterable
@@ -113,15 +112,19 @@ def _left_closed_by_fake(func: object) -> bool:
     return isinstance(provider, Provider) and provider._left_closed()  # noqa: SLF001
 
 
-async def _app_opened() -> None:
-    """Return once the active app finished opening, or at once without one."""
+def _app_open() -> Callable[[], bool]:
+    """Return a callable that reads whether the active app is open.
+
+    It reads `app.opened` on each call, so it follows the app through every
+    close and reopen. Without an active app, it always reads true.
+    """
     from grelmicro._app import Grelmicro, NoActiveAppError  # noqa: PLC0415
 
     try:
         app = Grelmicro.current()
     except NoActiveAppError:
-        return
-    await app._opened_event.wait()  # noqa: SLF001
+        return lambda: True
+    return lambda: app.opened
 
 
 class HealthChecks(Reconfigurable[HealthChecksConfig]):
@@ -334,10 +337,18 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
     def is_alive(self) -> bool:
         """Whether the last round of liveness checks passed.
 
-        `/livez` answers `503` while this is false. It is always true when
-        no `Liveness` is set.
+        `/livez` answers `503` while this is false. It is also false once
+        the liveness checks stopped on an unexpected error, which stops the
+        worker. It is always true when no `Liveness` is set.
         """
-        return self._liveness_failures == 0
+        task = self._liveness_task
+        died = (
+            task is not None
+            and task.done()
+            and not task.cancelled()
+            and task.exception() is not None
+        )
+        return self._liveness_failures == 0 and not died
 
     async def __aenter__(self) -> Self:
         """Open the health checks.
@@ -366,10 +377,12 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._depth -= 1
         if self._depth > 0:
             return
-        await self._stop_liveness()
-        for check_name in self._auto_registered:
-            self._entries.pop(check_name, None)
-        self._auto_registered.clear()
+        try:
+            await self._stop_liveness()
+        finally:
+            for check_name in self._auto_registered:
+                self._entries.pop(check_name, None)
+            self._auto_registered.clear()
 
     def add(
         self,
@@ -390,7 +403,10 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 "aggregate to ``error`` and cause ``/readyz`` / "
                 "``/healthz`` to return 503. Non-critical failures "
                 "are visible in the ``/healthz`` body but do not flip "
-                "the aggregate."
+                "the aggregate. For a liveness check, only a critical "
+                "failure counts toward ``failure_threshold``, turns "
+                "``/livez`` to 503 and stops the worker. A non-critical "
+                "one is logged like any failed check, and nothing more."
             ),
         ] = True,
         timeout: Annotated[
@@ -406,8 +422,8 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
                 "Run this check for `/livez` instead of `/readyz` and "
                 "`/healthz`. A liveness check looks inside the process only, "
                 "such as whether a consumer made progress, never at a "
-                "database. It runs every `Liveness.interval` seconds, and "
-                "only when `HealthChecks(liveness=...)` is set."
+                "database. It runs every `Liveness.interval` seconds. "
+                "Refused when `HealthChecks(liveness=...)` is not set."
             ),
         ] = False,
     ) -> None:
@@ -415,8 +431,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
 
         Raises:
             ValueError: If ``name`` is already registered, or does not
-                match ``^[a-z0-9][a-z0-9:_-]*$`` (max 64 chars).
-                Colon is allowed for namespacing, e.g.
+                match ``^[a-z0-9][a-z0-9:_-]*$`` (max 64 chars), or
+                ``liveness=True`` is set on a `HealthChecks` with no
+                `Liveness`. Colon is allowed for namespacing, e.g.
                 ``"weather:circuitbreaker"``.
         """
         config = self._config
@@ -436,6 +453,13 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         if name in self._entries:
             msg = f"Health check '{name}' is already registered"
             raise ValueError(msg)
+        if liveness and self._liveness is None:
+            msg = (
+                f"Health check '{name}' sets liveness=True, but this "
+                f"HealthChecks has no Liveness, so the check would never run. "
+                f"Set HealthChecks(liveness=Liveness(...))."
+            )
+            raise ValueError(msg)
         self._entries[name] = _Entry(
             name=name,
             func=_normalize(func),
@@ -452,7 +476,10 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         *,
         critical: Annotated[
             bool,
-            Doc("Whether this check affects the aggregate status."),
+            Doc(
+                "Whether this check affects the aggregate status. For a "
+                "liveness check, whether its failures can stop the worker."
+            ),
         ] = True,
         timeout: Annotated[
             PositiveFloat | None,
@@ -638,40 +665,72 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         self._liveness_task = asyncio.create_task(
             self._run_liveness(liveness), name="grelmicro-liveness"
         )
+        self._liveness_task.add_done_callback(
+            lambda task: self._liveness_ended(task, liveness)
+        )
+
+    def _liveness_ended(
+        self, task: asyncio.Task[None], liveness: Liveness
+    ) -> None:
+        """Stop the worker when an error ended the running liveness task.
+
+        The error is logged once. An error from the task of a run that
+        already closed is logged and stops nothing.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        if task is not self._liveness_task:
+            logger.error(
+                "Liveness checks of a closed run ended on an unexpected error.",
+                exc_info=exc,
+            )
+            return
+        logger.critical(
+            "Liveness checks stopped on an unexpected error. Stopping the "
+            "worker so it is replaced.",
+            exc_info=exc,
+        )
+        _liveness._stop_process()  # noqa: SLF001
+        _liveness._exit_after(liveness.shutdown_timeout)  # noqa: SLF001
 
     async def _stop_liveness(self) -> None:
         """Stop the liveness task and the watchdog."""
         task, self._liveness_task = self._liveness_task, None
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        watchdog, self._watchdog = self._watchdog, None
-        if watchdog is not None:
-            await asyncio.to_thread(watchdog.stop)
+        try:
+            if task is not None:
+                task.cancel()
+                await asyncio.wait({task})
+        finally:
+            watchdog, self._watchdog = self._watchdog, None
+            if watchdog is not None:
+                await asyncio.to_thread(watchdog.stop)
 
     async def _run_liveness(self, liveness: Liveness) -> None:
-        """Arm the watchdog once the app opened, then run the liveness checks.
+        """Arm the watchdog, then run the liveness checks.
 
-        The watchdog waits for the app to open, so a component that blocks
-        the loop while it opens is not taken for a stuck worker.
+        The watchdog and the liveness rounds pause while the app is not open,
+        so a component that blocks the loop while it opens or closes is not
+        taken for a stuck worker. They resume when the app reopens.
         """
-        await _app_opened()
+        app_open = _app_open()
         if liveness.stall_timeout is not None:
             self._watchdog = Watchdog(
-                asyncio.get_running_loop(), liveness.stall_timeout
+                asyncio.get_running_loop(), liveness.stall_timeout, app_open
             )
             self._watchdog.start()
         while True:
             await asyncio.sleep(liveness.interval)
             entries = [e for e in self._entries.values() if e.liveness]
-            if not entries:
+            if not entries or not app_open():
                 continue
             results = await asyncio.gather(*(_run_check(e) for e in entries))
             failed = [
                 entry.name
                 for entry, result in zip(entries, results, strict=True)
-                if result["status"] == HealthStatus.ERROR
+                if result["status"] == HealthStatus.ERROR and entry.critical
             ]
             if not failed:
                 self._liveness_failures = 0

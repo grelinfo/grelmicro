@@ -1998,7 +1998,16 @@ def health_router(
     )
     healthz_deps = list(healthz_dependencies or ())
 
-    @router.get("/livez", status_code=HTTP_200_OK, response_class=Response)
+    @router.get(
+        "/livez",
+        status_code=HTTP_200_OK,
+        response_class=Response,
+        responses={
+            HTTP_503_SERVICE_UNAVAILABLE: {
+                "description": "A liveness check failed its last round.",
+            },
+        },
+    )
     @router.head("/livez", include_in_schema=False)
     async def livez() -> Response:
         """Liveness probe: ``503`` while a liveness check fails, else ``200``."""

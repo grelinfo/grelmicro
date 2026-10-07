@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 import subprocess
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
 
 import httpx
 import pytest
@@ -27,6 +28,7 @@ from grelmicro.health import (
 )
 from grelmicro.health._liveness import Watchdog
 from grelmicro.integrations.fastapi import health_router
+from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -182,7 +184,7 @@ async def test_liveness_checks_stay_out_of_readyz_and_healthz(
 ) -> None:
     """A liveness check runs for /livez only, never for /readyz or /healthz."""
     # Arrange
-    health = HealthChecks(cache_ttl=0)
+    health = HealthChecks(cache_ttl=0, liveness=Liveness())
     health.add("progress", _progress_check({"healthy": False}), liveness=True)
 
     # Act
@@ -225,7 +227,7 @@ async def test_without_liveness_nothing_starts(exits: _Exits) -> None:
     """With no Liveness, no thread starts and /livez stays 200."""
     # Arrange
     health = HealthChecks()
-    health.add("progress", _progress_check({"healthy": False}), liveness=True)
+    health.add("db", _progress_check({"healthy": False}))
     threads_before = threading.active_count()
 
     # Act
@@ -454,6 +456,488 @@ async def test_liveness_without_a_liveness_check_stays_alive(
     # Act
     async with health:
         await asyncio.sleep(0.1)
+
+    # Assert
+    assert health.is_alive
+    assert not exits.stopped.is_set()
+
+
+class _YieldsOnOpen:
+    """A component whose opening yields to the event loop."""
+
+    kind = "yields"
+    name = "default"
+
+    async def __aenter__(self) -> Self:
+        await asyncio.sleep(0.01)
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+def test_liveness_reopened_app_on_a_new_loop_runs_its_checks(
+    exits: _Exits,
+) -> None:
+    """An app reopened under a second event loop still runs liveness checks."""
+    # Arrange
+    calls: list[int] = []
+    health = HealthChecks(
+        liveness=Liveness(interval=0.01, failure_threshold=1000)
+    )
+
+    @health.check("progress", liveness=True)
+    async def progress() -> None:
+        calls.append(1)
+
+    micro = Grelmicro(uses=[health, _YieldsOnOpen()])
+
+    async def open_and_wait_for_a_round() -> None:
+        before = len(calls)
+        async with micro:
+            await _wait_for(lambda: len(calls) > before)
+
+    # Act
+    asyncio.run(open_and_wait_for_a_round())
+    asyncio.run(open_and_wait_for_a_round())
+
+    # Assert
+    assert health.is_alive
+    assert not exits.stopped.is_set()
+
+
+def _raise_runtime_error(*_args: object) -> None:
+    msg = "liveness broke"
+    raise RuntimeError(msg)
+
+
+async def _raise_runtime_error_async(*_args: object) -> None:
+    _raise_runtime_error()
+
+
+async def test_liveness_task_error_is_logged_when_it_ends(
+    exits: _Exits,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An error that ends the liveness task is logged at once, not on close."""
+    # Arrange
+    monkeypatch.setattr(
+        "grelmicro.health._checks._app_open", _raise_runtime_error
+    )
+    health = HealthChecks(liveness=Liveness(interval=0.01))
+
+    # Act
+    with caplog.at_level("ERROR", logger="grelmicro.health"):
+        async with health:
+            await _wait_for(exits.stopped.is_set)
+
+    # Assert
+    logged = [
+        record
+        for record in caplog.records
+        if record.exc_info and str(record.exc_info[1]) == "liveness broke"
+    ]
+    assert len(logged) == 1
+
+
+async def test_liveness_task_error_stops_the_process(
+    exits: _Exits,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An error that ends the liveness task stops the worker, then exits it."""
+    # Arrange
+    monkeypatch.setattr(
+        "grelmicro.health._checks._app_open", _raise_runtime_error
+    )
+    health = HealthChecks(liveness=Liveness(shutdown_timeout=0.05))
+
+    # Act
+    async with health:
+        await _wait_for(exits.stopped.is_set)
+        await _wait_for(exits.exited.is_set)
+
+    # Assert
+    assert exits.stopped.is_set()
+
+
+async def test_liveness_task_error_never_escapes_closing(
+    exits: _Exits,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closing the component after the liveness task failed raises nothing."""
+    # Arrange
+    monkeypatch.setattr(
+        "grelmicro.health._checks._app_open", _raise_runtime_error
+    )
+    health = HealthChecks(liveness=Liveness(interval=0.01))
+
+    # Act
+    async with health:
+        await _wait_for(exits.stopped.is_set)
+
+    # Assert
+    assert health._liveness_task is None
+
+
+async def test_liveness_task_error_reports_not_alive(
+    exits: _Exits,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker whose liveness task died is no longer alive."""
+    # Arrange
+    monkeypatch.setattr(
+        "grelmicro.health._checks._app_open", _raise_runtime_error
+    )
+    health = HealthChecks(liveness=Liveness(interval=0.01))
+
+    # Act
+    async with health:
+        task = health._liveness_task
+        assert task is not None
+        await asyncio.wait({task})
+        alive = health.is_alive
+
+    # Assert
+    assert not alive
+    assert exits.stopped.is_set()
+
+
+async def test_liveness_task_error_still_stops_the_watchdog(
+    exits: _Exits,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closing after the liveness task failed still stops the watchdog."""
+    # Arrange
+    monkeypatch.setattr(
+        "grelmicro.health._checks._run_check", _raise_runtime_error_async
+    )
+    health = HealthChecks(liveness=Liveness(interval=0.01, stall_timeout=0.2))
+    health.add("progress", _progress_check({"healthy": True}), liveness=True)
+
+    # Act
+    async with health:
+        await _wait_for(lambda: not health.is_alive)
+        watchdog = health._watchdog
+        assert watchdog is not None
+
+    # Assert
+    assert not watchdog._thread.is_alive()
+    assert exits.stopped.is_set()
+
+
+class _ReadyProvider(Provider):
+    """A provider with a passing readiness check and no backend."""
+
+    short_name = "ready"
+
+    async def check(self) -> None:
+        return None
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+async def test_liveness_task_error_still_removes_auto_registered_checks(
+    exits: _Exits,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closing after the liveness task failed still drops auto_health checks."""
+    # Arrange
+    monkeypatch.setattr(
+        "grelmicro.health._checks._app_open", _raise_runtime_error
+    )
+    health = HealthChecks(
+        cache_ttl=0, auto_health=True, liveness=Liveness(interval=0.01)
+    )
+    micro = Grelmicro(uses=[_ReadyProvider(), health])
+
+    # Act
+    async with micro:
+        await _wait_for(lambda: not health.is_alive)
+    report = await health.run()
+
+    # Assert
+    assert report["checks"] == {}
+    assert exits.stopped.is_set()
+
+
+async def test_liveness_closed_run_error_leaves_the_next_run_alive(
+    exits: _Exits,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A closed run's task failing late never marks the next run as dead."""
+    # Arrange
+    from grelmicro.health import _checks  # noqa: PLC0415
+
+    release = asyncio.Event()
+    original = _checks._run_check
+    first_call = [True]
+
+    async def hang_then_fail(entry: _checks._Entry) -> object:
+        if not first_call[0]:
+            return await original(entry)
+        first_call[0] = False
+        while not release.is_set():
+            with contextlib.suppress(asyncio.CancelledError):
+                await release.wait()
+        _raise_runtime_error()
+        return None
+
+    monkeypatch.setattr("grelmicro.health._checks._run_check", hang_then_fail)
+    health = HealthChecks(liveness=Liveness(interval=0.01, failure_threshold=1))
+    health.add("progress", _progress_check({"healthy": True}), liveness=True)
+    await health.__aenter__()
+    old_task = health._liveness_task
+    assert old_task is not None
+    await _wait_for(lambda: not first_call[0])
+    closing = asyncio.create_task(health.__aexit__(None, None, None))
+    await asyncio.sleep(0.05)
+    closing.cancel()
+    await asyncio.wait({closing})
+
+    # Act
+    await health.__aenter__()
+    release.set()
+    await asyncio.wait({old_task})
+    await asyncio.sleep(0.05)
+    alive = health.is_alive
+    await health.__aexit__(None, None, None)
+
+    # Assert
+    assert alive
+    assert not exits.stopped.is_set()
+
+
+class _BlocksOnClose:
+    """A component whose closing blocks the event loop."""
+
+    kind = "blocks"
+    name = "default"
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        time.sleep(0.8)  # noqa: ASYNC251  # blocks the event loop on purpose
+
+
+async def test_watchdog_stays_quiet_while_a_later_component_closes(
+    exits: _Exits,
+) -> None:
+    """A component closing after the app started closing never trips it."""
+    # Arrange
+    health = HealthChecks(liveness=Liveness(stall_timeout=0.2))
+    micro = Grelmicro(uses=[health, _BlocksOnClose()])
+
+    # Act
+    async with micro:
+        await _wait_for(lambda: health._watchdog is not None)
+        await asyncio.sleep(0.1)
+
+    # Assert
+    assert not exits.exited.is_set()
+
+
+def test_watchdog_stays_quiet_while_the_loop_is_stopped(exits: _Exits) -> None:
+    """A loop stopped between two runs, and not closed, never trips it."""
+    # Arrange
+    health = HealthChecks(liveness=Liveness(stall_timeout=0.2))
+    loop = asyncio.new_event_loop()
+
+    async def wait_for_the_watchdog() -> None:
+        await _wait_for(lambda: health._watchdog is not None)
+        await asyncio.sleep(0.1)
+
+    try:
+        loop.run_until_complete(health.__aenter__())
+        loop.run_until_complete(wait_for_the_watchdog())
+
+        # Act
+        time.sleep(0.8)
+        loop.run_until_complete(asyncio.sleep(0.1))
+        loop.run_until_complete(health.__aexit__(None, None, None))
+    finally:
+        loop.close()
+
+    # Assert
+    assert not exits.exited.is_set()
+
+
+class _LoopClosedMidTick:
+    """A loop that reads as running, then refuses a callback as closed."""
+
+    def is_running(self) -> bool:
+        return True
+
+    def call_soon_threadsafe(self, *_args: object) -> None:
+        msg = "Event loop is closed"
+        raise RuntimeError(msg)
+
+
+def test_watchdog_ends_quietly_when_the_loop_closes_mid_tick(
+    exits: _Exits,
+) -> None:
+    """A watchdog whose loop closes while it posts a beat stops watching."""
+    # Arrange
+    loop = cast("asyncio.AbstractEventLoop", _LoopClosedMidTick())
+    watchdog = Watchdog(loop, stall_timeout=0.1)
+
+    # Act
+    watchdog.start()
+    watchdog._thread.join(timeout=2)
+
+    # Assert
+    assert not watchdog._thread.is_alive()
+    assert not exits.exited.is_set()
+
+
+def test_liveness_check_without_liveness_is_refused() -> None:
+    """add(liveness=True) on a HealthChecks with no Liveness raises."""
+    # Arrange
+    health = HealthChecks()
+
+    # Act
+    with pytest.raises(ValueError, match="liveness=Liveness") as excinfo:
+        health.add(
+            "progress", _progress_check({"healthy": True}), liveness=True
+        )
+
+    # Assert
+    assert excinfo.type is ValueError
+
+
+def test_liveness_check_decorator_without_liveness_is_refused() -> None:
+    """@check(liveness=True) on a HealthChecks with no Liveness raises."""
+    # Arrange
+    health = HealthChecks()
+
+    # Act
+    with pytest.raises(ValueError, match="liveness=Liveness") as excinfo:
+
+        @health.check("progress", liveness=True)
+        async def progress() -> None:
+            return None
+
+    # Assert
+    assert excinfo.type is ValueError
+
+
+async def test_liveness_non_critical_check_failing_stays_alive(
+    exits: _Exits,
+) -> None:
+    """A failing liveness check with critical=False never flips is_alive."""
+    # Arrange
+    calls: list[int] = []
+    health = HealthChecks(liveness=Liveness(interval=0.01, failure_threshold=1))
+
+    @health.check("progress", critical=False, liveness=True)
+    async def progress() -> None:
+        calls.append(1)
+        msg = "no progress"
+        raise HealthError(msg)
+
+    # Act
+    async with health:
+        await _wait_for(lambda: len(calls) >= 5)  # noqa: PLR2004
+        alive = health.is_alive
+
+    # Assert
+    assert alive
+    assert not exits.stopped.is_set()
+
+
+async def test_liveness_critical_check_failing_flips_is_alive(
+    exits: _Exits,
+) -> None:
+    """A failing liveness check with critical=True flips is_alive."""
+    # Arrange
+    health = HealthChecks(
+        liveness=Liveness(interval=0.01, failure_threshold=1000)
+    )
+    health.add(
+        "progress",
+        _progress_check({"healthy": False}),
+        critical=True,
+        liveness=True,
+    )
+
+    # Act
+    async with health:
+        await _wait_for(lambda: not health.is_alive)
+
+    # Assert
+    assert not exits.stopped.is_set()
+
+
+def test_fastapi_livez_documents_503() -> None:
+    """The FastAPI /livez declares its 503 answer in the OpenAPI schema."""
+    # Arrange
+    app = FastAPI()
+    app.include_router(health_router(include_in_schema=True))
+
+    # Act
+    with TestClient(app) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+
+    # Assert
+    assert "503" in paths["/livez"]["get"]["responses"]
+
+
+async def test_watchdog_catches_a_stall_after_the_app_reopens(
+    exits: _Exits,
+) -> None:
+    """A stall after the app closed and reopened, health still open, exits."""
+    # Arrange
+    health = HealthChecks(liveness=Liveness(stall_timeout=0.2))
+    micro = Grelmicro(uses=[health])
+    async with micro:
+        await health.__aenter__()
+        await _wait_for(lambda: health._watchdog is not None)
+    await asyncio.sleep(0.1)
+
+    # Act
+    try:
+        async with micro:
+            await asyncio.sleep(0.1)
+            time.sleep(0.8)  # noqa: ASYNC251  # blocks the event loop on purpose
+            await asyncio.sleep(0)
+    finally:
+        await health.__aexit__(None, None, None)
+
+    # Assert
+    assert exits.exited.is_set()
+
+
+async def test_liveness_rounds_resume_after_the_app_reopens(
+    exits: _Exits,
+) -> None:
+    """Liveness checks run again after the app closed and reopened."""
+    # Arrange
+    calls: list[int] = []
+    health = HealthChecks(
+        liveness=Liveness(interval=0.01, failure_threshold=1000)
+    )
+
+    @health.check("progress", liveness=True)
+    async def progress() -> None:
+        calls.append(1)
+
+    micro = Grelmicro(uses=[health])
+    async with micro:
+        await health.__aenter__()
+        await _wait_for(lambda: bool(calls))
+
+    # Act
+    try:
+        async with micro:
+            before = len(calls)
+            await _wait_for(lambda: len(calls) > before)
+    finally:
+        await health.__aexit__(None, None, None)
 
     # Assert
     assert health.is_alive

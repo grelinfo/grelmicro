@@ -10,10 +10,13 @@ import threading
 import time
 import traceback
 from logging import getLogger
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from pydantic import BaseModel, PositiveFloat, PositiveInt
 from typing_extensions import Doc
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = getLogger("grelmicro.health")
 
@@ -35,9 +38,11 @@ class Liveness(BaseModel, frozen=True, extra="forbid"):
     stall_timeout: Annotated[
         PositiveFloat | None,
         Doc(
-            "Seconds the event loop may go without running a callback. Past "
-            "it, a watchdog thread logs the loop thread's stack and exits the "
-            "process. `None` (the default) starts no watchdog."
+            "Seconds the event loop may go without running a callback. A "
+            "watchdog thread checks four times per `stall_timeout`, at most "
+            "once a second. Past it, the watchdog logs the loop thread's "
+            "stack and exits the process. `None` (the default) starts no "
+            "watchdog."
         ),
     ] = None
     interval: Annotated[
@@ -73,11 +78,7 @@ def _exit_process() -> None:
 
 def _exit_after(seconds: float) -> None:
     """Exit at once after `seconds`, unless the process ended before."""
-
-    def exit_now() -> None:
-        _exit_process()
-
-    timer = threading.Timer(seconds, exit_now)
+    timer = threading.Timer(seconds, _exit_process)
     timer.daemon = True
     timer.start()
 
@@ -85,17 +86,24 @@ def _exit_after(seconds: float) -> None:
 class Watchdog:
     """A thread that exits the process when the event loop stops running.
 
-    It posts a callback to the loop every tick and exits once none has run
-    for `stall_timeout` seconds. The loop thread's stack is logged first, so
-    the log says where the loop was stuck.
+    It posts a callback to the loop every tick, a quarter of
+    `stall_timeout` capped at one second, and exits once none has run for
+    `stall_timeout` seconds. The loop thread's stack is logged first, so the
+    log says where the loop was stuck. It pauses while `watching` reads
+    false or the loop is not running, stopped between two runs, and resumes
+    when both change back.
     """
 
     def __init__(
-        self, loop: asyncio.AbstractEventLoop, stall_timeout: float
+        self,
+        loop: asyncio.AbstractEventLoop,
+        stall_timeout: float,
+        watching: Callable[[], bool] = lambda: True,
     ) -> None:
-        """Watch `loop`, from the thread that runs it."""
+        """Watch `loop`, from the thread that runs it, while `watching()`."""
         self._loop = loop
         self._stall_timeout = stall_timeout
+        self._watching = watching
         self._tick = min(1.0, stall_timeout / 4)
         self._loop_thread = threading.get_ident()
         self._last_beat = time.monotonic()
@@ -118,6 +126,9 @@ class Watchdog:
 
     def _watch(self) -> None:
         while not self._stopped.wait(self._tick):
+            if not self._watching() or not self._loop.is_running():
+                self._last_beat = time.monotonic()
+                continue
             try:
                 self._loop.call_soon_threadsafe(self._beat)
             except RuntimeError:

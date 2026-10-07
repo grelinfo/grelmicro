@@ -540,9 +540,9 @@ class OpsServer:
         # Components resolve per request rather than here, so one swapped
         # by `micro.override(...)` answers the probe a test expects.
         kinds = _registered_kinds(micro)
-        # Liveness is about the process, not about a component, so it is
-        # served whatever the app registered, and the same answer comes
-        # out of the window before the app is open.
+        # `/livez` is served whatever the app registered, as it is before
+        # the app is open. A registered health component replaces it with
+        # one that reads its liveness checks.
         routes: dict[str, Handler] = {_LIVEZ: livez}
         if "health" in kinds:
             routes |= health_routes(show_details=self._config.show_details)

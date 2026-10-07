@@ -95,8 +95,10 @@ def report_body(
 async def livez(_scope: Scope) -> Rendered:
     """Answer that the process is alive, without running a check.
 
-    Liveness is about the process, not about a component, so it reads
-    nothing. `OpsServer` serves it whatever the app registered.
+    The `/livez` used when no health component is registered. It reads
+    nothing. `OpsServer` serves it until the app is open, and whatever the
+    app registered. `health_routes` replaces it with one that reads the
+    liveness checks.
     """
     return Rendered(HTTP_OK, b"")
 
