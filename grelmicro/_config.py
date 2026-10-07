@@ -691,6 +691,14 @@ class Reconfigurable[ConfigT: BaseModel]:
     applies instead of being dropped when the whole instance is rejected.
     """
 
+    _RETIRED_RECONFIGURE_FIELDS: ClassVar[Mapping[str, str]] = {}
+    """Field names no longer read, each with the reason that names the fix.
+
+    A mounted key whose suffix names one of these fields refuses the whole
+    reload for the instance, and the log names the key and the reason,
+    never the value.
+    """
+
     @property
     def config(self) -> ConfigT:
         """Return the current configuration."""
@@ -786,6 +794,7 @@ def resolve_config_from_mapping[C: BaseModel](
     env_prefix: str,
     mapping: Mapping[str, str],
     immutable_fields: frozenset[str] = frozenset(),
+    retired_fields: Mapping[str, str] | None = None,
 ) -> C:
     """Patch `current` with values from a flat env-style `mapping`.
 
@@ -802,12 +811,16 @@ def resolve_config_from_mapping[C: BaseModel](
     from the environment. Returns `current` unchanged when the mapping
     carries nothing for this prefix.
 
+    A key naming a `retired_fields` entry raises `SettingsValidationError`
+    naming the key and the entry's reason.
+
     The raw `pydantic.ValidationError` propagates. This is the reload
     path, whose caller `reconfigure_all` logs a redacted summary and
     keeps the running config, so the error is never raised at a caller.
 
     Raises:
         pydantic.ValidationError: If a present value fails validation.
+        SettingsValidationError: If a key names a retired field.
     """
     cls = type(current)
     fields = cls.model_fields
@@ -819,6 +832,9 @@ def resolve_config_from_mapping[C: BaseModel](
         if not key.upper().startswith(prefix_upper):
             continue
         field = key[prefix_len:].lower()
+        if retired_fields and field in retired_fields:
+            msg = f"- {prefix_upper}{field.upper()}: {retired_fields[field]}"
+            raise SettingsValidationError(msg)
         if field in immutable_fields:
             _warn_immutable_skipped(
                 current,
@@ -1017,7 +1033,17 @@ async def reconfigure_all(mapping: Mapping[str, str]) -> None:
                 env_prefix=env_prefix,
                 mapping=mapping,
                 immutable_fields=instance._IMMUTABLE_RECONFIGURE_FIELDS,  # noqa: SLF001
+                retired_fields=instance._RETIRED_RECONFIGURE_FIELDS,  # noqa: SLF001
             )
+        except SettingsValidationError as exc:
+            # Raised only for a retired key, with a message that names the
+            # key and the fix and never the value.
+            logger.warning(
+                "Ignoring invalid external config for %s: %s",
+                env_prefix,
+                exc,
+            )
+            continue
         except ValidationError as exc:
             logger.warning(
                 "Ignoring invalid external config for %s: %s",
