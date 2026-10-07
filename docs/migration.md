@@ -57,9 +57,9 @@ that a client library used to accept.
 
 ### A stored duration is whole seconds or a `timedelta` {#0-42-durations}
 
-A lease, a TTL and a task schedule take whole seconds as an `int`, or a
-`timedelta`. A float is refused, `60.0` included. Each config reads the value
-back as a `timedelta`.
+A lease, a TTL, a task schedule and a circuit breaker reset timeout
+take whole seconds as an `int`, or a `timedelta`. A float is refused,
+`60.0` included. Each config reads the value back as a `timedelta`.
 
 ```python
 from datetime import timedelta
@@ -94,10 +94,13 @@ What moved:
   per-path `include` TTLs, and `CachedResponse(ttl)`. `RouteDeclaration.cache`
   takes `True` for the component TTL or a `timedelta`. A number is refused.
 - **Rate limiter**: the sliding window `window`.
+- **Circuit breaker**: `reset_timeout` on `CircuitBreaker.consecutive_count`
+  and `ConsecutiveCountConfig`.
 
-A backend of your own takes each lease or TTL as a `timedelta`: the
+A backend of your own takes each lease, TTL or cool-down as a `timedelta`: the
 `LockBackend`, `ReadWriteLockBackend`, `LeaderElectionBackend` and
-`CacheBackend` protocols, and `LeaderRecord.lease_duration`.
+`CacheBackend` protocols, `CircuitBreakerStrategy.transition(cool_down)`, and
+`LeaderRecord.lease_duration`.
 
 Redis leader election stores its record under new `le_us:` keys, so a leader
 on the previous version is not seen. Upgrade every worker at once.

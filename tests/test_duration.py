@@ -9,16 +9,21 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from grelmicro import _duration as duration_module
 from grelmicro._duration import (
     MAX_DURATION,
     MICROSECOND,
     MILLISECOND,
     Duration,
     check_duration,
+    clock_microseconds,
+    clock_microseconds_up,
     microseconds,
+    microseconds_to_seconds,
     nanoseconds,
     read_duration,
     round_up,
+    seconds_to_microseconds,
 )
 
 
@@ -293,3 +298,63 @@ def test_duration_whole_units_are_exact(
     """Whole microseconds and nanoseconds are exact, with no float."""
     # Act / Assert
     assert (microseconds(duration), nanoseconds(duration)) == (micro, nano)
+
+
+EPOCH_MICROSECONDS = 1_800_000_000_000_000
+"""An epoch time in whole microseconds, past 2^50."""
+
+READING_NS = 1_700_000_000_000_000_500
+"""A wall clock reading in nanoseconds that is not a whole microsecond."""
+
+
+@given(st.integers(min_value=0, max_value=microseconds(MAX_DURATION)))
+def test_duration_microseconds_written_as_seconds_read_back_exactly(
+    count: int,
+) -> None:
+    """Whole microseconds written as seconds read back as the same count."""
+    # Act
+    read_back = seconds_to_microseconds(microseconds_to_seconds(count))
+
+    # Assert
+    assert read_back == count
+
+
+def test_duration_epoch_microseconds_written_as_seconds_read_back_exactly() -> (
+    None
+):
+    """An epoch time in microseconds survives a trip through seconds."""
+    # Act
+    read_back = seconds_to_microseconds(
+        microseconds_to_seconds(EPOCH_MICROSECONDS + 1)
+    )
+
+    # Assert
+    assert read_back == EPOCH_MICROSECONDS + 1
+
+
+def test_duration_clock_microseconds_rounds_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wall clock in microseconds drops a part microsecond."""
+    # Arrange
+    monkeypatch.setattr(duration_module, "time_ns", lambda: READING_NS)
+
+    # Act
+    now = clock_microseconds()
+
+    # Assert
+    assert now == READING_NS // 1_000
+
+
+def test_duration_clock_microseconds_up_rounds_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wall clock in microseconds, rounded up, is never before the reading."""
+    # Arrange
+    monkeypatch.setattr(duration_module, "time_ns", lambda: READING_NS)
+
+    # Act
+    now = clock_microseconds_up()
+
+    # Assert
+    assert now == READING_NS // 1_000 + 1

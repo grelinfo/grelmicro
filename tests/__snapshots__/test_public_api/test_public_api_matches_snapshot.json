@@ -708,7 +708,7 @@
       "()": "(*args, **kwargs)"
     },
     "ConsecutiveCountConfig": {
-      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=30.0, half_open_capacity=1, log_level='WARNING') -> None"
+      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
     },
     "ConstantBackoff": {
       "()": "(*, kind='constant', delay=1.0) -> None"
@@ -924,7 +924,7 @@
       "()": "(*values)"
     },
     "ConsecutiveCountConfig": {
-      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=30.0, half_open_capacity=1, log_level='WARNING') -> None"
+      "()": "(*, kind='consecutive_count', ignore_exceptions=(), error_threshold=5, success_threshold=2, reset_timeout=datetime.timedelta(seconds=30), half_open_capacity=1, log_level='WARNING') -> None"
     },
     "ErrorDetails": {
       "()": "(time, type, msg) -> None"

@@ -24,6 +24,7 @@ from typing_extensions import Doc
 
 if TYPE_CHECKING:
     import asyncio
+    from datetime import timedelta
     from types import TracebackType
 
     from grelmicro.resilience.circuitbreaker import (
@@ -333,11 +334,12 @@ class CircuitBreakerStrategy(Protocol):
             Doc("Target state to force the breaker into."),
         ],
         cool_down: Annotated[
-            float | None,
+            timedelta | None,
             Doc(
-                "Seconds the breaker stays OPEN before moving to"
-                " HALF_OPEN. `None` uses the configured `reset_timeout`."
-                " Ignored when `desired` is not OPEN."
+                "How long the breaker stays OPEN before moving to"
+                " HALF_OPEN, never shorter at the backend's resolution."
+                " `None` uses the configured `reset_timeout`. Ignored"
+                " when `desired` is not OPEN."
             ),
         ] = None,
     ) -> None:

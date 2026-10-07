@@ -172,6 +172,8 @@ Build the breaker with the factory classmethod.
 --8<-- "resilience/circuitbreaker_programmatic.py"
 ```
 
+`reset_timeout` takes whole seconds or a `timedelta`. A float is refused. Write `reset_timeout=timedelta(milliseconds=500)` for a cool-down under a second. `cb.config.reset_timeout` reads it back as a `timedelta`. From an environment variable it reads whole seconds (`"30"`) or an ISO 8601 duration (`"PT0.5S"`). Every backend keeps a circuit open at least that long, to the microsecond.
+
 !!! tip "Advanced"
     For the `from_config` declarative path and `pydantic-settings` composition, see [Declarative configuration](../advanced/config.md).
 

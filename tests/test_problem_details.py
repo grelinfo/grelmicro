@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -884,7 +885,10 @@ def stacked_client() -> Iterator[TestClient]:
     cb_backend = MemoryCircuitBreakerAdapter()
     rl_backend = MemoryRateLimiterAdapter()
     breaker = CircuitBreaker.consecutive_count(
-        "recs", error_threshold=1, backend=cb_backend, reset_timeout=60.0
+        "recs",
+        error_threshold=1,
+        backend=cb_backend,
+        reset_timeout=timedelta(seconds=60),
     )
     limiter = RateLimiter.token_bucket(
         "recs", capacity=1, refill_rate=0.00001, backend=rl_backend
@@ -897,7 +901,7 @@ def stacked_client() -> Iterator[TestClient]:
                 "trip",
                 error_threshold=1,
                 backend=cb_backend,
-                reset_timeout=60.0,
+                reset_timeout=timedelta(seconds=60),
             )
         ],
     )

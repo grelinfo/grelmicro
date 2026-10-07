@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import suppress
+from datetime import timedelta
 
 import pytest
 
@@ -37,7 +38,7 @@ UNCULLED = 20
 DAY = 86400.0
 """The flat stored-state lifetime, in seconds."""
 
-LONG_COOL_DOWN = 40000.0
+LONG_COOL_DOWN = timedelta(seconds=40000)
 """A cool-down whose floor exceeds the flat lifetime."""
 
 
