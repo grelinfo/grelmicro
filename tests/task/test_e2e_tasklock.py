@@ -286,10 +286,10 @@ async def test_claim_runs_each_interval_once_across_offset_workers(
     assert min(b - a for a, b in pairwise(starts)) >= interval * 0.8
 
 
-async def test_gate_lock_refreshes_from_the_body(
+async def test_gate_lock_extends_from_the_body(
     backend: LockBackend, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The handle passed as the gate is the one the task holds, so it renews."""
+    """The handle passed as the gate is the one the task holds, so it extends."""
     samples.gate_lock = TaskLock(
         backend=backend,
         lease_duration=10,
@@ -297,7 +297,7 @@ async def test_gate_lock_refreshes_from_the_body(
     )
     task = IntervalTask(
         interval=timedelta(seconds=INTERVAL),
-        function=samples.refresh_gate_lock,
+        function=samples.extend_gate_lock,
         gate=samples.gate_lock,
     )
 

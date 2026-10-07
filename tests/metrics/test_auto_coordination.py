@@ -15,6 +15,7 @@ import pytest
 
 from grelmicro.coordination.errors import (
     LockAcquireError,
+    LockExtendError,
     LockNotOwnedError,
 )
 from grelmicro.coordination.leaderelection import LeaderElection
@@ -132,19 +133,19 @@ async def test_lock_counts_a_backend_error_attempt(
     }
 
 
-async def test_lock_counts_a_renewal(metrics_reader: MetricsHarness) -> None:
-    """Extending a held lease counts a successful renewal."""
+async def test_lock_counts_an_extension(metrics_reader: MetricsHarness) -> None:
+    """Extending a held lease counts a successful extension."""
     async with MemoryLockAdapter() as backend:
         lock = Lock("orders", backend=backend, lease_duration=LEASE)
         async with lock:
             await lock.extend()
 
-    assert _outcomes(metrics_reader, "grelmicro.lock.renewals") == {
+    assert _outcomes(metrics_reader, "grelmicro.lock.extensions") == {
         ("exclusive", "success")
     }
 
 
-async def test_lock_counts_a_lost_renewal(
+async def test_lock_counts_a_lost_extension(
     metrics_reader: MetricsHarness,
 ) -> None:
     """A lease another worker took over counts as lost, not as an error."""
@@ -162,24 +163,24 @@ async def test_lock_counts_a_lost_renewal(
             lock._backend = backend
 
     assert ("exclusive", "lost") in _outcomes(
-        metrics_reader, "grelmicro.lock.renewals"
+        metrics_reader, "grelmicro.lock.extensions"
     )
 
 
-async def test_lock_counts_a_renewal_the_backend_refused(
+async def test_lock_counts_an_extension_the_backend_refused(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """A renewal that never reached the backend counts as an error."""
+    """An extension that never reached the backend counts as an error."""
     async with MemoryLockAdapter() as backend:
         lock = Lock("orders", backend=backend, lease_duration=LEASE)
         async with lock:
             lock._backend = _FailingLockBackend()
-            with pytest.raises(LockAcquireError):
+            with pytest.raises(LockExtendError):
                 await lock.extend()
             lock._backend = backend
 
     assert ("exclusive", "error") in _outcomes(
-        metrics_reader, "grelmicro.lock.renewals"
+        metrics_reader, "grelmicro.lock.extensions"
     )
 
 
@@ -200,10 +201,10 @@ async def test_read_and_write_leases_are_told_apart(
     }
 
 
-async def test_read_and_write_renewals_are_told_apart(
+async def test_read_and_write_extensions_are_told_apart(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """Extending either lease counts a renewal under its own mode."""
+    """Extending either lease counts an extension under its own mode."""
     async with MemoryReadWriteLockAdapter() as backend:
         lock = ReadWriteLock("catalog", backend=backend, lease_duration=LEASE)
         async with lock.read:
@@ -211,14 +212,14 @@ async def test_read_and_write_renewals_are_told_apart(
         async with lock.write:
             await lock.write.extend()
 
-    assert _outcomes(metrics_reader, "grelmicro.lock.renewals") == {
+    assert _outcomes(metrics_reader, "grelmicro.lock.extensions") == {
         ("read", "success"),
         ("write", "success"),
     }
 
 
 @pytest.mark.parametrize("mode", ["read", "write"])
-async def test_a_lease_lost_on_renewal_is_counted(
+async def test_a_lease_lost_on_extension_is_counted(
     metrics_reader: MetricsHarness, mode: str
 ) -> None:
     """A read or write lease taken over mid-work counts as lost."""
@@ -240,15 +241,15 @@ async def test_a_lease_lost_on_renewal_is_counted(
             lock._backend = backend
 
     assert (mode, "lost") in _outcomes(
-        metrics_reader, "grelmicro.lock.renewals"
+        metrics_reader, "grelmicro.lock.extensions"
     )
 
 
 @pytest.mark.parametrize("mode", ["read", "write"])
-async def test_a_renewal_the_backend_refused_is_counted(
+async def test_an_extension_the_backend_refused_is_counted(
     metrics_reader: MetricsHarness, mode: str
 ) -> None:
-    """A read or write renewal that never reached the backend is an error."""
+    """A read or write extension that never reached the backend is an error."""
 
     class _Failing(MemoryReadWriteLockAdapter):
         async def acquire_read(self, **kwargs: object) -> int | None:
@@ -262,12 +263,12 @@ async def test_a_renewal_the_backend_refused_is_counted(
         side = getattr(lock, mode)
         async with side:
             lock._backend = _Failing()
-            with pytest.raises(LockAcquireError):
+            with pytest.raises(LockExtendError):
                 await side.extend()
             lock._backend = backend
 
     assert (mode, "error") in _outcomes(
-        metrics_reader, "grelmicro.lock.renewals"
+        metrics_reader, "grelmicro.lock.extensions"
     )
 
 
@@ -283,12 +284,12 @@ async def test_task_lock_counts_its_own_mode(
             min_hold_duration=timedelta(milliseconds=10),
         )
         async with lock:
-            await lock.refresh()
+            await lock.extend()
 
     assert _outcomes(metrics_reader, "grelmicro.lock.attempts") == {
         ("task", "acquired")
     }
-    assert _outcomes(metrics_reader, "grelmicro.lock.renewals") == {
+    assert _outcomes(metrics_reader, "grelmicro.lock.extensions") == {
         ("task", "success")
     }
     assert metrics_reader.points("grelmicro.lock.holders")[0][0] == 0
@@ -317,7 +318,7 @@ async def test_task_lock_counts_an_unavailable_attempt(
 async def test_task_lock_counts_a_backend_error(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """An unreachable backend counts an error on the acquire and the renewal."""
+    """An unreachable backend counts an error on the acquire and the extension."""
     lock = TaskLock(
         "sweep", backend=_FailingLockBackend(), lease_duration=LEASE
     )
@@ -330,10 +331,10 @@ async def test_task_lock_counts_a_backend_error(
     )
 
 
-async def test_task_lock_counts_a_lost_renewal(
+async def test_task_lock_counts_a_lost_extension(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """A lease gone before `refresh` counts as lost, not as an error."""
+    """A lease gone before `extend` counts as lost, not as an error."""
 
     class _Gone(MemoryLockAdapter):
         async def acquire(self, **kwargs: object) -> int | None:  # noqa: ARG002
@@ -344,10 +345,10 @@ async def test_task_lock_counts_a_lost_renewal(
         await lock.__aenter__()
         lock._backend = _Gone()
         with pytest.raises(LockNotOwnedError):
-            await lock.refresh()
+            await lock.extend()
 
     assert ("task", "lost") in _outcomes(
-        metrics_reader, "grelmicro.lock.renewals"
+        metrics_reader, "grelmicro.lock.extensions"
     )
 
 
@@ -415,30 +416,30 @@ def _holders(metrics_reader: MetricsHarness, mode: str) -> float:
     )
 
 
-async def test_a_thread_renewal_is_a_renewal_not_an_acquire(
+async def test_a_thread_extension_is_an_extension_not_an_acquire(
     metrics_reader: MetricsHarness,
 ) -> None:
     """A keepalive loop on a worker thread must not inflate the holders.
 
-    The thread-side extend renews the lease it already holds. Counting it
-    as a fresh acquire would drive the holder count up on every renewal
+    The thread-side extend extends the lease it already holds. Counting it
+    as a fresh acquire would drive the holder count up on every extension
     and leave the `lost` signal, which is the one to page on, unemitted.
     """
-    renewals = 3
+    extensions = 3
 
     async with MemoryLockAdapter() as backend:
         lock = Lock("orders", backend=backend, lease_duration=LEASE)
 
         def sync() -> None:
             lock.from_thread.acquire()
-            for _ in range(renewals):
+            for _ in range(extensions):
                 lock.from_thread.extend()
             lock.from_thread.release()
 
         await asyncio.to_thread(sync)
 
     assert _holders(metrics_reader, "exclusive") == 0
-    assert _outcomes(metrics_reader, "grelmicro.lock.renewals") == {
+    assert _outcomes(metrics_reader, "grelmicro.lock.extensions") == {
         ("exclusive", "success")
     }
     acquired = [
@@ -503,10 +504,10 @@ async def test_a_released_election_stops_reporting_itself_as_leader(
     assert not election.is_leader()
 
 
-async def test_a_thread_renewal_the_backend_refused_is_counted(
+async def test_a_thread_extension_the_backend_refused_is_counted(
     metrics_reader: MetricsHarness,
 ) -> None:
-    """A thread-side renewal that never reached the backend is an error."""
+    """A thread-side extension that never reached the backend is an error."""
     async with MemoryLockAdapter() as backend:
         lock = Lock("orders", backend=backend, lease_duration=LEASE)
 
@@ -519,7 +520,7 @@ async def test_a_thread_renewal_the_backend_refused_is_counted(
             # the event loop it was opened on.
             original = backend.acquire
             backend.acquire = boom  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
-            with pytest.raises(LockAcquireError):
+            with pytest.raises(LockExtendError):
                 lock.from_thread.extend()
             backend.acquire = original  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
             lock.from_thread.release()
@@ -527,5 +528,5 @@ async def test_a_thread_renewal_the_backend_refused_is_counted(
         await asyncio.to_thread(sync)
 
     assert ("exclusive", "error") in _outcomes(
-        metrics_reader, "grelmicro.lock.renewals"
+        metrics_reader, "grelmicro.lock.extensions"
     )

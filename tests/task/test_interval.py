@@ -12,7 +12,7 @@ from pytest_mock import MockFixture
 
 from grelmicro._config import reconfigure_all
 from grelmicro.coordination._protocol import LockPrimitive
-from grelmicro.coordination.errors import LockNotOwnedError, LockReleaseError
+from grelmicro.coordination.errors import LockExtendError, LockNotOwnedError
 from grelmicro.coordination.leaderelection import LeaderElection
 from grelmicro.coordination.memory import (
     MemoryLeaderElectionAdapter,
@@ -41,7 +41,7 @@ async def sleep_forever() -> None:
 pytestmark = [pytest.mark.timeout(10)]
 
 SLEEP = 0.01
-RENEWALS_AT_THE_NEW_PACE = 3
+EXTENSIONS_AT_THE_NEW_PACE = 3
 RELOAD_INTERVAL = 60
 RELOAD_TUNED = 120
 RETRIES_BEFORE_DEADLINE = 2
@@ -518,10 +518,10 @@ async def test_interval_task_built_claim_lock_refuses_a_shorter_hold(
     assert lock.config.min_hold_duration == timedelta(seconds=interval)
 
 
-async def test_interval_task_renewal_stops_when_the_body_ends(
+async def test_interval_task_extension_stops_when_the_body_ends(
     mocker: MockFixture,
 ) -> None:
-    """The claim is renewed while the body runs, and never after it ends."""
+    """The claim is extended while the body runs, and never after it ends."""
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
@@ -534,14 +534,14 @@ async def test_interval_task_renewal_stops_when_the_body_ends(
         function=samples.run_long_body,
         gate=lock,
     )
-    refresh = mocker.spy(lock, "_renew_held")
+    extend = mocker.spy(lock, "_extend_held")
 
     await task._run_with_sync(task._sync_primitives)
-    renewals = refresh.call_count
+    extensions = extend.call_count
     await sleep(interval * 2)
 
-    assert renewals >= 1
-    assert refresh.call_count == renewals
+    assert extensions >= 1
+    assert extend.call_count == extensions
 
 
 async def test_interval_task_lost_claim_warns_once_and_keeps_the_body(
@@ -561,20 +561,20 @@ async def test_interval_task_lost_claim_warns_once_and_keeps_the_body(
         function=samples.run_long_body,
         gate=lock,
     )
-    refresh = mocker.patch.object(
-        lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
+    extend = mocker.patch.object(
+        lock, "_extend_held", side_effect=LockNotOwnedError(name="lost")
     )
 
     with pytest.raises(LockNotOwnedError):
         await task._run_with_sync(task._sync_primitives)
 
     assert samples.e2e_event_1.is_set()
-    assert refresh.call_count == 1
+    assert extend.call_count == 1
     lost = [r for r in caplog.records if "lost its claim" in r.message]
     assert len(lost) == 1
 
 
-async def test_interval_task_renewal_retries_until_the_deadline(
+async def test_interval_task_extension_retries_until_the_deadline(
     mocker: MockFixture, caplog: pytest.LogCaptureFixture
 ) -> None:
     """An unreachable backend is retried, then given up at the deadline."""
@@ -591,15 +591,15 @@ async def test_interval_task_renewal_retries_until_the_deadline(
         function=samples.run_long_body,
         gate=lock,
     )
-    refresh = mocker.patch.object(
-        lock, "_renew_held", side_effect=LockReleaseError(name="down")
+    extend = mocker.patch.object(
+        lock, "_extend_held", side_effect=LockExtendError(name="down")
     )
 
     with pytest.raises(LockNotOwnedError):
         await task._run_with_sync(task._sync_primitives)
 
-    assert refresh.call_count >= RETRIES_BEFORE_DEADLINE
-    lost = [r for r in caplog.records if "could not renew" in r.message]
+    assert extend.call_count >= RETRIES_BEFORE_DEADLINE
+    lost = [r for r in caplog.records if "could not extend" in r.message]
     assert len(lost) == 1
 
 
@@ -621,7 +621,7 @@ async def test_interval_task_logs_a_claim_lost_before_release(
         gate=lock,
     )
     mocker.patch.object(
-        lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
+        lock, "_extend_held", side_effect=LockNotOwnedError(name="lost")
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -649,7 +649,7 @@ async def test_interval_task_cancel_survives_a_claim_lost_on_release(
         gate=lock,
     )
     mocker.patch.object(
-        lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
+        lock, "_extend_held", side_effect=LockNotOwnedError(name="lost")
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -734,8 +734,8 @@ class _SlowLock(LockPrimitive):
         """Exit at once."""
 
 
-async def test_interval_task_renews_the_claim_while_waiting_for_sync() -> None:
-    """The claim is renewed from the moment it is held, sync wait included."""
+async def test_interval_task_extends_the_claim_while_waiting_for_sync() -> None:
+    """The claim is extended from the moment it is held, sync wait included."""
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
@@ -755,10 +755,10 @@ async def test_interval_task_renews_the_claim_while_waiting_for_sync() -> None:
     assert task.last_fire.outcome == FireOutcome.SUCCESS
 
 
-async def test_interval_task_renewal_follows_a_reconfigured_lease(
+async def test_interval_task_extension_follows_a_reconfigured_lease(
     mocker: MockFixture,
 ) -> None:
-    """A lease shortened while the body runs is renewed at its new pace."""
+    """A lease shortened while the body runs is extended at its new pace."""
     interval = 0.03
     lock = TaskLock(
         backend=MemoryLockAdapter(),
@@ -771,7 +771,7 @@ async def test_interval_task_renewal_follows_a_reconfigured_lease(
         function=samples.run_long_body,
         gate=lock,
     )
-    renewals = mocker.spy(lock, "_renew_held")
+    extensions = mocker.spy(lock, "_extend_held")
     shorter = lock.config.model_copy(
         update={"lease_duration": timedelta(seconds=interval * 3)}
     )
@@ -784,13 +784,13 @@ async def test_interval_task_renewal_follows_a_reconfigured_lease(
         tg.create_task(shorten())
         await task._run_with_sync(task._sync_primitives)
 
-    assert renewals.call_count >= RENEWALS_AT_THE_NEW_PACE
+    assert extensions.call_count >= EXTENSIONS_AT_THE_NEW_PACE
 
 
-async def test_interval_task_renewal_outlasts_a_short_backend_outage(
+async def test_interval_task_extension_outlasts_a_short_backend_outage(
     mocker: MockFixture, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Renewal keeps retrying while the lease lasts, so a short outage passes."""
+    """Extending keeps retrying while the lease lasts, so a short outage passes."""
     caplog.set_level("WARNING")
     interval = 0.03
     lease = interval * 4
@@ -805,15 +805,15 @@ async def test_interval_task_renewal_outlasts_a_short_backend_outage(
         function=samples.run_long_body,
         gate=lock,
     )
-    renew = lock._renew_held
+    extend = lock._extend_held
     back_at = time.monotonic() + lease * 0.85
 
     async def down_then_back() -> None:
         if time.monotonic() < back_at:
-            raise LockReleaseError(name="down")
-        await renew()
+            raise LockExtendError(name="down")
+        await extend()
 
-    mocker.patch.object(lock, "_renew_held", side_effect=down_then_back)
+    mocker.patch.object(lock, "_extend_held", side_effect=down_then_back)
 
     await task._run_with_sync(task._sync_primitives)
 

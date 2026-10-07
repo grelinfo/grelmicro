@@ -48,6 +48,7 @@ from grelmicro.coordination._tokens import (
 )
 from grelmicro.coordination.errors import (
     LockAcquireError,
+    LockExtendError,
     LockLockedCheckError,
     LockNotOwnedError,
     LockOwnedCheckError,
@@ -505,7 +506,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         )
 
     async def extend(self) -> LockHandle:
-        """Renew the lease for another `lease_duration` without releasing.
+        """Extend the lease for another `lease_duration` without releasing.
 
         The fencing token is unchanged when the lease is still held. If the
         lease has expired or was released by another path, the backend returns
@@ -516,7 +517,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
         Raises:
             LockNotOwnedError: If this task does not hold the lock or the lease was lost.
-            LockAcquireError: If the backend call fails.
+            LockExtendError: If the backend call fails.
 
         """
         config = self._config
@@ -525,16 +526,16 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             raise LockNotOwnedError(name=self._name)
         token = generate_task_token(config.worker)
         try:
-            fencing_token = await self._backend_acquire(
+            fencing_token = await self._backend_extend(
                 token, config.lease_duration
             )
-        except LockAcquireError:
-            self._metrics.renewal(ERROR)
+        except LockExtendError:
+            self._metrics.extension(ERROR)
             raise
         if fencing_token is None:
-            self._metrics.renewal(LOST)
+            self._metrics.extension(LOST)
             raise LockNotOwnedError(name=self._name)
-        self._metrics.renewal(SUCCESS)
+        self._metrics.extension(SUCCESS)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -645,12 +646,32 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
     ) -> int | None:
         """Ask the backend for the lease, without counting the outcome.
 
-        Acquiring and renewing both land here and emit nothing, because
-        each caller counts its own outcome: a lease lost on renewal is a
-        different event from a lock another worker holds.
+        Raises:
+            LockAcquireError: If the backend call fails.
+        """
+        return await self._ask_backend(token, duration, LockAcquireError)
+
+    async def _backend_extend(
+        self, token: str, duration: timedelta
+    ) -> int | None:
+        """Ask the backend to extend the lease, without counting the outcome.
 
         Raises:
-            LockAcquireError: If the lock cannot be acquired due to an error on the backend.
+            LockExtendError: If the backend call fails.
+        """
+        return await self._ask_backend(token, duration, LockExtendError)
+
+    async def _ask_backend(
+        self,
+        token: str,
+        duration: timedelta,
+        error: type[LockAcquireError | LockExtendError],
+    ) -> int | None:
+        """Ask the backend for the lease, raising `error` when the call fails.
+
+        Raises:
+            LockAcquireError: If the backend call fails and `error` is it.
+            LockExtendError: If the backend call fails and `error` is it.
         """
         backend = self.backend
         try:
@@ -660,7 +681,7 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
                 duration=duration,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self._name) from exc
+            raise error(name=self._name) from exc
 
     async def do_release(self, token: str) -> bool:
         """Release the lock.
@@ -746,30 +767,30 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         )
 
     async def do_thread_extend(self, owner: HolderIdentity) -> LockHandle:
-        """Renew the lease from a worker thread without releasing.
+        """Extend the lease from a worker thread without releasing.
 
         Runs on the event loop so the ownership check and backend acquire
         are atomic with respect to other threads.
 
         Raises:
             LockNotOwnedError: If this thread does not hold the lock or the lease was lost.
-            LockAcquireError: If the backend call fails.
+            LockExtendError: If the backend call fails.
         """
         config = self._config
         if owner not in self._held_by_threads:
             raise LockNotOwnedError(name=self._name)
         token = generate_thread_token(config.worker, identity=owner)
         try:
-            fencing_token = await self._backend_acquire(
+            fencing_token = await self._backend_extend(
                 token, config.lease_duration
             )
-        except LockAcquireError:
-            self._metrics.renewal(ERROR)
+        except LockExtendError:
+            self._metrics.extension(ERROR)
             raise
         if fencing_token is None:
-            self._metrics.renewal(LOST)
+            self._metrics.extension(LOST)
             raise LockNotOwnedError(name=self._name)
-        self._metrics.renewal(SUCCESS)
+        self._metrics.extension(SUCCESS)
         return LockHandle(
             name=self._name, token=token, fencing_token=fencing_token
         )
@@ -866,7 +887,12 @@ class ThreadLockAdapter:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Release the lock with the context manager."""
+        """Release the lock with the context manager.
+
+        Raises:
+            LockNotOwnedError: If the lock is not currently held.
+            LockReleaseError: Cannot release the lock due to backend error.
+        """
         self.release()
 
     def acquire(self, *, timeout: Seconds | None = None) -> LockHandle:
@@ -890,13 +916,13 @@ class ThreadLockAdapter:
         ).result()
 
     def extend(self) -> LockHandle:
-        """Renew the lease without releasing.
+        """Extend the lease without releasing.
 
         Returns the `LockHandle` with the same fencing token.
 
         Raises:
             LockNotOwnedError: If this thread does not hold the lock or the lease was lost.
-            LockAcquireError: Cannot extend the lock due to backend error.
+            LockExtendError: Cannot extend the lock due to backend error.
         """
         loop = self._backend_loop
         return asyncio.run_coroutine_threadsafe(

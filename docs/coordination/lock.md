@@ -119,7 +119,7 @@ bounded wait and want to handle the failure yourself.
 
 ## Extending the lease
 
-Call `extend()` on a `Lock` to renew the TTL without releasing the lock. The
+Call `extend()` on a `Lock` to extend the lease without releasing the lock. The
 fencing token stays the same, only the expiry time advances:
 
 ```python title="fragment"
@@ -131,7 +131,8 @@ async with lock as held:
 ```
 
 `extend()` raises `LockNotOwnedError` when the lease was lost on the backend
-(expired or taken over by another holder).
+(expired or taken over by another holder), and `LockExtendError` when the
+backend call fails.
 
 ## Fencing tokens
 
@@ -147,7 +148,7 @@ async with Lock("cart") as held:
 The token grows by one on every free-to-held transition: a new holder, or a
 takeover after the previous lease expired. It keeps climbing across release and
 re-acquire cycles, so a token is never reused for a name. The same holder
-renewing or extending its lease keeps the same token.
+extending its lease keeps the same token.
 
 `acquire()` and `acquire_nowait()` also return the `LockHandle`. The handle is
 per-acquisition, so a `Lock` shared by several tasks gives each holder its own
@@ -184,7 +185,7 @@ are told apart.
 |---|---|
 | `grelmicro.lock.attempts` with `grelmicro.outcome="error"` | the backend is unreachable, so nothing is running anywhere |
 | the same counter with `unavailable` | another worker holds it, which is contention rather than failure |
-| `grelmicro.lock.renewals` with `lost` | the lease expired while the work was still running, so a second worker may already hold it |
+| `grelmicro.lock.extensions` with `lost` | the lease expired while the work was still running, so a second worker may already hold it |
 | `grelmicro.lock.holders` | how many holders this worker has, which is 0 when it holds nothing and more than 1 only for a read lease |
 
 `grelmicro.lock.mode` separates an exclusive lock, a task lock, and a read

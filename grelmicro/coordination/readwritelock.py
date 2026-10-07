@@ -44,6 +44,7 @@ from grelmicro.coordination._tokens import (
 )
 from grelmicro.coordination.errors import (
     LockAcquireError,
+    LockExtendError,
     LockNotOwnedError,
     LockOwnedCheckError,
     LockReentrantError,
@@ -100,7 +101,7 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
 
     The lock is writer-preferring: a writer refused because readers hold the
     lock records an intent, and readers arriving after it wait. Readers
-    already inside keep their lease and can renew it until they finish.
+    already inside keep their lease and can extend it until they finish.
 
     Supports live reconfiguration via `reconfigure(new_config)`. A swap takes
     effect on the next call. In-flight calls keep the config they started
@@ -502,11 +503,11 @@ class ReadMode(_Mode):
         return guard
 
     async def extend(self) -> None:
-        """Renew this task's read lease.
+        """Extend this task's read lease.
 
         Raises:
             LockNotOwnedError: This task holds no live read lease.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         await self.do_extend(self._guard_or_raise(self._running_task()))
 
@@ -628,11 +629,32 @@ class ReadMode(_Mode):
     ) -> int | None:
         """Ask the backend for a read lease, without counting the outcome.
 
-        Acquiring and renewing both land here and emit nothing, because
-        each caller counts its own outcome.
-
         Raises:
             LockAcquireError: The backend call failed.
+        """
+        return await self._ask_backend(token, duration, LockAcquireError)
+
+    async def _backend_extend(
+        self, token: str, duration: timedelta
+    ) -> int | None:
+        """Ask the backend to extend a read lease, without counting the outcome.
+
+        Raises:
+            LockExtendError: The backend call failed.
+        """
+        return await self._ask_backend(token, duration, LockExtendError)
+
+    async def _ask_backend(
+        self,
+        token: str,
+        duration: timedelta,
+        error: type[LockAcquireError | LockExtendError],
+    ) -> int | None:
+        """Ask the backend for a read lease, raising `error` when the call fails.
+
+        Raises:
+            LockAcquireError: The backend call failed and `error` is it.
+            LockExtendError: The backend call failed and `error` is it.
         """
         backend = self.backend
         try:
@@ -642,28 +664,28 @@ class ReadMode(_Mode):
                 duration=duration,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self.name) from exc
+            raise error(name=self.name) from exc
 
     async def do_extend(self, guard: ReadGuard) -> None:
-        """Renew the lease behind `guard`.
+        """Extend the lease behind `guard`.
 
         Raises:
             LockNotOwnedError: The lease was lost.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         duration = self._lock._config.lease_duration  # noqa: SLF001
         metrics = self._lock._read_metrics  # noqa: SLF001
         try:
-            generation = await self._backend_acquire(guard.token, duration)
-        except LockAcquireError:
-            metrics.renewal(ERROR)
+            generation = await self._backend_extend(guard.token, duration)
+        except LockExtendError:
+            metrics.extension(ERROR)
             raise
         if generation is None:
-            metrics.renewal(LOST)
+            metrics.extension(LOST)
             guard._invalidate()  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
-        metrics.renewal(SUCCESS)
-        guard._renewed(monotonic() + duration.total_seconds())  # noqa: SLF001
+        metrics.extension(SUCCESS)
+        guard._extended(monotonic() + duration.total_seconds())  # noqa: SLF001
 
     def _adopt(self, guard: ReadGuard, holder: asyncio.Task[object]) -> None:
         """Register a guard produced by a downgrade."""
@@ -714,11 +736,11 @@ class ReadMode(_Mode):
             raise LockNotOwnedError(name=self.name)
 
     async def do_thread_extend(self, owner: HolderIdentity) -> None:
-        """Renew the read lease held by a worker thread.
+        """Extend the read lease held by a worker thread.
 
         Raises:
             LockNotOwnedError: This thread holds no live read lease.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         guard = self._thread_guards.get(owner)
         if guard is None:
@@ -841,11 +863,11 @@ class WriteMode(_Mode):
         return guard
 
     async def extend(self) -> None:
-        """Renew this task's write lease.
+        """Extend this task's write lease.
 
         Raises:
             LockNotOwnedError: This task no longer holds the write lock.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         await self.do_extend(self._guard_or_raise(self._running_task()))
 
@@ -992,11 +1014,38 @@ class WriteMode(_Mode):
     ) -> WriteGrant | None:
         """Ask the backend for a write lease, without counting the outcome.
 
-        Acquiring and renewing both land here and emit nothing, because
-        each caller counts its own outcome.
-
         Raises:
             LockAcquireError: The backend call failed.
+        """
+        return await self._ask_backend(
+            token, duration=duration, intent=intent, error=LockAcquireError
+        )
+
+    async def _backend_extend(
+        self, token: str, duration: timedelta
+    ) -> WriteGrant | None:
+        """Ask the backend to extend a write lease, without counting the outcome.
+
+        Raises:
+            LockExtendError: The backend call failed.
+        """
+        return await self._ask_backend(
+            token, duration=duration, intent=False, error=LockExtendError
+        )
+
+    async def _ask_backend(
+        self,
+        token: str,
+        *,
+        duration: timedelta,
+        intent: bool,
+        error: type[LockAcquireError | LockExtendError],
+    ) -> WriteGrant | None:
+        """Ask the backend for a write lease, raising `error` when the call fails.
+
+        Raises:
+            LockAcquireError: The backend call failed and `error` is it.
+            LockExtendError: The backend call failed and `error` is it.
         """
         backend = self.backend
         try:
@@ -1007,10 +1056,10 @@ class WriteMode(_Mode):
                 intent=intent,
             )
         except Exception as exc:
-            raise LockAcquireError(name=self.name) from exc
+            raise error(name=self.name) from exc
 
     async def do_extend(self, guard: WriteGuard) -> None:
-        """Renew the lease behind `guard`.
+        """Extend the lease behind `guard`.
 
         A lease that was lost and retaken in the same call keeps the guard
         usable, with the new fencing token and `poisoned` set, because the
@@ -1018,23 +1067,21 @@ class WriteMode(_Mode):
 
         Raises:
             LockNotOwnedError: The lease was lost to another holder.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         duration = self._lock._config.lease_duration  # noqa: SLF001
         metrics = self._lock._write_metrics  # noqa: SLF001
         try:
-            grant = await self._backend_acquire(
-                guard.token, duration=duration, intent=False
-            )
-        except LockAcquireError:
-            metrics.renewal(ERROR)
+            grant = await self._backend_extend(guard.token, duration)
+        except LockExtendError:
+            metrics.extension(ERROR)
             raise
         if grant is None:
-            metrics.renewal(LOST)
+            metrics.extension(LOST)
             guard._invalidate()  # noqa: SLF001
             raise LockNotOwnedError(name=self.name)
-        metrics.renewal(SUCCESS)
-        guard._renewed(monotonic() + duration.total_seconds())  # noqa: SLF001
+        metrics.extension(SUCCESS)
+        guard._extended(monotonic() + duration.total_seconds())  # noqa: SLF001
         if grant.fencing_token != guard._fencing_token:  # noqa: SLF001
             guard._fencing_token = grant.fencing_token  # noqa: SLF001
             guard._poisoned = True  # noqa: SLF001
@@ -1119,11 +1166,11 @@ class WriteMode(_Mode):
             raise LockNotOwnedError(name=self.name)
 
     async def do_thread_extend(self, owner: HolderIdentity) -> None:
-        """Renew the write lease held by a worker thread.
+        """Extend the write lease held by a worker thread.
 
         Raises:
             LockNotOwnedError: This thread holds no live write lease.
-            LockAcquireError: The backend call failed.
+            LockExtendError: The backend call failed.
         """
         guard = self._thread_guards.get(owner)
         if guard is None:
@@ -1176,7 +1223,12 @@ class ThreadReadAdapter(_ThreadAdapter[ReadMode]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Release the read lock."""
+        """Release the read lock.
+
+        Raises:
+            LockNotOwnedError: This thread holds no live read lease.
+            LockReleaseError: The backend call failed.
+        """
         self.release()
 
     def acquire(self, *, timeout: Seconds | None = None) -> ReadGuard:
@@ -1190,7 +1242,12 @@ class ThreadReadAdapter(_ThreadAdapter[ReadMode]):
         ).result()
 
     def extend(self) -> None:
-        """Renew this thread's read lease."""
+        """Extend this thread's read lease.
+
+        Raises:
+            LockNotOwnedError: This thread holds no live read lease.
+            LockExtendError: The backend call failed.
+        """
         loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_extend(current_thread_identity()),
@@ -1198,7 +1255,12 @@ class ThreadReadAdapter(_ThreadAdapter[ReadMode]):
         ).result()
 
     def release(self) -> None:
-        """Release this thread's read lease."""
+        """Release this thread's read lease.
+
+        Raises:
+            LockNotOwnedError: This thread holds no live read lease.
+            LockReleaseError: The backend call failed.
+        """
         loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_release(current_thread_identity()),
@@ -1223,7 +1285,12 @@ class ThreadWriteAdapter(_ThreadAdapter[WriteMode]):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Release the write lock."""
+        """Release the write lock.
+
+        Raises:
+            LockNotOwnedError: This thread holds no live write lease.
+            LockReleaseError: The backend call failed.
+        """
         self.release()
 
     def acquire(self, *, timeout: Seconds | None = None) -> WriteGuard:
@@ -1237,7 +1304,12 @@ class ThreadWriteAdapter(_ThreadAdapter[WriteMode]):
         ).result()
 
     def extend(self) -> None:
-        """Renew this thread's write lease."""
+        """Extend this thread's write lease.
+
+        Raises:
+            LockNotOwnedError: This thread holds no live write lease.
+            LockExtendError: The backend call failed.
+        """
         loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_extend(current_thread_identity()),
@@ -1245,7 +1317,12 @@ class ThreadWriteAdapter(_ThreadAdapter[WriteMode]):
         ).result()
 
     def release(self) -> None:
-        """Release this thread's write lease."""
+        """Release this thread's write lease.
+
+        Raises:
+            LockNotOwnedError: This thread holds no live write lease.
+            LockReleaseError: The backend call failed.
+        """
         loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(
             self._mode.do_thread_release(current_thread_identity()),

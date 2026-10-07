@@ -7,11 +7,13 @@ from types import TracebackType
 from typing import Self
 
 import pytest
+from pytest_mock import MockerFixture
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import (
     Coordination,
     LockAcquireError,
+    LockExtendError,
     LockNotOwnedError,
     LockOwnedCheckError,
     LockReentrantError,
@@ -371,6 +373,71 @@ async def test_extend_after_the_write_lease_moved(
     with pytest.raises(LockNotOwnedError):
         await writing.extend()
     assert not writing.valid
+
+
+@pytest.mark.parametrize("mode", ["read", "write"])
+async def test_readwritelock_extend_backend_failure_raises_lock_extend_error(
+    lock: ReadWriteLock,
+    backend: MemoryReadWriteLockAdapter,
+    mocker: MockerFixture,
+    mode: str,
+) -> None:
+    """Extending a lease raises LockExtendError when the backend call fails."""
+    # Arrange
+    side = getattr(lock, mode)
+    await side.acquire()
+    mocker.patch.object(
+        backend, f"acquire_{mode}", side_effect=RuntimeError("down")
+    )
+
+    # Act & Assert
+    with pytest.raises(LockExtendError):
+        await side.extend()
+
+
+@pytest.mark.parametrize("mode", ["read", "write"])
+async def test_readwritelock_guard_extend_backend_failure_raises_lock_extend_error(
+    lock: ReadWriteLock,
+    backend: MemoryReadWriteLockAdapter,
+    mocker: MockerFixture,
+    mode: str,
+) -> None:
+    """Extending a guard raises LockExtendError when the backend call fails."""
+    # Arrange
+    guard = await getattr(lock, mode).acquire()
+    mocker.patch.object(
+        backend, f"acquire_{mode}", side_effect=RuntimeError("down")
+    )
+
+    # Act & Assert
+    with pytest.raises(LockExtendError):
+        await guard.extend()
+
+
+@pytest.mark.parametrize("mode", ["read", "write"])
+async def test_readwritelock_from_thread_extend_backend_failure_raises_lock_extend_error(
+    lock: ReadWriteLock,
+    backend: MemoryReadWriteLockAdapter,
+    mocker: MockerFixture,
+    mode: str,
+) -> None:
+    """A thread extend raises LockExtendError when the backend call fails."""
+    # Arrange
+    side = getattr(lock, mode)
+
+    # Act & Assert: acquire, extend and release run on one thread.
+    def body() -> None:
+        side.from_thread.acquire()
+        mocker.patch.object(
+            backend,
+            f"acquire_{mode}",
+            mocker.AsyncMock(side_effect=RuntimeError("down")),
+        )
+        with pytest.raises(LockExtendError):
+            side.from_thread.extend()
+        side.from_thread.release()
+
+    await asyncio.to_thread(body)
 
 
 async def test_release_without_holding(lock: ReadWriteLock) -> None:

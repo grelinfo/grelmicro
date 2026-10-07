@@ -17,8 +17,8 @@ from grelmicro.metrics import _emit
 ATTEMPTS = "grelmicro.lock.attempts"
 """Counter of backend acquire calls, one point per call."""
 
-RENEWALS = "grelmicro.lock.renewals"
-"""Counter of lease renewals, one point per call."""
+EXTENSIONS = "grelmicro.lock.extensions"
+"""Counter of lease extensions, one point per call."""
 
 HOLDERS = "grelmicro.lock.holders"
 """How many holders this worker has, which is 0 when it holds nothing."""
@@ -33,7 +33,7 @@ LOST = "lost"
 class LockMetrics:
     """The attribute mappings and emit calls for one lock instance."""
 
-    __slots__ = ("_attempts", "_holders", "_renewals")
+    __slots__ = ("_attempts", "_extensions", "_holders")
 
     def __init__(self, name: str, mode: str) -> None:
         """Bind the attributes for a lock named `name` held in `mode`."""
@@ -43,7 +43,7 @@ class LockMetrics:
             outcome: {**base, "grelmicro.outcome": outcome}
             for outcome in (ACQUIRED, UNAVAILABLE, ERROR)
         }
-        self._renewals = {
+        self._extensions = {
             outcome: {**base, "grelmicro.outcome": outcome}
             for outcome in (SUCCESS, LOST, ERROR)
         }
@@ -56,13 +56,13 @@ class LockMetrics:
         """
         _emit.incr(ATTEMPTS, self._attempts[outcome], unit="{attempt}")
 
-    def renewal(self, outcome: str) -> None:
-        """Count one lease renewal, however it ended.
+    def extension(self, outcome: str) -> None:
+        """Count one lease extension, however it ended.
 
         `lost` is the one to alert on: the lease was gone before the work
         under it finished, so another worker may already hold the lock.
         """
-        _emit.incr(RENEWALS, self._renewals[outcome], unit="{renewal}")
+        _emit.incr(EXTENSIONS, self._extensions[outcome], unit="{extension}")
 
     def hold(self, amount: int) -> None:
         """Move the holder count by `amount`, which is 1 or -1.

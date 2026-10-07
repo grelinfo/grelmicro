@@ -36,7 +36,7 @@ WORKER_2 = 1
 TEST_TIMEOUT = 15
 # Lease and renew deadline are sized for CPU-oversubscribed CI. `is_leader()`
 # lapses once `monotonic() - last_confirmation >= renew_deadline`, and the OS can
-# preempt the whole process (so the renew loop cannot refresh) between a
+# preempt the whole process (so the renew loop cannot renew) between a
 # `wait_for_leader()` return and the next `is_leader()` read. A 15 ms deadline
 # lapsed under that preemption and flaked; ~70 ms gives ample wall-clock slack
 # while the renew loop still runs every 5 ms and lapse-style tests still resolve

@@ -34,7 +34,7 @@ class LockHandle:
             "A strictly increasing integer minted by the backend for this"
             " lock name. It grows on every free-to-held transition (a new"
             " holder or a takeover of an expired lock) and keeps climbing"
-            " across release and re-acquire cycles. A renewal by the same"
+            " across release and re-acquire cycles. An extension by the same"
             " holder keeps the same value. Pass it to the protected resource"
             " so the resource can reject any write that carries a lower or"
             " equal token."

@@ -18,7 +18,10 @@ from grelmicro.coordination._handle import LockHandle
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination._tokens import current_thread_identity
 from grelmicro.coordination.errors import (
+    CoordinationError,
     LockAcquireError,
+    LockBackendError,
+    LockExtendError,
     LockLockedCheckError,
     LockNotOwnedError,
     LockOwnedCheckError,
@@ -1276,6 +1279,43 @@ async def test_lock_extend_lease_lost_raises(
         await locks[WORKER_1].extend()
 
 
+def test_lock_not_owned_error_is_a_coordination_error_not_a_backend_error() -> (
+    None
+):
+    """A lost lease is a coordination error, apart from a failed backend call."""
+    # Act
+    bases = LockNotOwnedError.__mro__
+
+    # Assert
+    assert CoordinationError in bases
+    assert LockReleaseError not in bases
+    assert LockBackendError not in bases
+
+
+def test_lock_not_owned_error_message_names_its_own_fix() -> None:
+    """The message names the lost lease and its fix, with no backend hint."""
+    # Act
+    message = str(LockNotOwnedError(name="cart"))
+
+    # Assert
+    assert message.startswith("Lock not held: name=cart.")
+    assert "raise lease_duration=" in message
+    assert "backend" not in message
+
+
+async def test_lock_extend_backend_failure_raises_lock_extend_error(
+    locks: list[Lock], backend: LockBackend, mocker: MockerFixture
+) -> None:
+    """`extend()` raises LockExtendError when the backend call fails."""
+    # Arrange
+    await locks[WORKER_1].acquire()
+    mocker.patch.object(backend, "acquire", side_effect=RuntimeError("down"))
+
+    # Act & Assert
+    with pytest.raises(LockExtendError, match="Failed to extend lock"):
+        await locks[WORKER_1].extend()
+
+
 # --- jitter ---
 
 
@@ -1559,15 +1599,35 @@ async def test_from_thread_extend_lost_lease(
     """A thread extend after the lease was lost raises LockNotOwnedError."""
 
     # Act & Assert: acquire and extend run on one thread, the backend
-    # rejects the renewal as a lost lease.
+    # rejects the extension as a lost lease.
     def sync() -> None:
         lock.from_thread.acquire()
-        # The renewal goes to the backend through `_backend_acquire`, which
-        # counts a renewal rather than a fresh acquire.
+        # The extension goes to the backend through `_backend_extend`.
         mocker.patch.object(
-            lock, "_backend_acquire", mocker.AsyncMock(return_value=None)
+            lock, "_backend_extend", mocker.AsyncMock(return_value=None)
         )
         with pytest.raises(LockNotOwnedError):
+            lock.from_thread.extend()
+
+    await asyncio.to_thread(sync)
+
+
+async def test_lock_from_thread_extend_backend_failure_raises_lock_extend_error(
+    lock: Lock,
+    mocker: MockerFixture,
+) -> None:
+    """A thread extend raises LockExtendError when the backend call fails."""
+
+    # Act & Assert: acquire and extend run on one thread, the backend
+    # fails the extension.
+    def sync() -> None:
+        lock.from_thread.acquire()
+        mocker.patch.object(
+            lock.backend,
+            "acquire",
+            mocker.AsyncMock(side_effect=RuntimeError("down")),
+        )
+        with pytest.raises(LockExtendError):
             lock.from_thread.extend()
 
     await asyncio.to_thread(sync)
