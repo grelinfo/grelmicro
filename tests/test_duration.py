@@ -14,8 +14,8 @@ from grelmicro._duration import (
     MAX_DURATION,
     MICROSECOND,
     MILLISECOND,
-    CacheTTL,
     Duration,
+    Retention,
     check_duration,
     check_finite,
     clock_microseconds,
@@ -364,7 +364,7 @@ def test_duration_clock_microseconds_up_rounds_up(
 
 
 class _CacheModel(BaseModel):
-    cache_ttl: CacheTTL
+    cache_ttl: Retention
 
 
 @pytest.mark.parametrize(
@@ -372,7 +372,7 @@ class _CacheModel(BaseModel):
     [0, timedelta(0), "0", "PT0S"],
     ids=["int", "timedelta", "text", "iso"],
 )
-def test_cache_ttl_takes_zero_as_cache_off(raw: object) -> None:
+def test_retention_takes_zero_as_keep_nothing(raw: object) -> None:
     """Zero is taken and reads back as a `timedelta` of nothing."""
     # Act
     model = _CacheModel.model_validate({"cache_ttl": raw})
@@ -392,7 +392,7 @@ def test_cache_ttl_takes_zero_as_cache_off(raw: object) -> None:
         ("P36501D", r"cache_ttl must be at most 100 years"),
     ],
 )
-def test_cache_ttl_refuses_a_negative_float_or_too_long_value(
+def test_retention_refuses_a_negative_float_or_too_long_value(
     raw: object, message: str
 ) -> None:
     """A negative, a float, a bool or over 100 years is refused."""
@@ -405,7 +405,7 @@ def test_cache_ttl_refuses_a_negative_float_or_too_long_value(
     ("value", "text"),
     [(timedelta(0), "PT0S"), (timedelta(milliseconds=1500), "PT1.5S")],
 )
-def test_cache_ttl_dumps_to_json_it_reads_back(
+def test_retention_dumps_to_json_it_reads_back(
     value: timedelta, text: str
 ) -> None:
     """A cache TTL, zero included, dumps to ISO 8601 and reads back exactly."""

@@ -105,19 +105,19 @@ async def test_publish_delay_holds_message_back() -> None:
         await outbox.publish(None, "job", {}, delay=timedelta(hours=1))
         await outbox.publish(None, "later", {}, delay=60.0)
         claimed = await backend.claim(
-            topics=["job", "later"], limit=10, lease=5
+            topics=["job", "later"], limit=10, lease=timedelta(seconds=5)
         )
         assert claimed == []
 
 
 async def test_purge_older_than_conversion() -> None:
-    """`purge(older_than=...)` accepts a timedelta or seconds."""
+    """`purge(older_than=...)` accepts a timedelta or whole seconds."""
     backend = MemoryOutboxAdapter()
     outbox = Outbox(backend, relay=False)
     async with outbox:
         await outbox.publish(None, "job", {})
         assert await outbox.purge(older_than=timedelta(hours=1)) == 0
-        assert await outbox.purge(older_than=3600.0) == 0
+        assert await outbox.purge(older_than=3600) == 0
         assert await outbox.purge() == 0
 
 

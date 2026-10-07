@@ -9,7 +9,7 @@ from datetime import timedelta
 from pydantic import BaseModel
 
 import grelmicro
-from grelmicro._duration import CacheTTL, Duration
+from grelmicro._duration import Duration, Retention
 
 WAITS = frozenset(
     {
@@ -49,8 +49,6 @@ NOT_MOVED_YET = frozenset(
     {
         ("DuplicateFilterConfig", "ttl"),
         ("HealthChecksConfig", "cache_ttl"),
-        ("OutboxConfig", "keep_delivered"),
-        ("OutboxConfig", "lease_duration"),
     }
 )
 """Stored or enforced durations that do not take the shared duration type yet."""
@@ -74,7 +72,7 @@ NOT_DURATIONS = frozenset(
 """Floats that are rates, ratios or fractions, not durations."""
 
 _SHARED_CHECKS = [
-    typing.get_args(shared)[1:] for shared in (Duration, CacheTTL)
+    typing.get_args(shared)[1:] for shared in (Duration, Retention)
 ]
 """The validators of each shared duration type."""
 
@@ -169,8 +167,8 @@ class _OptionalDuration(BaseModel):
     ttl: Duration | None = None
 
 
-class _CacheLifetime(BaseModel):
-    cache_ttl: CacheTTL
+class _Kept(BaseModel):
+    keep: Retention
 
 
 class _FloatsInside(BaseModel):
@@ -184,10 +182,10 @@ def test_an_optional_duration_is_shared() -> None:
     assert not _unshared(_OptionalDuration, "ttl")
 
 
-def test_duration_contract_cache_ttl_counts_as_shared() -> None:
-    """A `CacheTTL` field is on a shared type."""
+def test_duration_contract_retention_counts_as_shared() -> None:
+    """A `Retention` field is on a shared type."""
     # Act / Assert
-    assert not _unshared(_CacheLifetime, "cache_ttl")
+    assert not _unshared(_Kept, "keep")
 
 
 def test_a_float_or_timedelta_inside_a_container_is_found() -> None:

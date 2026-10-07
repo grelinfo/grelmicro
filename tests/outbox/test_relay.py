@@ -14,6 +14,7 @@ from grelmicro.outbox._config import OutboxConfig
 from grelmicro.outbox._registry import OutboxRegistry
 from grelmicro.outbox._relay import Relay
 from grelmicro.outbox.memory import MemoryOutboxAdapter
+from tests.outbox.spies import PurgeSpy
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -381,7 +382,7 @@ async def test_relay_survives_claim_error() -> None:
         failed = False
 
         async def claim(
-            self, *, topics: Sequence[str], limit: int, lease: float
+            self, *, topics: Sequence[str], limit: int, lease: timedelta
         ) -> list[OutboxRecord]:
             if not self.failed:
                 self.failed = True
@@ -427,64 +428,28 @@ async def test_keep_delivered_timedelta_keeps_row() -> None:
 
 async def test_retention_janitor_purges_delivered_only() -> None:
     """A retention window starts a janitor that purges delivered rows."""
-    calls: list[tuple[float | None, tuple[str, ...]]] = []
-    done = asyncio.Event()
-
-    class _RecordingBackend(MemoryOutboxAdapter):
-        async def purge(
-            self,
-            *,
-            before_seconds: float | None = None,
-            states: tuple[Literal["delivered", "dead"], ...] = (
-                "delivered",
-                "dead",
-            ),
-        ) -> int:
-            calls.append((before_seconds, states))
-            done.set()
-            return await super().purge(
-                before_seconds=before_seconds, states=states
-            )
-
+    backend = PurgeSpy()
     outbox = Outbox(
-        _RecordingBackend(),
+        backend,
         poll_interval=0.05,
         keep_delivered=timedelta(seconds=30),
     )
 
     async with outbox:
-        await asyncio.wait_for(done.wait(), 2)
+        await asyncio.wait_for(backend.purged.wait(), 2)
 
-    assert calls[0] == (30, ("delivered",))
+    assert backend.calls[0] == (timedelta(seconds=30), ("delivered",))
 
 
 async def test_retention_janitor_skipped_without_relay() -> None:
     """With `relay=False` no janitor runs, so nothing is purged."""
-
-    class _RecordingBackend(MemoryOutboxAdapter):
-        purged = False
-
-        async def purge(
-            self,
-            *,
-            before_seconds: float | None = None,
-            states: tuple[Literal["delivered", "dead"], ...] = (
-                "delivered",
-                "dead",
-            ),
-        ) -> int:
-            self.purged = True
-            return await super().purge(
-                before_seconds=before_seconds, states=states
-            )
-
-    backend = _RecordingBackend()
+    backend = PurgeSpy()
     outbox = Outbox(backend, relay=False, keep_delivered=timedelta(seconds=30))
 
     async with outbox:
         await asyncio.sleep(0.1)
 
-    assert backend.purged is False
+    assert backend.calls == []
 
 
 async def test_retention_janitor_survives_purge_error() -> None:
@@ -495,7 +460,7 @@ async def test_retention_janitor_survives_purge_error() -> None:
         async def purge(
             self,
             *,
-            before_seconds: float | None = None,  # noqa: ARG002
+            older_than: timedelta | None = None,  # noqa: ARG002
             states: tuple[Literal["delivered", "dead"], ...] = (  # noqa: ARG002
                 "delivered",
                 "dead",

@@ -639,7 +639,7 @@
       "()": "(id, topic, key, data, payload, headers, attempts) -> None"
     },
     "Outbox": {
-      "()": "(source, *, requires=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=None, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> 'None'",
+      "()": "(source, *, requires=None, name='default', relay=None, table=None, poll_interval=None, batch_size=None, lease_duration=None, max_attempts=None, retry_base=None, retry_max=None, retry_jitter=None, concurrency=None, dead_letter=None, keep_delivered=UNSET, auto_migrate=None, notify=None, env_load=None, shutdown_timeout=30.0) -> 'None'",
       ".current": "(name='default') -> 'Outbox'",
       ".from_config": "(source, config, *, requires=None, name='default', shutdown_timeout=30.0) -> 'Self'"
     },
@@ -647,7 +647,7 @@
       "()": "(*args, **kwargs)"
     },
     "OutboxConfig": {
-      "()": "(*, table='grelmicro_outbox', relay=True, poll_interval=1.5, batch_size=100, lease_duration=30, max_attempts=10, retry_base=1, retry_max=300, retry_jitter=1, concurrency=50, dead_letter=True, keep_delivered=False, auto_migrate=True, notify=True) -> None"
+      "()": "(*, table='grelmicro_outbox', relay=True, poll_interval=1.5, batch_size=100, lease_duration=datetime.timedelta(seconds=30), max_attempts=10, retry_base=1, retry_max=300, retry_jitter=1, concurrency=50, dead_letter=True, keep_delivered=datetime.timedelta(0), auto_migrate=True, notify=True) -> None"
     },
     "OutboxError": null,
     "OutboxHandleError": null,

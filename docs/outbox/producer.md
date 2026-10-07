@@ -131,7 +131,7 @@ await outbox.publish(conn, ReminderDue(...), delay=timedelta(hours=1))
 await outbox.publish(conn, OrderPlaced(...), dedup_key=f"order:{order_id}")
 ```
 
-When delivered messages are deleted (the default), the deduplication window lasts only until delivery. Keep delivered messages with `keep_delivered=True` to extend it, or `keep_delivered=timedelta(days=30)` to extend it for a fixed window. A retention window caps it: once a delivered row is purged its `dedup_key` frees up. See [Retention and cleanup](relay.md#retention-and-cleanup).
+When delivered messages are deleted (the default), the deduplication window lasts only until delivery. Keep delivered messages with `keep_delivered=None` to extend it, or `keep_delivered=timedelta(days=30)` to extend it for a fixed window. A retention window caps it: once a delivered row is purged its `dedup_key` frees up. See [Retention and cleanup](relay.md#retention-and-cleanup).
 
 !!! tip "Bounded failure"
     Build the `PostgresProvider` with `command_timeout` so a frozen or unreachable Postgres surfaces as a `TimeoutError` in bounded time. `publish` then fails loudly and your business transaction rolls back, instead of hanging until the OS TCP timeout. See [Providers](../providers/postgres.md).

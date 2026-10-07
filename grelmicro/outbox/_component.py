@@ -11,10 +11,12 @@ from typing_extensions import Doc
 from grelmicro._app import resolve_ambient
 from grelmicro._backend_kinds import resolve_source
 from grelmicro._config import env_prefixes, resolve_config
+from grelmicro._duration import check_retention
 from grelmicro._markers import Registered, mark_registered
+from grelmicro._unset import UNSET, Unset
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
-from grelmicro.outbox._config import OutboxConfig
+from grelmicro.outbox._config import KEEP_FOREVER, OutboxConfig
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._otel import inject_trace_context
 from grelmicro.outbox._protocol import OutboxBackend
@@ -41,6 +43,21 @@ _NOT_AVAILABLE: Final = (
 
 The lead names the miss, and the fix is given when no app is bound.
 """
+
+
+def _keep_delivered_kwarg(
+    value: int | timedelta | Unset | None,
+) -> int | timedelta | str | None:
+    """Return `keep_delivered` as `resolve_config` takes it.
+
+    Left out, it is `None`, so the environment or the default decides. A
+    `None` the caller passed becomes the text that reads as keep forever.
+    """
+    if isinstance(value, Unset):
+        return None
+    if value is None:
+        return KEEP_FOREVER
+    return value
 
 
 class Outbox:
@@ -115,7 +132,11 @@ class Outbox:
             int | None, Doc("Claim ceiling per cycle.")
         ] = None,
         lease_duration: Annotated[
-            float | None, Doc("Seconds a claimed message stays invisible.")
+            int | timedelta | None,
+            Doc(
+                "How long a claimed message stays invisible, in whole "
+                "seconds or as a `timedelta`. A float is refused."
+            ),
         ] = None,
         max_attempts: Annotated[
             int | None, Doc("Attempts before dead-lettering.")
@@ -136,12 +157,15 @@ class Outbox:
             bool | None, Doc("Move exhausted messages to the dead state.")
         ] = None,
         keep_delivered: Annotated[
-            bool | timedelta | None,
+            int | timedelta | Unset | None,
             Doc(
-                "Keep delivered rows instead of deleting them. A `timedelta` "
-                "keeps them for that long, then the relay purges them."
+                "How long delivered rows are kept, in whole seconds or as a "
+                "`timedelta`, then the relay purges them. `0` deletes a row "
+                "on delivery, and `None` keeps it for good. A float or a bool "
+                "is refused. Left out, it is read from the environment, or "
+                "defaults to `0`."
             ),
-        ] = None,
+        ] = UNSET,
         auto_migrate: Annotated[
             bool | None, Doc("Create the table on first connect.")
         ] = None,
@@ -174,7 +198,7 @@ class Outbox:
                     "retry_jitter": retry_jitter,
                     "concurrency": concurrency,
                     "dead_letter": dead_letter,
-                    "keep_delivered": keep_delivered,
+                    "keep_delivered": _keep_delivered_kwarg(keep_delivered),
                     "auto_migrate": auto_migrate,
                     "notify": notify,
                 },
@@ -388,21 +412,28 @@ class Outbox:
         self,
         *,
         older_than: Annotated[
-            timedelta | float | None,
-            Doc("Only purge terminal rows older than this. None purges all."),
+            int | timedelta | None,
+            Doc(
+                "Only purge terminal rows older than this, in whole seconds "
+                "or as a `timedelta`. `0` purges every row settled before "
+                "now. A float is refused. None purges all."
+            ),
         ] = None,
     ) -> int:
         """Delete delivered and dead rows. Returns the count removed.
 
         Use it to trim the table once delivered or dead messages are no
         longer needed. Pending and in-flight messages are never touched.
+
+        Raises:
+            ValueError: If `older_than` is not whole seconds or a
+                `timedelta`, is negative, or is over 100 years.
         """
-        seconds = (
-            older_than.total_seconds()
-            if isinstance(older_than, timedelta)
-            else older_than
+        return await self._backend.purge(
+            older_than=check_retention(older_than, "older_than")
+            if older_than is not None
+            else None
         )
-        return await self._backend.purge(before_seconds=seconds)
 
     async def __aenter__(self) -> Self:
         """Open the backend and start the relay when enabled."""

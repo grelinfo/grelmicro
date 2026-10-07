@@ -228,9 +228,13 @@ def _check_range(value: timedelta, info: ValidationInfo) -> timedelta:
     return in_range(value, _name(info))
 
 
-def _check_cache_range(value: timedelta, info: ValidationInfo) -> timedelta:
-    """Refuse a cache TTL below zero, or over a hundred years."""
-    name = _name(info)
+def _check_retention_range(value: timedelta, info: ValidationInfo) -> timedelta:
+    """Refuse a retention below zero, or over a hundred years."""
+    return _keep_in_range(value, _name(info))
+
+
+def _keep_in_range(value: timedelta, name: str) -> timedelta:
+    """Return `value`, refusing one below zero or over 100 years."""
     if value < _ZERO:
         msg = f"{name} must not be negative"
         raise ValueError(msg)
@@ -276,17 +280,16 @@ seconds, such as `"1.5"`, is refused, and so are years and months.
 In JSON it is written the same way, in days and smaller units.
 """
 
-CacheTTL = Annotated[
+Retention = Annotated[
     timedelta,
     BeforeValidator(_parse),
-    AfterValidator(_check_cache_range),
+    AfterValidator(_check_retention_range),
     PlainSerializer(_to_text, when_used="json"),
 ]
-"""How long a component's built-in cache keeps an entry, zero for off.
+"""A duration that says how long to keep something. Zero keeps nothing.
 
 Takes what a `Duration` takes, and zero too (`0`, `timedelta(0)`, `"0"`
-or `"PT0S"`), which turns that cache off. A negative value, or one over a
-hundred years, is refused.
+or `"PT0S"`). A negative value, or one over a hundred years, is refused.
 """
 
 
@@ -317,3 +320,16 @@ def read_duration(value: object, name: str) -> timedelta:
         ValueError: If `value` is not a valid duration.
     """
     return in_range(_read(value, name), name)
+
+
+def check_retention(value: int | timedelta, name: str) -> timedelta:
+    """Return a typed argument as a `Retention`, refused under its own name.
+
+    Takes whole seconds as an `int`, or a `timedelta`, from zero, which
+    keeps nothing, to a hundred years. Text is refused.
+
+    Raises:
+        ValueError: If `value` is not whole seconds or a `timedelta`, is
+            negative, or is over 100 years.
+    """
+    return _keep_in_range(_from_value(value, name), name)
