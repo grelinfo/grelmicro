@@ -1,5 +1,7 @@
 """Test the SQLite read-write lock adapter paths outside the conformance suite."""
 
+from datetime import timedelta
+
 import pytest
 
 from grelmicro.coordination.sqlite import SQLiteReadWriteLockAdapter
@@ -23,7 +25,9 @@ async def test_owns_its_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     async with adapter:
         assert adapter.provider.client is not None
         assert (
-            await adapter.acquire_read(name="catalog", token="r", duration=10)
+            await adapter.acquire_read(
+                name="catalog", token="r", duration=timedelta(seconds=10)
+            )
             == 0
         )
 

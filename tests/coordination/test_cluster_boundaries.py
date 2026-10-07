@@ -34,13 +34,13 @@ if TYPE_CHECKING:
     from typing import Self
 
 _NAME_MAX_LEN = 200
-_DURATION = 60.0
+_DURATION = timedelta(seconds=60)
 _CONFIRMED_AT = 100.0
 _NOW = 105.0
 _SECOND_TOKEN = 2
-_MIN_LOCK = 10.0
+_MIN_LOCK = timedelta(seconds=10)
 _ELAPSED = 2.0
-_LEASE = 10.0
+_LEASE = timedelta(seconds=10)
 _RENEW_DELTA = 3.0
 _EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -97,7 +97,9 @@ async def test_lock_is_still_held_at_the_exact_expiry_instant(
 
     async with MemoryLockAdapter() as backend:
         await backend.acquire(name="x", token="a", duration=_DURATION)
-        clock["t"] = _CONFIRMED_AT + _DURATION  # exactly the expiry instant
+        clock["t"] = (
+            _CONFIRMED_AT + _DURATION.total_seconds()
+        )  # exactly the expiry instant
 
         assert await backend.locked(name="x") is True
         assert await backend.owned(name="x", token="a") is True
@@ -113,9 +115,9 @@ async def test_do_exit_reacquires_with_remaining_duration(
     monkeypatch.setattr(
         tl_module, "monotonic", lambda: _CONFIRMED_AT + _ELAPSED
     )
-    captured: dict[str, float] = {}
+    captured: dict[str, timedelta] = {}
 
-    async def fake_reacquire(_token: str, duration: float) -> bool:
+    async def fake_reacquire(_token: str, duration: timedelta) -> bool:
         captured["duration"] = duration
         return True
 
@@ -123,7 +125,7 @@ async def test_do_exit_reacquires_with_remaining_duration(
 
     await task_lock.do_exit("tok", min_hold_duration=_MIN_LOCK)
 
-    assert captured["duration"] == _MIN_LOCK - _ELAPSED
+    assert captured["duration"] == _MIN_LOCK - timedelta(seconds=_ELAPSED)
 
 
 async def test_do_exit_releases_at_exact_min_lock(
@@ -133,7 +135,9 @@ async def test_do_exit_releases_at_exact_min_lock(
     task_lock = TaskLock("exit-boundary")
     task_lock._acquired_at = _CONFIRMED_AT
     monkeypatch.setattr(
-        tl_module, "monotonic", lambda: _CONFIRMED_AT + _MIN_LOCK
+        tl_module,
+        "monotonic",
+        lambda: _CONFIRMED_AT + _MIN_LOCK.total_seconds(),
     )
     calls: dict[str, bool] = {"released": False, "reacquired": False}
 
@@ -141,7 +145,7 @@ async def test_do_exit_releases_at_exact_min_lock(
         calls["released"] = True
         return True
 
-    async def fake_reacquire(_token: str, _duration: float) -> bool:
+    async def fake_reacquire(_token: str, _duration: timedelta) -> bool:
         calls["reacquired"] = True
         return True
 
@@ -165,7 +169,9 @@ async def test_acquire_blocks_other_holder_at_exact_expiry(
         assert (
             await backend.acquire(name="x", token="a", duration=_DURATION) == 1
         )
-        clock["t"] = _CONFIRMED_AT + _DURATION  # exactly the expiry instant
+        clock["t"] = (
+            _CONFIRMED_AT + _DURATION.total_seconds()
+        )  # exactly the expiry instant
 
         assert (
             await backend.acquire(name="x", token="b", duration=_DURATION)
@@ -181,7 +187,7 @@ async def test_live_record_expires_at_exact_deadline(
     _freeze_memory_datetime(monkeypatch, _EPOCH)
     await backend.acquire_or_renew(name="svc", token="w1", duration=_LEASE)
 
-    _freeze_memory_datetime(monkeypatch, _EPOCH + timedelta(seconds=_LEASE))
+    _freeze_memory_datetime(monkeypatch, _EPOCH + _LEASE)
 
     assert await backend.get(name="svc") is None
 
@@ -247,7 +253,7 @@ class _RecordingBackend(LeaderElectionBackend):
         *,
         name: str,  # noqa: ARG002
         token: str,
-        duration: float,  # noqa: ARG002
+        duration: timedelta,  # noqa: ARG002
         metadata: Mapping[str, str] | None = None,
     ) -> LeaderRecord:
         self.metadata_seen = metadata
@@ -279,7 +285,7 @@ class _SlowBackend(LeaderElectionBackend):
         *,
         name: str,  # noqa: ARG002
         token: str,
-        duration: float,  # noqa: ARG002
+        duration: timedelta,  # noqa: ARG002
         metadata: Mapping[str, str] | None = None,  # noqa: ARG002
     ) -> LeaderRecord:
         await asyncio.sleep(_SLOW_BACKEND_SLEEP)
@@ -297,8 +303,8 @@ def _slow_config(worker: str) -> LeaderElectionConfig:
     """Config with a tiny backend_timeout shorter than the slow backend sleep."""
     return LeaderElectionConfig(
         worker=worker,
-        lease_duration=10,
-        renew_deadline=5,
+        lease_duration=timedelta(seconds=10),
+        renew_deadline=timedelta(seconds=5),
         retry_interval=0.5,
         backend_timeout=_SLOW_BACKEND_TIMEOUT,
         error_interval=30,

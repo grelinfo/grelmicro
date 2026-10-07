@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
-from math import ceil
 from types import TracebackType
 from typing import Annotated, ClassVar, Self
 
@@ -19,6 +18,7 @@ from lightkube.resources.coordination_v1 import Lease
 from pydantic_settings import BaseSettings
 from typing_extensions import Doc
 
+from grelmicro._duration import round_up
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
@@ -41,6 +41,28 @@ class _KubernetesSettings(BaseSettings):
     """Kubernetes settings from the environment variables."""
 
     KUBE_NAMESPACE: str | None = None
+
+
+_MAX_LEASE_SECONDS = 2**31 - 1
+"""Longest lease a Lease stores, about 68 years."""
+
+
+def _lease_seconds(duration: timedelta) -> int:
+    """Return `duration` in whole seconds, rounded up.
+
+    A Lease stores its duration as a 32-bit count of whole seconds.
+
+    Raises:
+        ValueError: If the lease is longer than 2**31 - 1 seconds.
+    """
+    seconds = round_up(duration, timedelta(seconds=1))
+    if seconds > _MAX_LEASE_SECONDS:
+        msg = (
+            f"A Kubernetes lease is at most {_MAX_LEASE_SECONDS} seconds"
+            f" (about 68 years), got {seconds} seconds"
+        )
+        raise ValueError(msg)
+    return seconds
 
 
 def _get_kube_namespace() -> str:
@@ -200,12 +222,13 @@ class KubernetesLockAdapter(LockBackend):
             self._client = None
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a lock, returning the fencing token or `None`."""
         if not self._client:
             raise OutOfContextError(self, "acquire")
 
+        seconds = _lease_seconds(duration)
         lease_name = _sanitize_lease_name(f"{self._prefix}{name}")
         now = datetime.now(tz=UTC)
 
@@ -216,7 +239,7 @@ class KubernetesLockAdapter(LockBackend):
         except ApiError as error:
             if error.status.code != HTTPStatus.NOT_FOUND:
                 raise
-            return await self._create_lease(lease_name, token, duration)
+            return await self._create_lease(lease_name, token, seconds)
 
         current_expire_at = _get_expire_at(lease)
         current_holder = lease.spec.holderIdentity if lease.spec else None
@@ -226,7 +249,7 @@ class KubernetesLockAdapter(LockBackend):
             return None
 
         return await self._replace_lease(
-            lease, token, duration, live=live, holder=current_holder
+            lease, token, seconds, live=live, holder=current_holder
         )
 
     async def release(self, *, name: str, token: str) -> bool:
@@ -311,7 +334,7 @@ class KubernetesLockAdapter(LockBackend):
         self,
         lease_name: str,
         token: str,
-        duration: float,
+        seconds: int,
     ) -> int | None:
         """Create a new Lease resource, returning fencing token `1`."""
         assert self._client  # noqa: S101
@@ -328,7 +351,7 @@ class KubernetesLockAdapter(LockBackend):
             ),
             spec=LeaseSpec(
                 holderIdentity=token,
-                leaseDurationSeconds=ceil(duration),
+                leaseDurationSeconds=seconds,
                 acquireTime=now_dt,
                 renewTime=now_dt,
                 leaseTransitions=fence,
@@ -348,7 +371,7 @@ class KubernetesLockAdapter(LockBackend):
         self,
         existing_lease: Lease,
         token: str,
-        duration: float,
+        seconds: int,
         *,
         live: bool,
         holder: str | None,
@@ -385,7 +408,7 @@ class KubernetesLockAdapter(LockBackend):
             ),
             spec=LeaseSpec(
                 holderIdentity=token,
-                leaseDurationSeconds=ceil(duration),
+                leaseDurationSeconds=seconds,
                 acquireTime=now_dt,
                 renewTime=now_dt,
                 leaseTransitions=fence,
@@ -665,7 +688,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
         return lease.spec.leaseTransitions or 0
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a read lease, returning the generation or `None`."""
         lease_name = self._lease_name(name)
@@ -686,7 +709,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             generation = self._generation(lease)
             if token not in readers and (writing or intents):
                 return None
-            readers[token] = (now + timedelta(seconds=duration)).timestamp()
+            readers[token] = (now + duration).timestamp()
             if await self._write(
                 lease_name,
                 lease,
@@ -699,9 +722,10 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
         return None
 
     async def acquire_write(
-        self, *, name: str, token: str, duration: float, intent: bool = True
+        self, *, name: str, token: str, duration: timedelta, intent: bool = True
     ) -> WriteGrant | None:
         """Acquire the write lease, returning the grant or `None`."""
+        seconds = _lease_seconds(duration)
         lease_name = self._lease_name(name)
         for _ in range(_CONFLICT_RETRIES):
             lease = await self._read(lease_name)
@@ -730,7 +754,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
                     lease,
                     writer=_WriterSpec(
                         holder=token,
-                        duration_seconds=ceil(duration),
+                        duration_seconds=seconds,
                         acquire_time=acquired,
                         renew_time=now,
                     ),
@@ -744,7 +768,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             if writing or readers:
                 if not intent:
                     return None
-                intents[token] = (now + timedelta(seconds=duration)).timestamp()
+                intents[token] = (now + duration).timestamp()
                 if await self._write(
                     lease_name,
                     lease,
@@ -762,7 +786,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
                 lease,
                 writer=_WriterSpec(
                     holder=token,
-                    duration_seconds=ceil(duration),
+                    duration_seconds=seconds,
                     acquire_time=now,
                     renew_time=now,
                 ),
@@ -833,7 +857,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
         return False
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Turn a held write lease into a read lease."""
         lease_name = self._lease_name(name)
@@ -846,7 +870,7 @@ class KubernetesReadWriteLockAdapter(ReadWriteLockBackend):
             if not writing or holder != token:
                 return None
             readers = self._live_holders(lease, _READERS_ANNOTATION, now)
-            readers[token] = (now + timedelta(seconds=duration)).timestamp()
+            readers[token] = (now + duration).timestamp()
             generation = self._generation(lease)
             if await self._write(
                 lease_name,
@@ -925,7 +949,7 @@ def _lease_to_record(lease: Lease) -> LeaderRecord | None:
     annotations = lease.metadata.annotations if lease.metadata else None
     return LeaderRecord(
         holder=spec.holderIdentity,
-        lease_duration=float(spec.leaseDurationSeconds),
+        lease_duration=timedelta(seconds=spec.leaseDurationSeconds),
         acquired_at=spec.acquireTime,
         renewed_at=spec.renewTime,
         transitions=spec.leaseTransitions or 0,
@@ -935,7 +959,7 @@ def _lease_to_record(lease: Lease) -> LeaderRecord | None:
 
 def _is_live(record: LeaderRecord, now: datetime) -> bool:
     """Return whether the record's lease is still valid at `now`."""
-    expires_at = record.renewed_at + timedelta(seconds=record.lease_duration)
+    expires_at = record.renewed_at + record.lease_duration
     return now < expires_at
 
 
@@ -1011,13 +1035,14 @@ class KubernetesLeaderElectionAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         metadata: Mapping[str, str] | None = None,
     ) -> LeaderRecord:
         """Acquire or renew the lease, returning the resulting record."""
         if not self._client:
             raise OutOfContextError(self, "acquire_or_renew")
 
+        seconds = _lease_seconds(duration)
         lease_name = _sanitize_lease_name(f"{self._prefix}{name}")
         meta = dict(metadata or {})
 
@@ -1028,9 +1053,9 @@ class KubernetesLeaderElectionAdapter:
         except ApiError as error:
             if error.status.code != HTTPStatus.NOT_FOUND:
                 raise
-            return await self._create(lease_name, token, duration, meta)
+            return await self._create(lease_name, token, seconds, meta)
 
-        return await self._replace(lease, token, duration, meta)
+        return await self._replace(lease, token, seconds, meta)
 
     async def release(self, *, name: str, token: str) -> bool:
         """Release the lease when held by `token`."""
@@ -1093,7 +1118,7 @@ class KubernetesLeaderElectionAdapter:
         self,
         lease_name: str,
         token: str,
-        duration: float,
+        seconds: int,
         metadata: dict[str, str],
     ) -> LeaderRecord:
         """Create a new Lease for a fresh election.
@@ -1106,7 +1131,7 @@ class KubernetesLeaderElectionAdapter:
         now = datetime.now(tz=UTC)
         record = LeaderRecord(
             holder=token,
-            lease_duration=float(ceil(duration)),
+            lease_duration=timedelta(seconds=seconds),
             acquired_at=now,
             renewed_at=now,
             transitions=0,
@@ -1121,7 +1146,7 @@ class KubernetesLeaderElectionAdapter:
             ),
             spec=LeaseSpec(
                 holderIdentity=record.holder,
-                leaseDurationSeconds=ceil(duration),
+                leaseDurationSeconds=seconds,
                 acquireTime=now,
                 renewTime=now,
                 leaseTransitions=0,
@@ -1141,7 +1166,7 @@ class KubernetesLeaderElectionAdapter:
         self,
         lease: Lease,
         token: str,
-        duration: float,
+        seconds: int,
         metadata: dict[str, str],
     ) -> LeaderRecord:
         """Compute the next state of an existing Lease and write it back.
@@ -1172,7 +1197,7 @@ class KubernetesLeaderElectionAdapter:
 
         record = LeaderRecord(
             holder=token,
-            lease_duration=float(ceil(duration)),
+            lease_duration=timedelta(seconds=seconds),
             acquired_at=acquired_at,
             renewed_at=now,
             transitions=transitions,
@@ -1188,7 +1213,7 @@ class KubernetesLeaderElectionAdapter:
             ),
             spec=LeaseSpec(
                 holderIdentity=record.holder,
-                leaseDurationSeconds=ceil(duration),
+                leaseDurationSeconds=seconds,
                 acquireTime=record.acquired_at,
                 renewTime=record.renewed_at,
                 leaseTransitions=record.transitions,
@@ -1231,7 +1256,7 @@ def _empty_record() -> LeaderRecord:
     now = datetime.now(tz=UTC)
     return LeaderRecord(
         holder="",
-        lease_duration=0.0,
+        lease_duration=timedelta(0),
         acquired_at=now,
         renewed_at=now,
         transitions=0,

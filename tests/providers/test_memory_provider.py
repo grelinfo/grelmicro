@@ -1,5 +1,7 @@
 """Tests for the Memory Provider."""
 
+from datetime import timedelta
+
 import pytest
 
 from grelmicro.cache import Cache
@@ -88,7 +90,9 @@ async def test_handles_share_lock_state() -> None:
     two = provider.lock()
     assert one is two
     async with one:
-        assert await one.acquire(name="cart", token="w1", duration=10)
+        assert await one.acquire(
+            name="cart", token="w1", duration=timedelta(seconds=10)
+        )
         assert await two.locked(name="cart") is True
         assert await two.owned(name="cart", token="w1") is True
 

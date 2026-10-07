@@ -56,7 +56,7 @@ class MemoryLockAdapter(LockBackend):
         self._fences.clear()
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire the lock, returning the fencing token or `None`."""
         current_token, expire_at = self._locks.get(name, (None, 0))
@@ -68,7 +68,7 @@ class MemoryLockAdapter(LockBackend):
                 # counter persists for the adapter lifetime, even across
                 # release, so re-acquire keeps climbing.
                 self._fences[name] = self._fences.get(name, 0) + 1
-            self._locks[name] = (token, monotonic() + duration)
+            self._locks[name] = (token, monotonic() + duration.total_seconds())
             return self._fences[name]
         return None
 
@@ -156,34 +156,34 @@ class MemoryReadWriteLockAdapter(ReadWriteLockBackend):
         return state
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a read lease, returning the generation or `None`."""
         state = self._reap(name)
         if token in state.readers:
-            state.readers[token] = monotonic() + duration
+            state.readers[token] = monotonic() + duration.total_seconds()
             return state.generation
         if state.writer is not None or state.intents:
             return None
-        state.readers[token] = monotonic() + duration
+        state.readers[token] = monotonic() + duration.total_seconds()
         return state.generation
 
     async def acquire_write(
-        self, *, name: str, token: str, duration: float, intent: bool = True
+        self, *, name: str, token: str, duration: timedelta, intent: bool = True
     ) -> WriteGrant | None:
         """Acquire the write lease, returning the grant or `None`."""
         state = self._reap(name)
         if state.writer == token:
-            state.writer_expire_at = monotonic() + duration
+            state.writer_expire_at = monotonic() + duration.total_seconds()
             return WriteGrant(fencing_token=state.generation, poisoned=False)
         if state.writer is not None or state.readers:
             if intent:
-                state.intents[token] = monotonic() + duration
+                state.intents[token] = monotonic() + duration.total_seconds()
             return None
         state.intents.pop(token, None)
         state.generation += 1
         state.writer = token
-        state.writer_expire_at = monotonic() + duration
+        state.writer_expire_at = monotonic() + duration.total_seconds()
         poisoned = state.writer_expired
         state.writer_expired = False
         return WriteGrant(fencing_token=state.generation, poisoned=poisoned)
@@ -208,7 +208,7 @@ class MemoryReadWriteLockAdapter(ReadWriteLockBackend):
         return state.intents.pop(token, None) is not None
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Turn a held write lease into a read lease."""
         state = self._reap(name)
@@ -216,7 +216,7 @@ class MemoryReadWriteLockAdapter(ReadWriteLockBackend):
             return None
         state.writer = None
         state.writer_expired = False
-        state.readers[token] = monotonic() + duration
+        state.readers[token] = monotonic() + duration.total_seconds()
         return state.generation
 
     async def state(self, *, name: str) -> ReadWriteLockState:
@@ -319,9 +319,7 @@ class MemoryLeaderElectionAdapter:
         record = self._records.get(name)
         if record is None:
             return None
-        expires_at = record.renewed_at + timedelta(
-            seconds=record.lease_duration
-        )
+        expires_at = record.renewed_at + record.lease_duration
         if datetime.now(UTC) >= expires_at:
             return None
         return record
@@ -331,7 +329,7 @@ class MemoryLeaderElectionAdapter:
         *,
         name: str,
         token: str,
-        duration: float,
+        duration: timedelta,
         metadata: Mapping[str, str] | None = None,
     ) -> LeaderRecord:
         """Acquire or renew the lease, returning the resulting record."""

@@ -2,6 +2,7 @@
 
 import asyncio
 from asyncio import sleep
+from datetime import timedelta
 
 import pytest
 from pytest_mock import MockFixture
@@ -143,8 +144,8 @@ async def test_interval_task_with_lock_and_resource_lock(
         function=notify,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
         sync=resource_lock,
     )
@@ -177,8 +178,8 @@ async def test_interval_task_with_lock_start(backend: LockBackend) -> None:
         function=notify,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
     )
     # Act
@@ -200,8 +201,8 @@ async def test_interval_task_with_lock_execution_error(
         function=always_fail,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
     )
     # Act
@@ -230,8 +231,8 @@ async def test_interval_task_with_lock_synchronization_error(
         function=notify,
         gate=TaskLock(
             backend=backend,
-            lease_duration=SECONDS * 5,
-            min_hold_duration=SECONDS,
+            lease_duration=timedelta(seconds=SECONDS * 5),
+            min_hold_duration=timedelta(seconds=SECONDS),
         ),
     )
     mocker.patch.object(

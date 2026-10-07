@@ -71,7 +71,7 @@ async def test_lease_reload(tmp_path):
 
     async with Grelmicro(uses=[external]):
         await external.reload()
-        assert ledger_lock.config.lease_duration == 30
+        assert ledger_lock.config.lease_duration == timedelta(seconds=30)
 ```
 
 ## File formats

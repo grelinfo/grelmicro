@@ -1,5 +1,8 @@
 """Test the read-write lock adapter wiring outside the conformance suite."""
 
+import sqlite3
+from contextlib import closing
+from datetime import timedelta
 from types import TracebackType
 from typing import Self
 from unittest.mock import MagicMock
@@ -12,7 +15,12 @@ from grelmicro.coordination.redis import (
     RedisReadWriteLockAdapter,
     _duration_ms,
 )
-from grelmicro.coordination.sqlite import SQLiteReadWriteLockAdapter
+from grelmicro.coordination.sqlite import (
+    _NOW,
+    SQLiteReadWriteLockAdapter,
+    _expiry,
+    _seconds_text,
+)
 from grelmicro.providers.memory import MemoryProvider
 from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
@@ -107,13 +115,51 @@ def test_valkey_provider_factory() -> None:
 
 @pytest.mark.parametrize(
     ("duration", "expected"),
-    [(1.5, 1500), (0.001, 1), (0.0001, 1)],
+    [
+        (timedelta(milliseconds=1500), 1500),
+        (timedelta(milliseconds=1001), 1001),
+        (timedelta(microseconds=1_000_001), 1001),
+        (timedelta(microseconds=1), 1),
+    ],
 )
-def test_redis_duration_never_floors_to_zero(
-    duration: float, expected: int
+def test_redis_duration_rounds_up_to_the_millisecond(
+    duration: timedelta, expected: int
 ) -> None:
-    """A positive duration always reaches Redis as at least one millisecond."""
+    """A lease reaches Redis in whole milliseconds, rounded up, never zero."""
     assert _duration_ms(duration) == expected
+
+
+# --- SQLite ---
+
+
+@pytest.mark.parametrize(
+    ("duration", "expected"),
+    [
+        (timedelta(seconds=60), "60.000"),
+        (timedelta(milliseconds=1001), "1.001"),
+        (timedelta(microseconds=1_000_001), "1.001"),
+        (timedelta(microseconds=1), "0.001"),
+    ],
+)
+def test_sqlite_duration_rounds_up_to_the_millisecond(
+    duration: timedelta, expected: str
+) -> None:
+    """A lease reaches SQLite in seconds to the millisecond, rounded up."""
+    assert _seconds_text(duration) == expected
+
+
+def test_sqlite_expiry_in_whole_seconds_holds_through_its_second() -> None:
+    """An expiry written in whole seconds holds until that second ends."""
+    with closing(sqlite3.connect(":memory:")) as conn:
+        row = conn.execute(
+            f"SELECT {_expiry('this')} >= {_NOW},"  # noqa: S608
+            f" {_expiry('last')} >= {_NOW},"
+            f" {_expiry('ms')} >= {_NOW}"
+            " FROM (SELECT datetime('now') AS this,"
+            " datetime('now', '-1 seconds') AS last,"
+            " strftime('%Y-%m-%d %H:%M:%f', 'now', '-0.001 seconds') AS ms)"
+        ).fetchone()
+    assert row == (1, 0, 0)
 
 
 # --- Postgres ---

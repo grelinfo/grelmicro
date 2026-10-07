@@ -38,6 +38,15 @@ their length depends on the calendar.
 """
 
 
+def round_up(duration: timedelta, unit: timedelta) -> int:
+    """Return `duration` in whole `unit`s, rounded up.
+
+    A duration that is an exact multiple of `unit` keeps its count. Any
+    remainder adds one more unit.
+    """
+    return -(-duration // unit)
+
+
 def _name(info: ValidationInfo) -> str:
     """Return the field name, or `duration` outside a field."""
     return info.field_name or "duration"

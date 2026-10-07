@@ -1,4 +1,5 @@
 import asyncio
+from datetime import timedelta
 
 from grelmicro import Grelmicro
 from grelmicro.coordination import Coordination, Lock
@@ -11,7 +12,7 @@ micro = Grelmicro(uses=[Coordination(MemoryProvider(), requires="process")])
 
 config = LockConfig(
     worker="web-1",
-    lease_duration=60,
+    lease_duration=timedelta(seconds=60),
     retry_interval=0.1,
 )
 lock = Lock.from_config("cart", config)

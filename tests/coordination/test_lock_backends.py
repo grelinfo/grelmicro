@@ -3,6 +3,7 @@
 import time as time_module
 from asyncio import sleep
 from collections.abc import AsyncGenerator, Generator
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -21,6 +22,8 @@ from grelmicro.providers.postgres import PostgresProvider
 from grelmicro.providers.redis import RedisProvider
 from grelmicro.providers.sqlite import SQLiteProvider
 from tests.coordination._k3s import wait_for_k3s
+
+LONG = timedelta(seconds=60)
 
 pytestmark = [pytest.mark.timeout(30, func_only=True)]
 """Thirty seconds of test body.
@@ -91,24 +94,24 @@ def container(
 
 
 @pytest.fixture(scope="module")
-def expire_duration(backend_name: str) -> float:
+def expire_duration(backend_name: str) -> timedelta:
     """Lock duration for expiration tests, scaled per backend.
 
-    SQLite and Kubernetes round the duration up to whole seconds, and the
-    networked backends need enough margin to survive container-side clock
-    drift; only the in-process Memory backend can use a sub-second value.
+    Kubernetes rounds the duration up to whole seconds, and the networked
+    backends need enough margin to survive container-side clock drift.
+    The in-process Memory and SQLite backends can use a sub-second value.
     """
-    if backend_name == "memory":
-        return 0.2
-    return 1.0
+    if backend_name in ("memory", "sqlite"):
+        return timedelta(milliseconds=200)
+    return timedelta(seconds=1)
 
 
 @pytest.fixture(scope="module")
-def expire_wait(backend_name: str, expire_duration: float) -> float:
+def expire_wait(backend_name: str, expire_duration: timedelta) -> float:
     """Sleep duration to wait past lock expiration."""
-    if backend_name in ("sqlite", "kubernetes"):
-        return expire_duration + 1.0
-    return expire_duration + 0.3
+    if backend_name == "kubernetes":
+        return expire_duration.total_seconds() + 1.0
+    return expire_duration.total_seconds() + 0.3
 
 
 @pytest.fixture(scope="module")
@@ -147,7 +150,7 @@ async def test_acquire(backend: LockBackend) -> None:
     # Arrange
     name = "test_acquire"
     token = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     result = await backend.acquire(name=name, token=token, duration=duration)
@@ -161,7 +164,7 @@ async def test_acquire_reantrant(backend: LockBackend) -> None:
     # Arrange
     name = "test_acquire_reantrant"
     token = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     result1 = await backend.acquire(name=name, token=token, duration=duration)
@@ -178,7 +181,7 @@ async def test_acquire_already_acquired(backend: LockBackend) -> None:
     name = "test_acquire_already_acquired"
     token1 = uuid4().hex
     token2 = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     result1 = await backend.acquire(name=name, token=token1, duration=duration)
@@ -191,7 +194,7 @@ async def test_acquire_already_acquired(backend: LockBackend) -> None:
 
 
 async def test_acquire_expired(
-    backend: LockBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: timedelta, expire_wait: float
 ) -> None:
     """Test acquire when expired."""
     # Arrange
@@ -213,7 +216,7 @@ async def test_acquire_expired(
 
 
 async def test_acquire_already_acquired_expired(
-    backend: LockBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: timedelta, expire_wait: float
 ) -> None:
     """Test acquire when already acquired but expired."""
     # Arrange
@@ -254,7 +257,7 @@ async def test_release_acquired(backend: LockBackend) -> None:
     # Arrange
     name = "test_release_acquired" + uuid4().hex
     token = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     result1 = await backend.acquire(name=name, token=token, duration=duration)
@@ -270,7 +273,7 @@ async def test_release_not_reantrant(backend: LockBackend) -> None:
     # Arrange
     name = "test_release_not_reantrant" + uuid4().hex
     token = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     result1 = await backend.acquire(name=name, token=token, duration=duration)
@@ -284,7 +287,7 @@ async def test_release_not_reantrant(backend: LockBackend) -> None:
 
 
 async def test_release_acquired_expired(
-    backend: LockBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: timedelta, expire_wait: float
 ) -> None:
     """Test release when acquired but expired."""
     # Arrange
@@ -304,7 +307,7 @@ async def test_release_acquired_expired(
 
 
 async def test_release_not_acquired_expired(
-    backend: LockBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: timedelta, expire_wait: float
 ) -> None:
     """Test release when not acquired but expired."""
     # Arrange
@@ -328,7 +331,7 @@ async def test_locked(backend: LockBackend) -> None:
     # Arrange
     name = "test_locked" + uuid4().hex
     token = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     locked_before = await backend.locked(name=name)
@@ -345,7 +348,7 @@ async def test_owned(backend: LockBackend) -> None:
     # Arrange
     name = "test_owned" + uuid4().hex
     token = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     owned_before = await backend.owned(name=name, token=token)
@@ -364,7 +367,7 @@ async def test_acquire_returns_fencing_token(backend: LockBackend) -> None:
     token = uuid4().hex
 
     # Act
-    fence = await backend.acquire(name=name, token=token, duration=60)
+    fence = await backend.acquire(name=name, token=token, duration=LONG)
 
     # Assert
     assert fence is not None
@@ -379,8 +382,8 @@ async def test_not_acquired_returns_none(backend: LockBackend) -> None:
     token2 = uuid4().hex
 
     # Act
-    fence1 = await backend.acquire(name=name, token=token1, duration=60)
-    fence2 = await backend.acquire(name=name, token=token2, duration=60)
+    fence1 = await backend.acquire(name=name, token=token1, duration=LONG)
+    fence2 = await backend.acquire(name=name, token=token2, duration=LONG)
 
     # Assert
     assert fence1 is not None
@@ -394,8 +397,8 @@ async def test_extend_keeps_same_fencing_token(backend: LockBackend) -> None:
     token = uuid4().hex
 
     # Act
-    fence1 = await backend.acquire(name=name, token=token, duration=60)
-    fence2 = await backend.acquire(name=name, token=token, duration=60)
+    fence1 = await backend.acquire(name=name, token=token, duration=LONG)
+    fence2 = await backend.acquire(name=name, token=token, duration=LONG)
 
     # Assert
     assert fence1 is not None
@@ -403,7 +406,7 @@ async def test_extend_keeps_same_fencing_token(backend: LockBackend) -> None:
 
 
 async def test_takeover_after_expiry_bumps_fencing_token(
-    backend: LockBackend, expire_duration: float, expire_wait: float
+    backend: LockBackend, expire_duration: timedelta, expire_wait: float
 ) -> None:
     """A takeover after expiry returns a strictly greater fencing token."""
     # Arrange
@@ -439,9 +442,9 @@ async def test_reacquire_after_release_keeps_climbing(
     token = uuid4().hex
 
     # Act
-    fence1 = await backend.acquire(name=name, token=token, duration=60)
+    fence1 = await backend.acquire(name=name, token=token, duration=LONG)
     await backend.release(name=name, token=token)
-    fence2 = await backend.acquire(name=name, token=token, duration=60)
+    fence2 = await backend.acquire(name=name, token=token, duration=LONG)
 
     # Assert
     assert fence1 is not None
@@ -455,7 +458,7 @@ async def test_owned_another(backend: LockBackend) -> None:
     name = "test_owned_another" + uuid4().hex
     token1 = uuid4().hex
     token2 = uuid4().hex
-    duration = 1
+    duration = timedelta(seconds=1)
 
     # Act
     owned_before = await backend.owned(name=name, token=token1)
@@ -465,6 +468,38 @@ async def test_owned_another(backend: LockBackend) -> None:
     # Assert
     assert owned_before is False
     assert owned_after is False
+
+
+async def test_a_lease_is_rounded_up_never_down(
+    backend: LockBackend, backend_name: str
+) -> None:
+    """A lease of 1001 ms is held, and gone before a whole extra second.
+
+    Kubernetes rounds it up to two whole seconds, so it is still held past
+    one second. Every other backend holds it to the millisecond. Each check
+    keeps a wide margin from the expiry.
+    """
+    # Arrange
+    name = "test_lease_rounding" + uuid4().hex
+    token = uuid4().hex
+    other = uuid4().hex
+    lease = timedelta(milliseconds=1001)
+    held_at, gone_at = (
+        (1.3, 2.7) if backend_name == "kubernetes" else (0.5, 1.6)
+    )
+    before = time_module.monotonic()
+
+    # Act
+    await backend.acquire(name=name, token=token, duration=lease)
+    after = time_module.monotonic()
+    await sleep(held_at - (time_module.monotonic() - before))
+    held = await backend.owned(name=name, token=token)
+    await sleep(gone_at - (time_module.monotonic() - after))
+    taken = await backend.acquire(name=name, token=other, duration=lease)
+
+    # Assert
+    assert held is True
+    assert taken is not None
 
 
 class _FakeContainer:

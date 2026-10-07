@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import re
 from contextlib import asynccontextmanager
-from math import ceil
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import round_up
 from grelmicro.coordination._protocol import (
     LockBackend,
     ReadWriteLockBackend,
@@ -27,6 +28,40 @@ if TYPE_CHECKING:
     from aiosqlite import Connection
 
     from grelmicro.types import BackendScope
+
+
+_NOW = "strftime('%Y-%m-%d %H:%M:%f', 'now')"
+"""The current UTC time as SQLite text, to the millisecond."""
+
+_EXPIRE_AFTER = "strftime('%Y-%m-%d %H:%M:%f', 'now', '+' || ? || ' seconds')"
+"""The UTC time a lease of `?` seconds from now ends, to the millisecond."""
+
+
+def _expiry(column: str) -> str:
+    """Return SQL that reads the expiry stored in `column` to the millisecond.
+
+    An expiry stored in whole seconds holds through the last millisecond
+    of that second.
+    """
+    return f"substr({column} || '.999', 1, 23)"
+
+
+_TIME_SQL = {
+    "now": _NOW,
+    "expire_after": _EXPIRE_AFTER,
+    "expiry": _expiry("expire_at"),
+    "writer_expiry": _expiry("writer_expire_at"),
+}
+"""The time fragments a lease statement is formatted with."""
+
+
+def _seconds_text(duration: timedelta) -> str:
+    """Return `duration` as seconds text for `_EXPIRE_AFTER`, such as `"12.500"`.
+
+    The duration is rounded up to the millisecond.
+    """
+    milliseconds = round_up(duration, timedelta(milliseconds=1))
+    return f"{milliseconds // 1000}.{milliseconds % 1000:03d}"
 
 
 class SQLiteLockAdapter(LockBackend):
@@ -74,46 +109,44 @@ class SQLiteLockAdapter(LockBackend):
 
     _SQL_ACQUIRE_OR_EXTEND = """
                 INSERT INTO {table_name} (name, token, expire_at, fence)
-                VALUES (
-                    ?, ?, datetime('now', '+' || ? || ' seconds'), 1
-                )
+                VALUES (?, ?, {expire_after}, 1)
                 ON CONFLICT (name) DO UPDATE
                 SET token = EXCLUDED.token,
                     expire_at = EXCLUDED.expire_at,
                     fence = CASE
                         WHEN {table_name}.token = EXCLUDED.token
-                             AND {table_name}.expire_at >= datetime('now')
+                             AND {expiry} >= {now}
                         THEN {table_name}.fence
                         ELSE {table_name}.fence + 1
                     END
                 WHERE {table_name}.token = EXCLUDED.token
                    OR {table_name}.token IS NULL
                    OR {table_name}.expire_at IS NULL
-                   OR {table_name}.expire_at < datetime('now')
+                   OR {expiry} < {now}
                 RETURNING fence;
                 """
 
     _SQL_RELEASE = """
             UPDATE {table_name}
             SET token = NULL, expire_at = NULL
-            WHERE name = ? AND token = ? AND expire_at >= datetime('now')
+            WHERE name = ? AND token = ? AND {expiry} >= {now}
             RETURNING 1;
             """
 
     _SQL_RELEASE_ALL_EXPIRED = """
         UPDATE {table_name}
         SET token = NULL, expire_at = NULL
-        WHERE expire_at < datetime('now');
+        WHERE {expiry} < {now};
         """
 
     _SQL_LOCKED = """
         SELECT 1 FROM {table_name}
-        WHERE name = ? AND token IS NOT NULL AND expire_at >= datetime('now');
+        WHERE name = ? AND token IS NOT NULL AND {expiry} >= {now};
         """
 
     _SQL_OWNED = """
         SELECT 1 FROM {table_name}
-        WHERE name = ? AND token = ? AND expire_at >= datetime('now');
+        WHERE name = ? AND token = ? AND {expiry} >= {now};
         """
 
     def __init__(
@@ -156,12 +189,15 @@ class SQLiteLockAdapter(LockBackend):
             self._owns_provider = False
         self._env_prefix = env_prefix
         self._table_name = table_name
-        self._acquire_sql = self._SQL_ACQUIRE_OR_EXTEND.format(
-            table_name=table_name
-        )
-        self._release_sql = self._SQL_RELEASE.format(table_name=table_name)
-        self._locked_sql = self._SQL_LOCKED.format(table_name=table_name)
-        self._owned_sql = self._SQL_OWNED.format(table_name=table_name)
+        self._sql = {
+            key: template.format(table_name=table_name, **_TIME_SQL)
+            for key, template in {
+                "acquire": self._SQL_ACQUIRE_OR_EXTEND,
+                "release": self._SQL_RELEASE,
+                "locked": self._SQL_LOCKED,
+                "owned": self._SQL_OWNED,
+            }.items()
+        }
         self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
@@ -197,14 +233,14 @@ class SQLiteLockAdapter(LockBackend):
         async with self._provider.connection_lock:
             await self._provider.client.execute(
                 self._SQL_RELEASE_ALL_EXPIRED.format(
-                    table_name=self._table_name
+                    table_name=self._table_name, **_TIME_SQL
                 ),
             )
         if self._owns_provider:
             await self._provider.__aexit__(exc_type, exc_value, traceback)
 
     async def acquire(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a lock, returning the fencing token or `None`.
 
@@ -216,7 +252,7 @@ class SQLiteLockAdapter(LockBackend):
             await conn.execute("BEGIN IMMEDIATE;")
             try:
                 async with conn.execute(
-                    self._acquire_sql, (name, token, ceil(duration))
+                    self._sql["acquire"], (name, token, _seconds_text(duration))
                 ) as cursor:
                     result = await cursor.fetchone()
                 await conn.execute("COMMIT;")
@@ -230,7 +266,7 @@ class SQLiteLockAdapter(LockBackend):
         conn = self._provider.client
         async with (
             self._provider.connection_lock,
-            conn.execute(self._release_sql, (name, token)) as cursor,
+            conn.execute(self._sql["release"], (name, token)) as cursor,
         ):
             result = await cursor.fetchone()
         return result is not None
@@ -240,7 +276,7 @@ class SQLiteLockAdapter(LockBackend):
         conn = self._provider.client
         async with (
             self._provider.connection_lock,
-            conn.execute(self._locked_sql, (name,)) as cursor,
+            conn.execute(self._sql["locked"], (name,)) as cursor,
         ):
             result = await cursor.fetchone()
         return result is not None
@@ -250,7 +286,7 @@ class SQLiteLockAdapter(LockBackend):
         conn = self._provider.client
         async with (
             self._provider.connection_lock,
-            conn.execute(self._owned_sql, (name, token)) as cursor,
+            conn.execute(self._sql["owned"], (name, token)) as cursor,
         ):
             result = await cursor.fetchone()
         return result is not None
@@ -270,8 +306,8 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
     serializes the single connection within the process, and the
     transaction's write lock serializes across processes sharing the file.
 
-    Lease durations are rounded up to whole seconds, the resolution SQLite
-    date functions work at.
+    Lease durations are rounded up to the millisecond, the resolution
+    SQLite date functions work at.
     """
 
     scope: ClassVar[BackendScope] = "host"
@@ -299,7 +335,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
 
     _SQL_REAP = """
         DELETE FROM {table_name}_holders
-        WHERE name = ? AND expire_at < datetime('now');
+        WHERE name = ? AND {expiry} < {now};
     """
 
     _SQL_ENSURE_ROW = """
@@ -309,24 +345,25 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
 
     _SQL_SELECT_LOCK = """
         SELECT writer, writer_expire_at, generation,
-               (writer IS NOT NULL AND writer_expire_at >= datetime('now'))
+               (writer IS NOT NULL
+                AND {writer_expiry} >= {now})
         FROM {table_name} WHERE name = ?;
     """
 
     _SQL_COUNT_HOLDERS = """
         SELECT count(*) FROM {table_name}_holders
-        WHERE name = ? AND kind = ? AND expire_at >= datetime('now');
+        WHERE name = ? AND kind = ? AND {expiry} >= {now};
     """
 
     _SQL_HOLDER_EXISTS = """
         SELECT 1 FROM {table_name}_holders
         WHERE name = ? AND token = ? AND kind = ?
-          AND expire_at >= datetime('now');
+          AND {expiry} >= {now};
     """
 
     _SQL_UPSERT_HOLDER = """
         INSERT INTO {table_name}_holders (name, token, kind, expire_at)
-        VALUES (?, ?, ?, datetime('now', '+' || ? || ' seconds'))
+        VALUES (?, ?, ?, {expire_after})
         ON CONFLICT (name, token, kind)
         DO UPDATE SET expire_at = excluded.expire_at;
     """
@@ -334,14 +371,14 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
     _SQL_DELETE_HOLDER = """
         DELETE FROM {table_name}_holders
         WHERE name = ? AND token = ? AND kind = ?
-          AND expire_at >= datetime('now')
+          AND {expiry} >= {now}
         RETURNING 1;
     """
 
     _SQL_SET_WRITER = """
         UPDATE {table_name}
         SET writer = ?,
-            writer_expire_at = datetime('now', '+' || ? || ' seconds'),
+            writer_expire_at = {expire_after},
             generation = generation + 1
         WHERE name = ?
         RETURNING generation;
@@ -349,14 +386,15 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
 
     _SQL_RENEW_WRITER = """
         UPDATE {table_name}
-        SET writer_expire_at = datetime('now', '+' || ? || ' seconds')
+        SET writer_expire_at = {expire_after}
         WHERE name = ?;
     """
 
     _SQL_CLEAR_WRITER = """
         UPDATE {table_name}
         SET writer = NULL, writer_expire_at = NULL
-        WHERE name = ? AND writer = ? AND writer_expire_at >= datetime('now')
+        WHERE name = ? AND writer = ?
+          AND {writer_expiry} >= {now}
         RETURNING generation;
     """
 
@@ -400,7 +438,7 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
         self._env_prefix = env_prefix
         self._table_name = table_name
         self._sql = {
-            key: template.format(table_name=table_name)
+            key: template.format(table_name=table_name, **_TIME_SQL)
             for key, template in {
                 "reap": self._SQL_REAP,
                 "ensure_row": self._SQL_ENSURE_ROW,
@@ -469,10 +507,10 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
             return await cursor.fetchone()
 
     async def acquire_read(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Acquire a read lease, returning the generation or `None`."""
-        seconds = ceil(duration)
+        seconds = _seconds_text(duration)
         async with self._transaction() as conn:
             await conn.execute(self._sql["reap"], (name,))
             await conn.execute(self._sql["ensure_row"], (name,))
@@ -493,10 +531,10 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
             return generation
 
     async def acquire_write(
-        self, *, name: str, token: str, duration: float, intent: bool = True
+        self, *, name: str, token: str, duration: timedelta, intent: bool = True
     ) -> WriteGrant | None:
         """Acquire the write lease, returning the grant or `None`."""
-        seconds = ceil(duration)
+        seconds = _seconds_text(duration)
         async with self._transaction() as conn:
             await conn.execute(self._sql["reap"], (name,))
             await conn.execute(self._sql["ensure_row"], (name,))
@@ -547,10 +585,10 @@ class SQLiteReadWriteLockAdapter(ReadWriteLockBackend):
             return row is not None
 
     async def downgrade(
-        self, *, name: str, token: str, duration: float
+        self, *, name: str, token: str, duration: timedelta
     ) -> int | None:
         """Turn a held write lease into a read lease."""
-        seconds = ceil(duration)
+        seconds = _seconds_text(duration)
         async with self._transaction() as conn:
             row = await self._fetch(conn, "clear_writer", (name, token))
             if row is None:

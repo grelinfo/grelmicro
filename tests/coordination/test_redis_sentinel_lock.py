@@ -12,6 +12,7 @@ hands back.
 """
 
 from collections.abc import AsyncGenerator, Generator
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -118,13 +119,19 @@ async def test_sentinel_acquire_and_release(
     token1 = uuid4().hex
     token2 = uuid4().hex
 
-    fence1 = await backend.acquire(name=name, token=token1, duration=5)
+    fence1 = await backend.acquire(
+        name=name, token=token1, duration=timedelta(seconds=5)
+    )
     assert fence1 is not None
 
-    fence_again = await backend.acquire(name=name, token=token1, duration=5)
+    fence_again = await backend.acquire(
+        name=name, token=token1, duration=timedelta(seconds=5)
+    )
     assert fence_again == fence1
 
-    fence_other = await backend.acquire(name=name, token=token2, duration=5)
+    fence_other = await backend.acquire(
+        name=name, token=token2, duration=timedelta(seconds=5)
+    )
     assert fence_other is None
 
     assert await backend.locked(name=name) is True

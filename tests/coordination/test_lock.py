@@ -5,6 +5,7 @@ import json
 import time
 from asyncio import sleep
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 
 import pytest
 from pytest_mock import MockerFixture
@@ -68,7 +69,7 @@ async def locks(backend: LockBackend) -> list[Lock]:
             backend=backend,
             name=LOCK_NAME,
             worker=f"worker_{i}",
-            lease_duration=0.01,
+            lease_duration=timedelta(milliseconds=10),
             retry_interval=0.001,
         )
         for i in range(WORKER_COUNT)
@@ -184,7 +185,7 @@ def test_lock_not_owned_error_names_the_lease_fix() -> None:
 # mid-sequence and flake, which is what tripped the release matrix on Python
 # 3.14. The module timeout still catches a genuine hang. Tests that assert
 # lease *expiry* keep the short-lease `lock`/`locks` fixtures.
-LONG_LEASE_DURATION = 30.0
+LONG_LEASE_DURATION = 30
 
 
 @pytest.fixture
@@ -380,7 +381,7 @@ async def test_lock_from_thread_context_manager_wait(
         backend=backend,
         name=LOCK_NAME,
         worker=f"worker_{WORKER_1}",
-        lease_duration=0.05,
+        lease_duration=timedelta(milliseconds=50),
         retry_interval=0.001,
     )
     waiter = Lock(
@@ -635,7 +636,7 @@ async def test_lock_release_expired(locks: list[Lock]) -> None:
     """Test Lock release expired."""
     # Arrange
     await locks[WORKER_1].acquire()
-    await sleep(locks[WORKER_1].config.lease_duration)
+    await sleep(locks[WORKER_1].config.lease_duration.total_seconds())
 
     # Act
     worker_1_locked_before = await locks[WORKER_1].locked()
@@ -655,7 +656,7 @@ async def test_lock_from_thread_release_expired(locks: list[Lock]) -> None:
         nonlocal worker_1_locked_before
 
         locks[WORKER_1].from_thread.acquire()
-        time.sleep(locks[WORKER_1].config.lease_duration)
+        time.sleep(locks[WORKER_1].config.lease_duration.total_seconds())
 
         # Act
         worker_1_locked_before = locks[WORKER_1].from_thread.locked()
@@ -1047,7 +1048,7 @@ async def test_lock_retry_interval_too_small(backend: LockBackend) -> None:
 async def test_reconfigure_swaps_config(lock: Lock) -> None:
     """Reconfigure publishes the new config."""
     new_config = lock.config.model_copy(
-        update={"lease_duration": 5, "retry_interval": 0.05},
+        update={"lease_duration": timedelta(seconds=5), "retry_interval": 0.05},
     )
 
     await lock.reconfigure(new_config)
@@ -1081,20 +1082,24 @@ async def test_reconfigure_changes_lease_duration_for_next_acquire(
 ) -> None:
     """Acquire after reconfigure passes the new lease_duration to the backend."""
     spy = mocker.spy(backend, "acquire")
-    new_config = lock.config.model_copy(update={"lease_duration": 42})
+    new_config = lock.config.model_copy(
+        update={"lease_duration": timedelta(seconds=42)}
+    )
 
     await lock.reconfigure(new_config)
     await lock.acquire()
     await lock.release()
 
-    assert spy.call_args.kwargs["duration"] == 42  # noqa: PLR2004
+    assert spy.call_args.kwargs["duration"] == timedelta(seconds=42)
 
 
 async def test_reconfigure_while_held_keeps_release_working(
     held_lock: Lock,
 ) -> None:
     """A swap during a held lease does not break the release path."""
-    new_config = held_lock.config.model_copy(update={"lease_duration": 5})
+    new_config = held_lock.config.model_copy(
+        update={"lease_duration": timedelta(seconds=5)}
+    )
 
     await held_lock.acquire()
     await held_lock.reconfigure(new_config)
@@ -1149,14 +1154,14 @@ async def test_lock_acquire_timeout_raises_when_held(
         name=LOCK_NAME,
         backend=backend,
         worker="worker_holder",
-        lease_duration=5.0,
+        lease_duration=5,
         retry_interval=0.001,
     )
     waiter = Lock(
         name=LOCK_NAME,
         backend=backend,
         worker="worker_waiter",
-        lease_duration=5.0,
+        lease_duration=5,
         retry_interval=0.001,
     )
     await holder.acquire()
@@ -1183,14 +1188,14 @@ async def test_lock_acquire_timeout_renders_as_a_lock_problem(
         name=LOCK_NAME,
         backend=backend,
         worker="worker_holder",
-        lease_duration=5.0,
+        lease_duration=5,
         retry_interval=0.001,
     )
     waiter = Lock(
         name=LOCK_NAME,
         backend=backend,
         worker="worker_waiter",
-        lease_duration=5.0,
+        lease_duration=5,
         retry_interval=0.001,
     )
     await holder.acquire()
@@ -1215,12 +1220,12 @@ async def test_lock_acquire_timeout_succeeds_when_released_in_time(
 ) -> None:
     """`acquire(timeout=...)` succeeds when the lock expires before the deadline.
 
-    Uses lease expiry (lease_duration=0.01) so the same task does not need
+    Uses lease expiry (a 10 ms lease) so the same task does not need
     to release from a separate asyncio task (which would have a different
     token and fail the ownership check).
     """
     await locks[WORKER_1].acquire()
-    # lease_duration=0.01, so the lock expires well before timeout=0.5
+    # A 10 ms lease, so the lock expires well before timeout=0.5
     handle = await locks[WORKER_2].acquire(timeout=0.5)
 
     assert isinstance(handle, LockHandle)
@@ -1232,7 +1237,7 @@ async def test_lock_acquire_timeout_none_waits_forever(
 ) -> None:
     """`acquire(timeout=None)` waits until the lock expires (existing behavior)."""
     await locks[WORKER_1].acquire()
-    # lease_duration=0.01, so the lock expires and WORKER_2 can acquire
+    # A 10 ms lease, so the lock expires and WORKER_2 can acquire
     handle = await locks[WORKER_2].acquire(timeout=None)
 
     assert isinstance(handle, LockHandle)
@@ -1293,7 +1298,7 @@ async def test_lock_acquire_jitter_zero_disables_jitter(
         name=LOCK_NAME,
         backend=backend,
         worker="worker_nojitter",
-        lease_duration=0.01,
+        lease_duration=timedelta(milliseconds=10),
         retry_interval=0.001,
         retry_jitter=0.0,
     )
@@ -1312,7 +1317,7 @@ async def test_acquire_without_jitter_uses_fixed_interval(
         backend=backend,
         name=LOCK_NAME,
         worker="waiter",
-        lease_duration=0.01,
+        lease_duration=timedelta(milliseconds=10),
         retry_interval=0.001,
         retry_jitter=0,
     )
@@ -1340,7 +1345,7 @@ async def test_acquire_with_jitter_scales_retry_sleep(
         backend=backend,
         name=LOCK_NAME,
         worker="waiter",
-        lease_duration=0.01,
+        lease_duration=timedelta(milliseconds=10),
         retry_interval=0.001,
         retry_jitter=0.5,
     )
@@ -1371,7 +1376,7 @@ async def test_acquire_jitter_formula_exact_sleep(
         backend=backend,
         name=LOCK_NAME,
         worker="waiter",
-        lease_duration=0.01,
+        lease_duration=timedelta(milliseconds=10),
         retry_interval=retry_interval,
         retry_jitter=jitter,
     )
@@ -1405,7 +1410,7 @@ async def test_acquire_no_jitter_exact_sleep(
         backend=backend,
         name=LOCK_NAME,
         worker="waiter",
-        lease_duration=0.01,
+        lease_duration=timedelta(milliseconds=10),
         retry_interval=retry_interval,
         retry_jitter=0,
     )
@@ -1439,7 +1444,7 @@ async def test_thread_acquire_jitter_formula_exact_sleep(
         backend=backend,
         name=LOCK_NAME,
         worker="waiter",
-        lease_duration=0.01,
+        lease_duration=timedelta(milliseconds=10),
         retry_interval=retry_interval,
         retry_jitter=jitter,
     )
@@ -1499,7 +1504,7 @@ async def test_from_thread_acquire_timeout_succeeds_when_freed_in_time(
     The deadline is `now + timeout`. A flipped sign would put it in the past
     and raise TimeoutError on the first retry instead of waiting.
     """
-    await locks[WORKER_1].acquire()  # lease_duration=0.01, expires quickly
+    await locks[WORKER_1].acquire()  # a 10 ms lease, expires quickly
     handle: LockHandle | None = None
 
     def sync() -> None:

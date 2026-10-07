@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -876,7 +877,9 @@ class TestFromEngineAgainstPostgres:
             name = "engine-lock-" + uuid4().hex
             token = uuid4().hex
 
-            assert await backend.acquire(name=name, token=token, duration=30)
+            assert await backend.acquire(
+                name=name, token=token, duration=timedelta(seconds=30)
+            )
             assert await backend.owned(name=name, token=token)
             assert await backend.release(name=name, token=token)
             assert not await backend.locked(name=name)
@@ -1007,7 +1010,7 @@ class TestFromEngineAgainstPostgres:
             record = await backend.acquire_or_renew(
                 name="svc-" + uuid4().hex,
                 token=uuid4().hex,
-                duration=30,
+                duration=timedelta(seconds=30),
                 metadata=metadata,
             )
 
@@ -1071,7 +1074,7 @@ class TestFromEngineAgainstPostgres:
                 async with engine.begin() as connection:
                     await connection.execute(text("SELECT 1"))
                     assert await backend.acquire(
-                        name=name, token=token, duration=30
+                        name=name, token=token, duration=timedelta(seconds=30)
                     )
                     msg = "the caller transaction fails"
                     raise RuntimeError(msg)

@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable
+from datetime import timedelta
 
 import pytest
 
@@ -24,8 +25,8 @@ def _create_task(
     name: str,
     backend: LockBackend,
     worker: str,
-    min_hold_duration: float,
-    lease_duration: float,
+    min_hold_duration: int | timedelta,
+    lease_duration: int | timedelta,
 ) -> IntervalTask:
     """Create IntervalTask using the gate=TaskLock() API."""
     return IntervalTask(

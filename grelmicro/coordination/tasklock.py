@@ -7,6 +7,7 @@ A distributed lock for scheduled tasks with two time boundaries:
 
 import asyncio
 from contextlib import suppress
+from datetime import timedelta
 from logging import getLogger
 from time import monotonic
 from types import TracebackType
@@ -28,6 +29,7 @@ from grelmicro._config import (
     env_prefixes,
     resolve_config,
 )
+from grelmicro._duration import Duration
 from grelmicro._environment import record_coordination
 from grelmicro.coordination._base import (
     BaseLockConfig,
@@ -41,7 +43,7 @@ from grelmicro.coordination._metrics import (
     UNAVAILABLE,
     LockMetrics,
 )
-from grelmicro.coordination._protocol import LockBackend, LockPrimitive, Seconds
+from grelmicro.coordination._protocol import LockBackend, LockPrimitive
 from grelmicro.coordination._tokens import (
     generate_task_token,
     generate_thread_token,
@@ -79,25 +81,31 @@ class TaskLockConfig(BaseLockConfig):
     """Task Lock Config."""
 
     min_hold_duration: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The minimum duration in seconds to hold the lock after task completion.
+            The minimum duration to hold the lock after task completion,
+            in whole seconds or as a `timedelta`.
 
-            Prevents re-execution on other nodes before this duration has elapsed.
+            Prevents re-execution on other nodes before this duration has
+            elapsed. A float is refused. From text, such as an
+            environment variable, it reads whole seconds (`"1"`) or an
+            ISO 8601 duration (`"PT0.5S"`).
             """
         ),
-    ] = 1
+    ] = timedelta(seconds=1)
     lease_duration: Annotated[
-        Seconds,
+        Duration,
         Doc(
             """
-            The maximum duration in seconds to hold the lock (deadlock protection).
+            The maximum duration to hold the lock (deadlock protection),
+            in whole seconds or as a `timedelta`.
 
-            Acts as the TTL on acquire.
+            Acts as the TTL on acquire. A float is refused. From text it
+            reads like `min_hold_duration`.
             """
         ),
-    ] = 60
+    ] = timedelta(seconds=60)
 
     @model_validator(mode="after")
     def _validate(self) -> Self:
@@ -114,7 +122,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
     A distributed lock for scheduled tasks. Unlike a regular Lock,
     TaskLock does not release immediately on context manager exit. Instead, it keeps
-    the lock held for at least `min_hold_duration` seconds to prevent re-execution
+    the lock held for at least `min_hold_duration` to prevent re-execution
     on other nodes.
 
     This lock is designed to be used as the `gate` of `@tasks.every`. There,
@@ -173,10 +181,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             ),
         ] = None,
         min_hold_duration: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The minimum duration in seconds to hold the lock after task completion.
+                The minimum duration to hold the lock after task completion,
+                in whole seconds or as a `timedelta`. A float is refused.
 
                 Default: 1. Prevents re-execution on other nodes
                 before this duration has elapsed. When unset and env reads
@@ -190,10 +199,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             ),
         ] = None,
         lease_duration: Annotated[
-            Seconds | None,
+            int | timedelta | None,
             Doc(
                 """
-                The maximum duration in seconds to hold the lock (deadlock protection).
+                The maximum duration to hold the lock (deadlock protection),
+                in whole seconds or as a `timedelta`. A float is refused.
 
                 Default: 60. Acts as the TTL on acquire. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
@@ -329,9 +339,9 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         self._hold_ends = 0.0
         self._from_thread: ThreadTaskLockAdapter | None = None
         self._task_name: str | None = None
-        self._min_hold_floor = 0.0
+        self._min_hold_floor = timedelta(0)
 
-    def _bind_task(self, task_name: str, *, interval: float) -> None:
+    def _bind_task(self, task_name: str, *, interval: timedelta) -> None:
         """Bind the lock to the one interval task it gates.
 
         A lock still named ``"default"`` takes the task name. The rename
@@ -493,14 +503,14 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         except Exception as exc:
             raise LockLockedCheckError(name=self._name) from exc
 
-    async def do_acquire(self, token: str, *, duration: Seconds) -> bool:
+    async def do_acquire(self, token: str, *, duration: timedelta) -> bool:
         """Acquire the lock.
 
         This method should not be called directly. Use the context manager instead.
 
         Args:
             token: The token to register on the backend.
-            duration: The lease duration to request, in seconds. The
+            duration: The lease duration to request. The
                 caller captures this from
                 `self._config.lease_duration` at the start of the
                 operation so a concurrent `reconfigure` cannot change
@@ -551,7 +561,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         except Exception as exc:
             raise LockReleaseError(name=self._name) from exc
 
-    async def do_reacquire(self, token: str, duration: float) -> bool:
+    async def do_reacquire(self, token: str, duration: timedelta) -> bool:
         """Re-acquire the lock with a specific duration.
 
         This method should not be called directly. Use the context manager instead.
@@ -627,7 +637,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     def _take_back_hold(self) -> None:
         """Enter with the token of this instance's own hold once it ran out.
 
-        A backend that stores lease times in whole seconds keeps a hold
+        A backend that rounds lease times up keeps a hold
         past `min_hold_duration`. Once the hold ran out on this
         instance's clock, reusing its token lets the instance that set
         it through, while every other holder still waits for the
@@ -636,13 +646,15 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if self._hold_nonce is not None and monotonic() >= self._hold_ends:
             self._token_nonce = self._hold_nonce
 
-    async def do_exit(self, token: str, *, min_hold_duration: Seconds) -> None:
+    async def do_exit(
+        self, token: str, *, min_hold_duration: timedelta
+    ) -> None:
         """Handle exit logic: release or re-acquire based on elapsed time.
 
         Args:
             token: The token used to release or re-acquire the lock.
-            min_hold_duration: The minimum hold duration to enforce, in
-                seconds. The caller captures this from
+            min_hold_duration: The minimum hold duration to enforce. The
+                caller captures this from
                 `self._config.min_hold_duration` at the start of the
                 operation so the comparison and the
                 remaining-duration calculation always agree.
@@ -650,7 +662,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         if self._acquired_at is None:
             raise LockNotOwnedError(name=self._name)
 
-        elapsed = monotonic() - self._acquired_at
+        elapsed = timedelta(seconds=monotonic() - self._acquired_at)
         self._acquired_at = None
         self._held_token = None
         nonce = self._token_nonce
@@ -670,10 +682,10 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             if not re_acquired:
                 raise LockNotOwnedError(name=self._name)
             self._hold_nonce = nonce
-            self._hold_ends = monotonic() + remaining
+            self._hold_ends = monotonic() + remaining.total_seconds()
 
 
-def _check_min_hold(config: TaskLockConfig, interval: float) -> None:
+def _check_min_hold(config: TaskLockConfig, interval: timedelta) -> None:
     """Refuse a config that holds a claim for less than `interval`.
 
     `TaskLockConfig` keeps `lease_duration` at or above
