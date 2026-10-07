@@ -28,22 +28,28 @@ Passing both `cache` and `ttl`, or neither, raises `TypeError`.
 
 ## Custom Keys
 
-By default `@cached` derives the key from the `repr()` of the arguments. Pass `key=` for a stable, readable key instead. The template fills in from the call's arguments, so `key="user:{user_id}"` keys the entry under `user:42` for a call with `user_id=42`:
+By default `@cached` derives the key from the `repr()` of the arguments. Pass `key_template=` for a stable, readable key instead. The template fills in from the call's arguments, so `key_template="user:{user_id}"` keys the entry under `user:42` for a call with `user_id=42`:
 
 ```python
-@cached(cache, key="user:{user_id}")
+@cached(cache, key_template="user:{user_id}")
 async def get_user(user_id: int) -> User:
     return await db.fetch_user(user_id)
 ```
 
-Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key_maker` callable instead. It receives `(func, args, kwargs)` and returns the key. Passing both `key` and `key_maker` raises `TypeError`. A custom key fully determines the lookup, so `typed=` has no effect when `key=` or `key_maker` is set.
+Arguments not named in the template do not affect the key, so calls that differ only in those arguments share one entry. Defaults fill in when an argument is omitted. For a fully dynamic key, pass a `key=` function instead. It receives `(func, args, kwargs)` and returns the key. A string passed to `key=` raises `TypeError`, and so does passing both `key` and `key_template`. A custom key fully determines the lookup, so `typed=` has no effect when `key=` or `key_template=` is set.
+
+```python title="fragment"
+@cached(cache, key=lambda func, args, kwargs: f"user:{args[0]}")
+async def get_user(user_id: int) -> User:
+    return await db.fetch_user(user_id)
+```
 
 ```python title="key.py"
 --8<-- "cache/key.py"
 ```
 
 !!! warning "Default keys are not stable across processes"
-    The default key is the `repr()` of the arguments. Keys are stable within a single process but may vary across Python versions. An object using the default `__repr__` carries a memory address, so its key changes on every restart and the entry is never found again. Pass `key=` or `key_maker=` for such objects.
+    The default key is the `repr()` of the arguments. Keys are stable within a single process but may vary across Python versions. An object using the default `__repr__` carries a memory address, so its key changes on every restart and the entry is never found again. Pass `key_template=` or `key=` for such objects.
 
 ## Tags
 
@@ -64,11 +70,11 @@ See [Tags and Invalidation](index.md#tags-and-invalidation) for how tags behave 
 
 ## On a method
 
-A method must name its key. Decorating one without `key=` or `key_maker=` raises `TypeError` at decoration time:
+A method must name its key. Decorating one without `key_template=` or `key=` raises `TypeError` at decoration time:
 
 ```python
 class Repo:
-    @cached(cache, key="repo:{user_id}")
+    @cached(cache, key_template="repo:{user_id}")
     async def load(self, user_id: int) -> User:
         return await self.db.fetch_user(user_id)
 ```
@@ -79,7 +85,7 @@ Only you know what identifies the entry, so the decorator asks rather than guess
 
 ```python
 class Repo:
-    @cached(cache, key="repo:{self.region}:{user_id}")
+    @cached(cache, key_template="repo:{self.region}:{user_id}")
     async def load(self, user_id: int) -> User: ...
 ```
 
@@ -221,8 +227,8 @@ A flaky upstream then degrades to slightly stale data instead of an error storm.
 | `cache` | `TTLCache` | `None` | The cache instance to store results in. Mutually exclusive with `ttl`. |
 | `ttl` | `int \| timedelta` | `None` | TTL for a private per-function cache, in whole seconds or as a `timedelta`. Mutually exclusive with `cache`. |
 | `maxsize` | `int` | `0` | Max entries in the private per-function cache, `0` means unlimited (used only when `ttl` is set). |
-| `key` | `str` | `None` | Key template rendered from the arguments, like `"user:{user_id}"`. Mutually exclusive with `key_maker`. |
-| `key_maker` | `Callable` | `None` | Custom key generation function. Receives `(func, args, kwargs)`. Mutually exclusive with `key`. |
+| `key` | `Callable` | `None` | Function deriving the key. Receives `(func, args, kwargs)`. Mutually exclusive with `key_template`. |
+| `key_template` | `str` | `None` | Key template rendered from the arguments, like `"user:{user_id}"`. Mutually exclusive with `key`. |
 | `skip` | `Callable` | `None` | Predicate receiving the result. Returns `True` to skip caching. |
 | `typed` | `bool` | `False` | Cache arguments of different types separately. |
 | `lock` | `True`, `False`, or `"local"` | `"local"` | Concurrent-miss (stampede) protection. |

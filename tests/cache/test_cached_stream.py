@@ -48,7 +48,7 @@ class TestStreamAndReplay:
         cache = _make_cache()
         calls = 0
 
-        @cached(cache, key="s:{n}")
+        @cached(cache, key_template="s:{n}")
         async def produce(n: int) -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -69,7 +69,7 @@ class TestStreamAndReplay:
         cache = _make_cache()
         released = asyncio.Event()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             yield 0
             await released.wait()
@@ -89,7 +89,7 @@ class TestStreamAndReplay:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             for item in range(3):
                 yield item
@@ -109,7 +109,7 @@ class TestCollect:
         cache = _make_cache()
         calls = 0
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -129,7 +129,7 @@ class TestCollect:
         cache = _make_cache()
         calls = 0
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -149,7 +149,7 @@ class TestCollect:
         cache = _make_cache()
         calls = 0
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -168,7 +168,7 @@ class TestCollect:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             yield 0
 
@@ -189,7 +189,7 @@ class TestPartialStreams:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             for item in range(5):
                 yield item
@@ -207,7 +207,7 @@ class TestPartialStreams:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             for item in range(5):
                 yield item
@@ -224,7 +224,7 @@ class TestPartialStreams:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             yield 0
             yield 1
@@ -246,7 +246,7 @@ class TestPartialStreams:
         cache = _make_cache()
         started = asyncio.Event()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             started.set()
             yield 0
@@ -273,7 +273,7 @@ class TestStampede:
         calls = 0
         released = asyncio.Event()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -301,7 +301,7 @@ class TestStampede:
         calls = 0
         released = asyncio.Event()
 
-        @cached(cache, key="s")
+        @cached(cache, key_template="s")
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -329,7 +329,7 @@ class TestStampede:
         calls = 0
         released = asyncio.Event()
 
-        @cached(cache, key="s", lock=False)
+        @cached(cache, key_template="s", lock=False)
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -368,8 +368,8 @@ class TestStampede:
             for item in range(3):
                 yield item
 
-        replica_a = cached(cache, key="s", lock=True)(impl)
-        replica_b = cached(cache, key="s", lock=True)(impl)
+        replica_a = cached(cache, key_template="s", lock=True)(impl)
+        replica_b = cached(cache, key_template="s", lock=True)(impl)
 
         # Act
         async with micro:
@@ -405,8 +405,8 @@ class TestStampede:
             for item in range(3):
                 yield item
 
-        replica_a = cached(cache, key="s", lock=True)(impl)
-        replica_b = cached(cache, key="s", lock=True)(impl)
+        replica_a = cached(cache, key_template="s", lock=True)(impl)
+        replica_b = cached(cache, key_template="s", lock=True)(impl)
 
         # Act
         async with micro:
@@ -425,7 +425,7 @@ class TestSkipAndTags:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s", skip=lambda items: not items)
+        @cached(cache, key_template="s", skip=lambda items: not items)
         async def produce() -> AsyncIterator[int]:
             for item in ():
                 yield item
@@ -441,7 +441,7 @@ class TestSkipAndTags:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s:{n}", tags=["seq", "seq:{n}"])
+        @cached(cache, key_template="s:{n}", tags=["seq", "seq:{n}"])
         async def produce(n: int) -> AsyncIterator[int]:
             for item in range(n):
                 yield item
@@ -464,7 +464,7 @@ class TestStaleOnError:
         cache = _make_cache(ttl=timedelta(milliseconds=50))
         fail = False
 
-        @cached(cache, key="s", stale_ttl=60)
+        @cached(cache, key_template="s", stale_ttl=60)
         async def produce() -> AsyncIterator[int]:
             if fail:
                 msg = "upstream down"
@@ -485,7 +485,7 @@ class TestStaleOnError:
         cache = _make_cache(ttl=timedelta(milliseconds=50))
         fail = False
 
-        @cached(cache, key="s", stale_ttl=60)
+        @cached(cache, key_template="s", stale_ttl=60)
         async def produce() -> AsyncIterator[int]:
             yield 0
             yield 1
@@ -510,7 +510,7 @@ class TestStaleOnError:
         # Arrange
         cache = _make_cache()
 
-        @cached(cache, key="s", stale_ttl=60)
+        @cached(cache, key_template="s", stale_ttl=60)
         async def produce() -> AsyncIterator[int]:
             msg = "upstream down"
             raise RuntimeError(msg)
@@ -531,7 +531,7 @@ class TestStaleOnError:
         cache = _make_cache(ttl=timedelta(milliseconds=50))
         hang = False
 
-        @cached(cache, key="s", stale_ttl=60)
+        @cached(cache, key_template="s", stale_ttl=60)
         async def produce() -> AsyncIterator[int]:
             if hang:
                 await asyncio.sleep(10)
@@ -580,7 +580,7 @@ class TestEarlyRefresh:
         cache = _make_cache(ttl=60)
         calls = 0
 
-        @cached(cache, key="s", early=0.9)
+        @cached(cache, key_template="s", early=0.9)
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -610,6 +610,6 @@ class TestSyncGeneratorIsRefused:
         # Act / Assert
         with pytest.raises(TypeError, match="does not support the sync"):
 
-            @cached(cache, key="s")
+            @cached(cache, key_template="s")
             def produce():  # noqa: ANN202
                 yield 0

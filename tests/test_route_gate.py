@@ -1167,15 +1167,15 @@ class TestNoRoute:
         assert statuses == [UNAUTHORIZED] * 3
         assert backend.calls == 0
 
-    @pytest.mark.parametrize("key_maker", [None, "tenant"])
+    @pytest.mark.parametrize("key_function", [None, "tenant"])
     def test_an_idempotent_write_without_a_credential_stores_nothing(
-        self, key_maker: str | None
+        self, key_function: str | None
     ) -> None:
         """The key is never claimed, so the caller's retry with a token runs."""
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key_maker=tenant_key)
-            if key_maker
+            IdempotentRequests(key=tenant_key)
+            if key_function
             else IdempotentRequests()
         )
         app = installed(
@@ -1477,7 +1477,7 @@ class TestAnsweringMiddleware:
                 exception_handlers={TenantUnknownError: teapot},
             ),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(key_maker=unknown_tenant),
+            IdempotentRequests(key=unknown_tenant),
         )
 
         with TestClient(app, raise_server_exceptions=False) as client:
@@ -1542,7 +1542,7 @@ class TestAnsweringMiddleware:
                 exception_handlers={TenantUnknownError: teapot},
             ),
             Cache(MemoryCacheAdapter()),
-            IdempotentRequests(key_maker=unknown_tenant),
+            IdempotentRequests(key=unknown_tenant),
         )
 
         with TestClient(outer, raise_server_exceptions=False) as client:

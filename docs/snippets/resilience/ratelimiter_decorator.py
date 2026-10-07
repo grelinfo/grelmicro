@@ -11,7 +11,7 @@ async def list_products(client: httpx.AsyncClient) -> list[str]:
     return response.json()
 
 
-@limiter(key="user:{user_id}", max_wait=2.0)
+@limiter(key_template="user:{user_id}", max_wait=2.0)
 async def get_profile(
     client: httpx.AsyncClient, user_id: str
 ) -> dict[str, str]:

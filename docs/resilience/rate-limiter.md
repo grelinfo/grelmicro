@@ -67,11 +67,11 @@ Decorate a function and every call consumes tokens before it runs:
 --8<-- "resilience/ratelimiter_decorator.py"
 ```
 
-`@limiter` on its own meters the whole function under the `default` bucket. Call it to meter per argument instead, with the same key vocabulary [`@cached`](../cache/cached.md) uses: `key="user:{user_id}"` renders the bucket key from the call's arguments, and `key_maker=(func, args, kwargs)` computes it however you need. A `key` with no placeholder is used as it is written.
+`@limiter` on its own meters the whole function under the `default` bucket. Call it to meter per argument instead, with the same key vocabulary [`@cached`](../cache/cached.md) uses: `key_template="user:{user_id}"` renders the bucket key from the call's arguments, and a `key=` function receiving `(func, args, kwargs)` computes it however you need. A `key_template` with no placeholder is used as it is written.
 
 A throttled call raises `RateLimitExceededError` as soon as the budget is spent. Pass `max_wait` to wait for tokens instead, up to that many seconds. The decorator never waits without a budget, because a wait with no bound sits above the deadline of everything below it. Call `wait` yourself when that is what you want.
 
-The decorator is async only, and a `key` template that names a parameter the function does not take is refused where it is written.
+The decorator is async only, and a `key_template` that names a parameter the function does not take is refused where it is written.
 
 Calling `limiter(...)` returns a `RateLimiterBinding`, which decorates and which [`Stack(patterns=[...])`](composition.md#stack) accepts.
 

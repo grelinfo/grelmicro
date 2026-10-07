@@ -56,7 +56,7 @@ from grelmicro.http._problem import body_of, retry_after_of
 from grelmicro.http._tmf import TMF_MEDIA_TYPE
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
-    IdempotencyKeyMakerError,
+    IdempotencyKeyFunctionError,
     IdempotencyWaitTimeoutError,
 )
 from grelmicro.integrations import faststream
@@ -219,7 +219,7 @@ def test_an_unmapped_error_has_no_problem() -> None:
     """A server fault stays unhandled rather than dressed up as a rejection."""
     # Act & Assert
     assert _problem_for(BoomError()) is None
-    assert _problem_for(IdempotencyKeyMakerError("bad key")) is None
+    assert _problem_for(IdempotencyKeyFunctionError("bad key")) is None
 
 
 def test_a_new_admission_subclass_is_covered() -> None:

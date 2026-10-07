@@ -163,8 +163,8 @@ def _decorators() -> list[tuple[str, Callable[[Any], Any]]]:
         ("Bulkhead", Bulkhead("b", max_concurrent=1)),
         ("Timeout", Timeout("t", seconds=1)),
         ("RateLimiter", limiter),
-        ("RateLimiterBinding", limiter(key="k")),
-        ("@cached", cached(TTLCache(ttl=1), key="k")),
+        ("RateLimiterBinding", limiter(key_template="k")),
+        ("@cached", cached(TTLCache(ttl=1), key_template="k")),
         ("@idempotent", idempotent(Idempotency("i"), key=lambda: "k")),
         ("@measure", measure),
         ("@instrument", instrument),
@@ -543,7 +543,7 @@ def test_a_generator_producer_is_still_reached_by_the_guard() -> None:
     mark_registered(produce, Registered.OUTBOX_HANDLER, REGISTRY)
 
     with pytest.raises(TypeError, match="already registered as an outbox"):
-        cached(TTLCache(ttl=1), key="k")(produce)
+        cached(TTLCache(ttl=1), key_template="k")(produce)
 
 
 def test_the_marker_module_names_what_it_exports() -> None:

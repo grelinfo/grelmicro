@@ -139,7 +139,7 @@ def test_a_bound_limiter_and_a_bare_one_are_two_limiters() -> None:
     """A binding fills the same slot as the limiter it wraps."""
     limiter = RateLimiter.token_bucket("recs", capacity=CAPACITY, refill_rate=1)
     with pytest.raises(ValueError, match="at most one RateLimiter"):
-        Stack("recs", patterns=[limiter, limiter(key="u:{uid}")])
+        Stack("recs", patterns=[limiter, limiter(key_template="u:{uid}")])
 
 
 def test_an_empty_stack_is_refused() -> None:
@@ -305,7 +305,11 @@ async def test_run_refuses_a_key_the_target_does_not_take() -> None:
         )
         stack = Stack(
             "recs",
-            patterns=[a_fallback(), a_retry(), limiter(key="user:{user_id}")],
+            patterns=[
+                a_fallback(),
+                a_retry(),
+                limiter(key_template="user:{user_id}"),
+            ],
         )
         calls = 0
 
@@ -695,7 +699,7 @@ async def test_a_bound_limiter_meters_by_its_key() -> None:
         limiter = RateLimiter.token_bucket(
             "recs", capacity=1, refill_rate=SLOW_REFILL, backend=backend
         )
-        binding = limiter(key="u:{user_id}")
+        binding = limiter(key_template="u:{user_id}")
         assert isinstance(binding, RateLimiterBinding)
         stack = Stack("recs", patterns=[binding])
 
@@ -891,7 +895,7 @@ async def test_a_key_error_is_not_a_dependency_failure() -> None:
             msg = "tenant"
             raise KeyError(msg)
 
-        stack = Stack("recs", patterns=[breaker, limiter(key_maker=explode)])
+        stack = Stack("recs", patterns=[breaker, limiter(key=explode)])
 
         @stack
         async def work() -> str:

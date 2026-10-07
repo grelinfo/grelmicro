@@ -11,7 +11,7 @@ micro = Grelmicro(uses=[redis])
 cache = TTLCache(ttl=300, serializer=JsonSerializer())
 
 
-@cached(cache, key="answer:{question_id}")
+@cached(cache, key_template="answer:{question_id}")
 async def answer(question_id: int) -> AsyncIterator[str]:
     for token in ("The", " answer", " is", " 42."):
         yield token

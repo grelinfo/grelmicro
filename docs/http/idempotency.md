@@ -228,10 +228,10 @@ query containing control characters cannot move a value across field
 boundaries. The default then stores a SHA-256 digest of that serialization as
 `v3:` followed by 64 hexadecimal characters. Its 67-byte size is fixed even
 for a large path or query, so it remains suitable for an indexed PostgreSQL
-text key. A custom `key_maker` is not hashed or rewritten: its output remains
+text key. A custom `key=` function is not hashed or rewritten: its output remains
 the exact stored key.
 
-Without a custom `key_maker`, a request carrying `Authorization` or `Cookie`
+Without a custom `key=` function, a request carrying `Authorization` or `Cookie`
 bypasses idempotency and runs the handler every time. This safe default keeps
 private responses out of a shared entry and ensures authentication inside the
 application still runs. On FastAPI, a route with any dependency also bypasses
@@ -240,7 +240,7 @@ from a custom header. This applies when FastAPI is wrapped directly or mounted
 under another ASGI application. Dependency-free public requests continue to
 use the route-scoped default key. Required keys are validated before this
 bypass. The built-in key format is versioned, so an upgraded process cannot
-replay an unscoped entry written by an older release. Custom `key_maker` values
+replay an unscoped entry written by an older release. Custom `key=` values
 remain unchanged.
 
 An authenticated Starlette scope bypasses the default too, including when
@@ -251,9 +251,9 @@ application, and one inside a mounted application are also detected and
 bypassed. Mounted detection follows the path, so authentication on one
 sub-application does not disable public idempotency on its siblings. An
 application-specific authentication middleware cannot be identified by class;
-keep it outside this middleware or configure an identity-aware `key_maker`.
+keep it outside this middleware or configure an identity-aware `key=` function.
 
-!!! warning "Set `key_maker` for authenticated replay"
+!!! warning "Set `key=` for authenticated replay"
     To make authenticated requests idempotent, fold the caller identity into
     the key. Without that identity, any client that learns another client's
     key could replay their response, body included.
@@ -277,7 +277,7 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
         )
 
 
-    IdempotentRequests(key_maker=tenant_key)
+    IdempotentRequests(key=tenant_key)
     ```
 
     Three things carry the isolation here. The identity comes from
@@ -290,7 +290,7 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
     `scope["user"]` is set by an authentication middleware, and reading it requires that middleware to run **outside** this one, which means adding it **after**. That ordering also ensures authentication runs before a replay is served. The same applies to anything else the key reads from the scope, including `ClientAddressMiddleware`:
 
     ```python
-    micro = Grelmicro(uses=[redis, IdempotentRequests(key_maker=tenant_key)])
+    micro = Grelmicro(uses=[redis, IdempotentRequests(key=tenant_key)])
     micro.install(app)
     app.add_middleware(AuthenticationMiddleware, backend=...)
     ```
@@ -300,7 +300,7 @@ keep it outside this middleware or configure an identity-aware `key_maker`.
 !!! warning "A client address is not a tenant identity"
     `ClientAddressMiddleware` resolves who connected, not who they are. Carrier-grade NAT puts many subscribers behind one address, so they would share an idempotency entry, and a caller moving between networks changes address mid-retry and loses the replay. Use it to rate limit, not to separate tenants.
 
-`key_maker` receives the ASGI scope and the client's key, and returns the whole stored key. It mirrors [`key_maker` on `@cached`](../cache/cached.md#custom-keys).
+The `key=` function receives the ASGI scope and the client's key, and returns the whole stored key. It mirrors [`key` on `@cached`](../cache/cached.md#custom-keys).
 
 ## Duplicates in flight
 
@@ -397,7 +397,7 @@ A background task runs after the response is sent, so the response is stored and
 | `key_header` | `"Idempotency-Key"` | Request header carrying the key. Up to 255 printable ASCII characters, such as a UUID. |
 | `replay_header` | `"Idempotent-Replayed"` | Response header marking a replay. No standard names one, so pick what your clients read. |
 | `methods` | `("POST",)` | Methods that take a key. Every other method passes through. |
-| `key_maker` | `None` | Build the stored key from the scope and the client key. Required for authenticated replay and multi-tenant isolation. |
+| `key` | `None` | Build the stored key from the scope and the client key. Required for authenticated replay and multi-tenant isolation. |
 | `skip` | `None` | Predicate over the finished response. Return `True` to not store it. |
 | `require_key` | `False` | Answer `400` when a matched method arrives without the header. |
 | `fingerprint_body` | `False` | Hash the request body and answer `422` on a reused key with a different body. |

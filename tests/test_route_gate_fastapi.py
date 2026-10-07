@@ -882,14 +882,17 @@ class TestNothingIsSpentOnARefusal:
         assert statuses == [UNAUTHORIZED] * 2
         assert backend.calls == 0
 
-    @pytest.mark.parametrize("key_maker", [None, tenant_key])
-    def test_an_idempotent_write_stores_nothing(self, key_maker: Any) -> None:  # noqa: ANN401
-        """A `key_maker` refusing a caller with no credential is never asked."""
+    @pytest.mark.parametrize("key_function", [None, tenant_key])
+    def test_an_idempotent_write_stores_nothing(
+        self,
+        key_function: Any,  # noqa: ANN401
+    ) -> None:
+        """A key function refusing a caller with no credential is never asked."""
         calls = Calls()
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key_maker=key_maker)
-            if key_maker
+            IdempotentRequests(key=key_function)
+            if key_function
             else IdempotentRequests()
         )
         app = catalog(calls, Cache(backend), idempotent)

@@ -7,6 +7,7 @@ import threading
 import time
 from contextlib import suppress
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -322,16 +323,16 @@ class TestAsyncCachedFunctionMetadata:
         assert documented.__doc__ == "Return nothing."
 
 
-class TestAsyncCachedKeyMaker:
-    """Test @cached with custom key_maker on async functions."""
+class TestAsyncCachedKeyFunction:
+    """Test @cached with a custom key function on async functions."""
 
-    async def test_custom_key_maker(self) -> None:
-        """Custom key_maker is used for cache keys."""
+    async def test_cached_key_function_keys_the_entry(self) -> None:
+        """Custom key function is used for cache keys."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key_maker=lambda _func, args, _kwargs: str(args[0]))
+        @cached(cache, key=lambda _func, args, _kwargs: str(args[0]))
         async def fetch(user_id: int) -> dict:
             nonlocal call_count
             call_count += 1
@@ -344,20 +345,22 @@ class TestAsyncCachedKeyMaker:
         # Assert
         assert call_count == EXPECTED_CALL_COUNT_1
 
-    async def test_custom_key_maker_isolates_entries(self) -> None:
-        """Custom key_maker can collapse different args to the same key."""
+    async def test_cached_key_function_folds_calls_into_one_entry(
+        self,
+    ) -> None:
+        """Custom key function can collapse different args to the same key."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
         # Always return the same key regardless of args
-        @cached(cache, key_maker=lambda _func, _args, _kwargs: "fixed")
+        @cached(cache, key=lambda _func, _args, _kwargs: "fixed")
         async def fetch(x: int) -> int:
             nonlocal call_count
             call_count += 1
             return x
 
-        # Act: different args, but key_maker collapses them
+        # Act: different args, but the key function collapses them
         await fetch(1)
         await fetch(2)
 
@@ -831,16 +834,16 @@ class TestSyncCachedFunctionMetadata:
         assert documented.__doc__ == "Return nothing."
 
 
-class TestSyncCachedKeyMaker:
-    """Test @cached with custom key_maker on sync functions."""
+class TestSyncCachedKeyFunction:
+    """Test @cached with a custom key function on sync functions."""
 
-    async def test_custom_key_maker(self) -> None:
-        """Custom key_maker is used for cache keys."""
+    async def test_cached_key_function_keys_the_entry(self) -> None:
+        """Custom key function is used for cache keys."""
         # Arrange
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key_maker=lambda _func, args, _kwargs: str(args[0]))
+        @cached(cache, key=lambda _func, args, _kwargs: str(args[0]))
         def compute(x: int) -> int:
             nonlocal call_count
             call_count += 1
@@ -1151,7 +1154,7 @@ class TestEarlyRefresh:
         """An unknown lock value raises at decoration time."""
         cache = _make_cache()
         with pytest.raises(ValueError, match="lock"):
-            cached(cache, lock="global")  # ty: ignore[invalid-argument-type]
+            cached(cache, lock="global")  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
 
     async def test_early_outside_window_does_not_refresh(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1247,7 +1250,7 @@ class TestEarlyRefresh:
         cache = _make_cache(ttl=60)
         call_count = 0
 
-        from grelmicro.cache.cached import _make_key  # noqa: PLC0415
+        from grelmicro.cache.cached import _derive_key  # noqa: PLC0415
 
         async def impl(x: int) -> int:
             nonlocal call_count
@@ -1256,7 +1259,7 @@ class TestEarlyRefresh:
 
         fetch = cached(cache, early=0.5)(impl)
         # Seed the value directly so no XFetch meta exists for the key.
-        key = _make_key(impl, (5,), {}, None, typed=False)
+        key = _derive_key(impl, (5,), {}, None, typed=False)
         await cache.set(key, 10)
         await fetch(5)  # hit, meta is None
         await asyncio.sleep(0.02)
@@ -1373,7 +1376,7 @@ class TestEarlyRefresh:
     async def test_distributed_sync_early_writes_meta(self) -> None:
         """A sync distributed cold miss with early= stores XFetch metadata."""
         from grelmicro.cache.cached import (  # noqa: PLC0415
-            _make_key,
+            _derive_key,
             _read_meta,
         )
 
@@ -1387,7 +1390,7 @@ class TestEarlyRefresh:
         fetch = cached(cache, lock=True, early=0.5)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
-            key = _make_key(impl, (5,), {}, None, typed=False)
+            key = _derive_key(impl, (5,), {}, None, typed=False)
             meta = await _read_meta(cache, key)
         assert meta is not None
 
@@ -1544,13 +1547,13 @@ class TestCachedTags:
 
 
 class TestCachedKeyTemplate:
-    """Tests for @cached key= string templating."""
+    """Tests for @cached key_template= string templating."""
 
     async def test_key_template_renders_from_positional_arg(self) -> None:
-        """A key= template renders from a positional argument."""
+        """A key_template= renders from a positional argument."""
         cache = _make_cache()
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         async def fetch(user_id: int) -> dict:
             return {"id": user_id}
 
@@ -1559,10 +1562,10 @@ class TestCachedKeyTemplate:
         assert await cache.get("user:42") == {"id": 42}
 
     async def test_key_template_renders_from_keyword_arg(self) -> None:
-        """A key= template renders from a keyword argument."""
+        """A key_template= renders from a keyword argument."""
         cache = _make_cache()
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         async def fetch(user_id: int) -> dict:
             return {"id": user_id}
 
@@ -1571,10 +1574,10 @@ class TestCachedKeyTemplate:
         assert await cache.get("user:7") == {"id": 7}
 
     async def test_key_template_renders_from_default_argument(self) -> None:
-        """A key= template uses a default when the argument is omitted."""
+        """A key_template= uses a default when the argument is omitted."""
         cache = _make_cache()
 
-        @cached(cache, key="page:{page}")
+        @cached(cache, key_template="page:{page}")
         async def fetch(page: int = 1) -> dict:
             return {"page": page}
 
@@ -1587,7 +1590,7 @@ class TestCachedKeyTemplate:
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         async def fetch(user_id: int, _trace: str) -> dict:
             nonlocal call_count
             call_count += 1
@@ -1599,11 +1602,11 @@ class TestCachedKeyTemplate:
         assert call_count == EXPECTED_CALL_COUNT_1
 
     async def test_key_template_literal_no_placeholders(self) -> None:
-        """A literal key= with no placeholders keys every call the same."""
+        """A literal key_template= with no placeholders keys every call the same."""
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key="all-users")
+        @cached(cache, key_template="all-users")
         async def fetch(user_id: int) -> dict:
             nonlocal call_count
             call_count += 1
@@ -1616,11 +1619,11 @@ class TestCachedKeyTemplate:
         assert await cache.get("all-users") is not None
 
     def test_key_template_sync(self) -> None:
-        """A key= template keys a sync cached function."""
+        """A key_template= keys a sync cached function."""
         backend = MemoryCacheAdapter()
         cache = TTLCache(ttl=60, backend=backend, serializer=PickleSerializer())
 
-        @cached(cache, key="user:{user_id}")
+        @cached(cache, key_template="user:{user_id}")
         def fetch(user_id: int) -> dict:
             return {"id": user_id}
 
@@ -1631,14 +1634,70 @@ class TestCachedKeyTemplate:
 
         assert asyncio.run(run()) == {"id": 5}
 
-    def test_key_and_key_maker_raises(self) -> None:
-        """Passing both key and key_maker raises TypeError."""
+
+class TestCachedKeyFunction:
+    """Tests for @cached key= function and the key_template= split."""
+
+    async def test_cached_key_function_derives_the_key(self) -> None:
+        """A key= function receives `(func, args, kwargs)` and names the entry."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache, key=lambda _func, args, _kwargs: f"user:{args[0]}")
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        # Act
+        await fetch(42)
+
+        # Assert
+        assert await cache.get("user:42") == {"id": 42}
+
+    async def test_cached_key_template_renders_the_key(self) -> None:
+        """A key_template= string renders the entry's key from the call."""
+        # Arrange
+        cache = _make_cache()
+
+        @cached(cache, key_template="user:{user_id}")
+        async def fetch(user_id: int) -> dict:
+            return {"id": user_id}
+
+        # Act
+        await fetch(user_id=7)
+
+        # Assert
+        assert await cache.get("user:7") == {"id": 7}
+
+    def test_cached_key_string_is_refused_with_a_template_hint(self) -> None:
+        """A string passed to key= is refused at decoration."""
+        # Arrange
+        template: object = "user:{user_id}"
+
+        # Act / Assert
+        with pytest.raises(
+            TypeError,
+            match="key must be a function, use key_template= for a template",
+        ):
+            cached(TTLCache(ttl=5), key=template)  # type: ignore[arg-type] # ty: ignore[invalid-argument-type]
+
+    def test_cached_key_and_key_template_together_are_refused(self) -> None:
+        """Passing both key= and key_template= is refused."""
+        # Act / Assert
         with pytest.raises(TypeError, match="not both"):
             cached(
                 TTLCache(ttl=5),
-                key="user:{user_id}",
-                key_maker=lambda _f, _a, _k: "x",
+                key=lambda _f, _a, _k: "x",
+                key_template="user:{user_id}",
             )
+
+    def test_cached_key_maker_is_an_unknown_argument(self) -> None:
+        """`key_maker=` is no longer accepted."""
+        # Arrange
+        legacy: dict[str, Any] = {"key_maker": lambda _f, _a, _k: "x"}
+
+        # Act / Assert
+        with pytest.raises(TypeError, match="key_maker"):
+            cached(TTLCache(ttl=5), **legacy)
 
 
 class TestCachedStaleOnError:
@@ -2084,7 +2143,7 @@ class TestAsyncCachedRefresh:
         cache = _make_cache()
         call_count = 0
 
-        @cached(cache, key="v:{x}", tags=["all"])
+        @cached(cache, key_template="v:{x}", tags=["all"])
         async def compute(x: int) -> int:  # noqa: ARG001
             nonlocal call_count
             call_count += 1
@@ -2277,7 +2336,7 @@ class TestEarlyRefreshFailureIsObservable:
         cache = _make_cache(ttl=60)
         fail = False
 
-        @cached(cache, key="k", early=0.5)
+        @cached(cache, key_template="k", early=0.5)
         async def compute() -> int:
             if fail:
                 msg = "upstream down"
@@ -2316,7 +2375,7 @@ class TestEarlyRefreshFailureIsObservable:
         cache = _make_cache(ttl=60)
         fail = False
 
-        @cached(cache, key="k", early=0.5)
+        @cached(cache, key_template="k", early=0.5)
         def compute() -> int:
             if fail:
                 msg = "upstream down"

@@ -4,6 +4,10 @@
 
 ### Breaking
 * 💥 `metrics_router` moved from `grelmicro.metrics` to `grelmicro.integrations.fastapi`, next to `health_router`. ([#979](https://github.com/grelinfo/grelmicro/pull/979))
+* 💥 `@cached` and `@limiter` take their key template as `key_template=`, like `key_template="user:{user_id}"`. A string passed to `key=` raises `TypeError`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
+* 💥 `@cached(key_maker=...)` and `@limiter(key_maker=...)` are renamed `key=`. The function still receives `(func, args, kwargs)`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
+* 💥 `IdempotentRequests(key_maker=...)` and `IdempotencyMiddleware(key_maker=...)` are renamed `key=`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
+* 💥 `IdempotencyKeyMakerError` is renamed `IdempotencyKeyFunctionError`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
 * 💥 On FastAPI, FastAPI itself records the request spans and metrics. They follow the OpenTelemetry semantic conventions 1.44 instead of 1.11. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 💥 On FastAPI, `http.server.duration` in milliseconds becomes `http.server.request.duration` in seconds. The request and response body size metrics are gone. ([#952](https://github.com/grelinfo/grelmicro/issues/952))
 * 💥 On FastAPI, a request span has `fastapi.dependencies`, `fastapi.endpoint` and `fastapi.serialization` children instead of `send` and `receive`. A WebSocket span is named like `WS /ws/{room}`. ([#952](https://github.com/grelinfo/grelmicro/issues/952))

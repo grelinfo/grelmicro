@@ -12,6 +12,7 @@ import base64
 import hashlib
 import logging
 import re
+from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, replace
 from typing import (
     TYPE_CHECKING,
@@ -35,6 +36,7 @@ from grelmicro._config import (
 )
 from grelmicro._environment import Binding, label, unrecorded
 from grelmicro._guards import is_instance, type_name
+from grelmicro._key_checks import check_key_function
 from grelmicro._paths import (
     BARE_METHOD_MESSAGE,
     MethodNames,
@@ -81,16 +83,17 @@ from grelmicro.http._kinds import (
 from grelmicro.idempotency import Idempotency
 from grelmicro.idempotency.errors import (
     IdempotencyConflictError,
-    IdempotencyKeyMakerError,
+    IdempotencyKeyFunctionError,
     IdempotencyWaitTimeoutError,
 )
+
+Scope = MutableMapping[str, Any]
+"""An ASGI connection scope."""
 
 if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
-        Callable,
         Collection,
-        MutableMapping,
         Sequence,
     )
     from datetime import timedelta
@@ -99,7 +102,6 @@ if TYPE_CHECKING:
     from grelmicro.cache import TTLCache
     from grelmicro.types import BackendScope
 
-    Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
@@ -108,6 +110,13 @@ if TYPE_CHECKING:
 __all__ = ["IdempotencyMiddleware", "IdempotentRequests", "StoredResponse"]
 
 _logger = logging.getLogger(__name__)
+
+type RequestKeyFunction = Callable[[Scope, str], str]
+"""A function building the stored idempotency key for one request.
+
+It receives the ASGI scope and the client's idempotency key, and returns the
+whole stored key.
+"""
 
 
 _KEY_PATTERN = r"^[\x20-\x7e]+$"
@@ -800,10 +809,10 @@ class IdempotencyMiddleware:
     that raises an unhandled exception stores nothing, so the framework's
     `500` never replays.
 
-    Without a custom `key_maker`, a request carrying `Authorization` or
+    Without a custom `key=` function, a request carrying `Authorization` or
     `Cookie` bypasses idempotency and runs the app. Its response cannot be
     stored under a key shared across callers, and a replay cannot skip
-    authentication inside the app. Configure an identity-aware `key_maker`
+    authentication inside the app. Configure an identity-aware `key=` function
     to make authenticated requests idempotent.
 
     Four kinds of response are not stored, and each one lets a retry re-run
@@ -856,8 +865,8 @@ class IdempotencyMiddleware:
                 "passes through."
             ),
         ] = ("POST",),
-        key_maker: Annotated[
-            Callable[[Scope, str], str] | None,
+        key: Annotated[
+            RequestKeyFunction | None,
             Doc(
                 """
                 Build the stored key from the ASGI scope and the client key.
@@ -966,15 +975,15 @@ class IdempotencyMiddleware:
         """Initialize the middleware with the idempotency store and policy.
 
         Raises:
-            TypeError: If `methods` is given as a string. `tuple("POST")`
-                is four one-letter methods, none of which a request
-                carries, so it would meter nothing at all.
+            TypeError: If `methods` is a string, or `key` is not a
+                function.
         """
         if isinstance(methods, str):
             raise TypeError(BARE_METHOD_MESSAGE)
+        check_key_function(key)
         self.app = app
         self._idempotency = idempotency
-        self._key_maker = key_maker
+        self._key_function = key
         self._skip = skip
         self._gated_routes = _GatedRoutes(app)
         self._replay_collision_logged = False
@@ -1065,7 +1074,7 @@ class IdempotencyMiddleware:
 
     def _unscoped_private(self, scope: Scope) -> bool:
         """Return whether the default key cannot safely replay this request."""
-        return self._key_maker is None and (
+        return self._key_function is None and (
             _has_private_request_header(scope["headers"])
             or _authenticated_scope(scope)
             or self._gated_routes.matches(scope)
@@ -1204,9 +1213,9 @@ class IdempotencyMiddleware:
         )
 
     def _storage_key(self, scope: Scope, key: str) -> str:
-        """Build the stored key, scoped by route unless `key_maker` says otherwise."""
-        if self._key_maker is not None:
-            return _checked_key(self._key_maker(scope, key), key)
+        """Build the stored key, scoped by route unless `key=` says otherwise."""
+        if self._key_function is not None:
+            return _checked_key(self._key_function(scope, key), key)
         return _default_storage_key(scope, key)
 
 
@@ -1267,40 +1276,39 @@ def _checked_key(built: object, client_key: str) -> str:
     boundary quietly removed, which is worth refusing over.
 
     Raises:
-        IdempotencyKeyMakerError: If the key is not a non-empty string, drops
+        IdempotencyKeyFunctionError: If the key is not a non-empty string, drops
             the client's key, or carries an unresolved `None`.
     """
     if not is_instance(built, str):
-        # Named by its type, never printed: what a `key_maker` returns is
+        # Named by its type, never printed: what a `key=` function returns is
         # built from caller data, and reading its `__repr__` runs caller
         # code that a detached object raises from.
         msg = (
-            f"key_maker returned a {type_name(built)}, expected a "
-            f"non-empty string."
+            f"key= returned a {type_name(built)}, expected a non-empty string."
         )
-        raise IdempotencyKeyMakerError(msg)
+        raise IdempotencyKeyFunctionError(msg)
     # An exact `str`, whatever subclass it arrived as: a subclass runs
     # caller code again from `__str__` the moment it is interpolated.
     built = str.__str__(cast("str", built))
     if not built:
-        msg = "key_maker returned an empty string, expected a non-empty key."
-        raise IdempotencyKeyMakerError(msg)
+        msg = "key= returned an empty string, expected a non-empty key."
+        raise IdempotencyKeyFunctionError(msg)
     if client_key not in built:
         msg = (
-            f"key_maker returned {built!r}, which drops the client's "
-            f"idempotency key. Every request to this route would then share "
-            f"one entry. Include the key it was given."
+            "key= returned a key that drops the client's idempotency key. "
+            "Every request to this route would then share one entry. "
+            "Include the key it was given."
         )
-        raise IdempotencyKeyMakerError(msg)
+        raise IdempotencyKeyFunctionError(msg)
     if _UNRESOLVED_TOKEN.search(built):
         msg = (
-            f"key_maker returned {built!r}, which carries an unresolved None. "
-            f"Something the key reads was not set yet, so that component is "
-            f"the same for every caller and they share one entry. A middleware "
-            f"the key depends on must run outside IdempotencyMiddleware, which "
-            f"means adding it after."
+            "key= returned a key that carries an unresolved None. Something "
+            "the key reads was not set yet, so that component is the same "
+            "for every caller and they share one entry. A middleware the key "
+            "depends on must run outside IdempotencyMiddleware, which means "
+            "adding it after."
         )
-        raise IdempotencyKeyMakerError(msg)
+        raise IdempotencyKeyFunctionError(msg)
     return built
 
 
@@ -1682,8 +1690,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
                 "passes through."
             ),
         ] = None,
-        key_maker: Annotated[
-            Callable[[Scope, str], str] | None,
+        key: Annotated[
+            RequestKeyFunction | None,
             Doc(
                 "Build the stored key from the ASGI scope and the client "
                 "key. **Set this in any multi-tenant app**, folding in the "
@@ -1811,7 +1819,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             name=name,
             openapi=openapi,
             idempotency=idempotency,
-            key_maker=key_maker,
+            key_function=key,
             skip=skip,
         )
         self._track_reconfigure(resolved_env_prefix)
@@ -1847,8 +1855,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             BackendScope | None,
             Doc("The smallest scope the cache backend must reach."),
         ] = None,
-        key_maker: Annotated[
-            Callable[[Scope, str], str] | None,
+        key: Annotated[
+            RequestKeyFunction | None,
             Doc("Build the stored key from the scope and the client key."),
         ] = None,
         skip: Annotated[
@@ -1864,9 +1872,8 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
 
         The one declarative door. What you pass is what runs: no
         environment variable is read, and the instance is not registered
-        for live reload. The store, the key maker and the skip predicate
-        stay here rather than in the config, because they are objects and
-        callables rather than values.
+        for live reload. The store, the key function and the skip predicate
+        are passed here, next to the config.
         """
         instance = cls.__new__(cls)
         with unrecorded():
@@ -1882,7 +1889,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             name=name,
             openapi=openapi,
             idempotency=idempotency,
-            key_maker=key_maker,
+            key_function=key,
             skip=skip,
         )
         return instance
@@ -1894,14 +1901,15 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         name: str,
         openapi: bool,
         idempotency: Idempotency[Any],
-        key_maker: Callable[[Scope, str], str] | None,
+        key_function: RequestKeyFunction | None,
         skip: Callable[[StoredResponse], bool] | None,
     ) -> None:
         """Hold the configuration and the cell the middleware reads."""
         self._name = name
         self._openapi = openapi
         self._idempotency = idempotency
-        self._key_maker = key_maker
+        check_key_function(key_function)
+        self._key_function = key_function
         self._skip = skip
         self._gated_routes = _GatedRoutes()
         self._config = config
@@ -1913,7 +1921,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         app: Annotated[Any, Doc("The application whose routes are reported.")],  # noqa: ANN401
     ) -> None:
         """Refresh the same route gates the runtime middleware enforces."""
-        if self._key_maker is None:
+        if self._key_function is None:
             self._gated_routes.refresh(app)
 
     def route_is_gated(self, method: str, path: str) -> bool:
@@ -1963,7 +1971,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         """
         return IdempotencyMiddleware, {
             "idempotency": self._idempotency,
-            "key_maker": self._key_maker,
+            "key": self._key_function,
             "skip": self._skip,
             "live": self._live,
         }

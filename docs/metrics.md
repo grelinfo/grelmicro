@@ -410,6 +410,6 @@ or error rate, because neither has a caller to fail:
   the primary next fails, which you would otherwise discover during the
   incident the shield exists for.
 
-Both warnings name the cache key. A default key is a hash, but a `key=`
-template or a custom `key_maker` puts argument values in it, so those
+Both warnings name the cache key. A default key is a hash, but a `key_template=`
+or a custom `key=` function puts argument values in it, so those
 values reach the log line.

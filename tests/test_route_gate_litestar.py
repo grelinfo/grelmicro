@@ -435,14 +435,17 @@ class TestNothingIsSpentOnARefusal:
         assert statuses == [UNAUTHORIZED] * 3
         assert backend.calls == 0
 
-    @pytest.mark.parametrize("key_maker", [None, tenant_key])
-    def test_an_idempotent_write_stores_nothing(self, key_maker: Any) -> None:  # noqa: ANN401
+    @pytest.mark.parametrize("key_function", [None, tenant_key])
+    def test_an_idempotent_write_stores_nothing(
+        self,
+        key_function: Any,  # noqa: ANN401
+    ) -> None:
         """Its key stays free for the retry with a token, which runs."""
         calls = Calls()
         backend = CountingCache()
         idempotent = (
-            IdempotentRequests(key_maker=key_maker)
-            if key_maker
+            IdempotentRequests(key=key_function)
+            if key_function
             else IdempotentRequests()
         )
         app = catalog(calls, Cache(backend), idempotent)

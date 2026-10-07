@@ -7,8 +7,8 @@ class IdempotencyError(GrelmicroError):
     """Base idempotency error."""
 
 
-class IdempotencyKeyMakerError(IdempotencyError, ValueError):
-    """Raised when a `key_maker` returns a key that cannot separate callers.
+class IdempotencyKeyFunctionError(IdempotencyError, ValueError):
+    """Raised when a `key=` function returns a key that cannot separate callers.
 
     A key that is partly missing does not fail, it merges. Callers whose key
     lost the same component share one entry and can replay each other's

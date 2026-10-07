@@ -529,7 +529,7 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
         reach = _selected(config, endpoint)
         if endpoint.method not in methods or reach is None:
             return None
-        if component._key_maker is None and (  # noqa: SLF001
+        if component._key_function is None and (  # noqa: SLF001
             endpoint.authenticated
             or component.route_is_gated(endpoint.method, endpoint.path)
         ):

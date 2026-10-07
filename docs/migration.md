@@ -60,6 +60,9 @@ that a client library used to accept.
 | `LockExtendError` where you caught `LockAcquireError` or `LockReleaseError` from extending a lease | 0.42 | [Catch `LockExtendError`](#0-42-lock-extend) |
 | `LockNotOwnedError` passes an `except LockReleaseError` or `except LockBackendError` | 0.42 | [Catch `LockNotOwnedError`](#0-42-lock-extend) |
 | A dashboard or alert on `grelmicro.lock.renewals` stopped receiving data | 0.42 | [Use `grelmicro.lock.extensions`](#0-42-lock-extend) |
+| `TypeError: key must be a function, use key_template= for a template` from `@cached` or `@limiter` | 0.42 | [Pass `key_template=`](#0-42-key-function) |
+| `TypeError: ... got an unexpected keyword argument 'key_maker'` | 0.42 | [Pass `key=`](#0-42-key-function) |
+| `ImportError: cannot import name 'IdempotencyKeyMakerError'` | 0.42 | [Catch `IdempotencyKeyFunctionError`](#0-42-key-function) |
 
 ## 0.42
 
@@ -243,6 +246,31 @@ A lost lease still raises `LockNotOwnedError`, which is no longer a
 
 The `grelmicro.lock.renewals` metric is now `grelmicro.lock.extensions`.
 Switch dashboards and alerts on the old name to the new one.
+
+### `key=` is always a function {#0-42-key-function}
+
+`key=` now takes the function deriving the key, everywhere. `key_maker=` is
+gone. `@cached` and `@limiter` take a template string as `key_template=`, and a
+string passed to `key=` raises `TypeError`:
+
+```python
+# Before
+@cached(cache, key="user:{user_id}")
+@cached(cache, key_maker=lambda func, args, kwargs: f"user:{args[0]}")
+@limiter(key="user:{user_id}")
+@limiter(key_maker=lambda func, args, kwargs: f"user:{args[0]}")
+IdempotentRequests(key_maker=tenant_key)
+
+# After
+@cached(cache, key_template="user:{user_id}")
+@cached(cache, key=lambda func, args, kwargs: f"user:{args[0]}")
+@limiter(key_template="user:{user_id}")
+@limiter(key=lambda func, args, kwargs: f"user:{args[0]}")
+IdempotentRequests(key=tenant_key)
+```
+
+`IdempotencyMiddleware(key_maker=...)` is `IdempotencyMiddleware(key=...)` the
+same way. `IdempotencyKeyMakerError` is renamed `IdempotencyKeyFunctionError`.
 
 ## 0.40
 
