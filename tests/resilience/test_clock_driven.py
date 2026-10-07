@@ -22,7 +22,7 @@ from grelmicro.resilience.circuitbreaker.memory import (
 )
 
 _BACKOFF = 5.0
-_RESET_TIMEOUT = 30.0
+_RESET_TIMEOUT = 30
 _EXPECTED_CALLS = 2
 
 _BUDGET = 25.0

@@ -146,7 +146,7 @@ take.
 | --- | --- | --- |
 | `SlidingWindowConfig.window` | `int \| timedelta` | yes |
 | `ClientBansConfig.window`, `.duration` | `int \| timedelta` | not yet |
-| `ConsecutiveCountConfig.reset_timeout` | `int \| timedelta` | not yet |
+| `ConsecutiveCountConfig.reset_timeout` | `int \| timedelta` | yes |
 | `LockConfig.lease_duration`, `ReadWriteLockConfig.lease_duration` | `int \| timedelta` | yes |
 | `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | yes |
 | `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | yes |

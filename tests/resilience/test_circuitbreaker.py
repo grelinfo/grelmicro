@@ -6,7 +6,7 @@ import sys
 import threading
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Any, ClassVar, Literal, Self
 
@@ -77,7 +77,7 @@ async def create_circuit(
     ignore_exceptions: type[Exception] | tuple[type[Exception], ...] = (),
     error_threshold: int | None = None,
     success_threshold: int | None = None,
-    reset_timeout: float | None = None,
+    reset_timeout: int | timedelta | None = None,
     half_open_capacity: int | None = None,
 ) -> CircuitBreaker:
     """Create a circuit breaker in the specified state."""
@@ -477,9 +477,9 @@ async def test_circuit_transition_to_half_open_after_timeout(
     assert cb.state is CircuitBreakerState.HALF_OPEN
 
 
-@pytest.mark.parametrize("reset_timeout", [0.5, 1, 30])
+@pytest.mark.parametrize("reset_timeout", [timedelta(milliseconds=500), 1, 30])
 async def test_circuit_not_transition_to_half_open_before_timeout(
-    reset_timeout: float,
+    reset_timeout: int | timedelta,
 ) -> None:
     """Test circuit breaker does not transition to half-open before reset timeout."""
     # Arrange
@@ -1155,7 +1155,7 @@ class _FakeSharedStrategy(CircuitBreakerStrategy):
         self,
         *,
         desired: CircuitBreakerState,
-        cool_down: float | None = None,
+        cool_down: timedelta | None = None,
     ) -> None:
         self._backend.transition_calls.append(
             {"name": self._name, "desired": desired, "cool_down": cool_down}
@@ -1172,7 +1172,7 @@ class TestSharedBackendIntegration:
         """`__aenter__` binds the strategy on first entry and admits."""
         backend = _FakeSharedBackend()
         cap = 3
-        timeout = 42.0
+        timeout = timedelta(seconds=42)
         async with backend:
             cb = CircuitBreaker.consecutive_count(
                 "shared",
@@ -1227,7 +1227,7 @@ class TestSharedBackendIntegration:
                 "shared",
                 backend=backend,
                 error_threshold=7,
-                reset_timeout=12.5,
+                reset_timeout=timedelta(seconds=12, milliseconds=500),
             )
             with pytest.raises(SentinelError):
                 async with cb:
@@ -1242,7 +1242,7 @@ class TestSharedBackendIntegration:
         backend = _FakeSharedBackend()
         async with backend:
             cb = CircuitBreaker.consecutive_count(
-                "shared", backend=backend, reset_timeout=9.0
+                "shared", backend=backend, reset_timeout=timedelta(seconds=9)
             )
             await cb.isolate()
         assert backend.transition_calls == [
@@ -1313,7 +1313,10 @@ async def test_a_probe_that_records_no_outcome_gives_its_slot_back() -> None:
     """A half-open probe that never happened must not wedge the circuit."""
     async with MemoryCircuitBreakerAdapter() as backend:
         cb = CircuitBreaker.consecutive_count(
-            "probe", error_threshold=1, backend=backend, reset_timeout=0.01
+            "probe",
+            error_threshold=1,
+            backend=backend,
+            reset_timeout=timedelta(milliseconds=10),
         )
 
         with pytest.raises(RuntimeError):
@@ -1350,7 +1353,7 @@ async def test_a_probe_cancelled_from_a_thread_gives_its_slot_back() -> None:
             "probe-thread",
             error_threshold=1,
             backend=backend,
-            reset_timeout=0.01,
+            reset_timeout=timedelta(milliseconds=10),
         )
 
         def fail() -> None:

@@ -49,7 +49,6 @@ NOT_MOVED_YET = frozenset(
     {
         ("ClientBansConfig", "duration"),
         ("ClientBansConfig", "window"),
-        ("ConsecutiveCountConfig", "reset_timeout"),
         ("DiscoveryConfig", "cache_ttl"),
         ("DiscoveryConfig", "ttl"),
         ("DuplicateFilterConfig", "ttl"),

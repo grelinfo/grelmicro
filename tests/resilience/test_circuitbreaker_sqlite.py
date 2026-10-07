@@ -3,11 +3,14 @@
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from pathlib import Path
-from time import time
+from time import time, time_ns
 
 import pytest
 
+from grelmicro import _duration as duration_module
+from grelmicro._duration import microseconds, seconds_to_microseconds
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
 from grelmicro.resilience import (
@@ -25,7 +28,7 @@ pytestmark = [pytest.mark.timeout(5)]
 
 PATH = "/tmp/test.db"  # noqa: S108
 
-RESET_TIMEOUT = 5
+RESET_TIMEOUT = timedelta(seconds=5)
 """Cool-down the end-to-end breakers are built with."""
 
 
@@ -100,7 +103,7 @@ async def test_owned_provider_is_opened_and_closed(
             config=ConsecutiveCountConfig(
                 error_threshold=1,
                 success_threshold=1,
-                reset_timeout=1,
+                reset_timeout=timedelta(seconds=1),
                 half_open_capacity=1,
             ),
         )
@@ -145,7 +148,7 @@ def _bind(
     name: str = "api",
     error_threshold: int = 3,
     success_threshold: int = 2,
-    reset_timeout: float = 5,
+    reset_timeout: int | timedelta = 5,
     half_open_capacity: int = 1,
 ) -> CircuitBreakerStrategy:
     return backend.bind(
@@ -186,16 +189,20 @@ async def test_open_rejects_until_reset_timeout_elapses(
     backend: SQLiteCircuitBreakerAdapter,
 ) -> None:
     """OPEN rejects calls until `reset_timeout`, then enters HALF_OPEN."""
-    strategy = _bind(backend, reset_timeout=0.5)
+    strategy = _bind(backend, reset_timeout=timedelta(milliseconds=500))
 
     # A long cool-down makes the rejection assert independent of scheduling:
     # a stalled runner cannot let the window elapse between the two calls.
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=60)
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(seconds=60)
+    )
     assert await strategy.try_acquire() is False
 
     # Re-open with a short cool-down and wait several times past it, so the
     # elapse assert has margin instead of racing a 0.1s gap.
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.1)
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(milliseconds=100)
+    )
     await asyncio.sleep(0.5)
 
     assert await strategy.try_acquire() is True
@@ -208,7 +215,11 @@ async def test_half_open_admission_cap_enforced_globally(
 ) -> None:
     """N concurrent acquires in HALF_OPEN never exceed `half_open_capacity`."""
     cap = 2
-    strategy = _bind(backend, half_open_capacity=cap, reset_timeout=0.1)
+    strategy = _bind(
+        backend,
+        half_open_capacity=cap,
+        reset_timeout=timedelta(milliseconds=100),
+    )
     await strategy.transition(desired=CircuitBreakerState.OPEN)
     await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
 
@@ -250,8 +261,10 @@ async def test_transition_to_open_honors_custom_cool_down(
     backend: SQLiteCircuitBreakerAdapter,
 ) -> None:
     """`transition(OPEN, cool_down=X)` cools down for X, ignoring reset_timeout."""
-    strategy = _bind(backend, reset_timeout=60)
-    await strategy.transition(desired=CircuitBreakerState.OPEN, cool_down=0.2)
+    strategy = _bind(backend, reset_timeout=timedelta(seconds=60))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=timedelta(milliseconds=200)
+    )
 
     assert await strategy.try_acquire() is False
 
@@ -327,7 +340,7 @@ async def test_circuit_breaker_end_to_end(
     assert cb.state is CircuitBreakerState.OPEN
     # The refusal says when the breaker next admits a probe, so an HTTP
     # edge can put it in a Retry-After header.
-    assert 0 < refused.value.retry_after <= RESET_TIMEOUT
+    assert 0 < refused.value.retry_after <= RESET_TIMEOUT.total_seconds()
 
 
 async def test_closed_success_stays_closed(
@@ -347,7 +360,10 @@ async def test_half_open_success_below_threshold_stays_half_open(
 ) -> None:
     """A HALF_OPEN success short of the threshold releases its admit slot."""
     strategy = _bind(
-        backend, success_threshold=2, half_open_capacity=2, reset_timeout=0.1
+        backend,
+        success_threshold=2,
+        half_open_capacity=2,
+        reset_timeout=timedelta(milliseconds=100),
     )
     await strategy.transition(desired=CircuitBreakerState.OPEN)
     await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
@@ -364,7 +380,10 @@ async def test_half_open_failure_releases_admit_slot(
 ) -> None:
     """A HALF_OPEN failure short of the threshold releases its admit slot."""
     strategy = _bind(
-        backend, error_threshold=2, half_open_capacity=2, reset_timeout=0.1
+        backend,
+        error_threshold=2,
+        half_open_capacity=2,
+        reset_timeout=timedelta(milliseconds=100),
     )
     await strategy.transition(desired=CircuitBreakerState.OPEN)
     await asyncio.sleep(0.5)  # 5x the 0.1s cool-down, not a 0.05s race
@@ -456,13 +475,19 @@ async def test_two_breakers_share_state(
 SWEEP_LIMIT = 4
 """Rows a bounded sweep is allowed to delete in tests."""
 
-DAY = 86400.0
+DAY = 86400
 """The flat stored-state lifetime, in seconds."""
 
-SWEEP_FACTOR = 10.0
+DAY_US = DAY * 1_000_000
+"""The flat stored-state lifetime, in microseconds."""
+
+MINUTE_US = 60 * 1_000_000
+"""A short sweep lifetime, in microseconds."""
+
+SWEEP_FACTOR = 10
 """Multiple of a cool-down that floors a row's lifetime."""
 
-LONG_COOL_DOWN = 40000.0
+LONG_COOL_DOWN = timedelta(seconds=40000)
 """A cool-down whose floor exceeds the flat lifetime."""
 
 SWEEP_SURVIVORS = 6
@@ -485,7 +510,7 @@ async def test_recovered_circuit_stores_nothing(
         name="recover",
         error_threshold=1,
         success_threshold=1,
-        reset_timeout=0.01,
+        reset_timeout=timedelta(milliseconds=10),
     )
     await strategy.try_acquire()
     await strategy.record_outcome(success=False)
@@ -562,7 +587,7 @@ async def test_cleanup_spares_forced_and_fresh_rows(
     )
 
     await backend.provider.client.execute(
-        backend._cleanup_sql, (60.0, 0.0, time(), 100)
+        backend._cleanup_sql, (MINUTE_US, 0, time_ns() // 1_000, 100)
     )
 
     assert await _row_names(backend) == ["cb:forced", "cb:fresh"]
@@ -579,7 +604,7 @@ async def test_cleanup_is_bounded(
     )
 
     await backend.provider.client.execute(
-        backend._cleanup_sql, (60.0, 0.0, time(), SWEEP_LIMIT)
+        backend._cleanup_sql, (MINUTE_US, 0, time_ns() // 1_000, SWEEP_LIMIT)
     )
 
     assert len(await _row_names(backend)) == SWEEP_SURVIVORS
@@ -695,7 +720,7 @@ async def test_sweep_spares_an_open_circuit_still_cooling_down(
         (time() - DAY,),
     )
     await backend.provider.client.execute(
-        backend._cleanup_sql, (DAY, SWEEP_FACTOR, time(), 100)
+        backend._cleanup_sql, (DAY_US, SWEEP_FACTOR, time_ns() // 1_000, 100)
     )
 
     assert await _row_names(backend) == ["cb:slow"]
@@ -706,7 +731,9 @@ async def test_abandon_returns_the_half_open_slot(
     backend: SQLiteCircuitBreakerAdapter,
 ) -> None:
     """A probe that produced no outcome must not hold its slot."""
-    strategy = _bind(backend, error_threshold=1, reset_timeout=0.01)
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=timedelta(milliseconds=10)
+    )
     await strategy.record_outcome(success=False)
     await asyncio.sleep(0.02)
 
@@ -735,7 +762,9 @@ async def test_abandon_rolls_back_when_the_write_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failed give-back leaves no half-open transaction behind."""
-    strategy = _bind(backend, error_threshold=1, reset_timeout=0.01)
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=timedelta(milliseconds=10)
+    )
     await strategy.record_outcome(success=False)
     await asyncio.sleep(0.02)
     assert await strategy.try_acquire() is True
@@ -751,3 +780,153 @@ async def test_abandon_rolls_back_when_the_write_fails(
 
     monkeypatch.undo()
     assert await strategy.try_acquire() is False
+
+
+UNDER_A_SECOND = timedelta(milliseconds=300)
+"""A cool-down under a second, which rounding to a whole second would break."""
+
+PAST_UNDER_A_SECOND = 0.6
+"""Seconds to wait past `UNDER_A_SECOND`, well inside a whole second."""
+
+NOT_WHOLE_MILLISECONDS = timedelta(seconds=1, microseconds=500_001)
+"""A reset timeout that is not a whole number of milliseconds."""
+
+
+async def test_sqlite_circuit_breaker_reset_timeout_under_a_second_refuses_a_probe_before_it_ends(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """An open circuit refuses a probe before its reset timeout ends."""
+    # Arrange
+    strategy = _bind(backend, error_threshold=1, reset_timeout=UNDER_A_SECOND)
+    await strategy.record_outcome(success=False)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+async def test_sqlite_circuit_breaker_reset_timeout_under_a_second_admits_a_probe_once_it_ends(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A reset timeout under a second is kept, not rounded to a second."""
+    # Arrange
+    strategy = _bind(backend, error_threshold=1, reset_timeout=UNDER_A_SECOND)
+    await strategy.record_outcome(success=False)
+    await asyncio.sleep(PAST_UNDER_A_SECOND)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+async def test_sqlite_circuit_breaker_cool_down_under_a_second_refuses_a_probe_before_it_ends(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A manual cool-down refuses a probe before it ends."""
+    # Arrange
+    strategy = _bind(backend, reset_timeout=timedelta(minutes=1))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=UNDER_A_SECOND
+    )
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+async def test_sqlite_circuit_breaker_cool_down_under_a_second_admits_a_probe_once_it_ends(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """A manual cool-down under a second is kept, whatever the config says."""
+    # Arrange
+    strategy = _bind(backend, reset_timeout=timedelta(minutes=1))
+    await strategy.transition(
+        desired=CircuitBreakerState.OPEN, cool_down=UNDER_A_SECOND
+    )
+    await asyncio.sleep(PAST_UNDER_A_SECOND)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+OPENED_NS = 1_700_000_000_000_000_500
+"""A wall clock reading in nanoseconds that is not a whole microsecond."""
+
+ONE_MICROSECOND_NS = 1_000
+"""One microsecond, in nanoseconds."""
+
+
+async def _open_at(
+    backend: SQLiteCircuitBreakerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> CircuitBreakerStrategy:
+    """Open a circuit with a one microsecond reset timeout at `OPENED_NS`."""
+    monkeypatch.setattr(duration_module, "time_ns", lambda: OPENED_NS)
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=timedelta(microseconds=1)
+    )
+    await strategy.record_outcome(success=False)
+    return strategy
+
+
+async def test_sqlite_circuit_breaker_one_microsecond_reset_timeout_is_never_shorter(
+    backend: SQLiteCircuitBreakerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe is refused a nanosecond before the reset timeout ends."""
+    # Arrange
+    strategy = await _open_at(backend, monkeypatch)
+    ends = OPENED_NS + ONE_MICROSECOND_NS
+    monkeypatch.setattr(duration_module, "time_ns", lambda: ends - 1)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is False
+
+
+async def test_sqlite_circuit_breaker_one_microsecond_reset_timeout_admits_a_microsecond_later(
+    backend: SQLiteCircuitBreakerAdapter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe is admitted at most a microsecond after the timeout ends."""
+    # Arrange
+    strategy = await _open_at(backend, monkeypatch)
+    later = OPENED_NS + 2 * ONE_MICROSECOND_NS
+    monkeypatch.setattr(duration_module, "time_ns", lambda: later)
+
+    # Act
+    admitted = await strategy.try_acquire()
+
+    # Assert
+    assert admitted is True
+
+
+async def test_sqlite_circuit_breaker_stores_reset_timeout_to_the_microsecond(
+    backend: SQLiteCircuitBreakerAdapter,
+) -> None:
+    """The stored cool-down reads back as the exact microseconds asked."""
+    # Arrange
+    strategy = _bind(
+        backend, error_threshold=1, reset_timeout=NOT_WHOLE_MILLISECONDS
+    )
+
+    # Act
+    await strategy.record_outcome(success=False)
+
+    # Assert
+    async with backend.provider.client.execute(
+        "SELECT cool_down FROM grelmicro_circuit_breaker;"
+    ) as cursor:
+        row = await cursor.fetchone()
+    assert row is not None
+    assert seconds_to_microseconds(row[0]) == microseconds(
+        NOT_WHOLE_MILLISECONDS
+    )

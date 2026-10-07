@@ -5,12 +5,19 @@ from __future__ import annotations
 import asyncio
 import re
 from contextlib import suppress
+from datetime import timedelta
 from logging import getLogger
-from time import time
 from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import (
+    clock_microseconds,
+    clock_microseconds_up,
+    microseconds,
+    microseconds_to_seconds,
+    seconds_to_microseconds,
+)
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.sqlite import SQLiteProvider
@@ -122,7 +129,9 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
         DELETE FROM {table_name} WHERE rowid IN (
             SELECT rowid FROM {table_name}
                 WHERE state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                  AND updated_at + MAX(?, ? * cool_down) <= ?
+                  AND CAST(round(updated_at * 1000000) AS INTEGER) + MAX(
+                      ?, ? * CAST(round(cool_down * 1000000) AS INTEGER)
+                  ) <= ?
                 LIMIT ?
         );
     """
@@ -301,9 +310,9 @@ class SQLiteCircuitBreakerAdapter(CircuitBreakerBackend):
                         await client.execute(
                             self._cleanup_sql,
                             (
-                                _STATE_TTL,
+                                _STATE_TTL_US,
                                 _STATE_TTL_RESET_FACTOR,
-                                time(),
+                                clock_microseconds(),
                                 _CLEANUP_LIMIT,
                             ),
                         )
@@ -379,18 +388,20 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         table_name: str,
         config: ConsecutiveCountConfig,
     ) -> None:
-        """Bind the strategy to the breaker's name and config."""
+        """Bind the strategy to the breaker's name and config.
+
+        The cool-down is kept in whole microseconds.
+        """
         self._conn = conn
         self._lock = lock
         self._name = name
         self._error_threshold = config.error_threshold
         self._success_threshold = config.success_threshold
-        self._reset_timeout = config.reset_timeout
+        self._reset_timeout_us = microseconds(config.reset_timeout)
         self._half_open_capacity = config.half_open_capacity
         self._select_sql = self._SQL_SELECT.format(table_name=table_name)
         self._upsert_sql = self._SQL_UPSERT.format(table_name=table_name)
         self._delete_sql = self._SQL_DELETE.format(table_name=table_name)
-        self._ttl = _resolve_state_ttl(config.reset_timeout)
 
     async def _read(self) -> _Row:
         async with self._conn.execute(
@@ -400,18 +411,22 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         if row is None:
             return _Row()
         state = CircuitBreakerState(row[0])
+        cool_down_us = seconds_to_microseconds(row[2])
         # Lazy expiry: a circuit nobody has touched for its lifetime
         # reads as a clean CLOSED instead of carrying stale counters.
         # An operator hold has no lifetime.
-        if (
-            state not in _FORCED_STATES
-            and float(row[6]) + _resolve_state_ttl(float(row[2])) <= time()
+        if state not in _FORCED_STATES and (
+            seconds_to_microseconds(row[6])
+            + microseconds(
+                _resolve_state_ttl(timedelta(microseconds=cool_down_us))
+            )
+            <= clock_microseconds()
         ):
             return _Row()
         return _Row(
             state=state,
-            opened_at=float(row[1]),
-            cool_down=float(row[2]),
+            opened_at_us=seconds_to_microseconds(row[1]),
+            cool_down_us=cool_down_us,
             cerr=int(row[3]),
             csucc=int(row[4]),
             ho_admit=int(row[5]),
@@ -427,12 +442,12 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
             (
                 self._name,
                 row.state.value,
-                row.opened_at,
-                row.cool_down,
+                microseconds_to_seconds(row.opened_at_us),
+                microseconds_to_seconds(row.cool_down_us),
                 row.cerr,
                 row.csucc,
                 row.ho_admit,
-                time(),
+                microseconds_to_seconds(clock_microseconds_up()),
             ),
         )
 
@@ -458,10 +473,10 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         if row.state == CircuitBreakerState.FORCED_OPEN:
             return False
         if row.state == CircuitBreakerState.OPEN:
-            if time() >= row.opened_at + row.cool_down:
+            if clock_microseconds() >= row.opened_at_us + row.cool_down_us:
                 row.state = CircuitBreakerState.HALF_OPEN
-                row.opened_at = 0.0
-                row.cool_down = 0.0
+                row.opened_at_us = 0
+                row.cool_down_us = 0
                 row.cerr = 0
                 row.csucc = 0
                 row.ho_admit = 0
@@ -538,8 +553,8 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
                 row.ho_admit -= 1
             if row.cerr >= self._error_threshold:
                 row.state = CircuitBreakerState.OPEN
-                row.opened_at = time()
-                row.cool_down = self._reset_timeout
+                row.opened_at_us = clock_microseconds_up()
+                row.cool_down_us = self._reset_timeout_us
                 row.cerr = 0
                 row.csucc = 0
                 row.ho_admit = 0
@@ -551,7 +566,7 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
         self,
         *,
         desired: CircuitBreakerState,
-        cool_down: float | None = None,
+        cool_down: timedelta | None = None,
     ) -> None:
         """Manual transition. Last-write-wins."""
         async with self._lock:
@@ -563,11 +578,11 @@ class _SQLiteConsecutiveCountStrategy(CircuitBreakerStrategy):
                     return
                 row = _Row(state=desired)
                 if desired == CircuitBreakerState.OPEN:
-                    row.opened_at = time()
-                    row.cool_down = (
-                        cool_down
+                    row.opened_at_us = clock_microseconds_up()
+                    row.cool_down_us = (
+                        microseconds(cool_down)
                         if cool_down is not None
-                        else self._reset_timeout
+                        else self._reset_timeout_us
                     )
                 await self._write(row)
                 await self._conn.execute("COMMIT;")
@@ -598,7 +613,7 @@ _DEFAULT_SNAPSHOT = CircuitBreakerSnapshot(
 
 
 class _Row:
-    """Mutable in-memory copy of a breaker row.
+    """Mutable in-memory copy of a breaker row, its times in microseconds.
 
     `bind`-time defaults match the `CLOSED` virtual state used when the
     row is absent.
@@ -606,10 +621,10 @@ class _Row:
 
     __slots__ = (
         "cerr",
-        "cool_down",
+        "cool_down_us",
         "csucc",
         "ho_admit",
-        "opened_at",
+        "opened_at_us",
         "state",
     )
 
@@ -617,15 +632,15 @@ class _Row:
         self,
         *,
         state: CircuitBreakerState = CircuitBreakerState.CLOSED,
-        opened_at: float = 0.0,
-        cool_down: float = 0.0,
+        opened_at_us: int = 0,
+        cool_down_us: int = 0,
         cerr: int = 0,
         csucc: int = 0,
         ho_admit: int = 0,
     ) -> None:
         self.state = state
-        self.opened_at = opened_at
-        self.cool_down = cool_down
+        self.opened_at_us = opened_at_us
+        self.cool_down_us = cool_down_us
         self.cerr = cerr
         self.csucc = csucc
         self.ho_admit = ho_admit
@@ -634,7 +649,7 @@ class _Row:
 def _snapshot_of(row: _Row) -> CircuitBreakerSnapshot:
     return CircuitBreakerSnapshot(
         state=row.state,
-        opened_at=row.opened_at,
+        opened_at=microseconds_to_seconds(row.opened_at_us),
         consecutive_error_count=row.cerr,
         consecutive_success_count=row.csucc,
         retry_after=_retry_after(row),
@@ -644,9 +659,15 @@ def _snapshot_of(row: _Row) -> CircuitBreakerSnapshot:
 def _retry_after(row: _Row) -> float:
     """Return the seconds an `OPEN` circuit still has to wait out.
 
-    `opened_at` is stamped with `time()` by whichever process wrote the
-    row, and every reader of a SQLite file shares that clock.
+    `opened_at` is stamped with the wall clock by whichever process wrote
+    the row, and every reader of a SQLite file shares that clock.
     """
     if row.state != CircuitBreakerState.OPEN:
         return 0.0
-    return max(0.0, row.opened_at + row.cool_down - time())
+    return microseconds_to_seconds(
+        max(0, row.opened_at_us + row.cool_down_us - clock_microseconds())
+    )
+
+
+_STATE_TTL_US = microseconds(_STATE_TTL)
+"""The idle lifetime of a stored circuit, in microseconds."""

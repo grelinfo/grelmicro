@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Self
 
 from typing_extensions import Doc
 
+from grelmicro._duration import microseconds
 from grelmicro.coordination._base import jittered_interval
 from grelmicro.errors import SettingsValidationError
 from grelmicro.providers.postgres import PostgresProvider
@@ -36,6 +37,7 @@ _CLEANUP_JITTER = 0.2
 """Interval jitter, so replicas do not sweep in lockstep."""
 
 if TYPE_CHECKING:
+    from datetime import timedelta
     from types import TracebackType
 
     from asyncpg import Pool
@@ -53,6 +55,39 @@ _CIRCUIT_BREAKER_ADVISORY_NAMESPACE = 0x67726362_2D636972
 seed. A distinct seed gives breaker names their own 64-bit lock id
 space, isolated from the rate limiter and any other advisory lock in
 the same database.
+"""
+
+
+def _whole_microseconds(seconds: str) -> str:
+    """Return SQL that reads a stored number of seconds in whole microseconds."""
+    return f"round({seconds} * 1000000)::bigint"
+
+
+def _lifetime_end(idle_us: str) -> str:
+    """Return SQL for when a row's lifetime ends, in epoch microseconds.
+
+    The lifetime is `idle_us` microseconds, or the row's cool-down times
+    the floor factor when that is longer.
+    """
+    return (
+        f"{_whole_microseconds('updated_at')} + GREATEST({idle_us}, "
+        f"{_STATE_TTL_RESET_FACTOR} * {_whole_microseconds('cool_down')})"
+    )
+
+
+_IDLE_TTL_US = microseconds(_STATE_TTL)
+"""How long a circuit nobody calls is kept, in microseconds."""
+
+_SQL_TIME = {
+    "now_us": "(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000)::bigint",
+    "opened_us": _whole_microseconds("v_opened_at"),
+    "cool_down_us": _whole_microseconds("v_cool_down"),
+    "lifetime_end": _lifetime_end(str(_IDLE_TTL_US)),
+    "sweep_end": _lifetime_end("p_idle_us"),
+}
+"""The time fragments a function is formatted with, in whole microseconds.
+
+A stored time stays in seconds, and reads back exact to the microsecond.
 """
 
 
@@ -117,13 +152,13 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     """
 
     _SQL_CREATE_FN_TRY_ACQUIRE = """
-        CREATE OR REPLACE FUNCTION {table_name}_cb_try_acquire(
+        CREATE OR REPLACE FUNCTION {table_name}_cb_try_acquire_v2(
             p_name TEXT,
-            p_capacity INT,
-            p_reset_timeout DOUBLE PRECISION
+            p_capacity INT
         ) RETURNS BOOLEAN AS $$
         DECLARE
-            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
+            v_now_us BIGINT := {now_us};
+            v_now DOUBLE PRECISION := v_now_us / 1000000.0;
             v_state TEXT;
             v_opened_at DOUBLE PRECISION;
             v_cool_down DOUBLE PRECISION;
@@ -135,9 +170,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             DELETE FROM {table_name}
                 WHERE name = p_name
                   AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                  AND updated_at + GREATEST(
-                      {state_ttl}, {state_ttl_factor} * cool_down
-                  ) <= v_now;
+                  AND {lifetime_end} <= v_now_us;
             SELECT state, opened_at, cool_down, ho_admit
                 INTO v_state, v_opened_at, v_cool_down, v_ho_admit
                 FROM {table_name} WHERE name = p_name;
@@ -151,7 +184,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 RETURN FALSE;
             END IF;
             IF v_state = 'OPEN' THEN
-                IF v_now >= v_opened_at + v_cool_down THEN
+                IF v_now_us >= {opened_us} + {cool_down_us} THEN
                     v_state := 'HALF_OPEN';
                     v_ho_admit := 0;
                     UPDATE {table_name}
@@ -178,10 +211,10 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     """
 
     _SQL_CREATE_FN_RECORD_ERROR = """
-        CREATE OR REPLACE FUNCTION {table_name}_cb_record_error(
+        CREATE OR REPLACE FUNCTION {table_name}_cb_record_error_v2(
             p_name TEXT,
             p_threshold INT,
-            p_reset_timeout DOUBLE PRECISION
+            p_reset_timeout_us BIGINT
         ) RETURNS TABLE(
             r_state TEXT, r_cerr INT, r_csucc INT,
             r_opened_at DOUBLE PRECISION, r_retry_after DOUBLE PRECISION
@@ -192,7 +225,8 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             v_cool_down DOUBLE PRECISION;
             v_ho_admit INT;
             v_cerr INT;
-            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
+            v_now_us BIGINT := {now_us};
+            v_now DOUBLE PRECISION := v_now_us / 1000000.0;
         BEGIN
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_name, {lock_namespace})
@@ -200,9 +234,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             DELETE FROM {table_name}
                 WHERE name = p_name
                   AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                  AND updated_at + GREATEST(
-                      {state_ttl}, {state_ttl_factor} * cool_down
-                  ) <= v_now;
+                  AND {lifetime_end} <= v_now_us;
             SELECT t.state, t.opened_at, t.cool_down, t.ho_admit
                 INTO v_state, v_opened_at, v_cool_down, v_ho_admit
                 FROM {table_name} t WHERE t.name = p_name;
@@ -229,13 +261,14 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                     WHERE name = p_name;
             END IF;
             IF v_cerr >= p_threshold THEN
+                v_cool_down := p_reset_timeout_us / 1000000.0;
                 UPDATE {table_name}
                     SET state = 'OPEN', opened_at = v_now,
-                        cool_down = p_reset_timeout,
+                        cool_down = v_cool_down,
                         cerr = 0, csucc = 0, ho_admit = 0,
                         updated_at = v_now
                     WHERE name = p_name;
-                RETURN QUERY SELECT 'OPEN'::TEXT, 0, 0, v_now, p_reset_timeout;
+                RETURN QUERY SELECT 'OPEN'::TEXT, 0, 0, v_now, v_cool_down;
                 RETURN;
             END IF;
             RETURN QUERY SELECT v_state, v_cerr, 0, v_opened_at,
@@ -245,10 +278,9 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     """
 
     _SQL_CREATE_FN_RECORD_SUCCESS = """
-        CREATE OR REPLACE FUNCTION {table_name}_cb_record_success(
+        CREATE OR REPLACE FUNCTION {table_name}_cb_record_success_v2(
             p_name TEXT,
-            p_threshold INT,
-            p_reset_timeout DOUBLE PRECISION
+            p_threshold INT
         ) RETURNS TABLE(
             r_state TEXT, r_cerr INT, r_csucc INT,
             r_opened_at DOUBLE PRECISION, r_retry_after DOUBLE PRECISION
@@ -259,7 +291,8 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             v_cool_down DOUBLE PRECISION;
             v_ho_admit INT;
             v_csucc INT;
-            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
+            v_now_us BIGINT := {now_us};
+            v_now DOUBLE PRECISION := v_now_us / 1000000.0;
         BEGIN
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_name, {lock_namespace})
@@ -267,9 +300,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             DELETE FROM {table_name}
                 WHERE name = p_name
                   AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                  AND updated_at + GREATEST(
-                      {state_ttl}, {state_ttl_factor} * cool_down
-                  ) <= v_now;
+                  AND {lifetime_end} <= v_now_us;
             SELECT t.state, t.opened_at, t.cool_down, t.ho_admit
                 INTO v_state, v_opened_at, v_cool_down, v_ho_admit
                 FROM {table_name} t WHERE t.name = p_name;
@@ -310,13 +341,13 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     """
 
     _SQL_CREATE_FN_TRANSITION = """
-        CREATE OR REPLACE FUNCTION {table_name}_cb_transition(
+        CREATE OR REPLACE FUNCTION {table_name}_cb_transition_v2(
             p_name TEXT,
             p_desired TEXT,
-            p_cool_down DOUBLE PRECISION
+            p_cool_down_us BIGINT
         ) RETURNS VOID AS $$
         DECLARE
-            v_now DOUBLE PRECISION;
+            v_now DOUBLE PRECISION := {now_us} / 1000000.0;
         BEGIN
             PERFORM pg_advisory_xact_lock(
                 hashtextextended(p_name, {lock_namespace})
@@ -326,48 +357,44 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 RETURN;
             END IF;
             IF p_desired = 'OPEN' THEN
-                v_now := EXTRACT(EPOCH FROM clock_timestamp());
                 INSERT INTO {table_name}
                     (name, state, opened_at, cool_down, cerr, csucc, ho_admit,
                      updated_at)
-                    VALUES (p_name, 'OPEN', v_now, p_cool_down, 0, 0, 0,
-                            v_now)
+                    VALUES (p_name, 'OPEN', v_now,
+                            p_cool_down_us / 1000000.0, 0, 0, 0, v_now)
                     ON CONFLICT (name) DO UPDATE
                         SET state = 'OPEN', opened_at = v_now,
-                            cool_down = p_cool_down,
+                            cool_down = EXCLUDED.cool_down,
                             cerr = 0, csucc = 0, ho_admit = 0,
                             updated_at = v_now;
             ELSE
                 INSERT INTO {table_name}
                     (name, state, opened_at, cool_down, cerr, csucc, ho_admit,
                      updated_at)
-                    VALUES (p_name, p_desired, 0, 0, 0, 0, 0,
-                            EXTRACT(EPOCH FROM clock_timestamp()))
+                    VALUES (p_name, p_desired, 0, 0, 0, 0, 0, v_now)
                     ON CONFLICT (name) DO UPDATE
                         SET state = p_desired, opened_at = 0, cool_down = 0,
                             cerr = 0, csucc = 0, ho_admit = 0,
-                            updated_at = EXTRACT(EPOCH FROM clock_timestamp());
+                            updated_at = v_now;
             END IF;
         END;
         $$ LANGUAGE plpgsql;
     """
 
     _SQL_CREATE_FN_CLEANUP = """
-        CREATE OR REPLACE FUNCTION {table_name}_cb_cleanup(
-            p_ttl DOUBLE PRECISION,
+        CREATE OR REPLACE FUNCTION {table_name}_cb_cleanup_v2(
+            p_idle_us BIGINT,
             p_limit INT
         ) RETURNS INT AS $$
         DECLARE
-            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
+            v_now_us BIGINT := {now_us};
             v_name TEXT;
             v_deleted INT := 0;
         BEGIN
             FOR v_name IN
                 SELECT name FROM {table_name}
                     WHERE state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                      AND updated_at + GREATEST(
-                          p_ttl, {state_ttl_factor} * cool_down
-                      ) <= v_now
+                      AND {sweep_end} <= v_now_us
                     LIMIT p_limit
             LOOP
                 -- Skip any circuit a call is currently mutating, so the
@@ -379,9 +406,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                     DELETE FROM {table_name}
                         WHERE name = v_name
                           AND state NOT IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                          AND updated_at + GREATEST(
-                              p_ttl, {state_ttl_factor} * cool_down
-                          ) <= v_now;
+                          AND {sweep_end} <= v_now_us;
                     v_deleted := v_deleted + 1;
                 END IF;
             END LOOP;
@@ -390,10 +415,10 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
         $$ LANGUAGE plpgsql;
     """
 
-    _SQL_CLEANUP = "SELECT {table_name}_cb_cleanup($1, $2);"
+    _SQL_CLEANUP = "SELECT {table_name}_cb_cleanup_v2($1::bigint, $2);"
 
     _SQL_CREATE_FN_GET_STATE = """
-        CREATE OR REPLACE FUNCTION {table_name}_cb_get_state(p_name TEXT)
+        CREATE OR REPLACE FUNCTION {table_name}_cb_get_state_v2(p_name TEXT)
         RETURNS TABLE(
             r_state TEXT, r_cerr INT, r_csucc INT,
             r_opened_at DOUBLE PRECISION, r_retry_after DOUBLE PRECISION
@@ -404,7 +429,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             v_csucc INT;
             v_opened_at DOUBLE PRECISION;
             v_cool_down DOUBLE PRECISION;
-            v_now DOUBLE PRECISION := EXTRACT(EPOCH FROM clock_timestamp());
+            v_now_us BIGINT := {now_us};
         BEGIN
             SELECT t.state, t.cerr, t.csucc, t.opened_at, t.cool_down
                 INTO v_state, v_cerr, v_csucc, v_opened_at, v_cool_down
@@ -412,9 +437,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                 WHERE t.name = p_name
                   AND (
                       t.state IN ('FORCED_OPEN', 'FORCED_CLOSED')
-                      OR t.updated_at + GREATEST(
-                          {state_ttl}, {state_ttl_factor} * t.cool_down
-                      ) > EXTRACT(EPOCH FROM clock_timestamp())
+                      OR {lifetime_end} > v_now_us
                   );
             IF v_state IS NULL THEN
                 RETURN QUERY SELECT 'CLOSED'::TEXT, 0, 0,
@@ -428,62 +451,15 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
     """
 
     _SQL_REMAINING = (
-        "CASE WHEN v_state = 'OPEN' THEN GREATEST("
-        "0::double precision, v_opened_at + v_cool_down - v_now"
-        ") ELSE 0::double precision END"
+        "(CASE WHEN v_state = 'OPEN' THEN GREATEST("
+        "0, {opened_us} + {cool_down_us} - v_now_us"
+        ") ELSE 0 END / 1000000.0)::double precision"
     )
     """Seconds an OPEN circuit still has to wait out.
 
     Evaluated inside the function, on the Postgres clock that stamped
     `opened_at`. The two clocks have no common reference from Python, so
     the subtraction cannot be done there.
-    """
-
-    _SQL_DROP_WIDENED_FNS = """
-        DO $do$
-        DECLARE
-            v_name TEXT;
-        BEGIN
-            FOREACH v_name IN ARRAY ARRAY[
-                '{table_name}_cb_record_error',
-                '{table_name}_cb_record_success',
-                '{table_name}_cb_get_state'
-            ] LOOP
-                IF EXISTS (
-                    SELECT 1 FROM pg_proc p
-                        JOIN pg_namespace n ON n.oid = p.pronamespace
-                        WHERE p.proname = v_name
-                          AND n.nspname = current_schema()
-                          AND pg_get_function_result(p.oid)
-                              NOT LIKE '%r_retry_after%'
-                ) THEN
-                    EXECUTE format(
-                        'DROP FUNCTION %I(%s)',
-                        v_name,
-                        CASE WHEN v_name = '{table_name}_cb_get_state'
-                            THEN 'TEXT'
-                            ELSE 'TEXT, INT, DOUBLE PRECISION'
-                        END
-                    );
-                END IF;
-            END LOOP;
-        END
-        $do$;
-    """
-    """Drops the three functions whose result columns grew, once.
-
-    Postgres refuses `CREATE OR REPLACE FUNCTION` when the returned columns
-    change, so an install that predates `r_retry_after` has to be dropped
-    first. The drop is guarded on the stored result signature rather than
-    run unconditionally: a new function OID invalidates every cached plan
-    that references it across the cluster, and paying that on every restart
-    forever, for a migration that happens once, is not a trade worth making.
-
-    Runs under the same advisory lock as the creates that follow, in one
-    transaction, so two replicas cannot migrate at once. The runtime call
-    path takes no advisory lock, so a replica already serving on the old
-    functions blocks the drop until its call returns, which is what the
-    lock Postgres takes on the function is for.
     """
 
     _KEY_PREFIX = "cb:"
@@ -620,7 +596,6 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             )
             for sql in (
                 self._SQL_CREATE_TABLE,
-                self._SQL_DROP_WIDENED_FNS,
                 self._SQL_CREATE_FN_TRY_ACQUIRE,
                 self._SQL_CREATE_FN_RECORD_ERROR,
                 self._SQL_CREATE_FN_RECORD_SUCCESS,
@@ -632,9 +607,8 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
                     sql.format(
                         table_name=self._table_name,
                         lock_namespace=_CIRCUIT_BREAKER_ADVISORY_NAMESPACE,
-                        state_ttl=_STATE_TTL,
-                        state_ttl_factor=_STATE_TTL_RESET_FACTOR,
-                        remaining=self._SQL_REMAINING,
+                        remaining=self._SQL_REMAINING.format(**_SQL_TIME),
+                        **_SQL_TIME,
                     )
                 )
 
@@ -668,7 +642,7 @@ class PostgresCircuitBreakerAdapter(CircuitBreakerBackend):
             delay = interval
             try:
                 await self._provider.client.execute(
-                    self._cleanup_sql, _STATE_TTL, _CLEANUP_LIMIT
+                    self._cleanup_sql, _IDLE_TTL_US, _CLEANUP_LIMIT
                 )
             except Exception:
                 logger.warning(
@@ -706,12 +680,12 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
     atomically across replicas.
     """
 
-    _SQL_TRY_ACQUIRE = "SELECT {table_name}_cb_try_acquire($1, $2, $3);"
+    _SQL_TRY_ACQUIRE = "SELECT {table_name}_cb_try_acquire_v2($1, $2);"
     _SQL_RECORD_ERROR = (
-        "SELECT * FROM {table_name}_cb_record_error($1, $2, $3);"
+        "SELECT * FROM {table_name}_cb_record_error_v2($1, $2, $3::bigint);"
     )
     _SQL_RECORD_SUCCESS = (
-        "SELECT * FROM {table_name}_cb_record_success($1, $2, $3);"
+        "SELECT * FROM {table_name}_cb_record_success_v2($1, $2);"
     )
     _SQL_ABANDON = """
         UPDATE {table_name}
@@ -719,8 +693,10 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
                 updated_at = EXTRACT(EPOCH FROM clock_timestamp())
             WHERE name = $1 AND state = 'HALF_OPEN' AND ho_admit > 0;
     """
-    _SQL_TRANSITION = "SELECT {table_name}_cb_transition($1, $2, $3);"
-    _SQL_GET_STATE = "SELECT * FROM {table_name}_cb_get_state($1);"
+    _SQL_TRANSITION = (
+        "SELECT {table_name}_cb_transition_v2($1, $2, $3::bigint);"
+    )
+    _SQL_GET_STATE = "SELECT * FROM {table_name}_cb_get_state_v2($1);"
 
     def __init__(
         self,
@@ -730,12 +706,15 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
         table_name: str,
         config: ConsecutiveCountConfig,
     ) -> None:
-        """Bind the strategy to the breaker's name and config."""
+        """Bind the strategy to the breaker's name and config.
+
+        The cool-down is passed to the functions in whole microseconds.
+        """
         self._pool = pool
         self._name = name
         self._error_threshold = config.error_threshold
         self._success_threshold = config.success_threshold
-        self._reset_timeout = config.reset_timeout
+        self._reset_timeout_us = microseconds(config.reset_timeout)
         self._half_open_capacity = config.half_open_capacity
         self._try_acquire_sql = self._SQL_TRY_ACQUIRE.format(
             table_name=table_name
@@ -758,7 +737,6 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
             self._try_acquire_sql,
             self._name,
             self._half_open_capacity,
-            self._reset_timeout,
         )
         return bool(result)
 
@@ -778,14 +756,13 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
                 self._record_success_sql,
                 self._name,
                 self._success_threshold,
-                self._reset_timeout,
             )
         else:
             row = await self._pool.fetchrow(
                 self._record_error_sql,
                 self._name,
                 self._error_threshold,
-                self._reset_timeout,
+                self._reset_timeout_us,
             )
         return self._unpack(row)
 
@@ -793,14 +770,16 @@ class _PostgresConsecutiveCountStrategy(CircuitBreakerStrategy):
         self,
         *,
         desired: CircuitBreakerState,
-        cool_down: float | None = None,
+        cool_down: timedelta | None = None,
     ) -> None:
         """Manual transition. Last-write-wins."""
         await self._pool.execute(
             self._transition_sql,
             self._name,
             desired.value,
-            cool_down if cool_down is not None else self._reset_timeout,
+            microseconds(cool_down)
+            if cool_down is not None
+            else self._reset_timeout_us,
         )
 
     async def get_snapshot(self) -> CircuitBreakerSnapshot:

@@ -9,7 +9,7 @@ import threading
 from collections import OrderedDict
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, Any, Final, Self, overload
@@ -49,14 +49,14 @@ _KEYED_MAXSIZE = 1024
 _KEYED_RESIDENCY = 300.0
 """Seconds a per-key circuit is immune from eviction after its last call."""
 
-_STATE_TTL = 86400.0
-"""Seconds a circuit's stored state survives without activity.
+_STATE_TTL = timedelta(days=1)
+"""How long a circuit's stored state survives without activity.
 
 Once the lifetime lapses the backend reclaims the entry, and the next
 call on that circuit starts from a clean `CLOSED`.
 """
 
-_STATE_TTL_RESET_FACTOR = 10.0
+_STATE_TTL_RESET_FACTOR = 10
 """Multiple of a circuit's cool-down that floors its stored lifetime.
 
 An `OPEN` circuit is rewritten by nothing: every call is rejected
@@ -65,7 +65,7 @@ the cool-down it is waiting out.
 """
 
 
-def _resolve_state_ttl(reset_timeout: float) -> float:
+def _resolve_state_ttl(reset_timeout: timedelta) -> timedelta:
     """Return the stored-state lifetime for a circuit's `reset_timeout`."""
     return max(_STATE_TTL, _STATE_TTL_RESET_FACTOR * reset_timeout)
 
@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from types import TracebackType
 
-    from pydantic import Discriminator, PositiveFloat, PositiveInt
+    from pydantic import Discriminator, PositiveInt
 
     from grelmicro.resilience._protocol import (
         CircuitBreakerBackend,
@@ -390,10 +390,11 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
             ),
         ] = None,
         reset_timeout: Annotated[
-            PositiveFloat | None,
+            int | timedelta | None,
             Doc(
-                "Seconds the breaker stays `OPEN` before transitioning"
-                " to `HALF_OPEN`. Default: 30.0."
+                "How long the breaker stays `OPEN` before transitioning"
+                " to `HALF_OPEN`, in whole seconds or as a `timedelta`."
+                " A float is refused. Default: 30."
             ),
         ] = None,
         half_open_capacity: Annotated[
@@ -885,7 +886,7 @@ class CircuitBreaker(Reconfigurable["CircuitBreakerConfig"]):
         self,
         desired: CircuitBreakerState,
         cause: _TransitionCause,
-        cool_down: float | None = None,
+        cool_down: timedelta | None = None,
     ) -> None:
         """Forward the transition to the strategy and refresh local cache."""
         state = self._state

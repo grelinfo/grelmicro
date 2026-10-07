@@ -1,12 +1,12 @@
 """Consecutive-count circuit breaker algorithm configuration."""
 
+from datetime import timedelta
 from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
     BeforeValidator,
     ImportString,
-    PositiveFloat,
     PositiveInt,
     field_validator,
 )
@@ -14,6 +14,7 @@ from pydantic_settings import NoDecode
 from typing_extensions import Doc
 
 from grelmicro._config import parse_csv_or_json
+from grelmicro._duration import Duration
 from grelmicro.types import LogLevel
 
 
@@ -31,11 +32,15 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
 
     Example:
     ```python
+    from datetime import timedelta
+
     from grelmicro.resilience import CircuitBreaker, ConsecutiveCountConfig
 
     cb = CircuitBreaker.from_config(
         "payments",
-        ConsecutiveCountConfig(error_threshold=5, reset_timeout=30.0),
+        ConsecutiveCountConfig(
+            error_threshold=5, reset_timeout=timedelta(seconds=30)
+        ),
     )
     ```
 
@@ -78,11 +83,18 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
     ] = 2
 
     reset_timeout: Annotated[
-        PositiveFloat,
+        Duration,
         Doc(
-            "Seconds the breaker stays `OPEN` before transitioning to `HALF_OPEN`."
+            """
+            How long the breaker stays `OPEN` before transitioning to
+            `HALF_OPEN`, in whole seconds or as a `timedelta`.
+
+            A float is refused. From text, such as an environment
+            variable, it reads whole seconds (`"30"`) or an ISO 8601
+            duration (`"PT0.5S"`).
+            """
         ),
-    ] = 30.0
+    ] = timedelta(seconds=30)
 
     half_open_capacity: Annotated[
         PositiveInt,

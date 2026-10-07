@@ -14,6 +14,7 @@ the thing under test.
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -76,7 +77,7 @@ async def test_breaker_trips_on_dead_dependency_then_recovers(
             f"dep-{uuid4().hex}",
             error_threshold=3,
             success_threshold=1,
-            reset_timeout=2.0,
+            reset_timeout=timedelta(seconds=2),
             half_open_capacity=1,
             backend=cb_backend,
         )

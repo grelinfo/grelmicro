@@ -1,5 +1,7 @@
 """Tests for CircuitBreaker construction paths."""
 
+from datetime import timedelta
+
 import pytest
 
 from grelmicro.errors import SettingsValidationError
@@ -11,12 +13,12 @@ from grelmicro.resilience.circuitbreaker import (
 ERROR_KWARG = 7
 DEFAULT_ERROR = 5
 DEFAULT_SUCCESS = 2
-DEFAULT_RESET = 30.0
+DEFAULT_RESET = timedelta(seconds=30)
 DEFAULT_HALF_OPEN_CAPACITY = 1
 DEFAULT_LOG_LEVEL = "WARNING"
 
 _FACTORY_SUCCESS = 3
-_FACTORY_RESET = 15.0
+_FACTORY_RESET = timedelta(seconds=15)
 _FACTORY_HALF_OPEN = 2
 
 
@@ -34,7 +36,7 @@ def test_bare_constructor_uses_consecutive_count_defaults() -> None:
 def test_from_config_uses_given_config() -> None:
     """`CircuitBreaker.from_config()` constructs from a name and a config."""
     cfg = ConsecutiveCountConfig(
-        error_threshold=ERROR_KWARG, reset_timeout=10.0
+        error_threshold=ERROR_KWARG, reset_timeout=timedelta(seconds=10)
     )
     cb = CircuitBreaker.from_config("payments", cfg)
     assert cb.name == "payments"

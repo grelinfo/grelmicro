@@ -6,6 +6,7 @@ A field typed `Duration` takes whole seconds as an `int` or a
 
 import re
 from datetime import timedelta
+from time import time_ns
 from typing import Annotated, Any
 
 from pydantic import (
@@ -67,6 +68,38 @@ def microseconds(duration: timedelta) -> int:
 def nanoseconds(duration: timedelta) -> int:
     """Return `duration` in whole nanoseconds, exactly."""
     return duration // MICROSECOND * 1_000
+
+
+_MICROSECONDS_PER_SECOND = SECOND // MICROSECOND
+
+_NANOSECONDS_PER_MICROSECOND = 1_000
+
+
+def seconds_to_microseconds(seconds: float) -> int:
+    """Return a number of seconds in whole microseconds, to the nearest.
+
+    A count of microseconds written as seconds with
+    `microseconds_to_seconds` reads back exactly.
+    """
+    return round(seconds * _MICROSECONDS_PER_SECOND)
+
+
+def microseconds_to_seconds(count: int) -> float:
+    """Return a count of whole microseconds as seconds."""
+    return count / _MICROSECONDS_PER_SECOND
+
+
+def clock_microseconds() -> int:
+    """Return the wall clock in whole microseconds since the epoch, rounded down."""
+    return time_ns() // _NANOSECONDS_PER_MICROSECOND
+
+
+def clock_microseconds_up() -> int:
+    """Return the wall clock in whole microseconds since the epoch, rounded up.
+
+    The time it returns is never before the instant it reads.
+    """
+    return -(-time_ns() // _NANOSECONDS_PER_MICROSECOND)
 
 
 def _name(info: ValidationInfo) -> str:
