@@ -157,8 +157,8 @@ take.
 | `HealthChecksConfig.cache_ttl` | `int \| timedelta` | not yet |
 | `JWKSConfig.ttl`, `.cache_ttl`, `DiscoveryConfig.ttl`, `.cache_ttl`, `JWTKeysConfig.cache_ttl` | `int \| timedelta` | not yet |
 | `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | not yet |
-| `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | not yet |
-| cron `misfire_grace_seconds`, renamed `misfire_grace` | `int \| timedelta` | not yet |
+| `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | yes |
+| cron `misfire_grace_seconds`, renamed `misfire_grace` | `int \| timedelta` | yes |
 | `max_wait` on the rate limiter and the bulkhead | `float` | stays |
 | `retry_interval`, `error_interval`, `poll_interval`, `export_interval` | `float` | stays |
 | `timeout`, `wait_timeout`, `backend_timeout`, `request_timeout` | `float` | stays |

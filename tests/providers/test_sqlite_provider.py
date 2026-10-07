@@ -50,7 +50,7 @@ def _busy_error() -> sqlite3.OperationalError:
 
 
 @_tasks.every(
-    seconds=0.05,
+    interval=timedelta(milliseconds=50),
     gate=TaskLock(
         lease_duration=2, min_hold_duration=timedelta(milliseconds=50)
     ),

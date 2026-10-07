@@ -15,7 +15,7 @@ SmallRye Health, MicroProfile Fault Tolerance, the scheduler, the cache and `qua
 | `@Fallback` | `@fallback(when=..., default=...)` | [Fallback](../resilience/fallback.md) |
 | SmallRye `@RateLimit` | `RateLimiter.sliding_window(...)`, `RateLimiter.token_bucket(...)` | [Rate Limiter](../resilience/rate-limiter.md) |
 | Several fault tolerance annotations on one method | `Stack(...)` | [Composition](../resilience/composition.md) |
-| `@Scheduled(every = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
+| `@Scheduled(every = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(interval=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | Quartz clustered mode | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
 | `@CacheResult`, `@CacheInvalidate` | `@cached(cache)`, `cache.delete(...)` | [@cached](../cache/cached.md) |
 | Micrometer, `@Timed` | `Metrics()`, `@measure` | [Metrics](../metrics.md) |

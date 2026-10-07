@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import time
 from asyncio import sleep
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Self
 
 import pytest
@@ -125,7 +125,7 @@ def _pin_clock(mocker: MockFixture) -> None:
 
 async def test_task_emits_success(metrics_reader: MetricsHarness) -> None:
     """A successful task run emits runs(outcome=success), duration, active."""
-    task = IntervalTask(seconds=1, function=_work, name="cleanup")
+    task = IntervalTask(interval=1, function=_work, name="cleanup")
     await task._run_with_sync([])
 
     runs = metrics_reader.points("grelmicro.task.runs")
@@ -142,7 +142,7 @@ async def test_task_emits_success(metrics_reader: MetricsHarness) -> None:
 
 async def test_task_emits_error(metrics_reader: MetricsHarness) -> None:
     """A failing task run emits runs(outcome=error) with the error type."""
-    task = IntervalTask(seconds=1, function=_boom, name="boom")
+    task = IntervalTask(interval=1, function=_boom, name="boom")
     await task._run_with_sync([])
 
     runs = metrics_reader.points("grelmicro.task.runs")
@@ -158,7 +158,7 @@ async def test_task_metrics_noop_when_off() -> None:
     """A task runs without error when no Metrics component is active."""
     global _ran  # noqa: PLW0603
     _ran = False
-    task = IntervalTask(seconds=1, function=_work, name="svc")
+    task = IntervalTask(interval=1, function=_work, name="svc")
     await task._run_with_sync([])
     assert _ran
 
@@ -170,7 +170,7 @@ async def test_interval_task_emits_coordination_error(
     metrics_reader: MetricsHarness,
 ) -> None:
     """A lock that fails to acquire emits runs(outcome=coordination_error)."""
-    task = IntervalTask(seconds=1, function=_work, name="sync", sync=BadLock())
+    task = IntervalTask(interval=1, function=_work, name="sync", sync=BadLock())
 
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
@@ -191,7 +191,7 @@ async def test_interval_task_emits_skipped(
 ) -> None:
     """A fire a peer already holds emits runs(outcome=skipped)."""
     task = IntervalTask(
-        seconds=1, function=_work, name="peer", sync=WouldBlockLock()
+        interval=1, function=_work, name="peer", sync=WouldBlockLock()
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -214,7 +214,7 @@ async def test_interval_task_counts_expired_lock_fire_once(
     inflate the total the counter exists to give.
     """
     task = IntervalTask(
-        seconds=1,
+        interval=1,
         function=_work,
         name="expired",
         sync=_LockExpiredOnRelease(),
@@ -233,7 +233,7 @@ async def test_interval_task_counts_fire_once_when_release_fails(
 ) -> None:
     """A sync lock failing on release does not count the fire twice."""
     task = IntervalTask(
-        seconds=1, function=_work, name="release", sync=_FailsOnRelease()
+        interval=1, function=_work, name="release", sync=_FailsOnRelease()
     )
 
     async with asyncio.TaskGroup() as tg:
@@ -370,7 +370,7 @@ async def test_interval_task_emits_missed_when_claimed_but_not_admitted(
     """
     micro = Grelmicro(uses=[Coordination(lock=MemoryLockAdapter())])
     task = IntervalTask(
-        seconds=60,
+        interval=60,
         function=_work,
         name="unadmitted",
         gate="claim",
@@ -458,7 +458,7 @@ async def test_cron_task_emits_missed_when_too_late_to_replay(
         name="dropped",
         backend=backend,
         gate="claim",
-        misfire_grace_seconds=1,
+        misfire_grace=1,
     )
 
     await task._tick_guarded(catchup=False)
@@ -494,7 +494,7 @@ async def test_cron_task_emits_skipped_when_peer_took_the_dropped_fire(
         name="taken",
         backend=backend,
         gate="claim",
-        misfire_grace_seconds=1,
+        misfire_grace=1,
     )
 
     await task._tick_guarded(catchup=False)
@@ -538,7 +538,7 @@ async def test_cron_task_missed_fire_counted_once_across_workers(
             name="shared",
             backend=backend,
             gate="claim",
-            misfire_grace_seconds=1,
+            misfire_grace=1,
         )
         for _ in range(WORKERS)
     ]
@@ -602,7 +602,7 @@ async def test_interval_task_records_no_delay_on_the_first_fire(
     metrics_reader: MetricsHarness,
 ) -> None:
     """Nothing was planned before the first iteration, so nothing is recorded."""
-    task = IntervalTask(seconds=1, function=_work, name="cleanup")
+    task = IntervalTask(interval=1, function=_work, name="cleanup")
 
     await task._run_with_sync([])
 
@@ -613,7 +613,9 @@ async def test_interval_task_records_the_delay_after_the_first_fire(
     metrics_reader: MetricsHarness,
 ) -> None:
     """A second fire measures how far past the interval the body started."""
-    task = IntervalTask(seconds=0.01, function=_work, name="cleanup")
+    task = IntervalTask(
+        interval=timedelta(milliseconds=10), function=_work, name="cleanup"
+    )
     task._last_loop_start = time.monotonic() - 0.05
 
     await task._run_with_sync([])
@@ -628,7 +630,7 @@ async def test_interval_task_reports_the_next_run(
     metrics_reader: MetricsHarness,
 ) -> None:
     """The loop publishes the instant of the next fire once one is planned."""
-    task = IntervalTask(seconds=60, function=_work, name="cleanup")
+    task = IntervalTask(interval=60, function=_work, name="cleanup")
 
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)

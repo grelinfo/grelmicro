@@ -504,7 +504,7 @@ def test_a_wait_budget_that_is_not_finite_is_refused(budget: float) -> None:
 def test_a_function_already_registered_as_a_task_is_refused() -> None:
     """The schedule holds what it registered, so the limiter goes above."""
     tasks = Tasks()
-    registered = tasks.every(seconds=60, name="metered")(metered_job)
+    registered = tasks.every(interval=60, name="metered")(metered_job)
 
     limiter = RateLimiter.token_bucket("api", capacity=1, refill_rate=1)
 

@@ -51,7 +51,7 @@ RETRIES_BEFORE_DEADLINE = 2
 def test_interval_task_init() -> None:
     """Test Interval Task Initialization."""
     # Act
-    task = IntervalTask(seconds=1, function=test1)
+    task = IntervalTask(interval=1, function=test1)
     # Assert
     assert task.name == "tests.task.samples:test1"
 
@@ -59,36 +59,34 @@ def test_interval_task_init() -> None:
 def test_interval_task_init_with_name() -> None:
     """Test Interval Task Initialization with Name."""
     # Act
-    task = IntervalTask(seconds=1, function=test1, name="test1")
+    task = IntervalTask(interval=1, function=test1, name="test1")
     # Assert
     assert task.name == "test1"
 
 
-def test_interval_task_init_with_seconds_float() -> None:
-    """Test Interval Task accepts a number of seconds."""
-    # Arrange
-    seconds = 5
+def test_interval_task_whole_seconds_reads_back_as_timedelta() -> None:
+    """Whole seconds are held as a `timedelta`."""
     # Act
-    task = IntervalTask(seconds=seconds, function=test1)
+    task = IntervalTask(interval=5, function=test1)
     # Assert
-    assert task._seconds == seconds
+    assert task._interval == timedelta(seconds=5)
 
 
-def test_interval_task_init_with_seconds_timedelta() -> None:
-    """Test Interval Task accepts a timedelta and resolves it to seconds."""
+def test_interval_task_timedelta_kept_exactly() -> None:
+    """A `timedelta` is held as given."""
     # Arrange
     interval = timedelta(minutes=2)
     # Act
-    task = IntervalTask(seconds=interval, function=test1)
+    task = IntervalTask(interval=interval, function=test1)
     # Assert
-    assert task._seconds == interval.total_seconds()
+    assert task._interval == interval
 
 
-def test_interval_task_init_with_invalid_interval() -> None:
-    """Test Interval Task Initialization with Invalid Interval."""
+def test_interval_task_zero_interval_refused() -> None:
+    """An interval of zero is refused under its own name."""
     # Act / Assert
-    with pytest.raises(ValueError, match="seconds must be greater than 0"):
-        IntervalTask(seconds=0, function=test1)
+    with pytest.raises(ValueError, match="interval must be greater than zero"):
+        IntervalTask(interval=0, function=test1)
 
 
 def test_interval_task_lock_default_name_restamped() -> None:
@@ -96,7 +94,7 @@ def test_interval_task_lock_default_name_restamped() -> None:
     lease_duration = 300
     backend = MemoryLockAdapter()
     task = IntervalTask(
-        seconds=60,
+        interval=60,
         function=test1,
         name="cleanup",
         gate=TaskLock(
@@ -115,7 +113,7 @@ def test_interval_task_lock_explicit_name_honored() -> None:
     """An explicit-named lock keeps its own name."""
     backend = MemoryLockAdapter()
     task = IntervalTask(
-        seconds=60,
+        interval=60,
         function=test1,
         name="cleanup",
         gate=TaskLock(
@@ -132,10 +130,10 @@ def test_interval_task_lock_min_hold_less_than_seconds_raises() -> None:
     backend = MemoryLockAdapter()
     with pytest.raises(
         ValueError,
-        match="min_hold_duration must be greater than or equal to seconds",
+        match="min_hold_duration must be greater than or equal to interval",
     ):
         IntervalTask(
-            seconds=60,
+            interval=60,
             function=test1,
             gate=TaskLock(backend=backend, lease_duration=10),
         )
@@ -146,7 +144,7 @@ def test_interval_task_leader_auto_locks() -> None:
     seconds = 60
     leader = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
     task = IntervalTask(
-        seconds=seconds,
+        interval=seconds,
         function=test1,
         name="cleanup",
         gate=leader,
@@ -160,7 +158,7 @@ def test_interval_task_leader_auto_locks() -> None:
 
 def test_interval_task_local_no_sync() -> None:
     """No gate leaves the task local."""
-    task = IntervalTask(seconds=60, function=test1)
+    task = IntervalTask(interval=60, function=test1)
     assert task._sync_primitives == []
 
 
@@ -173,7 +171,7 @@ def test_interval_task_claim_builds_interval_lock(
     monkeypatch.setenv("GREL_TASKLOCK_LEASE_DURATION", "999")
     monkeypatch.setenv("GREL_TASKLOCK_CLEANUP_MIN_HOLD_DURATION", "1")
     task = IntervalTask(
-        seconds=seconds, function=test1, name="cleanup", gate="claim"
+        interval=seconds, function=test1, name="cleanup", gate="claim"
     )
     (task_lock,) = task._sync_primitives
     assert isinstance(task_lock, TaskLock)
@@ -187,7 +185,7 @@ def test_interval_task_lock_gate_is_the_callers_handle() -> None:
     lock = TaskLock(
         backend=MemoryLockAdapter(), lease_duration=120, min_hold_duration=60
     )
-    task = IntervalTask(seconds=60, function=test1, name="cleanup", gate=lock)
+    task = IntervalTask(interval=60, function=test1, name="cleanup", gate=lock)
     assert task._sync_primitives == [lock]
     assert lock.name == "cleanup"
 
@@ -197,16 +195,16 @@ def test_interval_task_lock_gate_refuses_a_second_task() -> None:
     lock = TaskLock(
         backend=MemoryLockAdapter(), lease_duration=120, min_hold_duration=60
     )
-    IntervalTask(seconds=60, function=test1, name="first", gate=lock)
+    IntervalTask(interval=60, function=test1, name="first", gate=lock)
     with pytest.raises(ValueError, match="already gates task 'first'"):
-        IntervalTask(seconds=60, function=test1, name="second", gate=lock)
+        IntervalTask(interval=60, function=test1, name="second", gate=lock)
 
 
 def test_interval_task_gate_rejects_unknown_value() -> None:
     """A gate outside None, "claim", `TaskLock` and `LeaderElection` is refused."""
     with pytest.raises(TypeError, match="gate must be"):
         IntervalTask(
-            seconds=60,
+            interval=60,
             function=test1,
             gate="leader",  # ty: ignore[invalid-argument-type]
         )
@@ -218,7 +216,7 @@ def test_interval_task_sync_rejects_leader_election(*, as_guard: bool) -> None:
     election = LeaderElection("svc", backend=MemoryLeaderElectionAdapter())
     sync = election.guard() if as_guard else election
     with pytest.raises(TypeError, match="as gate="):
-        IntervalTask(seconds=60, function=test1, sync=sync)
+        IntervalTask(interval=60, function=test1, sync=sync)
 
 
 @pytest.mark.parametrize(
@@ -243,7 +241,7 @@ async def test_interval_task_logs_gate_at_start(
         "leader": LeaderElection("svc", backend=MemoryLeaderElectionAdapter()),
     }.get(gate or "", gate)
     task = IntervalTask(
-        seconds=60,
+        interval=60,
         function=test1,
         gate=resolved,  # ty: ignore[invalid-argument-type]
     )
@@ -259,7 +257,7 @@ async def test_interval_task_logs_gate_at_start(
 async def test_interval_task_start() -> None:
     """Test Interval Task Start."""
     # Arrange
-    task = IntervalTask(seconds=1, function=notify)
+    task = IntervalTask(interval=1, function=notify)
     # Act
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
@@ -270,7 +268,7 @@ async def test_interval_task_start() -> None:
 
 async def test_interval_task_last_fire_outcome() -> None:
     """last_fire.outcome is the FireOutcome.SUCCESS member after a run."""
-    task = IntervalTask(seconds=1, function=notify)
+    task = IntervalTask(interval=1, function=notify)
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
         async with samples.condition:
@@ -288,7 +286,7 @@ async def test_interval_task_execution_error(
 ) -> None:
     """Test Interval Task Execution Error."""
     # Arrange
-    task = IntervalTask(seconds=1, function=always_fail)
+    task = IntervalTask(interval=1, function=always_fail)
     # Act
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
@@ -309,7 +307,7 @@ async def test_interval_task_would_block(
     """Test Interval Task WouldBlock logs at DEBUG, not ERROR."""
     # Arrange
     caplog.set_level("DEBUG")
-    task = IntervalTask(seconds=1, function=notify, sync=WouldBlockLock())
+    task = IntervalTask(interval=1, function=notify, sync=WouldBlockLock())
 
     # Act
     async with asyncio.TaskGroup() as tg:
@@ -335,7 +333,7 @@ async def test_interval_task_synchronization_error(
 ) -> None:
     """Test Interval Task Synchronization Error."""
     # Arrange
-    task = IntervalTask(seconds=1, function=notify, sync=BadLock())
+    task = IntervalTask(interval=1, function=notify, sync=BadLock())
 
     # Act
     async with asyncio.TaskGroup() as tg:
@@ -365,7 +363,7 @@ async def test_interval_stop(
         "grelmicro.task._interval.asyncio.sleep",
         side_effect=CustomBaseException,
     )
-    task = IntervalTask(seconds=1, function=test1)
+    task = IntervalTask(interval=1, function=test1)
 
     async def leader_election_during_runtime_error() -> None:
         async with asyncio.TaskGroup() as tg:
@@ -389,19 +387,19 @@ async def test_interval_stop(
 
 def test_interval_task_next_fire_time_none_before_start() -> None:
     """next_fire_time is None before the loop starts."""
-    task = IntervalTask(seconds=1, function=test1)
+    task = IntervalTask(interval=1, function=test1)
     assert task.next_fire_time is None
 
 
 def test_interval_task_last_fire_none_before_start() -> None:
     """last_fire is None before the first fire."""
-    task = IntervalTask(seconds=1, function=test1)
+    task = IntervalTask(interval=1, function=test1)
     assert task.last_fire is None
 
 
 async def test_interval_task_next_fire_time_after_loop_starts() -> None:
     """next_fire_time is a timezone-aware datetime after the loop starts running."""
-    task = IntervalTask(seconds=1, function=notify)
+    task = IntervalTask(interval=1, function=notify)
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
         async with samples.condition:
@@ -417,7 +415,7 @@ async def test_interval_task_next_fire_time_after_loop_starts() -> None:
 
 async def test_interval_task_last_fire_success() -> None:
     """last_fire.outcome is 'success' after a successful run."""
-    task = IntervalTask(seconds=1, function=notify)
+    task = IntervalTask(interval=1, function=notify)
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
         async with samples.condition:
@@ -431,7 +429,7 @@ async def test_interval_task_last_fire_success() -> None:
 
 async def test_interval_task_last_fire_error() -> None:
     """last_fire.outcome is 'error' after a failed run."""
-    task = IntervalTask(seconds=1, function=always_fail)
+    task = IntervalTask(interval=1, function=always_fail)
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
         await sleep(SLEEP)
@@ -442,7 +440,7 @@ async def test_interval_task_last_fire_error() -> None:
 
 async def test_interval_task_last_fire_skipped() -> None:
     """last_fire.outcome is 'skipped' when WouldBlockError is raised."""
-    task = IntervalTask(seconds=1, function=notify, sync=WouldBlockLock())
+    task = IntervalTask(interval=1, function=notify, sync=WouldBlockLock())
     async with asyncio.TaskGroup() as tg:
         await start_task(tg, task)
         await sleep(SLEEP)
@@ -462,7 +460,7 @@ async def test_interval_task_lock_gate_refuses_a_shorter_reconfigured_hold() -> 
         lease_duration=timedelta(seconds=interval * 2),
         min_hold_duration=timedelta(seconds=interval),
     )
-    IntervalTask(seconds=interval, function=test1, name="cleanup", gate=lock)
+    IntervalTask(interval=interval, function=test1, name="cleanup", gate=lock)
     shorter = lock.config.model_copy(
         update={"min_hold_duration": timedelta(seconds=1)}
     )
@@ -483,7 +481,7 @@ async def test_interval_task_lock_gate_takes_a_longer_reconfigured_hold() -> (
         lease_duration=timedelta(seconds=interval * 5),
         min_hold_duration=timedelta(seconds=interval),
     )
-    IntervalTask(seconds=interval, function=test1, name="cleanup", gate=lock)
+    IntervalTask(interval=interval, function=test1, name="cleanup", gate=lock)
     longer = lock.config.model_copy(
         update={"min_hold_duration": timedelta(seconds=interval * 2)}
     )
@@ -505,7 +503,7 @@ async def test_interval_task_built_claim_lock_refuses_a_shorter_hold(
         else gate
     )
     task = IntervalTask(
-        seconds=interval,
+        interval=interval,
         function=test1,
         gate=resolved,  # ty: ignore[invalid-argument-type]
     )
@@ -532,7 +530,9 @@ async def test_interval_task_renewal_stops_when_the_body_ends(
     )
     samples.long_body_seconds = interval * 4
     task = IntervalTask(
-        seconds=interval, function=samples.run_long_body, gate=lock
+        interval=timedelta(seconds=interval),
+        function=samples.run_long_body,
+        gate=lock,
     )
     refresh = mocker.spy(lock, "_renew_held")
 
@@ -557,7 +557,9 @@ async def test_interval_task_lost_claim_warns_once_and_keeps_the_body(
     )
     samples.long_body_seconds = interval * 4
     task = IntervalTask(
-        seconds=interval, function=samples.run_long_body, gate=lock
+        interval=timedelta(seconds=interval),
+        function=samples.run_long_body,
+        gate=lock,
     )
     refresh = mocker.patch.object(
         lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
@@ -585,7 +587,9 @@ async def test_interval_task_renewal_retries_until_the_deadline(
     )
     samples.long_body_seconds = interval * 6
     task = IntervalTask(
-        seconds=interval, function=samples.run_long_body, gate=lock
+        interval=timedelta(seconds=interval),
+        function=samples.run_long_body,
+        gate=lock,
     )
     refresh = mocker.patch.object(
         lock, "_renew_held", side_effect=LockReleaseError(name="down")
@@ -612,7 +616,9 @@ async def test_interval_task_logs_a_claim_lost_before_release(
     )
     samples.long_body_seconds = interval * 4
     task = IntervalTask(
-        seconds=interval, function=samples.run_long_body, gate=lock
+        interval=timedelta(seconds=interval),
+        function=samples.run_long_body,
+        gate=lock,
     )
     mocker.patch.object(
         lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
@@ -638,7 +644,9 @@ async def test_interval_task_cancel_survives_a_claim_lost_on_release(
         min_hold_duration=timedelta(seconds=interval),
     )
     task = IntervalTask(
-        seconds=interval, function=samples.worker_1_hold, gate=lock
+        interval=timedelta(seconds=interval),
+        function=samples.worker_1_hold,
+        gate=lock,
     )
     mocker.patch.object(
         lock, "_renew_held", side_effect=LockNotOwnedError(name="lost")
@@ -666,10 +674,10 @@ async def test_interval_task_default_named_gate_reloads_under_its_task() -> (
         for _ in range(2)
     )
     IntervalTask(
-        seconds=RELOAD_INTERVAL, function=test1, name="first", gate=first
+        interval=RELOAD_INTERVAL, function=test1, name="first", gate=first
     )
     IntervalTask(
-        seconds=RELOAD_INTERVAL, function=test1, name="second", gate=second
+        interval=RELOAD_INTERVAL, function=test1, name="second", gate=second
     )
 
     await reconfigure_all(
@@ -695,7 +703,7 @@ async def test_interval_task_gate_built_from_config_stays_static() -> None:
         backend=MemoryLockAdapter(),
     )
     IntervalTask(
-        seconds=RELOAD_INTERVAL, function=test1, name="static", gate=lock
+        interval=RELOAD_INTERVAL, function=test1, name="static", gate=lock
     )
 
     await reconfigure_all(
@@ -735,7 +743,7 @@ async def test_interval_task_renews_the_claim_while_waiting_for_sync() -> None:
         min_hold_duration=timedelta(seconds=interval),
     )
     task = IntervalTask(
-        seconds=interval,
+        interval=timedelta(seconds=interval),
         function=test1,
         gate=lock,
         sync=_SlowLock(interval * 4),
@@ -759,7 +767,9 @@ async def test_interval_task_renewal_follows_a_reconfigured_lease(
     )
     samples.long_body_seconds = interval * 10
     task = IntervalTask(
-        seconds=interval, function=samples.run_long_body, gate=lock
+        interval=timedelta(seconds=interval),
+        function=samples.run_long_body,
+        gate=lock,
     )
     renewals = mocker.spy(lock, "_renew_held")
     shorter = lock.config.model_copy(
@@ -791,7 +801,9 @@ async def test_interval_task_renewal_outlasts_a_short_backend_outage(
     )
     samples.long_body_seconds = lease * 1.5
     task = IntervalTask(
-        seconds=interval, function=samples.run_long_body, gate=lock
+        interval=timedelta(seconds=interval),
+        function=samples.run_long_body,
+        gate=lock,
     )
     renew = lock._renew_held
     back_at = time.monotonic() + lease * 0.85
@@ -816,7 +828,7 @@ async def test_interval_task_default_gate_on_a_name_env_cannot_spell() -> None:
         env_load=False,
     )
     IntervalTask(
-        seconds=RELOAD_INTERVAL, function=test1, name="5m-sync", gate=lock
+        interval=RELOAD_INTERVAL, function=test1, name="5m-sync", gate=lock
     )
 
     await reconfigure_all(

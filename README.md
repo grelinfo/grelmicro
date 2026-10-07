@@ -71,7 +71,7 @@ micro = Grelmicro(uses=[RedisProvider("redis://localhost:6379/0"), tasks])
 micro.install(app)
 
 
-@tasks.every(seconds=60, gate="claim")
+@tasks.every(interval=60, gate="claim")
 async def send_report() -> None:
     print("report sent by this copy")
 ```
@@ -119,7 +119,7 @@ async def sync_inventory() -> dict[str, str]:
         return {"status": "synced"}  # your warehouse call
 
 
-@tasks.every(seconds=60, gate="claim")
+@tasks.every(interval=60, gate="claim")
 async def send_report() -> None:
     print("report sent by this copy")
 ```

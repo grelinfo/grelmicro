@@ -46,7 +46,7 @@ DOUBLE = 21
 DOUBLED = 42
 SLOW_REFILL = 0.0001
 RESET_TIMEOUT = 30.0
-INTERVAL = 60.0
+INTERVAL = 60
 SLOW_DELAY = 0.2
 
 
@@ -980,7 +980,7 @@ async def stacked_job() -> None:
 def test_a_function_already_registered_as_a_task_is_refused() -> None:
     """The schedule holds what it registered, so the stack goes above."""
     tasks = Tasks()
-    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    registered = tasks.every(interval=INTERVAL)(scheduled_job)
     stack = Stack("job", patterns=[a_retry("job")])
 
     with pytest.raises(TypeError, match="already registered as a task"):
@@ -1002,7 +1002,7 @@ async def test_a_task_registered_above_the_stack_runs_through_it() -> None:
     _task_calls.clear()
     tasks = Tasks()
     stack = Stack("job", patterns=[a_retry("job")])
-    tasks.every(seconds=INTERVAL)(stack(stacked_job))
+    tasks.every(interval=INTERVAL)(stack(stacked_job))
 
     task = cast("Any", tasks.tasks[0])
     await task._run_with_sync([])
@@ -1134,7 +1134,7 @@ def test_one_pattern_without_a_list_says_so() -> None:
 def test_a_pattern_over_a_registered_task_is_refused_at_the_mistake() -> None:
     """Every pattern refuses, so the error names the decorator that erred."""
     tasks = Tasks()
-    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    registered = tasks.every(interval=INTERVAL)(scheduled_job)
 
     with pytest.raises(TypeError, match="already registered as a task"):
         Fallback("job", when=Exception, default=None)(registered)
@@ -1143,7 +1143,7 @@ def test_a_pattern_over_a_registered_task_is_refused_at_the_mistake() -> None:
 def test_a_foreign_wrapper_over_a_registered_task_is_refused_too() -> None:
     """A decorator grelmicro does not own still leaves the schedule behind."""
     tasks = Tasks()
-    registered = tasks.every(seconds=INTERVAL)(scheduled_job)
+    registered = tasks.every(interval=INTERVAL)(scheduled_job)
 
     @functools.wraps(registered)
     async def foreign() -> None:
@@ -1242,7 +1242,7 @@ class Service:
 def test_a_bound_method_registered_as_a_task_is_refused() -> None:
     """A bound method carries no mark, so the function under it does."""
     tasks = Tasks()
-    tasks.every(seconds=INTERVAL, name="bound")(Service.job)
+    tasks.every(interval=INTERVAL, name="bound")(Service.job)
     stack = Stack("job", patterns=[a_retry("job")])
     service = Service()
 

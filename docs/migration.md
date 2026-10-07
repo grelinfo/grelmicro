@@ -47,9 +47,60 @@ that a client library used to accept.
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
-| `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to seconds` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
+| `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to interval` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
+| `SettingsValidationError` or `ValueError`: `... must be whole seconds or a timedelta` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
+| `TypeError: TaskRouter.every() got an unexpected keyword argument 'seconds'` | 0.42 | [Pass `interval=`](#0-42-durations) |
+| `TypeError: ... got an unexpected keyword argument 'misfire_grace_seconds'` | 0.42 | [Pass `misfire_grace=`](#0-42-durations) |
+| `TypeError: ... declares cache=60` on a route | 0.42 | [Pass `True` or a `timedelta`](#0-42-durations) |
 
 ## 0.42
+
+### A stored duration is whole seconds or a `timedelta` {#0-42-durations}
+
+A lease, a TTL and a task schedule take whole seconds as an `int`, or a
+`timedelta`. A float is refused, `60.0` included. Each config reads the value
+back as a `timedelta`.
+
+```python
+from datetime import timedelta
+
+from grelmicro.coordination import Lock
+
+# Before
+tasks.every(seconds=0.5)
+tasks.cron("0 * * * *", gate="claim", misfire_grace_seconds=600)
+Lock("cart", lease_duration=0.5)
+
+# After
+tasks.every(interval=timedelta(milliseconds=500))
+tasks.cron("0 * * * *", gate="claim", misfire_grace=600)
+Lock("cart", lease_duration=timedelta(milliseconds=500))
+```
+
+From an environment variable, a duration reads whole seconds (`"60"`) or an
+ISO 8601 duration (`"PT0.5S"`). A decimal such as `"0.5"` is refused. A method
+or decorator argument, such as `cached(ttl=...)`, refuses text.
+
+What moved:
+
+- **Task**: `every(seconds=...)` is now `every(interval=...)`, and cron
+  `misfire_grace_seconds` is now `misfire_grace`. The old names are gone.
+- **Coordination**: `lease_duration` on `Lock`, `ReadWriteLock`,
+  `LeaderElection` and `TaskLock`, `renew_deadline` on `LeaderElection`, and
+  `min_hold_duration` on `TaskLock`.
+- **Cache**: `TTLCacheConfig.ttl`, `Cache.ttl`, `cached(ttl, stale_ttl)`, and
+  the `ttl` and `stale_ttl` of `TTLCache.set`, `.get_or_set` and `.set_many`.
+- **HTTP**: `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl` and its
+  per-path `include` TTLs, and `CachedResponse(ttl)`. `RouteDeclaration.cache`
+  takes `True` for the component TTL or a `timedelta`. A number is refused.
+- **Rate limiter**: the sliding window `window`.
+
+A backend of your own takes each lease or TTL as a `timedelta`: the
+`LockBackend`, `ReadWriteLockBackend`, `LeaderElectionBackend` and
+`CacheBackend` protocols, and `LeaderRecord.lease_duration`.
+
+Redis leader election stores its record under new `le_us:` keys, so a leader
+on the previous version is not seen. Upgrade every worker at once.
 
 ### One `gate=` for which workers run a task {#0-42-task-gate}
 
@@ -64,15 +115,15 @@ every worker by default. A cron task used to claim each fire whenever a
 @tasks.cron("0 3 * * *")
 
 # After
-@tasks.every(seconds=3600, gate="claim")
-@tasks.every(seconds=60, gate=election)
+@tasks.every(interval=3600, gate="claim")
+@tasks.every(interval=60, gate=election)
 @tasks.cron("0 3 * * *", gate="claim")
 ```
 
 `gate="claim"` holds the claim for the whole interval, which the old
 `lock=TaskLock(...)` did not: its one-second hold let replicas with offset
 timers each run their own tick. A `TaskLock` you still pass as the gate needs a
-`min_hold_duration` of at least `seconds`.
+`min_hold_duration` of at least `interval`.
 
 A gated task with no backend reports a coordination error on every fire
 instead of running on every worker. Register a `Coordination` component, or
