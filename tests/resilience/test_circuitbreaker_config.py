@@ -3,8 +3,11 @@
 from datetime import timedelta
 
 import pytest
+from pydantic import ValidationError
 
+from grelmicro._config import reconfigure_all
 from grelmicro.errors import SettingsValidationError
+from grelmicro.resilience import Match, Outcome
 from grelmicro.resilience.circuitbreaker import (
     CircuitBreaker,
     ConsecutiveCountConfig,
@@ -51,14 +54,14 @@ def test_consecutive_count_factory_with_no_kwargs_uses_defaults() -> None:
     assert cb.config.reset_timeout == DEFAULT_RESET
     assert cb.config.half_open_capacity == DEFAULT_HALF_OPEN_CAPACITY
     assert cb.config.log_level == DEFAULT_LOG_LEVEL
-    assert cb.config.ignore_exceptions == ()
+    assert cb.config.when(Outcome.from_exception(LookupError()))
 
 
 def test_consecutive_count_factory_with_every_kwarg() -> None:
     """The factory forwards every kwarg into the built `ConsecutiveCountConfig`."""
     cb = CircuitBreaker.consecutive_count(
         "payments",
-        ignore_exceptions=(ValueError,),
+        when=(ValueError,),
         error_threshold=ERROR_KWARG,
         success_threshold=_FACTORY_SUCCESS,
         reset_timeout=_FACTORY_RESET,
@@ -70,57 +73,136 @@ def test_consecutive_count_factory_with_every_kwarg() -> None:
     assert cb.config.reset_timeout == _FACTORY_RESET
     assert cb.config.half_open_capacity == _FACTORY_HALF_OPEN
     assert cb.config.log_level == "DEBUG"
-    assert cb.config.ignore_exceptions == (ValueError,)
+    assert cb.config.when(Outcome.from_exception(ValueError()))
 
 
-def test_ignore_exceptions_accepts_single_class() -> None:
-    """`ignore_exceptions=SomeError` is accepted as shorthand for `(SomeError,)`."""
-    cb = CircuitBreaker.consecutive_count(
-        "payments", ignore_exceptions=ValueError
-    )
-    assert cb.config.ignore_exceptions == (ValueError,)
+def test_consecutive_count_config_default_when_matches_every_exception() -> (
+    None
+):
+    """The default `when` counts every `Exception` as a failure."""
+    # Arrange
+    config = ConsecutiveCountConfig()
+
+    # Act
+    matched = config.when(Outcome.from_exception(RuntimeError()))
+
+    # Assert
+    assert matched
 
 
-def test_ignore_exceptions_accepts_tuple() -> None:
-    """`ignore_exceptions=(A, B)` is preserved."""
-    cb = CircuitBreaker.consecutive_count(
-        "payments", ignore_exceptions=(ValueError, RuntimeError)
-    )
-    assert cb.config.ignore_exceptions == (ValueError, RuntimeError)
-
-
-def test_ignore_exceptions_accepts_fqn_string() -> None:
-    """`ignore_exceptions="builtins.ValueError"` resolves via `ImportString`."""
-    cfg = ConsecutiveCountConfig(ignore_exceptions="builtins.ValueError")
-    assert cfg.ignore_exceptions == (ValueError,)
-
-
-def test_factory_accepts_fqn_string_for_ignore_exceptions() -> None:
-    """`.consecutive_count(ignore_exceptions="...")` works end-to-end."""
-    cb = CircuitBreaker.consecutive_count(
-        "payments", ignore_exceptions="builtins.ValueError"
-    )
-    assert cb.config.ignore_exceptions == (ValueError,)
-
-
-def test_factory_accepts_mixed_class_and_fqn() -> None:
-    """A tuple mixing class refs and FQN strings resolves consistently."""
+@pytest.mark.parametrize(
+    "when",
+    [
+        ValueError,
+        (KeyError, ValueError),
+        lambda error: isinstance(error, ValueError),
+        Match.exception(ValueError),
+        "builtins.ValueError",
+        "builtins.KeyError,builtins.ValueError",
+        ("builtins.KeyError", ValueError),
+    ],
+    ids=[
+        "class",
+        "tuple",
+        "predicate",
+        "match",
+        "fqn",
+        "fqn-csv",
+        "mixed-tuple",
+    ],
+)
+def test_circuit_breaker_when_shorthand_matches_named_error(
+    when: object,
+) -> None:
+    """Every `when=` shorthand `Retry` accepts names the failing errors."""
+    # Arrange
     cb = CircuitBreaker.consecutive_count(
         "payments",
-        ignore_exceptions=(ValueError, "builtins.RuntimeError"),
+        when=when,  # ty: ignore[invalid-argument-type]
     )
-    assert cb.config.ignore_exceptions == (ValueError, RuntimeError)
+
+    # Act
+    named = cb.config.when(Outcome.from_exception(ValueError()))
+    other = cb.config.when(Outcome.from_exception(RuntimeError()))
+
+    # Assert
+    assert named
+    assert not other
 
 
-def test_ignore_exceptions_accepts_tuple_of_fqn_strings() -> None:
-    """A tuple of FQN strings resolves to a tuple of classes."""
-    cfg = ConsecutiveCountConfig(
-        ignore_exceptions=("builtins.ValueError", "builtins.RuntimeError"),
+def test_circuit_breaker_ignore_exceptions_keyword_raises_type_error() -> None:
+    """The removed `ignore_exceptions=` keyword is refused."""
+    # Act / Assert
+    with pytest.raises(TypeError, match="ignore_exceptions"):
+        CircuitBreaker.consecutive_count(
+            "payments",
+            ignore_exceptions=ValueError,  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        )
+
+
+def test_consecutive_count_config_ignore_exceptions_field_is_refused() -> None:
+    """The removed `ignore_exceptions` field is refused by the config."""
+    # Act / Assert
+    with pytest.raises(ValidationError, match="ignore_exceptions"):
+        ConsecutiveCountConfig(ignore_exceptions=(ValueError,))  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+
+
+def test_circuit_breaker_when_from_environment_names_failing_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`GREL_CIRCUITBREAKER_{NAME}_WHEN` reads fully-qualified class names."""
+    # Arrange
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv(
+        "GREL_CIRCUITBREAKER_PAYMENTS_WHEN",
+        "builtins.KeyError,builtins.ValueError",
     )
-    assert cfg.ignore_exceptions == (ValueError, RuntimeError)
+
+    # Act
+    cb = CircuitBreaker.consecutive_count("payments")
+
+    # Assert
+    assert cb.config.when(Outcome.from_exception(ValueError()))
+    assert not cb.config.when(Outcome.from_exception(RuntimeError()))
 
 
 def test_invalid_threshold_raises() -> None:
     """Non-positive threshold values raise `ValidationError`."""
     with pytest.raises(SettingsValidationError):
         CircuitBreaker.consecutive_count("payments", error_threshold=0)
+
+
+async def test_circuit_breaker_reconfigure_with_identical_config_keeps_binding() -> (
+    None
+):
+    """Reconfiguring with an identical config keeps the bound strategy."""
+    # Arrange
+    cb = CircuitBreaker.from_config(
+        "same-config", ConsecutiveCountConfig(when=ValueError)
+    )
+    state = cb._state
+
+    # Act
+    await cb.reconfigure(ConsecutiveCountConfig(when=ValueError))
+
+    # Assert
+    assert cb._state is state
+
+
+async def test_circuit_breaker_resync_with_unchanged_when_keeps_binding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Re-reading the same `GREL_CIRCUITBREAKER_{NAME}_WHEN` text changes nothing."""
+    # Arrange
+    monkeypatch.setenv("GREL_ENV_LOAD", "1")
+    monkeypatch.setenv("GREL_CIRCUITBREAKER_RESYNC_WHEN", "builtins.ValueError")
+    cb = CircuitBreaker.consecutive_count("resync")
+    state = cb._state
+
+    # Act
+    await reconfigure_all(
+        {"GREL_CIRCUITBREAKER_RESYNC_WHEN": "builtins.ValueError"}
+    )
+
+    # Assert
+    assert cb._state is state

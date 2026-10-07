@@ -11,7 +11,7 @@ A decorator supports the bare `@deco` form only when every option has a default.
 
 A pattern instance is a decorator too. `@retrier`, `@breaker`, `@limiter`, `@pool`, `@call_timeout`, and a `@stack` all wrap a function with the pattern you already built and named. `@limiter(key=...)` takes options, and `Stack` is built before it decorates, so it is never called at the decoration site.
 
-`@shield` is the one bare-first decorator with named presets: use `@shield` for the default, or `@shield.api(...)` / `@shield.internal(...)` / `@shield.slow(...)` for tuned profiles.
+`@shield` takes a named preset: `@shield.api(...)`, `@shield.internal(...)` or `@shield.slow(...)`. Each needs `when=`, the errors that count as transient.
 
 ## Sync and async
 
@@ -21,7 +21,7 @@ Every decorator wraps both `def` and `async def` functions, except `@shield` and
 |-----------|:------------:|:-------------------------:|:----:|:-----:|
 | `@measure` | ✓ | ✓ | ✓ | ✓ |
 | `@instrument` | ✓ | ✓ | ✓ | ✓ |
-| `@shield` | ✓ | ✓ (presets) | | ✓ |
+| `@shield.api(...)` | | ✓ | | ✓ |
 | `@retry(...)` | | ✓ | ✓ | ✓ |
 | `@fallback(...)` | | ✓ | ✓ | ✓ |
 | `@cached(...)` | | ✓ | ✓ | ✓ |

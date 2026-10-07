@@ -61,8 +61,17 @@ ENV_CASES: list[tuple[str, str, Callable[[], object]]] = [
     ("Retry", "GREL_RETRY_R_WHEN", lambda: Retry("r")),
     ("Bulkhead", "GREL_BULKHEAD_B_MAX_CONCURRENT", lambda: Bulkhead("b")),
     ("Fallback", "GREL_FALLBACK_F_WHEN", lambda: Fallback("f")),
-    ("Shield", "GREL_SHIELD_S_MAX_RATE", lambda: Shield("s")),
-    ("Shield.profile", "GREL_SHIELD_P_PROFILE", lambda: Shield("p")),
+    ("Shield", "GREL_SHIELD_S_WHEN", lambda: Shield("s")),
+    (
+        "Shield.max_rate",
+        "GREL_SHIELD_M_MAX_RATE",
+        lambda: Shield("m", when=TimeoutError),
+    ),
+    (
+        "Shield.profile",
+        "GREL_SHIELD_P_PROFILE",
+        lambda: Shield("p", when=TimeoutError),
+    ),
     (
         "RateLimiter",
         "GREL_RATELIMITER_RL_CAPACITY",
@@ -111,10 +120,11 @@ attribute name.
 FQN_CASES: list[tuple[str, str, Callable[[], object]]] = [
     ("Retry.when", "GREL_RETRY_FQ_WHEN", lambda: Retry("fq")),
     ("Fallback.when", "GREL_FALLBACK_FQ_WHEN", lambda: Fallback("fq")),
+    ("Shield.when", "GREL_SHIELD_FQ_WHEN", lambda: Shield("fq")),
     (
-        "Shield.timeout_errors",
-        "GREL_SHIELD_FQ_TIMEOUT_ERRORS",
-        lambda: Shield("fq"),
+        "CircuitBreaker.when",
+        "GREL_CIRCUITBREAKER_FQ_WHEN",
+        lambda: CircuitBreaker.consecutive_count("fq"),
     ),
 ]
 """Every field that resolves an env value as a dotted import path."""
@@ -190,7 +200,7 @@ KWARG_CASES: list[tuple[str, Callable[[], object]]] = [
         "Fallback",
         lambda: Fallback("f", when=ValueError, default=1, factory=lambda _: 2),
     ),
-    ("Shield", lambda: Shield("s", max_rate=-1)),
+    ("Shield", lambda: Shield("s", when=TimeoutError, max_rate=-1)),
     (
         "RateLimiter",
         lambda: RateLimiter.token_bucket("rl", capacity=-1, refill_rate=1),
@@ -392,6 +402,12 @@ def test_non_pattern_surface_reports_the_same_way(
 EMPTY_WHEN_CASES: list[tuple[str, str, Callable[[], object]]] = [
     ("Retry", "GREL_RETRY_EMPTY_WHEN", lambda: Retry("empty")),
     ("Fallback", "GREL_FALLBACK_EMPTY_WHEN", lambda: Fallback("empty")),
+    ("Shield", "GREL_SHIELD_EMPTY_WHEN", lambda: Shield("empty")),
+    (
+        "CircuitBreaker",
+        "GREL_CIRCUITBREAKER_EMPTY_WHEN",
+        lambda: CircuitBreaker.consecutive_count("empty"),
+    ),
 ]
 """An operator who leaves the variable blank, which parses to no entries."""
 

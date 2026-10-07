@@ -86,7 +86,7 @@ def test_every_resilience_pattern_registers_from_constructor() -> None:
         Timeout("db", seconds=5, env_load=False),
         Bulkhead("io", max_concurrent=3, env_load=False),
         Fallback("cache", when=ValueError, default=None, env_load=False),
-        Shield.api("svc"),
+        Shield.api("svc", when=TimeoutError),
     ]
     prefixes = _prefixes()
     expected = {
@@ -111,7 +111,9 @@ def test_from_config_instances_stay_unregistered() -> None:
             "decl_rl", TokenBucketConfig(capacity=2, refill_rate=1.0)
         ),
         Timeout.from_config("decl_to", Timeout("seed", seconds=1).config),
-        Shield.from_config("decl_sh", Shield.api("seed").config),
+        Shield.from_config(
+            "decl_sh", Shield.api("seed", when=TimeoutError).config
+        ),
     ]
     added = [i for i in reconfigurable_instances() if id(i) not in before]
     added_prefixes = {i._env_prefix for i in added}

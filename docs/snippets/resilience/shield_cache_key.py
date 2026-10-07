@@ -8,7 +8,7 @@ from grelmicro.resilience import shield
 
 @shield.api(
     "prices",
-    timeout_errors=(httpx.TimeoutException,),
+    when=httpx.TimeoutException,
     cache=TTLCache(ttl=300),
     cache_key=lambda symbol, *_: f"price:{symbol}",
 )

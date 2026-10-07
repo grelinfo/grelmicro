@@ -27,6 +27,9 @@ from grelmicro._wrapping import refuse_registered
 from grelmicro.clock import monotonic, sleep
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
+from grelmicro.resilience._match import Match
+from grelmicro.resilience._outcome import Outcome
+from grelmicro.resilience._when import WhenInput
 from grelmicro.resilience.errors import ResilienceError
 from grelmicro.resilience.shield._adaptive_gate import _AdaptiveGate
 from grelmicro.resilience.shield._api import ApiShieldConfig
@@ -144,7 +147,7 @@ def _resolve_config_from_env(
     name: str,
     *,
     profile: str | None,
-    timeout_errors: Any,  # noqa: ANN401
+    when: Any,  # noqa: ANN401
     max_rate: float | None,
     cache: Any,  # noqa: ANN401
     cache_key: Callable[..., str] | None,
@@ -179,7 +182,7 @@ def _resolve_config_from_env(
         return env_key, value
 
     kwargs: dict[str, Any] = {"kind": profile}
-    _fill_from_env(kwargs, "timeout_errors", timeout_errors, _env)
+    _fill_from_env(kwargs, "when", when, _env)
     _fill_from_env(kwargs, "max_rate", max_rate, _env, cast=float)
     if cache is not None:
         kwargs["cache"] = cache
@@ -195,7 +198,7 @@ def _build_config(
     *,
     profile: str,
     pinned_profile: str | None = None,
-    timeout_errors: Any,  # noqa: ANN401
+    when: Any,  # noqa: ANN401
     max_rate: float | None,
     cache: Any,  # noqa: ANN401
     cache_key: Callable[..., str] | None,
@@ -210,7 +213,7 @@ def _build_config(
         return _resolve_config_from_env(
             name,
             profile=pinned_profile,
-            timeout_errors=timeout_errors,
+            when=when,
             max_rate=max_rate,
             cache=cache,
             cache_key=cache_key,
@@ -218,8 +221,8 @@ def _build_config(
         )
     cls = _PROFILE_BY_NAME[profile]
     kwargs: dict[str, Any] = {"kind": profile}
-    if timeout_errors is not None:
-        kwargs["timeout_errors"] = timeout_errors
+    if when is not None:
+        kwargs["when"] = when
     if max_rate is not None:
         kwargs["max_rate"] = max_rate
     if cache is not None:
@@ -254,7 +257,7 @@ class _State:
     """
 
     config: _BaseShieldConfig
-    effective_timeout_errors: tuple[type[BaseException], ...]
+    transient: Match
     retry_budget: _RetryBudget
     adaptive_gate: _AdaptiveGate
     timeout_estimator: _TimeoutEstimator
@@ -338,11 +341,14 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             ),
         ],
         *,
-        timeout_errors: Annotated[
-            tuple[type[BaseException], ...] | None,
+        when: Annotated[
+            WhenInput | None,
             Doc(
-                "Exception classes treated as transient slow-downs. "
-                "`TimeoutError` is always appended. Default `(TimeoutError,)`."
+                "Outcome filter naming the errors that count as transient. "
+                "Pass a [`Match`][grelmicro.resilience.Match] or a "
+                "shorthand (exception class, tuple, callable). Anything "
+                "else goes straight to recovery. `TimeoutError` always "
+                "counts. Required unless the value comes from env."
             ),
         ] = None,
         max_rate: Annotated[
@@ -402,7 +408,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             config=_build_config(
                 name,
                 profile="api",
-                timeout_errors=timeout_errors,
+                when=when,
                 max_rate=max_rate,
                 cache=cache,
                 cache_key=cache_key,
@@ -478,7 +484,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         cls,
         name: Annotated[str, Doc("Name of the Shield instance.")],
         *,
-        timeout_errors: tuple[type[BaseException], ...] | None = None,
+        when: WhenInput | None = None,
         max_rate: PositiveFloat | None = None,
         cache: Any = None,  # noqa: ANN401
         cache_key: Callable[..., str] | None = None,
@@ -490,7 +496,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         return cls._make(
             name=name,
             profile="internal",
-            timeout_errors=timeout_errors,
+            when=when,
             max_rate=max_rate,
             cache=cache,
             cache_key=cache_key,
@@ -502,7 +508,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         cls,
         name: Annotated[str, Doc("Name of the Shield instance.")],
         *,
-        timeout_errors: tuple[type[BaseException], ...] | None = None,
+        when: WhenInput | None = None,
         max_rate: PositiveFloat | None = None,
         cache: Any = None,  # noqa: ANN401
         cache_key: Callable[..., str] | None = None,
@@ -514,7 +520,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         return cls._make(
             name=name,
             profile="api",
-            timeout_errors=timeout_errors,
+            when=when,
             max_rate=max_rate,
             cache=cache,
             cache_key=cache_key,
@@ -526,7 +532,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         cls,
         name: Annotated[str, Doc("Name of the Shield instance.")],
         *,
-        timeout_errors: tuple[type[BaseException], ...] | None = None,
+        when: WhenInput | None = None,
         max_rate: PositiveFloat | None = None,
         cache: Any = None,  # noqa: ANN401
         cache_key: Callable[..., str] | None = None,
@@ -538,7 +544,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         return cls._make(
             name=name,
             profile="slow",
-            timeout_errors=timeout_errors,
+            when=when,
             max_rate=max_rate,
             cache=cache,
             cache_key=cache_key,
@@ -551,7 +557,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         *,
         name: str,
         profile: str,
-        timeout_errors: tuple[type[BaseException], ...] | None,
+        when: WhenInput | None,
         max_rate: PositiveFloat | None,
         cache: Any,  # noqa: ANN401
         cache_key: Callable[..., str] | None,
@@ -568,7 +574,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             name,
             profile=profile,
             pinned_profile=profile,
-            timeout_errors=timeout_errors,
+            when=when,
             max_rate=max_rate,
             cache=cache,
             cache_key=cache_key,
@@ -667,7 +673,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
                     raise
                 last_exc = exc
                 # Non-retryable Exception: surface unchanged.
-                if not isinstance(exc, state.effective_timeout_errors):
+                if not state.transient(Outcome.from_exception(exc)):
                     give_up_reason = _GIVE_UP_NON_RETRY
                     break
                 # Retryable slow-down: shrink CUBIC, try the budget.
@@ -825,7 +831,7 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
         cap = config.max_rate or config.max_rate_cap_default
         return _State(
             config=config,
-            effective_timeout_errors=config.effective_timeout_errors(),
+            transient=Match.exception(TimeoutError) | config.when,
             retry_budget=_RetryBudget(capacity=config.max_consecutive_failures),
             adaptive_gate=_AdaptiveGate(
                 initial_max_rate=config.initial_max_rate,

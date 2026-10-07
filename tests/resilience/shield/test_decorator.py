@@ -15,35 +15,10 @@ class _SignalError(Exception):
     """Test-only retryable error."""
 
 
-async def test_zero_arg_decorator_uses_api_profile() -> None:
-    """`@shield` (no parens) wraps with the `api` profile defaults."""
-
-    @shield
-    async def fn() -> str:
-        return "ok"
-
-    assert await fn() == "ok"
-
-
-async def test_zero_arg_decorator_retries_timeout_error() -> None:
-    """The default profile retries `TimeoutError`."""
-    attempts = {"count": 0}
-
-    @shield
-    async def fn() -> str:
-        attempts["count"] += 1
-        if attempts["count"] == 1:
-            raise TimeoutError
-        return "ok"
-
-    assert await fn() == "ok"
-    assert attempts["count"] == 2  # noqa: PLR2004
-
-
 async def test_api_factory_decorator() -> None:
     """`@shield.api(...)` uses the api profile."""
 
-    @shield.api(timeout_errors=(_SignalError,))
+    @shield.api(when=_SignalError)
     async def fn() -> str:
         return "api"
 
@@ -53,7 +28,7 @@ async def test_api_factory_decorator() -> None:
 async def test_internal_factory_decorator() -> None:
     """`@shield.internal(...)` uses the internal profile."""
 
-    @shield.internal(timeout_errors=(_SignalError,))
+    @shield.internal(when=_SignalError)
     async def fn() -> str:
         return "internal"
 
@@ -63,7 +38,7 @@ async def test_internal_factory_decorator() -> None:
 async def test_slow_factory_decorator() -> None:
     """`@shield.slow(...)` uses the slow profile."""
 
-    @shield.slow(timeout_errors=(_SignalError,))
+    @shield.slow(when=_SignalError)
     async def fn() -> str:
         return "slow"
 
@@ -71,9 +46,9 @@ async def test_slow_factory_decorator() -> None:
 
 
 async def test_decorator_propagates_non_retryable() -> None:
-    """Non-`timeout_errors` exceptions propagate without retry."""
+    """Exceptions `when=` does not match propagate without retry."""
 
-    @shield.api(timeout_errors=(_SignalError,))
+    @shield.api(when=_SignalError)
     async def fn() -> None:
         msg = "permanent"
         raise ValueError(msg)
@@ -85,7 +60,7 @@ async def test_decorator_propagates_non_retryable() -> None:
 async def test_decorator_attaches_pep_678_note_on_give_up() -> None:
     """On give-up the decorator surfaces the exception with a `shield:` note."""
 
-    @shield.api(timeout_errors=(_SignalError,))
+    @shield.api(when=_SignalError)
     async def fn() -> None:
         raise _SignalError
 
@@ -98,7 +73,7 @@ async def test_decorator_attaches_pep_678_note_on_give_up() -> None:
 async def test_named_decorator_keeps_user_name() -> None:
     """An explicit `name=` is preserved across calls."""
 
-    @shield.api("my-service", timeout_errors=(_SignalError,))
+    @shield.api("my-service", when=_SignalError)
     async def fn() -> None:
         raise _SignalError
 
@@ -127,9 +102,29 @@ def test_a_partial_is_named_after_the_function_it_wraps(
 
     monkeypatch.setattr(Shield, "api", spy)
 
-    shield(functools.partial(_sample, "p"))
+    shield.api(when=TimeoutError)(functools.partial(_sample, "p"))
 
     assert seen == ["_sample"]
+
+
+def test_shield_decorator_bare_form_raises_type_error() -> None:
+    """`@shield` without a profile is refused, because `when=` is required."""
+    # Act / Assert
+    with pytest.raises(TypeError):
+        shield(_sample)  # type: ignore[operator]  # ty: ignore[call-non-callable]
+
+
+@pytest.mark.parametrize("profile", ["api", "internal", "slow"])
+def test_shield_preset_without_parentheses_raises_type_error(
+    profile: str,
+) -> None:
+    """`@shield.api` without parentheses is refused and points at `when=`."""
+    # Arrange
+    preset = getattr(shield, profile)
+
+    # Act / Assert
+    with pytest.raises(TypeError, match=rf"@shield\.{profile}\(when="):
+        preset(_sample)
 
 
 async def _sample(prefix: str, value: int) -> str:

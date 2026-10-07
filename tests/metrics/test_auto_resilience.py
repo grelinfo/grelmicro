@@ -213,8 +213,11 @@ async def test_shield_cache_write_emits_both_outcomes(
     async def fn() -> str:
         return "ok"
 
-    assert await Shield("ok", cache=_Cache()).run(fn) == "ok"
-    assert await Shield("bad", cache=_BadCache()).run(fn) == "ok"
+    assert await Shield("ok", when=TimeoutError, cache=_Cache()).run(fn) == "ok"
+    assert (
+        await Shield("bad", when=TimeoutError, cache=_BadCache()).run(fn)
+        == "ok"
+    )
     for _ in range(20):  # let the fire-and-forget writes settle
         await asyncio.sleep(0)
 

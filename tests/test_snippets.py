@@ -109,6 +109,9 @@ _ENV = {
         "GREL_FALLBACK_RECS_WHEN": "builtins.ValueError",
         "GREL_FALLBACK_RECS_DEFAULT": "[]",
     },
+    "resilience/shield_environmental.py": {
+        "GREL_SHIELD_GITHUB_WHEN": "builtins.ConnectionError",
+    },
     "resilience/timeout_environmental.py": {
         "GREL_TIMEOUT_DB_SECONDS": "2.0",
     },

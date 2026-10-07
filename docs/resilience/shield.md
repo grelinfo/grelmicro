@@ -11,17 +11,13 @@ A **Shield** wraps one async call to one dependency with resilience built in: a 
 
 ## Usage
 
-Decorate an async function, tell Shield which exceptions mean "the dependency is slow", and call it as usual:
+Decorate an async function, tell Shield with `when=` which errors mean "the dependency is slow", and call it as usual:
 
 ```python
 --8<-- "resilience/shield.py"
 ```
 
-The zero-argument form uses the `api` profile and treats `TimeoutError` as the slow signal:
-
-```python
---8<-- "resilience/shield_zero_args.py"
-```
+`when=` is required. It takes the same forms as [`Retry`](retry.md): an exception class, a tuple of classes, a predicate on the exception, or a [`Match`](retry.md#filtering-outcomes-with-match).
 
 Shield is **async-only**. Use it on coroutine functions.
 
@@ -119,14 +115,14 @@ Shield decides what to do by the type of exception the wrapped call raises.
 
 | Raised by the wrapped call | Retried? | Slows the rate? | Consumes retry budget? | Cache / fallback recovery? |
 |---|---|---|---|---|
-| Any type in `timeout_errors` (or a subclass) | yes | yes | yes | yes, on give-up |
+| An error `when=` matches, or a `TimeoutError` | yes | yes | yes | yes, on give-up |
 | Any other `Exception` | no | no | no | yes, on give-up |
 | `ResilienceError` subclass | no | no | no | no, propagates immediately |
 | `BaseException` outside `Exception` (`KeyboardInterrupt`, `CancelledError`, `SystemExit`) | no | no | no | no, propagates immediately |
 
-You declare what "transient" means by passing exception types to `timeout_errors=`. Any other `Exception` skips the retry loop and goes straight to recovery: if a cache or fallback returns a value, that value is returned, otherwise the original exception is re-raised. `ResilienceError` and `BaseException`-outside-`Exception` always propagate unchanged.
+You declare what "transient" means with `when=`. Any other `Exception` skips the retry loop and goes straight to recovery: if a cache or fallback returns a value, that value is returned, otherwise the original exception is re-raised. `ResilienceError` and `BaseException`-outside-`Exception` always propagate unchanged.
 
-`TimeoutError` is always retryable, even if you do not list it. Shield's own per-attempt timeout raises it, and that signal must always be caught. The effective tuple is `your_types + (TimeoutError,)`.
+`TimeoutError` is always retried, whatever `when=` says. Shield's own per-attempt timeout raises it, so a slow attempt always counts as transient. Shield sees raised errors only, so a `Match.result(...)` arm never matches.
 
 ## Behavior on giving up
 
@@ -146,7 +142,7 @@ The note records the give-up reason (`budget exhausted`, `attempts exhausted`, `
 
 Shield is the **outer** layer of resilience. Many client libraries ship their own retries, tuned for protocol-level transience (`Retry-After` headers, idempotency keys, modeled status codes). Shield does not replace that work. It adds a slower layer on top.
 
-You do not need to disable the client's retries. Pass the client's terminal exception types via `timeout_errors=`:
+You do not need to disable the client's retries. Pass the client's terminal exception types to `when=`:
 
 ```python
 --8<-- "resilience/shield_layered.py"
@@ -156,7 +152,7 @@ When the inner layer exhausts its own attempts and surfaces an exception, Shield
 
 ## What Shield does not do
 
-- **HTTP status sniffing.** No `Retry-After` parsing, no 429/503 awareness. Call `response.raise_for_status()` inside the wrapped function and pass the resulting exception type via `timeout_errors=`.
+- **HTTP status sniffing.** No `Retry-After` parsing, no 429/503 awareness. Call `response.raise_for_status()` inside the wrapped function and pass the resulting exception type to `when=`.
 - **Sync callables.** Async-only. Wrap sync code in `asyncio.to_thread(...)` if needed.
 - **Hedged requests.** Firing a backup attempt and taking the first success is a different primitive. It is [on the roadmap](../roadmap.md), not shipped.
 - **Distributed retry budget.** Each `Shield` is per-process. There is no cross-replica coordination. Fleet-wide budgets are [on the roadmap](../roadmap.md).
@@ -187,7 +183,7 @@ Prefix: `GREL_SHIELD_{NAME_UPPER}_`. The default instance drops the name segment
 | Env var | Field | Type | Default |
 |---|---|---|---|
 | `GREL_SHIELD_{NAME_UPPER}_PROFILE` | profile | `internal` / `api` / `slow` | `api` |
-| `GREL_SHIELD_{NAME_UPPER}_TIMEOUT_ERRORS` | `timeout_errors` | CSV of FQN strings (e.g. `httpx.TimeoutException,httpx.ConnectError`) | `builtins.TimeoutError` |
+| `GREL_SHIELD_{NAME_UPPER}_WHEN` | `when` | CSV or JSON list of FQN strings (e.g. `httpx.TimeoutException,httpx.ConnectError`). Coerced to `Match.exception(...)`. Predicate forms cannot come from env. | required |
 | `GREL_SHIELD_{NAME_UPPER}_MAX_RATE` | `max_rate` | `float` or empty | unset |
 
 The `cache`, `cache_key`, and `fallback` arguments cannot come from env. Pass them as keyword arguments.

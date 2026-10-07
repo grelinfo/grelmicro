@@ -1,20 +1,14 @@
 """Consecutive-count circuit breaker algorithm configuration."""
 
 from datetime import timedelta
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import (
-    BaseModel,
-    BeforeValidator,
-    ImportString,
-    PositiveInt,
-    field_validator,
-)
-from pydantic_settings import NoDecode
+from pydantic import BaseModel, PositiveInt
 from typing_extensions import Doc
 
-from grelmicro._config import parse_csv_or_json
 from grelmicro._duration import Duration
+from grelmicro.resilience._match import Match
+from grelmicro.resilience._when import OutcomeFilter
 from grelmicro.types import LogLevel
 
 
@@ -52,23 +46,27 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
         Doc("Discriminator for the algorithm Pydantic union."),
     ] = "consecutive_count"
 
-    ignore_exceptions: Annotated[
-        tuple[ImportString[type[Exception]], ...],
-        NoDecode,
-        BeforeValidator(parse_csv_or_json),
+    when: Annotated[
+        OutcomeFilter,
         Doc(
             """
-            Exceptions ignored by the breaker.
+            Outcome filter naming the errors that count as failures.
 
-            Errors of these types do not count toward `error_threshold`.
-            Accepts a single exception class, a tuple, or fully-qualified
-            import strings such as `"builtins.ValueError"` or
-            `"my_app.errors.PaymentError"` for YAML and env loading.
+            Pass a [`Match`][grelmicro.resilience.Match] or a shorthand:
+            an exception class, a tuple of classes, or a predicate on the
+            exception. A raised exception it does not match counts as a
+            success. The breaker sees raised exceptions only, so a
+            returned value always counts as a success and a
+            `Match.result(...)` arm never matches. A predicate that
+            raises reads as no match, so that error counts as a success.
+            Default: every `Exception` counts as a failure.
 
-            Env vars accept comma-separated values or JSON arrays.
+            From text, such as an environment variable, it reads
+            fully-qualified class names as comma-separated values or a
+            JSON array, such as `"httpx.HTTPError"`.
             """
         ),
-    ] = ()
+    ] = Match.exception(Exception)
 
     error_threshold: Annotated[
         PositiveInt,
@@ -105,11 +103,3 @@ class ConsecutiveCountConfig(BaseModel, frozen=True, extra="forbid"):
         LogLevel,
         Doc("Logging level for state-change messages."),
     ] = "WARNING"
-
-    @field_validator("ignore_exceptions", mode="before")
-    @classmethod
-    def _wrap_single(cls, value: Any) -> Any:  # noqa: ANN401
-        """Wrap a single class into a one-tuple."""
-        if isinstance(value, type):
-            return (value,)
-        return value
