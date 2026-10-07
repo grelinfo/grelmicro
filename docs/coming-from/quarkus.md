@@ -6,7 +6,7 @@ SmallRye Health, MicroProfile Fault Tolerance, the scheduler, the cache and `qua
 
 | Quarkus | grelmicro | Page |
 |---|---|---|
-| `@Liveness`, `@Readiness`, `/q/health` | `@health.check(...)` with `/livez`, `/readyz` and `/healthz` | [Health](../health.md) |
+| `@Liveness`, `@Readiness`, `/q/health` | `@health.check(..., liveness=True)` for `/livez`, `@health.check(...)` for `/readyz` and `/healthz` | [Health](../health.md) |
 | Extension health checks | `auto_health`, one check per provider, off by default | [Health](../health.md) |
 | `@Retry` | `@retry(when=..., attempts=...)` | [Retry](../resilience/retry.md) |
 | `@Timeout` | `Timeout(name, seconds=...)` | [Timeout](../resilience/timeout.md) |
@@ -45,7 +45,7 @@ A MicroProfile circuit breaker and a SmallRye rate limit keep their state in one
 
 ### Health has three fixed endpoints
 
-`/livez` runs no check, `/readyz` runs the critical checks, and `/healthz` runs them all. There are no health groups and no startup endpoint. A check with `critical=False` stays out of readiness. A Quarkus liveness check, such as a deadlock detector, has no equivalent yet: `/livez` fails when the process stops answering or the event loop is blocked, not when coroutines or worker threads deadlock while the loop runs. Until then, add the check with `critical=False` so `/healthz` reports it.
+`/livez` reflects the liveness checks, `/readyz` runs the critical checks, and `/healthz` runs the rest. There are no health groups and no startup endpoint. A check with `critical=False` stays out of readiness. A Quarkus liveness check, such as a deadlock detector, is a check with `liveness=True` under `HealthChecks(liveness=Liveness(...))`. It drives `/livez`, and a worker that keeps failing it exits so it is replaced. See [Catch a stuck worker](../health.md#catch-a-stuck-worker).
 
 ### Every route is protected by default
 
