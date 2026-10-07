@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from typing_extensions import Doc
 
+from grelmicro._duration import check_duration
 from grelmicro._markers import Registered, mark_registered
 from grelmicro.task._cron import CronTask
 from grelmicro.task._interval import IntervalTask
@@ -137,13 +138,15 @@ class TaskRouter:
     def every(
         self,
         *,
-        seconds: Annotated[
-            float | timedelta,
+        interval: Annotated[
+            int | timedelta,
             Doc(
                 """
                 The duration between each task run.
 
-                Accepts a number of seconds or a `timedelta`.
+                Takes whole seconds or a `timedelta`, up to 100 years. A
+                float is refused. Write `timedelta(milliseconds=500)` for
+                an interval under a second.
 
                 Accuracy is not guaranteed and may vary with system load. Consider the
                 execution time of the task when setting the interval.
@@ -172,7 +175,7 @@ class TaskRouter:
                   intervals.
                 - A `TaskLock`: one worker claims each interval, with the
                   lock's own `lease_duration`, `backend` and `worker`. Its
-                  `min_hold_duration` must be at least `seconds`, now and on
+                  `min_hold_duration` must be at least `interval`, now and on
                   every later `reconfigure`. A lock still named `"default"`
                   takes the task name.
                 - A `LeaderElection`: only the elected worker runs the task.
@@ -213,13 +216,16 @@ class TaskRouter:
 
         Raises:
             FunctionTypeError: If the task name generation fails.
-            ValueError: If seconds is less than or equal to 0.
+            ValueError: If `interval` is not whole seconds or a
+                `timedelta`, is not greater than zero, or is over 100
+                years.
             ValueError: If the gate `TaskLock` already gates another task.
             SettingsValidationError: If the gate `TaskLock` holds a claim
-                for less than `seconds`.
+                for less than `interval`.
             TypeError: If `gate` is not a supported value, or `sync` is a
                 leader election.
         """
+        interval = check_duration(interval, "interval")
 
         def decorator(
             function: Callable[[], Awaitable[None] | None],
@@ -228,7 +234,7 @@ class TaskRouter:
                 IntervalTask(
                     name=name,
                     function=function,
-                    seconds=seconds,
+                    interval=interval,
                     gate=gate,
                     sync=sync,
                 ),
@@ -281,16 +287,20 @@ class TaskRouter:
                 """,
             ),
         ] = None,
-        misfire_grace_seconds: Annotated[
-            float | None,
+        misfire_grace: Annotated[
+            int | timedelta | None,
             Doc(
                 """
                 How late a missed fire may run when a worker comes back.
 
-                Read only by a gated task. A fire missed while every worker was down replays once on
-                restart only when now is within this many seconds of the fire.
-                Past the budget, the fire is dropped. ``None`` (default) sets
-                no budget, so any missed fire replays once, however late.
+                Takes whole seconds or a `timedelta`, up to 100 years. A
+                float is refused.
+
+                Read only by a gated task. A fire missed while every worker
+                was down replays once on restart only when now is within
+                this duration of the fire. Past the budget, the fire is
+                dropped. ``None`` (default) sets no budget, so any missed
+                fire replays once, however late.
                 Only the most recent missed fire ever runs, never a backlog.
                 """,
             ),
@@ -352,7 +362,7 @@ class TaskRouter:
         `LeaderElection`, each fire is claimed against a durable last-fire
         state, so the task runs at most once across every worker per fire.
         A fire missed while every worker was down replays once on restart,
-        bounded by ``misfire_grace_seconds``, and only the most recent
+        bounded by ``misfire_grace``, and only the most recent
         missed fire runs.
 
         The claim guarantee is at-most-once. A worker that claims a fire and then
@@ -367,7 +377,15 @@ class TaskRouter:
             TypeError: If `gate` is not a supported value, or `sync` is a
                 leader election.
             ValueError: If `backend` is passed without a gate.
+            ValueError: If `misfire_grace` is not whole seconds or a
+                `timedelta`, is not greater than zero, or is over 100
+                years.
         """
+        misfire_grace = (
+            check_duration(misfire_grace, "misfire_grace")
+            if misfire_grace is not None
+            else None
+        )
 
         def decorator(
             function: Callable[[], Awaitable[None] | None],
@@ -378,7 +396,7 @@ class TaskRouter:
                     function=function,
                     expr=expr,
                     timezone=timezone,
-                    misfire_grace_seconds=misfire_grace_seconds,
+                    misfire_grace=misfire_grace,
                     backend=backend,
                     gate=gate,
                     sync=sync,

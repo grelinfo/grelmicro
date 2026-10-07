@@ -145,7 +145,7 @@ A `Stack` composes the six patterns that wrap a call. Anything else is refused a
 Read outside-in, a fully wired call site looks like this:
 
 ```python
-@tasks.every(seconds=60)
+@tasks.every(interval=60)
 @cached(prices, ttl=30)
 @recs
 async def refresh_prices() -> list[Price]: ...

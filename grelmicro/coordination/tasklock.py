@@ -697,7 +697,7 @@ def _check_min_hold(config: TaskLockConfig, interval: timedelta) -> None:
     """
     if config.min_hold_duration < interval:
         msg = (
-            "min_hold_duration must be greater than or equal to seconds,"
+            "min_hold_duration must be greater than or equal to interval,"
             " or a peer claims the same interval once the body ends"
         )
         raise SettingsValidationError(msg)

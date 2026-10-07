@@ -20,7 +20,7 @@ type TaskFactory = Callable[..., IntervalTask]
 
 def _create_task(
     *,
-    seconds: float,
+    interval: int | timedelta,
     function: Callable[..., object],
     name: str,
     backend: LockBackend,
@@ -30,7 +30,7 @@ def _create_task(
 ) -> IntervalTask:
     """Create IntervalTask using the gate=TaskLock() API."""
     return IntervalTask(
-        seconds=seconds,
+        interval=interval,
         function=function,
         name=name,
         gate=TaskLock(

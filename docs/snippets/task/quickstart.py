@@ -7,7 +7,7 @@ tasks = Tasks()
 micro = Grelmicro(uses=[tasks])
 
 
-@tasks.every(seconds=5)
+@tasks.every(interval=5)
 async def cleanup() -> None:
     print("cleanup")
 

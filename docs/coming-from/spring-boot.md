@@ -12,7 +12,7 @@ Most of what Spring Boot, Actuator, ShedLock and Resilience4j give a service has
 | `management.server.port` | `OpsServer`, for a process that serves no HTTP | [Ops server](../http/server.md) |
 | Micrometer, `/actuator/prometheus` | `Metrics()` and `metrics_router()` | [Metrics](../metrics.md) |
 | `@Timed` | `@measure` | [Metrics](../metrics.md) |
-| `@Scheduled(fixedDelay = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(seconds=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
+| `@Scheduled(fixedDelay = ...)`, `@Scheduled(cron = ...)` | `@tasks.every(interval=...)`, `@tasks.cron("...")` | [Task Scheduler](../task.md) |
 | ShedLock `@SchedulerLock` | `gate="claim"` on a task | [Task Scheduler](../task.md#claim) |
 | `@Cacheable`, `@CacheEvict` | `@cached(cache, tags=[...])`, `cache.delete_tags(...)` | [@cached](../cache/cached.md) |
 | `@Cacheable(sync = true)` | `@cached(...)`, whose default `lock="local"` folds misses in one process. `lock=True` folds them across replicas | [Stampede protection](../cache/cached.md#stampede-protection) |
@@ -34,7 +34,7 @@ A claimed cron task takes no lock at all. It records each fire it claims, and a 
 
 ### An interval waits for the previous run
 
-`@tasks.every(seconds=60)` counts from the end of one run to the start of the next, like `fixedDelay`. There is no `fixedRate` equivalent: a run that takes 20 seconds starts the next one 80 seconds after it started.
+`@tasks.every(interval=60)` counts from the end of one run to the start of the next, like `fixedDelay`. There is no `fixedRate` equivalent: a run that takes 20 seconds starts the next one 80 seconds after it started.
 
 ### Health has three fixed endpoints, not groups
 

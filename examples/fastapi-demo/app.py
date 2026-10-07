@@ -138,13 +138,13 @@ async def update_ledger(amount: int) -> int:
 
 
 # --- Leader-gated task: only the elected leader runs the sweep ---
-@tasks.every(seconds=10, gate=leader)
+@tasks.every(interval=10, gate=leader)
 def nightly_sweep() -> None:
     # Leader-election Pattern: runs on exactly one replica.
     logger.info("nightly sweep (leader only)")
 
 
 # --- Local interval task: runs on every replica ---
-@tasks.every(seconds=5)
+@tasks.every(interval=5)
 def heartbeat() -> None:
     logger.info("heartbeat")

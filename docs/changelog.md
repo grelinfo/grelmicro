@@ -22,6 +22,8 @@
 * 💥 The cache backend protocol takes each TTL as a `timedelta`. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 💥 `RouteDeclaration.cache` takes `True` for the component TTL or a `timedelta`, up to 100 years. A number is refused. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 💥 `Idempotency`, `IdempotentRequests`, `CachedResponses`, its `include` lifetimes and `CachedResponse` take `ttl` as whole seconds or a `timedelta`, up to 100 years. A float is refused. Each config reads it back as a `timedelta`. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 💥 `every(seconds=...)` is renamed `every(interval=...)`. It takes whole seconds or a `timedelta`, up to 100 years. A float is refused. Write `interval=timedelta(milliseconds=500)` for an interval under a second. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 💥 Cron `misfire_grace_seconds` is renamed `misfire_grace`. It takes whole seconds or a `timedelta`, up to 100 years. A float is refused. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))

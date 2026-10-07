@@ -8,6 +8,6 @@ tasks = Tasks()
 tasks.add_task(leader)
 
 
-@tasks.every(seconds=60, gate=leader)
+@tasks.every(interval=60, gate=leader)
 async def cleanup():
     print("Running cleanup...")

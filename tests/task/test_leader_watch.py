@@ -5,6 +5,7 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from datetime import timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -39,7 +40,7 @@ async def _gated_work() -> None:
 def _gated(election: LeaderElection) -> Tasks:
     """Return a Tasks running `_gated_work` every 0.01s, gated on `election`."""
     tasks = Tasks()
-    tasks.every(seconds=0.01, gate=election)(_gated_work)
+    tasks.every(interval=timedelta(milliseconds=10), gate=election)(_gated_work)
     return tasks
 
 
@@ -211,7 +212,7 @@ async def test_interval_report_as_error_keeps_every_task_running(
     clock = VirtualClock()
     election = LeaderElection("svc")
     tasks = _gated(election)
-    tasks.every(seconds=0.01)(samples.count_execution)
+    tasks.every(interval=timedelta(milliseconds=10))(samples.count_execution)
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -239,7 +240,7 @@ async def test_cron_report_as_error_records_the_skip_once(
     election = LeaderElection("svc")
     tasks = Tasks()
     tasks.cron("* * * * *", gate=election)(_gated_work)
-    tasks.every(seconds=0.01)(samples.count_execution)
+    tasks.every(interval=timedelta(milliseconds=10))(samples.count_execution)
     watched = tasks.tasks[0]
     assert isinstance(watched, CronTask)
     unrun = mocker.spy(FireRecorder, "unrun")

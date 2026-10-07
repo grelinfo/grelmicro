@@ -5,7 +5,7 @@ tasks = Tasks()
 
 
 @tasks.every(
-    seconds=60,
+    interval=60,
     gate=TaskLock(lease_duration=600, min_hold_duration=60),
 )
 async def long_task():

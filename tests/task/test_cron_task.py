@@ -386,7 +386,7 @@ async def test_cron_task_misfire_grace_skips_when_too_late(
         name=name,
         backend=schedule,
         gate="claim",
-        misfire_grace_seconds=1,
+        misfire_grace=1,
     )
     _run_fast(mocker)
     # Act

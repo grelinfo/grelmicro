@@ -9,6 +9,7 @@ from logging import getLogger
 from typing import Any, Literal
 
 from grelmicro._async import sleep_or_stop
+from grelmicro._duration import check_duration
 from grelmicro._task import Task
 from grelmicro.coordination._protocol import LockPrimitive
 from grelmicro.coordination._tokens import generate_worker_id
@@ -43,7 +44,7 @@ class IntervalTask(Task):
         *,
         function: Callable[..., Any],
         name: str | None = None,
-        seconds: float | timedelta,
+        interval: int | timedelta,
         gate: Literal["claim"] | TaskLock | LeaderElection | None = None,
         sync: LockPrimitive | None = None,
     ) -> None:
@@ -51,26 +52,22 @@ class IntervalTask(Task):
 
         Raises:
             FunctionTypeError: If the function is not supported.
-            ValueError: If seconds is less than or equal to 0.
+            ValueError: If `interval` is not whole seconds or a
+                `timedelta`, is not greater than zero, or is over 100
+                years.
             ValueError: If the gate lock already gates another task.
             SettingsValidationError: If the gate lock holds a claim for
-                less than `seconds`.
+                less than `interval`.
             TypeError: If `gate` is not a supported value, or `sync` is
                 a leader election.
         """
-        seconds = (
-            seconds.total_seconds()
-            if isinstance(seconds, timedelta)
-            else seconds
-        )
-        if seconds <= 0:
-            msg = "seconds must be greater than 0"
-            raise ValueError(msg)
+        interval = check_duration(interval, "interval")
         check_sync(sync)
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
-        self._seconds = seconds
+        self._interval = interval
+        self._interval_seconds = interval.total_seconds()
         self._function = function
         self._fire = FireRecorder(
             self._name, function, clock=partial(datetime.now, UTC)
@@ -82,7 +79,7 @@ class IntervalTask(Task):
             if isinstance(gate, LeaderElection)
             else None
         )
-        primitives = self._gate_primitives(gate, seconds)
+        primitives = self._gate_primitives(gate, interval)
         self._claim = next(
             (p for p in primitives if isinstance(p, TaskLock)), None
         )
@@ -95,7 +92,7 @@ class IntervalTask(Task):
     def _gate_primitives(
         self,
         gate: Literal["claim"] | TaskLock | LeaderElection | None,
-        seconds: float,
+        interval: timedelta,
     ) -> list[LockPrimitive]:
         """Return the primitives a gate enters before the body, in order.
 
@@ -106,15 +103,13 @@ class IntervalTask(Task):
         if gate is None:
             return []
         if isinstance(gate, TaskLock):
-            gate._bind_task(  # noqa: SLF001
-                self._name, interval=timedelta(seconds=seconds)
-            )
+            gate._bind_task(self._name, interval=interval)  # noqa: SLF001
             return [gate]
         if isinstance(gate, LeaderElection):
-            return [gate.guard(), self._claim_lock(seconds)]
-        return [self._claim_lock(seconds)]
+            return [gate.guard(), self._claim_lock(interval)]
+        return [self._claim_lock(interval)]
 
-    def _claim_lock(self, seconds: float) -> TaskLock:
+    def _claim_lock(self, interval: timedelta) -> TaskLock:
         """Build the lock that holds one claim per interval.
 
         The claim is held for the whole interval. The task renews it
@@ -123,7 +118,6 @@ class IntervalTask(Task):
         The lock is built from a fixed config, so neither the environment
         nor an external reload retunes it.
         """
-        interval = timedelta(seconds=seconds)
         lock = TaskLock.from_config(
             self._name,
             TaskLockConfig(
@@ -155,9 +149,8 @@ class IntervalTask(Task):
         """The computed next fire time based on last loop instant, or None when not started."""
         if self._last_loop_start is None:
             return None
-        elapsed = time.monotonic() - self._last_loop_start
-        remaining = max(self._seconds - elapsed, 0)
-        return datetime.now(UTC) + timedelta(seconds=remaining)
+        elapsed = timedelta(seconds=time.monotonic() - self._last_loop_start)
+        return datetime.now(UTC) + max(self._interval - elapsed, timedelta(0))
 
     @property
     def last_fire(self) -> FireInfo | None:
@@ -173,7 +166,7 @@ class IntervalTask(Task):
         """Run the repeated task loop."""
         logger.info(
             "Task started (interval: %ss, gate: %s): %s",
-            self._seconds,
+            self._interval_seconds,
             self._gate_label,
             self.name,
         )
@@ -195,11 +188,11 @@ class IntervalTask(Task):
                 self._last_loop_start = time.monotonic()
                 _emit.observe(
                     "grelmicro.task.next_run",
-                    time.time() + self._seconds,
+                    time.time() + self._interval_seconds,
                     self._fire.metric_attrs,
                     unit="s",
                 )
-                if await sleep_or_stop(self._seconds, stop):
+                if await sleep_or_stop(self._interval_seconds, stop):
                     break
         finally:
             logger.info("Task stopped: %s", self.name)
@@ -208,7 +201,7 @@ class IntervalTask(Task):
         """Return how late the body starts against its planned instant.
 
         The interval is measured from the end of the previous iteration,
-        so the planned instant is that moment plus `seconds`. It rises
+        so the planned instant is that moment plus `interval`. It rises
         when a worker is saturated or when acquiring the lock takes
         longer than the interval it guards. Nothing was planned before
         the first iteration, which answers `None`.
@@ -216,7 +209,7 @@ class IntervalTask(Task):
         planned = self._last_loop_start
         if planned is None:
             return None
-        return max(time.monotonic() - (planned + self._seconds), 0.0)
+        return max(time.monotonic() - (planned + self._interval_seconds), 0.0)
 
     async def _run_with_sync(
         self, primitives: list[LockPrimitive], index: int = 0
