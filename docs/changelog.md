@@ -132,6 +132,7 @@
 
 ### Fixed
 * 🐛 `IdempotentRequests(env_load=...)` decides whether its TTL is read from `GREL_IDEMPOTENCY_HTTP_TTL`, and `IdempotentRequests.from_config` reads no variable for it. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
+* 🐛 A Postgres lock is held for every worker whatever its session time zone, so a worker in another zone no longer takes a held lock. Setup converts the lock table once. Run every worker in the same session time zone while upgrading, since a live lease written in another zone shifts by the difference. ([#992](https://github.com/grelinfo/grelmicro/pull/992))
 * 🐛 A lease is never shorter than asked. Redis rounds a lock lease up to the millisecond and keeps a leader lease to the microsecond. SQLite holds a lease to the millisecond, not up to two seconds longer. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🐛 A cache entry is never kept shorter than its TTL. Redis rounds a TTL up to the millisecond, so a TTL under a millisecond is stored instead of failing the write. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🐛 `add_context` in a request or message handler adds its fields to the handler's log records. It did nothing unless the handler opened a span. ([#973](https://github.com/grelinfo/grelmicro/issues/973))
