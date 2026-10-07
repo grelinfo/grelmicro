@@ -129,17 +129,18 @@ From text, such as an environment variable, a duration reads whole seconds
 (`"PT0.5S"`, `"P1DT12H"`). Only the seconds take a fraction, up to the
 microsecond. Years and months are refused, since their length depends on the
 calendar. A config dumped to JSON writes a duration the same way, in days and
-smaller units (`"P400D"`), so it reads back exactly. A duration is greater
-than zero and at most 100 years.
+smaller units (`"P400D"`), so it reads back exactly. A duration is at most
+100 years.
+
+A duration that says how long to keep something (`cache_ttl`,
+`keep_delivered`) accepts zero, meaning keep nothing. No other duration
+accepts zero, and `None` means no limit, never off.
 
 Once validated, the config holds a `timedelta`, and its field is typed
 `timedelta`. A component parameter is typed `int | timedelta`, so
 `RateLimiter.sliding_window("api", limit=100, window=60)` type-checks. A
 `*Config` built directly takes a `timedelta` in typed code, since a type
 checker reads its parameters from the field types.
-
-`cache_ttl=0` turns that cache off. No other duration accepts zero, and `None`
-never means off.
 
 A wait, a timeout passed to I/O and the sleep between two runs of a
 background loop stay a float of seconds, the type `asyncio` and HTTP clients
@@ -153,7 +154,9 @@ take.
 | `LockConfig.lease_duration`, `ReadWriteLockConfig.lease_duration` | `int \| timedelta` | yes |
 | `TaskLockConfig.lease_duration`, `.min_hold_duration` | `int \| timedelta` | yes |
 | `LeaderElectionConfig.lease_duration`, `.renew_deadline` | `int \| timedelta` | yes |
-| `OutboxConfig.lease_duration`, `.keep_delivered` | `int \| timedelta` | not yet |
+| `OutboxConfig.lease_duration` | `int \| timedelta` | yes |
+| `OutboxConfig.keep_delivered` | `int \| timedelta \| None`, `0` deletes on delivery, `None` keeps for good | yes |
+| `Outbox.purge(older_than)` | `int \| timedelta`, `0` purges every settled row | yes |
 | `TTLCacheConfig.ttl`, `Cache.ttl(ttl)`, `cached(ttl, stale_ttl)`, `TTLCache.set(ttl, stale_ttl)`, `.get_or_set(ttl, stale_ttl)`, `.set_many(ttl)` | `int \| timedelta` | yes |
 | `IdempotencyConfig.ttl`, `CachedResponsesConfig.ttl`, `.include` per-path TTLs, `CachedResponse(ttl)` | `int \| timedelta` | yes |
 | `DuplicateFilterConfig.ttl` | `int \| timedelta` | not yet |
@@ -168,3 +171,4 @@ take.
 | `shutdown_timeout`, `export_timeout`, `command_timeout` | `float` | stays |
 | `TimeoutConfig.seconds` | `float` | stays |
 | `RetryConfig.max_seconds`, backoff delays, outbox `retry_base` and `retry_max` | `float` | stays |
+| `Outbox.publish(delay)`, outbox `Retry(delay)` | `float \| timedelta` | stays |

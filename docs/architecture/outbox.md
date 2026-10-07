@@ -70,7 +70,7 @@ There is no ordering guarantee in this version. Messages are claimed in `(availa
 
 ## Schema and cleanup
 
-One table holds every message. Column names follow the common outbox convention so change-data-capture tooling can read it. A partial index on `(available_at, id)` for non-terminal rows serves the claim, and a partial unique index on `dedup_key` backs producer-side deduplication. Delivered rows are deleted on success by default, so the working set stays small. Dead rows and (with `keep_delivered=True`) delivered rows are trimmed by `purge`.
+One table holds every message. Column names follow the common outbox convention so change-data-capture tooling can read it. A partial index on `(available_at, id)` for non-terminal rows serves the claim, and a partial unique index on `dedup_key` backs producer-side deduplication. Delivered rows are deleted on success by default, so the working set stays small. Dead rows and (with `keep_delivered=None`) delivered rows are trimmed by `purge`.
 
 ## Backend extensibility
 

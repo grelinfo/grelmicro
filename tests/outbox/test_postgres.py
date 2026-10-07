@@ -31,6 +31,9 @@ pytestmark = [pytest.mark.timeout(60)]
 
 URL = "postgresql://test_user:test_password@test_host:1234/test_db"
 
+LEASE = timedelta(milliseconds=300)
+"""A lease short enough to lapse within a test."""
+
 
 def _adapter() -> PostgresOutboxAdapter:
     """Return an adapter bound to an unopened provider (no I/O)."""
@@ -182,7 +185,10 @@ def test_rebind_provider_swaps_the_pool() -> None:
 
 async def test_claim_empty_topics_returns_empty() -> None:
     """Claiming with no registered topics touches no database."""
-    assert await _adapter().claim(topics=[], limit=1, lease=1) == []
+    assert (
+        await _adapter().claim(topics=[], limit=1, lease=timedelta(seconds=1))
+        == []
+    )
 
 
 async def test_aenter_skips_migrate_and_listener_when_disabled() -> None:
@@ -255,7 +261,9 @@ async def test_claim_maps_rows_to_records() -> None:
             }
         ]
     )
-    (record,) = await adapter.claim(topics=["job"], limit=10, lease=30)
+    (record,) = await adapter.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=30)
+    )
     assert record.id == message_id
     assert record.payload == {"n": 1}
     assert record.attempts == 1
@@ -537,7 +545,9 @@ async def test_adapter_owns_env_built_provider(
                 conn.transaction(),
             ):
                 assert await backend.enqueue(conn, record) is True
-            (claimed,) = await backend.claim(topics=["job"], limit=10, lease=30)
+            (claimed,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=30)
+            )
             assert claimed.id == record.id
 
 
@@ -561,14 +571,18 @@ async def test_postgres_lease_reclaim() -> None:
             ):
                 await backend.enqueue(conn, record)
 
-            (first,) = await backend.claim(topics=["job"], limit=10, lease=0.3)
+            (first,) = await backend.claim(
+                topics=["job"], limit=10, lease=LEASE
+            )
             assert first.attempts == 1
             # Before the lease lapses the row stays invisible.
             assert (
-                await backend.claim(topics=["job"], limit=10, lease=0.3) == []
+                await backend.claim(topics=["job"], limit=10, lease=LEASE) == []
             )
             await asyncio.sleep(0.4)
-            (second,) = await backend.claim(topics=["job"], limit=10, lease=5)
+            (second,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=5)
+            )
             assert second.id == record.id
             assert second.attempts == 2  # noqa: PLR2004
 
@@ -583,7 +597,9 @@ async def test_postgres_lease_reclaim() -> None:
             )
             assert await backend.redrive() == 1
             # Dead-letter again and purge removes the terminal row.
-            (third,) = await backend.claim(topics=["job"], limit=10, lease=5)
+            (third,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=5)
+            )
             await backend.reschedule(
                 message_id=third.id,
                 attempts=third.attempts,
@@ -592,7 +608,12 @@ async def test_postgres_lease_reclaim() -> None:
                 dead=True,
             )
             assert await backend.purge() == 1
-            assert await backend.claim(topics=["job"], limit=10, lease=1) == []
+            assert (
+                await backend.claim(
+                    topics=["job"], limit=10, lease=timedelta(seconds=1)
+                )
+                == []
+            )
 
 
 @pytest.mark.integration
@@ -621,14 +642,16 @@ async def test_postgres_purge_states_filter() -> None:
 
             await _stage()
             (delivered,) = await backend.claim(
-                topics=["job"], limit=10, lease=30
+                topics=["job"], limit=10, lease=timedelta(seconds=30)
             )
             await backend.complete(
                 message_id=delivered.id, attempts=delivered.attempts, keep=True
             )
 
             await _stage()
-            (dead,) = await backend.claim(topics=["job"], limit=10, lease=30)
+            (dead,) = await backend.claim(
+                topics=["job"], limit=10, lease=timedelta(seconds=30)
+            )
             await backend.reschedule(
                 message_id=dead.id,
                 attempts=dead.attempts,

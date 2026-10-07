@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
 import asyncpg
 from typing_extensions import Doc
 
+from grelmicro._duration import microseconds
 from grelmicro._json import json_dumps_str, json_loads
 from grelmicro.errors import SettingsValidationError
 from grelmicro.outbox._message import OutboxRecord
@@ -26,6 +27,7 @@ logger = getLogger("grelmicro.outbox")
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import timedelta
     from types import TracebackType
     from uuid import UUID
 
@@ -96,7 +98,7 @@ class PostgresOutboxAdapter(OutboxBackend):
     _SQL_CLAIM = """
         UPDATE {table} SET
             state = 'processing',
-            available_at = NOW() + make_interval(secs => $3),
+            available_at = NOW() + $3::bigint * INTERVAL '1 microsecond',
             attempts = attempts + 1
         WHERE id IN (
             SELECT id FROM {table}
@@ -136,9 +138,9 @@ class PostgresOutboxAdapter(OutboxBackend):
     _SQL_PURGE = (
         "DELETE FROM {table} "
         "WHERE state = ANY($2) "
-        "AND ($1::float8 IS NULL "
+        "AND ($1::bigint IS NULL "
         "OR COALESCE(delivered_at, created_at) "
-        "< NOW() - make_interval(secs => $1));"
+        "< NOW() - $1::bigint * INTERVAL '1 microsecond');"
     )
 
     def __init__(
@@ -446,13 +448,13 @@ class PostgresOutboxAdapter(OutboxBackend):
         return inserted
 
     async def claim(
-        self, *, topics: Sequence[str], limit: int, lease: float
+        self, *, topics: Sequence[str], limit: int, lease: timedelta
     ) -> list[OutboxRecord]:
         """Claim up to `limit` due messages for the given topics."""
         if not topics:
             return []
         rows = await self._provider.client.fetch(
-            self._claim_sql, list(topics), limit, lease
+            self._claim_sql, list(topics), limit, microseconds(lease)
         )
         return [
             OutboxRecord(
@@ -505,7 +507,7 @@ class PostgresOutboxAdapter(OutboxBackend):
     async def purge(
         self,
         *,
-        before_seconds: float | None = None,
+        older_than: timedelta | None = None,
         states: tuple[Literal["delivered", "dead"], ...] = (
             "delivered",
             "dead",
@@ -513,7 +515,9 @@ class PostgresOutboxAdapter(OutboxBackend):
     ) -> int:
         """Delete terminal rows in the given states. Returns the count removed."""
         status = await self._provider.client.execute(
-            self._purge_sql, before_seconds, list(states)
+            self._purge_sql,
+            microseconds(older_than) if older_than is not None else None,
+            list(states),
         )
         return _rows_affected(status)
 

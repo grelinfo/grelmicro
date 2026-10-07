@@ -97,11 +97,20 @@ What moved:
 - **Circuit breaker**: `reset_timeout` on `CircuitBreaker.consecutive_count`
   and `ConsecutiveCountConfig`.
 - **Security**: `ClientBans` `window` and `duration`, `JWTVerifier` `ttl` and `cache_ttl` (`0` still turns the cache off), and `OAuthClient` `refresh_before` and `default_lifetime`.
+- **Outbox**: `lease_duration`, `keep_delivered` and `purge(older_than=...)`.
+  `keep_delivered` takes no bool. Write `0` for `False` (delete on delivery)
+  and `None` for `True` (keep for good). `keep_delivered=1` now means one
+  second, where it used to become `True` and keep rows for good. From an
+  environment variable, write `0` or `none`. Bool spellings such as `"true"`
+  are refused, and `"1"` means one second too. `purge(older_than=0)` purges
+  every delivered and dead row.
 
 A backend of your own takes each lease, TTL or cool-down as a `timedelta`: the
 `LockBackend`, `ReadWriteLockBackend`, `LeaderElectionBackend` and
 `CacheBackend` protocols, `CircuitBreakerStrategy.transition(cool_down)`, and
-`LeaderRecord.lease_duration`.
+`LeaderRecord.lease_duration`. An `OutboxBackend` takes `claim(lease=...)` as
+a `timedelta`, and `purge` takes `older_than` as a `timedelta` instead of
+`before_seconds`.
 
 Redis leader election stores its record under new `le_us:` keys, so a leader
 on the previous version is not seen. Upgrade every worker at once.

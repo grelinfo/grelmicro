@@ -53,12 +53,13 @@ from grelmicro._config import (
 )
 from grelmicro._duration import (
     NANOSECONDS_PER_SECOND,
-    CacheTTL,
     Duration,
+    Retention,
     check_finite,
     nanoseconds,
     nanoseconds_from_seconds,
 )
+from grelmicro._unset import UNSET, Unset
 from grelmicro.errors import (
     DependencyNotFoundError,
     GrelmicroError,
@@ -526,7 +527,7 @@ class JWTPolicy(BaseModel, frozen=True):
         ),
     ] = "sha256"
     cache_ttl: Annotated[
-        CacheTTL,
+        Retention,
         Doc(
             "How long a verified token stays cached, in whole seconds or as"
             " a `timedelta`. A float is refused. Zero turns the cache off."
@@ -1039,22 +1040,6 @@ how long a withdrawn token keeps being accepted.
 """
 
 
-class _Unset:
-    """Stands for an audience the caller did not pass.
-
-    `None` cannot: it is what `audience` means by "answer to no audience", so
-    a caller writing it has said something, and `resolve_config` reads a
-    `None` keyword as one nobody passed.
-    """
-
-    def __repr__(self) -> str:
-        """Return the name it is published under."""
-        return "UNSET"
-
-
-_UNSET: Final = _Unset()
-"""The one instance of `_Unset`, so a caller can be told apart from a default."""
-
 _NO_AUDIENCE: Final = "\x00no-audience"
 """Stands in for the audience while the environment is read.
 
@@ -1129,14 +1114,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
             Doc("Keys this verifier accepts, selected by the token's `kid`."),
         ],
         audience: Annotated[
-            str | Sequence[str] | _Unset | None,
+            str | Sequence[str] | Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
                 " refuses any token that names one, and only code can say it."
                 " Left out, it is read from the environment, where it is"
                 " required."
             ),
-        ] = _UNSET,
+        ] = UNSET,
         issuer: Annotated[
             str | Sequence[str] | None,
             Doc("Accepted `iss` values. Left out, nothing checks the issuer."),
@@ -1229,14 +1214,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         *,
         audience: Annotated[
-            str | Sequence[str] | _Unset | None,
+            str | Sequence[str] | Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
                 " refuses any token that names one, and only code can say it."
                 " Left out, it is read from the environment, where it is"
                 " required."
             ),
-        ] = _UNSET,
+        ] = UNSET,
         issuer: Annotated[
             str | Sequence[str] | None,
             Doc("Accepted `iss` values. Left out, nothing checks the issuer."),
@@ -1370,14 +1355,14 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         ] = None,
         *,
         audience: Annotated[
-            str | Sequence[str] | _Unset | None,
+            str | Sequence[str] | Unset | None,
             Doc(
                 "Accepted `aud` values. `None` answers to no audience, which"
                 " refuses any token that names one, and only code can say it."
                 " Left out, it is read from the environment, where it is"
                 " required."
             ),
-        ] = _UNSET,
+        ] = UNSET,
         algorithm: Annotated[
             _AsymmetricAlgorithm | None,
             Doc(
@@ -1513,7 +1498,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         config_cls: type[C],
         name: str,
         *,
-        audience: str | Sequence[str] | _Unset | None,
+        audience: str | Sequence[str] | Unset | None,
         env_load: bool | None,
         **settings: object,
     ) -> tuple[C, str]:
@@ -1535,7 +1520,7 @@ class JWTVerifier(Reconfigurable[JWTKeysConfig | JWKSConfig | DiscoveryConfig]):
         kwargs: dict[str, object] = dict(settings)
         if audience is None:
             kwargs["audience"] = [_NO_AUDIENCE]
-        elif not isinstance(audience, _Unset):
+        elif not isinstance(audience, Unset):
             kwargs["audience"] = audience
         for field_name in _ONE_OR_MANY:
             value = kwargs.get(field_name)

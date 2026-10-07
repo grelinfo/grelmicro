@@ -38,7 +38,9 @@ async def test_claim_increments_attempts() -> None:
     backend = MemoryOutboxAdapter()
     record = _record()
     await backend.enqueue(None, record)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     assert claimed.id == record.id
     assert claimed.attempts == 1
 
@@ -47,7 +49,12 @@ async def test_claim_filters_unregistered_topics() -> None:
     """Only the requested topics are claimed."""
     backend = MemoryOutboxAdapter()
     await backend.enqueue(None, _record())
-    assert await backend.claim(topics=["other"], limit=10, lease=60) == []
+    assert (
+        await backend.claim(
+            topics=["other"], limit=10, lease=timedelta(seconds=60)
+        )
+        == []
+    )
 
 
 async def test_complete_fenced_on_attempts() -> None:
@@ -55,7 +62,9 @@ async def test_complete_fenced_on_attempts() -> None:
     backend = MemoryOutboxAdapter()
     record = _record()
     await backend.enqueue(None, record)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
 
     await backend.complete(message_id=claimed.id, attempts=999, keep=False)
     assert record.id in backend._rows
@@ -72,7 +81,9 @@ async def test_dedup_blocks_in_any_state() -> None:
     record = _record(dedup_key="k")
     assert await backend.enqueue(None, record) is True
 
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.reschedule(
         message_id=claimed.id,
         attempts=claimed.attempts,
@@ -90,7 +101,9 @@ async def test_reschedule_fenced_on_attempts() -> None:
     backend = MemoryOutboxAdapter()
     record = _record()
     await backend.enqueue(None, record)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.reschedule(
         message_id=claimed.id,
         attempts=claimed.attempts + 99,
@@ -114,7 +127,9 @@ async def test_redrive_moves_dead_back_to_pending() -> None:
     backend = MemoryOutboxAdapter()
     record = _record()
     await backend.enqueue(None, record)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.reschedule(
         message_id=claimed.id,
         attempts=claimed.attempts,
@@ -124,7 +139,9 @@ async def test_redrive_moves_dead_back_to_pending() -> None:
     )
 
     assert await backend.redrive(topic="job") == 1
-    (reclaimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (reclaimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     assert reclaimed.id == record.id
 
 
@@ -134,14 +151,18 @@ async def test_purge_removes_terminal_rows_only() -> None:
 
     delivered = _record()
     await backend.enqueue(None, delivered)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.complete(
         message_id=claimed.id, attempts=claimed.attempts, keep=True
     )
 
     dead = _record()
     await backend.enqueue(None, dead)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.reschedule(
         message_id=claimed.id,
         attempts=claimed.attempts,
@@ -164,14 +185,18 @@ async def test_purge_states_filter_targets_delivered_only() -> None:
 
     delivered = _record()
     await backend.enqueue(None, delivered)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.complete(
         message_id=claimed.id, attempts=claimed.attempts, keep=True
     )
 
     dead = _record()
     await backend.enqueue(None, dead)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.reschedule(
         message_id=claimed.id,
         attempts=claimed.attempts,
@@ -192,12 +217,19 @@ async def test_purge_measures_delivered_age_from_delivery_time() -> None:
     await backend.enqueue(None, record)
     # Backdate creation far into the past.
     backend._rows[record.id].created_at = _now() - timedelta(days=365)
-    (claimed,) = await backend.claim(topics=["job"], limit=10, lease=60)
+    (claimed,) = await backend.claim(
+        topics=["job"], limit=10, lease=timedelta(seconds=60)
+    )
     await backend.complete(
         message_id=claimed.id, attempts=claimed.attempts, keep=True
     )
 
     # Freshly delivered, so a one-hour window keeps it, even though a
     # creation-based purge would have deleted the year-old row.
-    assert await backend.purge(before_seconds=3600, states=("delivered",)) == 0
+    assert (
+        await backend.purge(
+            older_than=timedelta(hours=1), states=("delivered",)
+        )
+        == 0
+    )
     assert record.id in backend._rows

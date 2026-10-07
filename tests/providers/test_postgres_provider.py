@@ -986,7 +986,9 @@ class TestFromEngineAgainstPostgres:
             async with session_factory() as session, session.begin():
                 assert await outbox.enqueue(session, record)
 
-            claimed = await outbox.claim(topics=[topic], limit=10, lease=30)
+            claimed = await outbox.claim(
+                topics=[topic], limit=10, lease=timedelta(seconds=30)
+            )
 
         assert len(claimed) == 1
         assert claimed[0].payload == payload

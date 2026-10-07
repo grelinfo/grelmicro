@@ -20,6 +20,7 @@ from typing_extensions import Doc
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import timedelta
     from types import TracebackType
     from uuid import UUID
 
@@ -75,8 +76,11 @@ class OutboxBackend(Protocol):
             Doc("Maximum number of messages to claim."),
         ],
         lease: Annotated[
-            float,
-            Doc("Seconds the claimed messages stay invisible."),
+            timedelta,
+            Doc(
+                "How long the claimed messages stay invisible. A message is "
+                "never claimed again before its lease ends."
+            ),
         ],
     ) -> list[OutboxRecord]:
         """Claim up to `limit` due messages for the given topics."""
@@ -119,9 +123,12 @@ class OutboxBackend(Protocol):
     async def purge(
         self,
         *,
-        before_seconds: Annotated[
-            float | None,
-            Doc("Only purge terminal rows older than this many seconds."),
+        older_than: Annotated[
+            timedelta | None,
+            Doc(
+                "Only purge terminal rows older than this. A row is never "
+                "purged before it is this old. None purges all."
+            ),
         ] = None,
         states: Annotated[
             tuple[Literal["delivered", "dead"], ...],
