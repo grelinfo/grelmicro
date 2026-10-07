@@ -128,10 +128,10 @@ Pick the algorithm whose behaviour matches how **operators describe the limit** 
 
     ### Worked scenarios
 
-    - **"Limit each user to 100 API calls per minute."** Use `SlidingWindowConfig(limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into the `t=` parameter of `RateLimit`.
+    - **"Limit each user to 100 API calls per minute."** Use `RateLimiter.sliding_window("api", limit=100, window=60)`. The sliding window matches the natural description, and `RateLimitResult.reset_after` feeds directly into the `t=` parameter of `RateLimit`.
     - **"Allow a burst of 20 uploads, then 2 per second."** Use `TokenBucketConfig(capacity=20, refill_rate=2)`. Each word in the sentence maps to one parameter.
     - **"Fair share. Every account gets 1 heavy job per 10 seconds but can queue up to 5."** Use `TokenBucketConfig(capacity=5, refill_rate=0.1)`.
-    - **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `SlidingWindowConfig(limit=10, window=60)`.
+    - **"Throttle expensive webhook retries. At most 10 per minute per target."** Use `RateLimiter.sliding_window("webhooks", limit=10, window=60)`.
 
     There is no separate `LeakyBucket` algorithm. `SlidingWindowConfig` is the leaky-bucket-as-meter formulation. Operators searching for "leaky bucket" should use `SlidingWindowConfig`.
 
@@ -218,7 +218,7 @@ RateLimit-Policy: "api";q=100;w=60
 RateLimit: "api";r=50;t=30
 ```
 
-`RateLimit-Policy` describes the policy rather than the request, so its window (`w=`) is not on the result. Read it from the config you built the limiter with. `SlidingWindowConfig.window` is a `timedelta`, so render it as `int(config.window.total_seconds())`. The policy line is the same on every response, so render it once.
+`RateLimit-Policy` describes the policy rather than the request, so its window (`w=`) is not on the result. Read it from the config you built the limiter with. `SlidingWindowConfig.window` is a `timedelta` and `w=` takes whole seconds, so render it as `math.ceil(config.window.total_seconds())`. A window under a second reads `w=1`. The policy line is the same on every response, so render it once.
 
 ### Weighted requests
 

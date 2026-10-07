@@ -128,7 +128,9 @@ From text, such as an environment variable, a duration reads whole seconds
 (`"60"`) or an ISO 8601 duration in weeks, days, hours, minutes and seconds
 (`"PT0.5S"`, `"P1DT12H"`). Only the seconds take a fraction, up to the
 microsecond. Years and months are refused, since their length depends on the
-calendar. A duration is greater than zero and at most 100 years.
+calendar. A config dumped to JSON writes a duration the same way, in days and
+smaller units (`"P400D"`), so it reads back exactly. A duration is greater
+than zero and at most 100 years.
 
 Once validated, the config holds a `timedelta`, and its field is typed
 `timedelta`. A component parameter is typed `int | timedelta`, so

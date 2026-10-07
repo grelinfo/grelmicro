@@ -5,9 +5,11 @@ from decimal import Decimal
 from fractions import Fraction
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from grelmicro._duration import Duration
+from grelmicro._duration import MAX_DURATION, Duration
 
 
 class _Model(BaseModel):
@@ -67,6 +69,13 @@ def test_duration_takes_whole_seconds_or_a_timedelta(
         (10**20, "ttl must be at most 100 years"),
         ("P99999999999999D", "ttl must be at most 100 years"),
         ("PT99999999999999999999H", "ttl must be at most 100 years"),
+        pytest.param(
+            "9" * 5000, "ttl must be at most 100 years", id="5000-digits"
+        ),
+        pytest.param(
+            f"P{'9' * 5000}D", "ttl must be at most 100 years", id="5000-days"
+        ),
+        ("P1DT", "ttl must be whole seconds or an ISO 8601 duration"),
         (-(10**20), "ttl must be greater than zero"),
         (0, "ttl must be greater than zero"),
         (-1, "ttl must be greater than zero"),
@@ -94,3 +103,35 @@ def test_duration_outside_a_field_names_a_duration() -> None:
     """A duration validated outside a model field is called a duration."""
     with pytest.raises(ValidationError, match="duration must be whole"):
         TypeAdapter(Duration).validate_python(1.5)
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        (timedelta(seconds=60), "PT1M"),
+        (timedelta(seconds=90), "PT1M30S"),
+        (timedelta(milliseconds=1500), "PT1.5S"),
+        (timedelta(days=7), "P7D"),
+        (timedelta(days=1, hours=2, microseconds=3), "P1DT2H0.000003S"),
+        (timedelta(days=400), "P400D"),
+        (timedelta(days=36_500), "P36500D"),
+    ],
+)
+def test_duration_dumps_to_json_it_reads_back(
+    value: timedelta, text: str
+) -> None:
+    """A duration dumps to ISO 8601 in days and smaller units, read back."""
+    dumped = _Model(ttl=value).model_dump(mode="json")["ttl"]
+
+    assert dumped == text
+    assert _Model.model_validate({"ttl": dumped}).ttl == value
+
+
+@given(
+    st.timedeltas(min_value=timedelta(microseconds=1), max_value=MAX_DURATION)
+)
+def test_every_duration_reads_back_from_its_json(value: timedelta) -> None:
+    """Any duration in range reads back from its JSON text exactly."""
+    dumped = _Model(ttl=value).model_dump(mode="json")["ttl"]
+
+    assert _Model.model_validate({"ttl": dumped}).ttl == value

@@ -3,6 +3,7 @@
 import importlib
 import pkgutil
 import typing
+from collections.abc import Callable
 from datetime import timedelta
 
 from pydantic import BaseModel
@@ -114,6 +115,8 @@ def _bare(annotation: object, kind: type) -> bool:
     """Return whether `kind` appears in `annotation` outside `Duration`."""
     if annotation is kind:
         return True
+    if isinstance(annotation, list):
+        return any(_bare(arg, kind) for arg in annotation)
     args = typing.get_args(annotation)
     if typing.get_origin(annotation) is typing.Annotated:
         if all(check in args[1:] for check in _DURATION_CHECKS):
@@ -179,6 +182,7 @@ class _OptionalDuration(BaseModel):
 class _FloatsInside(BaseModel):
     delays: tuple[float, ...] = ()
     by_name: dict[str, timedelta] = {}
+    on_wait: Callable[[float], None] | None = None
 
 
 def test_an_optional_duration_is_shared() -> None:
@@ -190,3 +194,4 @@ def test_a_float_or_timedelta_inside_a_container_is_found() -> None:
     """A float or timedelta inside a tuple or a dict is found."""
     assert _unshared(_FloatsInside, "delays")
     assert _unshared(_FloatsInside, "by_name")
+    assert _unshared(_FloatsInside, "on_wait")
