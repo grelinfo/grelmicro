@@ -13,6 +13,7 @@ from grelmicro.cache.ttl import TTLCache
 from grelmicro.providers._base import Provider
 
 if TYPE_CHECKING:
+    from datetime import timedelta
     from types import TracebackType
 
     from grelmicro.cache.serializers import CacheSerializer
@@ -131,7 +132,7 @@ class Cache:
     def ttl[T](
         self,
         *,
-        ttl: float = 60,
+        ttl: int | timedelta = 60,
         maxsize: int = 0,
         name: str | None = None,
         serializer: CacheSerializer[T] | type[T] | None = None,
@@ -142,7 +143,8 @@ class Cache:
         `JsonSerializer[User]()` yields a `TTLCache[User]`.
 
         Args:
-            ttl: Default TTL in seconds for cached entries.
+            ttl: Default TTL for cached entries, in whole seconds or as a
+                `timedelta`. A float is refused.
             maxsize: Maximum local cache entries (`0` means unlimited).
             name: The cache name, carried by every metric it emits.
                 Defaults to this component's registration name. Name each

@@ -1,6 +1,7 @@
 """Tests for RedisCacheAdapter."""
 
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
@@ -99,7 +100,7 @@ class TestRedisCacheAdapterAsyncMethods:
         backend, client = _build(prefix="p:")
         client.eval = AsyncMock()
 
-        await backend.set(key="key", value=b"value", ttl=30)
+        await backend.set(key="key", value=b"value", ttl=timedelta(seconds=30))
 
         # script, numkeys, value key, reverse-tag set, value, px.
         client.eval.assert_awaited_once_with(
@@ -111,7 +112,7 @@ class TestRedisCacheAdapterAsyncMethods:
         backend, client = _build()
         client.eval = AsyncMock()
 
-        await backend.set(key="bare", value=b"data", ttl=60)
+        await backend.set(key="bare", value=b"data", ttl=timedelta(seconds=60))
 
         client.eval.assert_awaited_once_with(
             ANY, 2, "bare", "cache:rtag:bare", b"data", "60000"
@@ -122,7 +123,7 @@ class TestRedisCacheAdapterAsyncMethods:
         backend, client = _build()
         client.eval = AsyncMock()
 
-        await backend.set(key="k", value=b"v", ttl=0.5)
+        await backend.set(key="k", value=b"v", ttl=timedelta(milliseconds=500))
 
         client.eval.assert_awaited_once_with(
             ANY, 2, "k", "cache:rtag:k", b"v", "500"

@@ -2,10 +2,12 @@
 
 import asyncio
 from collections.abc import Iterable, Mapping, Sequence
-from time import monotonic
+from datetime import timedelta
+from time import monotonic_ns
 from types import TracebackType
 from typing import ClassVar, Self
 
+from grelmicro._duration import nanoseconds
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.types import BackendScope
 
@@ -13,7 +15,8 @@ from grelmicro.types import BackendScope
 class MemoryCacheAdapter(CacheBackend):
     """In-memory cache backend.
 
-    Stores entries in a Python dict with lazy TTL expiry.
+    Stores entries in a Python dict with lazy TTL expiry, timed on the
+    monotonic clock in whole nanoseconds.
     Suitable for testing and single-process applications.
 
     Tag membership is tracked with two dicts kept in sync: a forward
@@ -28,7 +31,7 @@ class MemoryCacheAdapter(CacheBackend):
 
     def __init__(self) -> None:
         """Initialize the memory cache backend."""
-        self._data: dict[str, tuple[bytes, float]] = {}
+        self._data: dict[str, tuple[bytes, int]] = {}
         self._tag_keys: dict[str, set[str]] = {}
         self._key_tags: dict[str, set[str]] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -59,7 +62,7 @@ class MemoryCacheAdapter(CacheBackend):
         if entry is None:
             return None
         value, expiry = entry
-        if monotonic() >= expiry:
+        if monotonic_ns() >= expiry:
             self._drop(key)
             return None
         return value
@@ -69,16 +72,16 @@ class MemoryCacheAdapter(CacheBackend):
         *,
         key: str,
         value: bytes,
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
-        """Store raw bytes with a TTL in seconds and optional tags."""
-        self._data[key] = (value, monotonic() + ttl)
+        """Store raw bytes with a TTL and optional tags."""
+        self._data[key] = (value, monotonic_ns() + nanoseconds(ttl))
         self._associate(key, tags)
 
     async def get_many(self, *, keys: Sequence[str]) -> dict[str, bytes]:
         """Get raw bytes for many keys, returning only found entries."""
-        now = monotonic()
+        now = monotonic_ns()
         found: dict[str, bytes] = {}
         for key in keys:
             entry = self._data.get(key)
@@ -95,11 +98,11 @@ class MemoryCacheAdapter(CacheBackend):
         self,
         *,
         items: Mapping[str, bytes],
-        ttl: float,
+        ttl: timedelta,
         tags: Sequence[str] = (),
     ) -> None:
         """Store many keys with one TTL and optional tags."""
-        expiry = monotonic() + ttl
+        expiry = monotonic_ns() + nanoseconds(ttl)
         for key, value in items.items():
             self._data[key] = (value, expiry)
             self._associate(key, tags)

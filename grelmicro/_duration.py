@@ -15,12 +15,24 @@ from pydantic import (
     ValidationInfo,
 )
 
+MICROSECOND = timedelta(microseconds=1)
+"""One microsecond, the finest step a `timedelta` takes."""
+
+MILLISECOND = timedelta(milliseconds=1)
+"""One millisecond."""
+
+SECOND = timedelta(seconds=1)
+"""One second."""
+
 MAX_DURATION = timedelta(days=36_500)
 """Longest duration, a hundred years."""
 
-_TOO_LONG = MAX_DURATION + timedelta(microseconds=1)
+_ZERO = timedelta(0)
+"""A duration of nothing, which no duration may be."""
 
-_MAX_SECONDS = MAX_DURATION // timedelta(seconds=1)
+_TOO_LONG = MAX_DURATION + MICROSECOND
+
+_MAX_SECONDS = MAX_DURATION // SECOND
 
 _MICROSECOND_DIGITS = 6
 
@@ -47,6 +59,16 @@ def round_up(duration: timedelta, unit: timedelta) -> int:
     return -(-duration // unit)
 
 
+def microseconds(duration: timedelta) -> int:
+    """Return `duration` in whole microseconds, exactly."""
+    return duration // MICROSECOND
+
+
+def nanoseconds(duration: timedelta) -> int:
+    """Return `duration` in whole nanoseconds, exactly."""
+    return duration // MICROSECOND * 1_000
+
+
 def _name(info: ValidationInfo) -> str:
     """Return the field name, or `duration` outside a field."""
     return info.field_name or "duration"
@@ -70,18 +92,18 @@ def _from_seconds(seconds: int) -> timedelta:
     return timedelta(seconds=max(-1, min(seconds, _MAX_SECONDS + 1)))
 
 
-def _from_text(text: str, info: ValidationInfo) -> timedelta:
+def _from_text(text: str, name: str) -> timedelta:
     """Read whole seconds (`"60"`) or an ISO 8601 duration (`"PT0.5S"`)."""
     if _WHOLE_SECONDS.fullmatch(text):
         return _from_seconds(_number(text))
     match = _ISO_8601.fullmatch(text)
     if match is None:
-        msg = f"{_name(info)} must be whole seconds or an ISO 8601 duration"
+        msg = f"{name} must be whole seconds or an ISO 8601 duration"
         raise ValueError(msg)
     weeks, days, hours, minutes, seconds, fraction = match.groups()
     fraction = (fraction or "").rstrip("0")
     if len(fraction) > _MICROSECOND_DIGITS:
-        msg = f"{_name(info)} must be whole microseconds"
+        msg = f"{name} must be whole microseconds"
         raise ValueError(msg)
     try:
         return timedelta(
@@ -96,31 +118,50 @@ def _from_text(text: str, info: ValidationInfo) -> timedelta:
         return _TOO_LONG
 
 
-def _parse(value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
-    """Read whole seconds or text, and refuse any other number.
+def _from_value(value: object, name: str) -> timedelta:
+    """Read whole seconds or a `timedelta`, and refuse anything else.
 
-    A `timedelta` goes on unchanged. A float, a bool, or any other number
-    is refused.
+    A float, a bool, text, or any other number is refused.
     """
-    if isinstance(value, str):
-        return _from_text(value, info)
     if isinstance(value, int) and not isinstance(value, bool):
         return _from_seconds(value)
     if isinstance(value, timedelta):
         return value
-    msg = f"{_name(info)} must be whole seconds or a timedelta"
+    msg = f"{name} must be whole seconds or a timedelta"
     raise ValueError(msg)
+
+
+def in_range(value: timedelta, name: str) -> timedelta:
+    """Return `value`, refusing a duration of zero or less, or over 100 years.
+
+    Raises:
+        ValueError: If `value` is not greater than zero, or is over 100
+            years. The message names `name`.
+    """
+    if value <= _ZERO:
+        msg = f"{name} must be greater than zero"
+        raise ValueError(msg)
+    if value > MAX_DURATION:
+        msg = f"{name} must be at most 100 years"
+        raise ValueError(msg)
+    return value
+
+
+def _read(value: object, name: str) -> timedelta:
+    """Read whole seconds, a `timedelta`, or text, and refuse a float."""
+    if isinstance(value, str):
+        return _from_text(value, name)
+    return _from_value(value, name)
+
+
+def _parse(value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
+    """Read whole seconds, a `timedelta`, or text, and refuse a float."""
+    return _read(value, _name(info))
 
 
 def _check_range(value: timedelta, info: ValidationInfo) -> timedelta:
     """Refuse a duration of zero or less, or over a hundred years."""
-    if value <= timedelta(0):
-        msg = f"{_name(info)} must be greater than zero"
-        raise ValueError(msg)
-    if value > MAX_DURATION:
-        msg = f"{_name(info)} must be at most 100 years"
-        raise ValueError(msg)
-    return value
+    return in_range(value, _name(info))
 
 
 def _to_text(value: timedelta) -> str:
@@ -158,3 +199,32 @@ and seconds (`"PT0.5S"`), exact to the microsecond. A decimal number of
 seconds, such as `"1.5"`, is refused, and so are years and months.
 In JSON it is written the same way, in days and smaller units.
 """
+
+
+def check_duration(value: int | timedelta, name: str) -> timedelta:
+    """Return a typed argument as a duration, refused under its own name.
+
+    Takes whole seconds as an `int`, or a `timedelta`, in the range a
+    `Duration` field takes. Text is refused. A refusal says what a
+    `Duration` field says, naming `name`.
+
+    Raises:
+        ValueError: If `value` is not whole seconds or a `timedelta`, is
+            not greater than zero, or is over 100 years.
+    """
+    if isinstance(value, timedelta) and _ZERO < value <= MAX_DURATION:
+        return value
+    return in_range(_from_value(value, name), name)
+
+
+def read_duration(value: object, name: str) -> timedelta:
+    """Return a configured value as a duration, refused under its own name.
+
+    Takes what a `Duration` field takes, text included, for a value read
+    from a config or the environment that sits where no field names it,
+    such as one value of a mapping. A refusal names `name`.
+
+    Raises:
+        ValueError: If `value` is not a valid duration.
+    """
+    return in_range(_read(value, name), name)

@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from contextlib import suppress
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
@@ -30,7 +31,7 @@ EXPECTED_MISSES_2 = 2
 EXPECTED_CURRSIZE_2 = 2
 
 
-def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
+def _make_cache(maxsize: int = 10, ttl: int | timedelta = 60) -> TTLCache:
     """Create a TTLCache with the in-memory backend and a serializer.
 
     Captures the running loop on the backend so the sync ``@cached``
@@ -1671,13 +1672,15 @@ class TestCachedStaleOnError:
                 raise RuntimeError(msg)
             return calls
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
         fail = True
         # Primary entry expired (ttl=5), stale reserve alive (ttl=105).
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 10 * 10**9
+        ):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
     async def test_propagates_when_reserve_also_expired(self) -> None:
@@ -1692,13 +1695,16 @@ class TestCachedStaleOnError:
                 raise RuntimeError(msg)
             return 1
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
         fail = True
         with (
-            patch("grelmicro.cache.memory.monotonic", return_value=now + 200),
+            patch(
+                "grelmicro.cache.memory.monotonic_ns",
+                return_value=now + 200 * 10**9,
+            ),
             pytest.raises(RuntimeError, match="down"),
         ):
             await fetch()
@@ -1715,13 +1721,16 @@ class TestCachedStaleOnError:
                 raise RuntimeError(msg)
             return 1
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             assert await fetch() == EXPECTED_CALL_COUNT_1
 
         fail = True
         with (
-            patch("grelmicro.cache.memory.monotonic", return_value=now + 10),
+            patch(
+                "grelmicro.cache.memory.monotonic_ns",
+                return_value=now + 10 * 10**9,
+            ),
             pytest.raises(RuntimeError, match="down"),
         ):
             await fetch()
@@ -1760,14 +1769,16 @@ class TestSyncCachedStaleOnError:
                 raise RuntimeError(msg)
             return calls
 
-        now = time.monotonic()
-        with patch("grelmicro.cache.memory.monotonic", return_value=now):
+        now = time.monotonic_ns()
+        with patch("grelmicro.cache.memory.monotonic_ns", return_value=now):
             first = await asyncio.to_thread(fetch)
         assert first == EXPECTED_CALL_COUNT_1
 
         fail = True
         # Primary entry expired (ttl=5), stale reserve alive (ttl=105).
-        with patch("grelmicro.cache.memory.monotonic", return_value=now + 10):
+        with patch(
+            "grelmicro.cache.memory.monotonic_ns", return_value=now + 10 * 10**9
+        ):
             served = await asyncio.to_thread(fetch)
         assert served == EXPECTED_CALL_COUNT_1
 

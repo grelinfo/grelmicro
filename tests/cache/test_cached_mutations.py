@@ -17,6 +17,7 @@ import sys
 import threading
 from collections import OrderedDict
 from contextlib import suppress
+from datetime import timedelta
 
 import pytest
 
@@ -33,11 +34,11 @@ from grelmicro.testing import record
 
 pytestmark = [pytest.mark.timeout(10)]
 
-_PRIVATE_TTL = 45.0
+_PRIVATE_TTL = 45
 _PRIVATE_MAXSIZE = 7
 
 
-def _make_cache(maxsize: int = 10, ttl: float = 60) -> TTLCache:
+def _make_cache(maxsize: int = 10, ttl: int | timedelta = 60) -> TTLCache:
     """Create a TTLCache on a primed in-memory backend."""
     backend = MemoryCacheAdapter()
     with suppress(RuntimeError):
@@ -85,7 +86,9 @@ class TestPrivateCacheConfig:
         async def fetch(x: int) -> int:
             return x
 
-        assert _private_cache(fetch).config.ttl == _PRIVATE_TTL
+        assert _private_cache(fetch).config.ttl == timedelta(
+            seconds=_PRIVATE_TTL
+        )
 
     async def test_private_cache_uses_the_given_maxsize(self) -> None:
         """`@cached(ttl=..., maxsize=7)` carries maxsize into the cache."""

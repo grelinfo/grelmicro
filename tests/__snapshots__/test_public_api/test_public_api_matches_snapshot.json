@@ -89,7 +89,7 @@
       ".from_config": "(config, *, name='default', backend=None, serializer=None) -> 'Self'"
     },
     "TTLCacheConfig": {
-      "()": "(*, maxsize=0, ttl=60) -> None"
+      "()": "(*, maxsize=0, ttl=datetime.timedelta(seconds=60)) -> None"
     },
     "cached": {
       "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_maker=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
@@ -278,10 +278,10 @@
       ".from_config": "(config, *, name='default', namespace='http', cache=None, key=None, skip=None) -> 'CachedResponses'"
     },
     "CachedResponsesConfig": {
-      "()": "(*, ttl=60.0, include=(), exclude=(), vary_by_headers=(), vary_by_query=None, max_body_size=1048576) -> None"
+      "()": "(*, ttl=datetime.timedelta(seconds=60), include=(), exclude=(), vary_by_headers=(), vary_by_query=None, max_body_size=1048576) -> None"
     },
     "CachedResponsesMiddleware": {
-      "()": "(app, *, cache, policies=None, ttl=60.0, include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', live=None) -> 'None'"
+      "()": "(app, *, cache, policies=None, ttl=datetime.timedelta(seconds=60), include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', live=None) -> 'None'"
     },
     "ConditionalRequests": {
       "()": "(*, etag_responses=None, require_precondition=None, include=None, exclude=None, max_body_size=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",
@@ -373,7 +373,7 @@
       ".from_config": "(name, config, *, fingerprint=None, cache=None, serializer=None, requires=None) -> 'Self'"
     },
     "IdempotencyConfig": {
-      "()": "(*, ttl=86400) -> None"
+      "()": "(*, ttl=datetime.timedelta(days=1)) -> None"
     },
     "IdempotencyConflictError": {
       "()": "(*, name, key) -> None"

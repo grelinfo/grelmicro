@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import timedelta
 from types import TracebackType
 from typing import Self
 from unittest.mock import AsyncMock, MagicMock
@@ -263,9 +264,9 @@ class TestAsyncMethods:
         conn = _mock_conn()
         pool.acquire = lambda: _acquire_cm(conn)
 
-        await backend.set(key="k", value=b"v", ttl=30)
+        await backend.set(key="k", value=b"v", ttl=timedelta(seconds=30))
 
-        conn.execute.assert_any_await(backend._set_sql, "p:k", b"v", 30.0)
+        conn.execute.assert_any_await(backend._set_sql, "p:k", b"v", 30_000_000)
         conn.execute.assert_any_await(backend._delete_tags_of_key_sql, "p:k")
         conn.executemany.assert_not_awaited()
 
@@ -275,7 +276,9 @@ class TestAsyncMethods:
         conn = _mock_conn()
         pool.acquire = lambda: _acquire_cm(conn)
 
-        await backend.set(key="k", value=b"v", ttl=30, tags=["t1", "t2"])
+        await backend.set(
+            key="k", value=b"v", ttl=timedelta(seconds=30), tags=["t1", "t2"]
+        )
 
         conn.executemany.assert_awaited_once_with(
             backend._insert_tag_sql, [("p:k", "t1"), ("p:k", "t2")]

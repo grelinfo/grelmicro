@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Self, cast
 
 import pytest
@@ -880,7 +881,7 @@ def test_the_ttl_needs_no_pattern_object() -> None:
 
     # Assert
     assert options["idempotency"].name == "http"
-    assert options["idempotency"].config.ttl == 3600  # noqa: PLR2004
+    assert options["idempotency"].config.ttl == timedelta(hours=1)
 
 
 def test_the_store_is_reachable_for_the_code_that_needs_it() -> None:

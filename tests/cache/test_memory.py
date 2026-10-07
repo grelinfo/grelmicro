@@ -2,6 +2,7 @@
 
 import asyncio
 from asyncio import sleep
+from datetime import timedelta
 
 import pytest
 
@@ -17,7 +18,7 @@ class TestMemoryCacheAdapterGet:
     async def test_get_returns_stored_bytes(self) -> None:
         """Test that get returns the bytes stored by set."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="k", value=b"hello", ttl=60)
+        await backend.set(key="k", value=b"hello", ttl=timedelta(seconds=60))
 
         result = await backend.get(key="k")
 
@@ -34,7 +35,9 @@ class TestMemoryCacheAdapterGet:
     async def test_get_expired_returns_none(self) -> None:
         """Test that get returns None after the entry's TTL has elapsed."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="exp", value=b"data", ttl=0.05)
+        await backend.set(
+            key="exp", value=b"data", ttl=timedelta(milliseconds=50)
+        )
 
         await sleep(0.1)
 
@@ -44,7 +47,9 @@ class TestMemoryCacheAdapterGet:
     async def test_get_removes_expired_entry_lazily(self) -> None:
         """Test that expired entries are removed from internal storage on access."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="lazy", value=b"val", ttl=0.05)
+        await backend.set(
+            key="lazy", value=b"val", ttl=timedelta(milliseconds=50)
+        )
 
         await sleep(0.1)
         await backend.get(key="lazy")
@@ -55,7 +60,9 @@ class TestMemoryCacheAdapterGet:
     async def test_get_not_yet_expired_returns_value(self) -> None:
         """Test that get returns the value when the TTL has not yet elapsed."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="fresh", value=b"still here", ttl=60)
+        await backend.set(
+            key="fresh", value=b"still here", ttl=timedelta(seconds=60)
+        )
 
         result = await backend.get(key="fresh")
 
@@ -64,7 +71,7 @@ class TestMemoryCacheAdapterGet:
     async def test_get_empty_bytes_value(self) -> None:
         """Test that get correctly returns an empty bytes value."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="empty", value=b"", ttl=60)
+        await backend.set(key="empty", value=b"", ttl=timedelta(seconds=60))
 
         result = await backend.get(key="empty")
 
@@ -74,7 +81,7 @@ class TestMemoryCacheAdapterGet:
         """Test that get returns large byte payloads without truncation."""
         backend = MemoryCacheAdapter()
         large = b"x" * 100_000
-        await backend.set(key="big", value=large, ttl=60)
+        await backend.set(key="big", value=large, ttl=timedelta(seconds=60))
 
         result = await backend.get(key="big")
 
@@ -83,7 +90,9 @@ class TestMemoryCacheAdapterGet:
     async def test_get_unicode_key(self) -> None:
         """Test that get works with Unicode (non-ASCII) key strings."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="unicode-key", value=b"unicode-value", ttl=60)
+        await backend.set(
+            key="unicode-key", value=b"unicode-value", ttl=timedelta(seconds=60)
+        )
 
         result = await backend.get(key="unicode-key")
 
@@ -96,8 +105,8 @@ class TestMemoryCacheAdapterSet:
     async def test_set_overwrites_existing_key(self) -> None:
         """Test that a second set replaces the previous value for the same key."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="k", value=b"first", ttl=60)
-        await backend.set(key="k", value=b"second", ttl=60)
+        await backend.set(key="k", value=b"first", ttl=timedelta(seconds=60))
+        await backend.set(key="k", value=b"second", ttl=timedelta(seconds=60))
 
         result = await backend.get(key="k")
 
@@ -107,9 +116,9 @@ class TestMemoryCacheAdapterSet:
         """Test that overwriting a key resets its expiry to the new TTL."""
         backend = MemoryCacheAdapter()
         # Write with a very short TTL.
-        await backend.set(key="k", value=b"v", ttl=0.05)
+        await backend.set(key="k", value=b"v", ttl=timedelta(milliseconds=50))
         # Immediately overwrite with a long TTL.
-        await backend.set(key="k", value=b"v2", ttl=60)
+        await backend.set(key="k", value=b"v2", ttl=timedelta(seconds=60))
 
         # Wait past the original short TTL.
         await sleep(0.1)
@@ -121,8 +130,8 @@ class TestMemoryCacheAdapterSet:
     async def test_set_multiple_keys_independently(self) -> None:
         """Test that multiple keys do not interfere with each other."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"aaa", ttl=60)
-        await backend.set(key="b", value=b"bbb", ttl=60)
+        await backend.set(key="a", value=b"aaa", ttl=timedelta(seconds=60))
+        await backend.set(key="b", value=b"bbb", ttl=timedelta(seconds=60))
 
         assert await backend.get(key="a") == b"aaa"
         assert await backend.get(key="b") == b"bbb"
@@ -134,7 +143,7 @@ class TestMemoryCacheAdapterDelete:
     async def test_delete_removes_key(self) -> None:
         """Test that delete makes the key unavailable."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="del", value=b"bye", ttl=60)
+        await backend.set(key="del", value=b"bye", ttl=timedelta(seconds=60))
 
         await backend.delete(key="del")
 
@@ -150,8 +159,10 @@ class TestMemoryCacheAdapterDelete:
     async def test_delete_does_not_affect_other_keys(self) -> None:
         """Test that deleting one key leaves other keys intact."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="keep", value=b"safe", ttl=60)
-        await backend.set(key="remove", value=b"gone", ttl=60)
+        await backend.set(key="keep", value=b"safe", ttl=timedelta(seconds=60))
+        await backend.set(
+            key="remove", value=b"gone", ttl=timedelta(seconds=60)
+        )
 
         await backend.delete(key="remove")
 
@@ -165,8 +176,8 @@ class TestMemoryCacheAdapterClear:
     async def test_clear_removes_all_entries(self) -> None:
         """Test that clear empties the store completely."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="one", value=b"1", ttl=60)
-        await backend.set(key="two", value=b"2", ttl=60)
+        await backend.set(key="one", value=b"1", ttl=timedelta(seconds=60))
+        await backend.set(key="two", value=b"2", ttl=timedelta(seconds=60))
 
         await backend.clear()
 
@@ -184,10 +195,10 @@ class TestMemoryCacheAdapterClear:
     async def test_can_set_after_clear(self) -> None:
         """Test that the backend remains usable after a clear."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="before", value=b"old", ttl=60)
+        await backend.set(key="before", value=b"old", ttl=timedelta(seconds=60))
         await backend.clear()
 
-        await backend.set(key="after", value=b"new", ttl=60)
+        await backend.set(key="after", value=b"new", ttl=timedelta(seconds=60))
         result = await backend.get(key="after")
 
         assert result == b"new"
@@ -206,7 +217,7 @@ class TestMemoryCacheAdapterContextManager:
     async def test_context_manager_clears_data_on_exit(self) -> None:
         """Test that __aexit__ clears the internal store."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="k", value=b"v", ttl=60)
+        await backend.set(key="k", value=b"v", ttl=timedelta(seconds=60))
 
         async with backend:
             pass
@@ -217,7 +228,7 @@ class TestMemoryCacheAdapterContextManager:
     async def test_context_manager_clears_even_on_exception(self) -> None:
         """Test that __aexit__ clears the store even when the body raises."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="k", value=b"v", ttl=60)
+        await backend.set(key="k", value=b"v", ttl=timedelta(seconds=60))
 
         with pytest.raises(RuntimeError, match="test error"):  # noqa: PT012
             async with backend:
@@ -234,7 +245,9 @@ class TestMemoryCacheAdapterTags:
         """Test that set records both forward and reverse tag maps."""
         backend = MemoryCacheAdapter()
 
-        await backend.set(key="k", value=b"v", ttl=60, tags=["t1", "t2"])
+        await backend.set(
+            key="k", value=b"v", ttl=timedelta(seconds=60), tags=["t1", "t2"]
+        )
 
         assert backend._tag_keys["t1"] == {"k"}
         assert backend._tag_keys["t2"] == {"k"}
@@ -244,7 +257,7 @@ class TestMemoryCacheAdapterTags:
         """Test that a tagless set leaves the tag maps empty."""
         backend = MemoryCacheAdapter()
 
-        await backend.set(key="k", value=b"v", ttl=60)
+        await backend.set(key="k", value=b"v", ttl=timedelta(seconds=60))
 
         assert backend._tag_keys == {}
         assert backend._key_tags == {}
@@ -252,9 +265,13 @@ class TestMemoryCacheAdapterTags:
     async def test_set_overwrite_replaces_tags(self) -> None:
         """Test that re-setting a key drops its old tag membership."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="k", value=b"v", ttl=60, tags=["old"])
+        await backend.set(
+            key="k", value=b"v", ttl=timedelta(seconds=60), tags=["old"]
+        )
 
-        await backend.set(key="k", value=b"v2", ttl=60, tags=["new"])
+        await backend.set(
+            key="k", value=b"v2", ttl=timedelta(seconds=60), tags=["new"]
+        )
 
         assert "old" not in backend._tag_keys
         assert backend._tag_keys["new"] == {"k"}
@@ -263,9 +280,11 @@ class TestMemoryCacheAdapterTags:
     async def test_set_overwrite_with_no_tags_clears_tags(self) -> None:
         """Test that re-setting a key with no tags clears its membership."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="k", value=b"v", ttl=60, tags=["t"])
+        await backend.set(
+            key="k", value=b"v", ttl=timedelta(seconds=60), tags=["t"]
+        )
 
-        await backend.set(key="k", value=b"v2", ttl=60)
+        await backend.set(key="k", value=b"v2", ttl=timedelta(seconds=60))
 
         assert backend._tag_keys == {}
         assert backend._key_tags == {}
@@ -273,8 +292,12 @@ class TestMemoryCacheAdapterTags:
     async def test_delete_removes_key_from_tags(self) -> None:
         """Test that delete cleans the key out of every tag it belonged to."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60, tags=["shared"])
-        await backend.set(key="b", value=b"b", ttl=60, tags=["shared"])
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(seconds=60), tags=["shared"]
+        )
+        await backend.set(
+            key="b", value=b"b", ttl=timedelta(seconds=60), tags=["shared"]
+        )
 
         await backend.delete(key="a")
 
@@ -284,7 +307,9 @@ class TestMemoryCacheAdapterTags:
     async def test_delete_prunes_empty_tag(self) -> None:
         """Test that deleting the last member drops the tag entry."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60, tags=["solo"])
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(seconds=60), tags=["solo"]
+        )
 
         await backend.delete(key="a")
 
@@ -293,7 +318,9 @@ class TestMemoryCacheAdapterTags:
     async def test_lazy_expiry_cleans_tags(self) -> None:
         """Test that a lazily expired key is removed from its tags."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=0.05, tags=["t"])
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(milliseconds=50), tags=["t"]
+        )
 
         await sleep(0.1)
         assert await backend.get(key="a") is None
@@ -304,9 +331,15 @@ class TestMemoryCacheAdapterTags:
     async def test_delete_tags_removes_all_members(self) -> None:
         """Test that delete_tags deletes every key under the tag."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60, tags=["group"])
-        await backend.set(key="b", value=b"b", ttl=60, tags=["group"])
-        await backend.set(key="c", value=b"c", ttl=60, tags=["other"])
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(seconds=60), tags=["group"]
+        )
+        await backend.set(
+            key="b", value=b"b", ttl=timedelta(seconds=60), tags=["group"]
+        )
+        await backend.set(
+            key="c", value=b"c", ttl=timedelta(seconds=60), tags=["other"]
+        )
 
         await backend.delete_tags(tags=["group"])
 
@@ -324,7 +357,9 @@ class TestMemoryCacheAdapterTags:
     async def test_delete_tags_cascades_reverse_for_multitag_key(self) -> None:
         """Test that deleting via one tag also clears the key's other tags."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60, tags=["t1", "t2"])
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(seconds=60), tags=["t1", "t2"]
+        )
 
         await backend.delete_tags(tags=["t1"])
 
@@ -335,7 +370,9 @@ class TestMemoryCacheAdapterTags:
     async def test_clear_resets_tag_maps(self) -> None:
         """Test that clear empties the tag maps too."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60, tags=["t"])
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(seconds=60), tags=["t"]
+        )
 
         await backend.clear()
 
@@ -349,8 +386,8 @@ class TestMemoryCacheAdapterBatch:
     async def test_get_many_returns_found_only(self) -> None:
         """Test that get_many omits missing keys."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60)
-        await backend.set(key="b", value=b"b", ttl=60)
+        await backend.set(key="a", value=b"a", ttl=timedelta(seconds=60))
+        await backend.set(key="b", value=b"b", ttl=timedelta(seconds=60))
 
         result = await backend.get_many(keys=["a", "b", "missing"])
 
@@ -359,8 +396,10 @@ class TestMemoryCacheAdapterBatch:
     async def test_get_many_drops_expired(self) -> None:
         """Test that get_many lazily drops an expired key."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=0.05, tags=["t"])
-        await backend.set(key="b", value=b"b", ttl=60)
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(milliseconds=50), tags=["t"]
+        )
+        await backend.set(key="b", value=b"b", ttl=timedelta(seconds=60))
 
         await sleep(0.1)
         result = await backend.get_many(keys=["a", "b"])
@@ -373,7 +412,9 @@ class TestMemoryCacheAdapterBatch:
         """Test that set_many writes every key and associates tags."""
         backend = MemoryCacheAdapter()
 
-        await backend.set_many(items={"a": b"a", "b": b"b"}, ttl=60, tags=["g"])
+        await backend.set_many(
+            items={"a": b"a", "b": b"b"}, ttl=timedelta(seconds=60), tags=["g"]
+        )
 
         assert await backend.get(key="a") == b"a"
         assert await backend.get(key="b") == b"b"
@@ -382,8 +423,10 @@ class TestMemoryCacheAdapterBatch:
     async def test_delete_many_removes_all(self) -> None:
         """Test that delete_many deletes every listed key."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60, tags=["t"])
-        await backend.set(key="b", value=b"b", ttl=60)
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(seconds=60), tags=["t"]
+        )
+        await backend.set(key="b", value=b"b", ttl=timedelta(seconds=60))
 
         await backend.delete_many(keys=["a", "b", "missing"])
 
@@ -409,7 +452,7 @@ class TestMemoryCacheAdapterMutationGaps:
     async def test_get_many_keeps_scanning_past_a_missing_key(self) -> None:
         """A missing key in the middle does not stop the scan."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="b", value=b"bb", ttl=60)
+        await backend.set(key="b", value=b"bb", ttl=timedelta(seconds=60))
 
         result = await backend.get_many(keys=["missing", "b"])
 
@@ -418,8 +461,10 @@ class TestMemoryCacheAdapterMutationGaps:
     async def test_get_many_keeps_scanning_past_an_expired_key(self) -> None:
         """An expired key in the middle does not stop the scan."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="gone", value=b"x", ttl=0.05)
-        await backend.set(key="live", value=b"yy", ttl=60)
+        await backend.set(
+            key="gone", value=b"x", ttl=timedelta(milliseconds=50)
+        )
+        await backend.set(key="live", value=b"yy", ttl=timedelta(seconds=60))
         await sleep(0.1)
 
         result = await backend.get_many(keys=["gone", "live"])
@@ -430,12 +475,12 @@ class TestMemoryCacheAdapterMutationGaps:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """`now >= expiry` drops an entry whose expiry equals now exactly."""
-        clock = [1000.0]
-        monkeypatch.setattr(memory_module, "monotonic", lambda: clock[0])
+        clock = [1000 * 10**9]
+        monkeypatch.setattr(memory_module, "monotonic_ns", lambda: clock[0])
         backend = MemoryCacheAdapter()
-        await backend.set(key="k", value=b"v", ttl=30.0)
+        await backend.set(key="k", value=b"v", ttl=timedelta(seconds=30))
 
-        clock[0] = 1030.0  # exactly at expiry (1000 + 30)
+        clock[0] = 1030 * 10**9  # exactly at expiry (1000 + 30)
         result = await backend.get_many(keys=["k"])
 
         assert result == {}
@@ -445,7 +490,9 @@ class TestMemoryCacheAdapterMutationGaps:
     ) -> None:
         """An unknown tag does not stop deletion of the next known tag."""
         backend = MemoryCacheAdapter()
-        await backend.set(key="a", value=b"a", ttl=60, tags=["known"])
+        await backend.set(
+            key="a", value=b"a", ttl=timedelta(seconds=60), tags=["known"]
+        )
 
         await backend.delete_tags(tags=["unknown", "known"])
 

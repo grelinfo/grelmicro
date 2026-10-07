@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, ClassVar, Self
 
 from typing_extensions import Doc
 
-from grelmicro._duration import round_up
+from grelmicro._duration import MICROSECOND, MILLISECOND, round_up
 from grelmicro.coordination._protocol import (
     LeaderRecord,
     LockBackend,
@@ -937,7 +937,7 @@ class RedisLeaderElectionAdapter:
             keys=[self._key(name)],
             args=[
                 token,
-                round_up(duration, _MICROSECOND),
+                round_up(duration, MICROSECOND),
                 json.dumps(dict(metadata or {})),
             ],
             client=self._provider.client,
@@ -965,8 +965,6 @@ class RedisLeaderElectionAdapter:
         return self._to_record(raw)
 
 
-_MICROSECOND = timedelta(microseconds=1)
-
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
@@ -981,7 +979,7 @@ def _duration_ms(duration: timedelta) -> int:
     A positive duration is at least one millisecond, so a lease never
     expires the moment it is granted.
     """
-    return max(1, round_up(duration, timedelta(milliseconds=1)))
+    return max(1, round_up(duration, MILLISECOND))
 
 
 def _as_str(value: bytes | str | None) -> str:

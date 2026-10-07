@@ -390,7 +390,7 @@ A background task runs after the response is sent, so the response is stored and
 
 | Parameter | Default | Behaviour |
 |---|---|---|
-| `ttl` | one day | Seconds a stored response replays for. Component only. |
+| `ttl` | one day | How long a stored response replays for, in whole seconds or as a `timedelta`. Component only. |
 | `namespace` | `"http"` | Namespace the stored keys sit under. Component only. |
 | `cache` | the registered `Cache` | The `TTLCache` responses are stored in. Component only. |
 | `idempotency` | required on the middleware | The `Idempotency` it stores through. The component builds one from `ttl`, `namespace` and `cache`. |

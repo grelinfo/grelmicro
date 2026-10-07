@@ -93,6 +93,7 @@ if TYPE_CHECKING:
         MutableMapping,
         Sequence,
     )
+    from datetime import timedelta
     from types import TracebackType
 
     from grelmicro.cache import TTLCache
@@ -1629,11 +1630,12 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         self,
         *,
         ttl: Annotated[
-            float | None,
+            int | timedelta | None,
             Doc(
-                "Seconds a stored response replays for. Defaults to a "
-                "day. Held by the `Idempotency` this rides, which is named "
-                "after the namespace, so it is tuned live under "
+                "How long a stored response replays for, in whole seconds "
+                "or as a `timedelta`. Defaults to a day. Held by the "
+                "`Idempotency` this rides, which is named after the "
+                "namespace, so it is tuned live under "
                 "`GREL_IDEMPOTENCY_HTTP_TTL`."
             ),
         ] = None,
@@ -1798,7 +1800,11 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         # its own name.
         with unrecorded():
             idempotency = Idempotency(
-                namespace, ttl=ttl, cache=cache, requires=requires
+                namespace,
+                ttl=ttl,
+                cache=cache,
+                requires=requires,
+                env_load=env_load,
             )
         self._setup(
             config,
@@ -1827,8 +1833,11 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             Doc("Namespace the stored keys sit under."),
         ] = "http",
         ttl: Annotated[
-            float | None,
-            Doc("Seconds a stored response replays for."),
+            int | timedelta | None,
+            Doc(
+                "How long a stored response replays for, in whole seconds "
+                "or as a `timedelta`."
+            ),
         ] = None,
         cache: Annotated[
             TTLCache[Any] | None,
@@ -1862,7 +1871,11 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
         instance = cls.__new__(cls)
         with unrecorded():
             idempotency = Idempotency(
-                namespace, ttl=ttl, cache=cache, requires=requires
+                namespace,
+                ttl=ttl,
+                cache=cache,
+                requires=requires,
+                env_load=False,
             )
         instance._setup(  # noqa: SLF001
             config,

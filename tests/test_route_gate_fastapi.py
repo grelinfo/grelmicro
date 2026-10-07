@@ -8,6 +8,7 @@ request, and the answering middleware run around the route it admitted.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import pytest
@@ -1460,7 +1461,9 @@ class TestDeclarations:
     ) -> None:
         """Every caller the route admits is served the same response."""
         assert checked(Authenticated(), CachedResponse(ttl=60)) == (
-            RouteDeclaration("/r", methods=frozenset({"GET"}), cache=60)
+            RouteDeclaration(
+                "/r", methods=frozenset({"GET"}), cache=timedelta(seconds=60)
+            )
         )
 
     @pytest.mark.parametrize("authenticated", [False, True])
@@ -1529,4 +1532,8 @@ class TestDeclarations:
         assert [
             (declaration.path, declaration.cache)
             for declaration in route_declarations(installed(app))
-        ] == [("/read", 30), ("/paged", False), ("/write", False)]
+        ] == [
+            ("/read", timedelta(seconds=30)),
+            ("/paged", False),
+            ("/write", False),
+        ]

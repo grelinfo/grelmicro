@@ -81,7 +81,7 @@ request. Your integration tells it what each route requires with a
 | `anonymous` | The route serves a caller with no credential | `False` |
 | `scopes` | The scopes the caller must hold, every one of them | empty |
 | `own_checks` | The route runs checks of its own before the handler, so its answer can depend on the caller: a dependency, a guard, or middleware on the route or on a mount around it. A response is never cached or replayed across callers | `False` |
-| `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, and a number for that many seconds | `False` |
+| `cache` | `CachedResponses` may store the route's response. `True` keeps it for the TTL the component is configured with, a `timedelta` keeps it that long, and a number is refused | `False` |
 
 A declaration is frozen. Pass `path` first and every other field by keyword.
 A route whose methods declare differently, such as a public `GET` beside a

@@ -16,6 +16,7 @@ import re
 import time
 import warnings
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Annotated, Any, Self, cast
 
@@ -2930,7 +2931,9 @@ class TestReport:
             config=SimpleNamespace(methods=("POST",), include=(), exclude=()),
             _key_maker=None,
             route_is_gated=lambda method, path: False,  # noqa: ARG005
-            idempotency=SimpleNamespace(config=SimpleNamespace(ttl=3600.0)),
+            idempotency=SimpleNamespace(
+                config=SimpleNamespace(ttl=timedelta(hours=1))
+            ),
         )
         read = _reads_idempotent(idempotent)
         public = _Endpoint(

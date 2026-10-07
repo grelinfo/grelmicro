@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import timedelta
 from time import time
 from typing import TYPE_CHECKING
 
@@ -89,7 +90,7 @@ async def test_owned_provider_is_opened_and_closed(
     assert cache._owns_provider is True
 
     async with cache:
-        await cache.set(key="k", value=b"v", ttl=60)
+        await cache.set(key="k", value=b"v", ttl=timedelta(seconds=60))
         assert await cache.get(key="k") == b"v"
 
     with pytest.raises(Exception, match="SQLiteProvider is not open"):
@@ -117,7 +118,7 @@ async def test_janitor_reclaims_expired_rows(tmp_path: Path) -> None:
         SQLiteProvider(str(path)) as provider,
         SQLiteCacheAdapter(provider=provider, cleanup_interval=0.01) as cache,
     ):
-        await cache.set(key="stale", value=b"v", ttl=-7200)
+        await cache.set(key="stale", value=b"v", ttl=timedelta(seconds=-7200))
         conn = provider.client
         for _ in range(50):
             await asyncio.sleep(0.02)
@@ -160,7 +161,7 @@ async def test_set_rolls_back_on_error(cache: SQLiteCacheAdapter) -> None:
     await conn.execute("DROP TABLE grelmicro_cache;")
 
     with pytest.raises(Exception, match="no such table"):
-        await cache.set(key="k", value=b"v", ttl=60)
+        await cache.set(key="k", value=b"v", ttl=timedelta(seconds=60))
 
     assert conn.in_transaction is False
 
@@ -171,7 +172,7 @@ async def test_set_many_rolls_back_on_error(cache: SQLiteCacheAdapter) -> None:
     await conn.execute("DROP TABLE grelmicro_cache;")
 
     with pytest.raises(Exception, match="no such table"):
-        await cache.set_many(items={"k": b"v"}, ttl=60)
+        await cache.set_many(items={"k": b"v"}, ttl=timedelta(seconds=60))
 
     assert conn.in_transaction is False
 
@@ -203,8 +204,8 @@ async def test_clear_without_prefix_drops_everything(
         SQLiteProvider(str(path)) as provider,
         SQLiteCacheAdapter(provider=provider) as cache,
     ):
-        await cache.set(key="a", value=b"a", ttl=60)
-        await cache.set(key="b", value=b"b", ttl=60)
+        await cache.set(key="a", value=b"a", ttl=timedelta(seconds=60))
+        await cache.set(key="b", value=b"b", ttl=timedelta(seconds=60))
 
         await cache.clear()
 
@@ -220,7 +221,9 @@ async def test_janitor_sweep_is_bounded(tmp_path: Path) -> None:
         SQLiteCacheAdapter(provider=provider, cleanup_interval=None) as cache,
     ):
         for index in range(JANITOR_OVERFLOW):
-            await cache.set(key=f"stale-{index}", value=b"v", ttl=-7200)
+            await cache.set(
+                key=f"stale-{index}", value=b"v", ttl=timedelta(seconds=-7200)
+            )
 
         await provider.client.execute(
             cache._janitor_sql, (time() - 3600, JANITOR_SWEEP)

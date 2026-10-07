@@ -16,12 +16,14 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from typing_extensions import Doc
 
+from grelmicro._duration import SECOND, microseconds
 from grelmicro._environment import recorded_bindings, unmet_requirements
 from grelmicro._paths import matches, names_route, walk_routes
 from grelmicro._redact import redact_url
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
+    from datetime import timedelta
     from re import Pattern
 
     from grelmicro._app import Grelmicro
@@ -428,6 +430,18 @@ def _selected(config: Any, endpoint: _Endpoint) -> str | None:  # noqa: ANN401
     return _reach(endpoint, tuple(config.include), tuple(config.exclude))
 
 
+def _seconds_text(duration: timedelta) -> str:
+    """Write `duration` in seconds, such as `60s` or `0.5s`.
+
+    Whole seconds are written without a fraction, and a fraction to the
+    microsecond, never in exponent form.
+    """
+    whole, fraction = divmod(microseconds(duration), microseconds(SECOND))
+    if not fraction:
+        return f"{whole}s"
+    return f"{whole}.{fraction:06d}".rstrip("0") + "s"
+
+
 def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what a `CachedResponses` does to one endpoint.
 
@@ -461,7 +475,7 @@ def _reads_cache(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: 
             seconds = _pattern_seconds(state, config, endpoint, patterns)
         if reach is None or seconds is None:
             return None
-        return f"cache {seconds:g}s{reach}"
+        return f"cache {_seconds_text(seconds)}{reach}"
 
     return read
 
@@ -471,8 +485,8 @@ def _pattern_seconds(
     config: Any,  # noqa: ANN401
     endpoint: _Endpoint,
     patterns: tuple[str, ...],
-) -> float | None:
-    """Return the seconds a pattern keeps this route for, or `None`.
+) -> timedelta | None:
+    """Return how long a pattern keeps this route for, or `None`.
 
     The template first, which is the pattern written the way the route
     was. Then the URLs it serves, because a pattern may name one of
@@ -521,7 +535,7 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
         ):
             return None
         window = component.idempotency.config.ttl
-        return f"idempotent {window:g}s{reach}"
+        return f"idempotent {_seconds_text(window)}{reach}"
 
     return read
 

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import KW_ONLY, dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Final, Protocol
 
 from typing_extensions import Doc
 
+from grelmicro._duration import in_range
 from grelmicro.errors import _scope_tokens
 
 if TYPE_CHECKING:
@@ -81,11 +82,11 @@ class RouteDeclaration:
         ),
     ] = False
     cache: Annotated[
-        bool | float,
+        bool | timedelta,
         Doc(
             "`CachedResponses` may store the route's response. `True` keeps "
-            "it for the TTL the component is configured with, and a number "
-            "for that many seconds."
+            "it for the TTL the component is configured with, a "
+            "`timedelta` keeps it that long, and a number is refused."
         ),
     ] = False
 
@@ -113,12 +114,12 @@ def refuse_impossible(declaration: RouteDeclaration) -> None:
     """Refuse a declaration that cannot hold, naming its route.
 
     Raises:
-        TypeError: If `cache` is neither a boolean nor a number.
+        TypeError: If `cache` is neither a boolean nor a `timedelta`.
         ValueError: If `methods` is empty or holds a method in lower case,
             the route is anonymous and requires scopes, it caches and runs
             checks of its own, it caches a method other than `GET` or
-            `HEAD`, its cache TTL is not a positive number of seconds, or
-            a scope is not an OAuth scope token.
+            `HEAD`, its cache TTL is not greater than zero or is over 100
+            years, or a scope is not an OAuth scope token.
     """
     path = declaration.path
     methods = declaration.methods
@@ -157,28 +158,29 @@ def _refuse_impossible_cache(declaration: RouteDeclaration, route: str) -> None:
     """Refuse a `cache` the route cannot honor.
 
     Raises:
-        TypeError: If `cache` is neither a boolean nor a number.
+        TypeError: If `cache` is neither a boolean nor a `timedelta`.
         ValueError: If the route caches and runs checks of its own, caches
-            a method other than `GET` or `HEAD`, or its TTL is not a
-            positive number of seconds.
+            a method other than `GET` or `HEAD`, or its TTL is not greater
+            than zero or is over 100 years.
     """
     cache = declaration.cache
     if cache is False:
         return
     if cache is not True:
-        if isinstance(cache, bool) or not isinstance(cache, int | float):
+        if not isinstance(cache, timedelta):
             msg = (
                 f"{route} declares cache={cache!r}. Pass True for the TTL the "
-                f"component is configured with, or a number of seconds."
+                f"component is configured with, or a timedelta."
             )
             raise TypeError(msg)
-        if not math.isfinite(cache) or cache <= 0:
+        try:
+            in_range(cache, f"{route} cache")
+        except ValueError as error:
             msg = (
-                f"{route} declares cache={cache!r}, which keeps nothing. Pass "
-                f"a number of seconds above zero, or True for the TTL the "
+                f"{error}. Pass a timedelta, or True for the TTL the "
                 f"component is configured with."
             )
-            raise ValueError(msg)
+            raise ValueError(msg) from None
     if declaration.own_checks:
         msg = (
             f"{route} declares cache and own_checks=True, so one caller's "

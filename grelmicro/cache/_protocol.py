@@ -8,6 +8,7 @@ implementation. Concrete backends (`RedisCacheAdapter`,
 
 import asyncio
 from collections.abc import Mapping, Sequence
+from datetime import timedelta
 from types import TracebackType
 from typing import Annotated, Protocol, Self, runtime_checkable
 
@@ -68,10 +69,11 @@ class CacheBackend(Protocol):
             Doc("Serialized payload to store. Opaque to the backend."),
         ],
         ttl: Annotated[
-            float,
+            timedelta,
             Doc(
-                "Time-to-live in seconds. The backend must drop the entry once"
-                " this many seconds have elapsed since the write."
+                "Time-to-live. The backend must keep the entry for at least"
+                " this long, rounded up to its own resolution, and drop it"
+                " once that has elapsed since the write."
             ),
         ],
         tags: Annotated[
@@ -82,7 +84,7 @@ class CacheBackend(Protocol):
             ),
         ] = (),
     ) -> None:
-        """Store raw bytes with a TTL in seconds and optional tags."""
+        """Store raw bytes with a TTL and optional tags."""
         ...
 
     async def get_many(
@@ -108,8 +110,8 @@ class CacheBackend(Protocol):
             Doc("Fully qualified key to serialized payload."),
         ],
         ttl: Annotated[
-            float,
-            Doc("Time-to-live in seconds applied to every written key."),
+            timedelta,
+            Doc("Time-to-live applied to every written key."),
         ],
         tags: Annotated[
             Sequence[str],

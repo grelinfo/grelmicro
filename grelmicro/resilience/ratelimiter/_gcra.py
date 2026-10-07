@@ -11,12 +11,11 @@ import math
 from datetime import timedelta
 from typing import NamedTuple
 
+from grelmicro._duration import microseconds
 from grelmicro.resilience._protocol import RateLimitResult
 
 MICROSECONDS = 1_000_000
 """Microseconds in a second."""
-
-_ONE_MICROSECOND = timedelta(microseconds=1)
 
 
 def to_microseconds(seconds: float) -> int:
@@ -26,7 +25,7 @@ def to_microseconds(seconds: float) -> int:
 
 def window_microseconds(window: timedelta) -> int:
     """Return `window` in microseconds."""
-    return window // _ONE_MICROSECOND
+    return microseconds(window)
 
 
 def emission_interval(window: timedelta, limit: int) -> int:

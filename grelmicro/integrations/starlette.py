@@ -476,7 +476,7 @@ def install_route_gate(
 
     Raises:
         TypeError: If a declaration's `cache` is neither a boolean nor a
-            number.
+            `timedelta`.
         ValueError: If a declaration cannot hold, naming its route.
     """
     gate_routes(app, gate)
