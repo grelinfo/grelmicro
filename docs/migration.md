@@ -56,6 +56,10 @@ that a client library used to accept.
 | `TypeError: ... got an unexpected keyword argument 'timeout_errors'` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
 | `SettingsValidationError: ... when: Field required` from a `Shield` | 0.42 | [Pass `when=`](#0-42-when) |
 | `TypeError: '_ShieldDecorator' object is not callable` from a bare `@shield` | 0.42 | [Pass a preset and `when=`](#0-42-when) |
+| `AttributeError: 'TaskLock' object has no attribute 'refresh'` | 0.42 | [Call `extend()`](#0-42-lock-extend) |
+| `LockExtendError` where you caught `LockAcquireError` or `LockReleaseError` from extending a lease | 0.42 | [Catch `LockExtendError`](#0-42-lock-extend) |
+| `LockNotOwnedError` passes an `except LockReleaseError` or `except LockBackendError` | 0.42 | [Catch `LockNotOwnedError`](#0-42-lock-extend) |
+| A dashboard or alert on `grelmicro.lock.renewals` stopped receiving data | 0.42 | [Use `grelmicro.lock.extensions`](#0-42-lock-extend) |
 
 ## 0.42
 
@@ -213,6 +217,32 @@ from grelmicro.integrations.fastapi import metrics_router
 ```
 
 `metrics_asgi` stays in `grelmicro.metrics`, since it needs no framework.
+
+### Extend a lease with `extend()` {#0-42-lock-extend}
+
+`TaskLock.refresh()` is now `TaskLock.extend()`, like `Lock` and
+`ReadWriteLock`:
+
+```python title="fragment"
+# Before
+await task_lock.refresh()
+
+# After
+await task_lock.extend()
+```
+
+A backend failure while extending a lease raises `LockExtendError`, on every
+lock and when a task gate extends its claim. `Lock` and `ReadWriteLock` raised
+`LockAcquireError` there, and `TaskLock` raised `LockReleaseError`.
+`except LockBackendError` catches every backend failure.
+
+A lost lease still raises `LockNotOwnedError`, which is no longer a
+`LockReleaseError` or a `LockBackendError`. Code that used
+`except LockReleaseError` to also catch a lost lease adds
+`except LockNotOwnedError`.
+
+The `grelmicro.lock.renewals` metric is now `grelmicro.lock.extensions`.
+Switch dashboards and alerts on the old name to the new one.
 
 ## 0.40
 

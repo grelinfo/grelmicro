@@ -83,10 +83,10 @@ async def record_start() -> None:
     run_starts.append(time.monotonic())
 
 
-async def refresh_gate_lock() -> None:
-    """Renew the gate lock from inside the body, then set e2e_event_1."""
+async def extend_gate_lock() -> None:
+    """Extend the gate lock from inside the body, then set e2e_event_1."""
     assert gate_lock is not None
-    await gate_lock.refresh()
+    await gate_lock.extend()
     e2e_event_1.set()
 
 

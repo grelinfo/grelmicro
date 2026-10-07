@@ -27,6 +27,7 @@ import pytest
 
 from grelmicro.coordination.errors import (
     LockAcquireError,
+    LockExtendError,
     LockReleaseError,
 )
 from grelmicro.coordination.lock import Lock
@@ -84,10 +85,9 @@ async def test_lock_operations_fail_loudly_when_redis_dies(
     latencies: dict[str, float] = {}
 
     with paused(redis_container):
-        # extend: backend error -> LockAcquireError (extend calls
-        # do_acquire under the hood, which wraps backend errors).
+        # extend: backend error -> LockExtendError.
         t0 = time.perf_counter()
-        with pytest.raises(LockAcquireError):
+        with pytest.raises(LockExtendError):
             await lock.extend()
         latencies["extend"] = time.perf_counter() - t0
 

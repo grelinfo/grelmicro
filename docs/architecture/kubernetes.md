@@ -58,7 +58,7 @@ The backend uses [lightkube](https://lightkube.readthedocs.io/) as the Kubernete
 The Kubernetes backend depends on the cluster control plane for every primitive call. Plan deployments around these assumptions:
 
 - **Single cluster**: Locks coordinate within one Kubernetes cluster. Multi-cluster fleets need a backend that fronts a shared store (Redis, Postgres).
-- **API server availability**: Every `acquire`, `extend`, `release`, `locked`, and `owned` call hits the kube-apiserver. If the control plane is unreachable, the operation fails. Acquire-time errors surface as `LockAcquireError`. Pair the backend with retries or fall back to a Memory adapter for self-healing flows.
+- **API server availability**: Every `acquire`, `extend`, `release`, `locked`, and `owned` call hits the kube-apiserver. If the control plane is unreachable, the operation fails. Acquire-time errors surface as `LockAcquireError`, and extend-time errors as `LockExtendError`. Pair the backend with retries or fall back to a Memory adapter for self-healing flows.
 - **etcd latency**: Lease writes are replicated through etcd, so per-call latency is at least one Raft round-trip. Expect tens to low hundreds of milliseconds, not microseconds.
 - **RBAC**: The Pod's ServiceAccount must hold a Role granting `get`, `create`, `update`, `delete`, and `list` on `leases.coordination.k8s.io` in the target namespace. A minimal Role is:
 

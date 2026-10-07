@@ -112,7 +112,7 @@ class IntervalTask(Task):
     def _claim_lock(self, interval: timedelta) -> TaskLock:
         """Build the lock that holds one claim per interval.
 
-        The claim is held for the whole interval. The task renews it
+        The claim is held for the whole interval. The task extends it
         while the body runs, so the lease of two intervals only bounds
         how long a crashed worker keeps it.
         The lock is built from a fixed config, so neither the environment
@@ -232,27 +232,27 @@ class IntervalTask(Task):
             # Renew from the moment the claim is held, so waiting for a
             # `sync` lock after it never lets the lease run out.
             done = asyncio.Event()
-            renewal = asyncio.create_task(self._renew_claim(primitive, done))
+            extension = asyncio.create_task(self._extend_claim(primitive, done))
             try:
                 await self._fire.claimed(
                     self._run_with_sync(primitives, index + 1)
                 )
             finally:
-                # Signal instead of cancel, so a renewal already sent to the
+                # Signal instead of cancel, so an extension already sent to the
                 # backend lands before the claim is released.
                 done.set()
-                await renewal
+                await extension
 
-    async def _renew_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
+    async def _extend_claim(self, claim: TaskLock, done: asyncio.Event) -> None:
         """Keep the claim until `done` is set.
 
-        Renews every third of the lease, read again before each wait so
-        a `reconfigure` sets the pace. A renewal the backend fails is
+        Extends every third of the lease, read again before each wait so
+        a `reconfigure` sets the pace. An extension the backend fails is
         retried every tenth of the lease for as long as the lease since
         the last one that worked lasts. A claim the backend no longer
-        holds stops the renewals. The body keeps running either way.
+        holds stops the extensions. The body keeps running either way.
         """
-        renewed_at = time.monotonic()
+        extended_at = time.monotonic()
         failing = False
         while True:
             lease = claim.config.lease_duration.total_seconds()
@@ -260,26 +260,26 @@ class IntervalTask(Task):
             if await sleep_or_stop(delay, done):
                 return
             try:
-                await claim._renew_held()  # noqa: SLF001
+                await claim._extend_held()  # noqa: SLF001
             except LockNotOwnedError:
                 logger.warning(
                     "Task lost its claim while the body ran: %s", self.name
                 )
                 return
             except Exception:
-                if time.monotonic() - renewed_at >= lease:
+                if time.monotonic() - extended_at >= lease:
                     logger.warning(
-                        "Task could not renew its claim while the body ran: %s",
+                        "Task could not extend its claim while the body ran: %s",
                         self.name,
                         exc_info=True,
                     )
                     return
                 logger.debug(
-                    "Task claim renewal failed, retrying: %s",
+                    "Task claim extension failed, retrying: %s",
                     self.name,
                     exc_info=True,
                 )
                 failing = True
             else:
-                renewed_at = time.monotonic()
+                extended_at = time.monotonic()
                 failing = False

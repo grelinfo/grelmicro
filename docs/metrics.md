@@ -179,7 +179,7 @@ that carried an exception, and never carries it on a success.
 | Metric | Type | Attributes |
 |---|---|---|
 | `grelmicro.lock.attempts` | counter | `grelmicro.lock.name`, `grelmicro.lock.mode`, `grelmicro.outcome` |
-| `grelmicro.lock.renewals` | counter | `grelmicro.lock.name`, `grelmicro.lock.mode`, `grelmicro.outcome` |
+| `grelmicro.lock.extensions` | counter | `grelmicro.lock.name`, `grelmicro.lock.mode`, `grelmicro.outcome` |
 | `grelmicro.lock.holders` | up_down_counter | `grelmicro.lock.name`, `grelmicro.lock.mode` |
 | `grelmicro.leader_election.attempts` | counter | `grelmicro.leader_election.name`, `grelmicro.outcome` |
 | `grelmicro.leader_election.leading` | gauge | `grelmicro.leader_election.name` |
@@ -261,7 +261,7 @@ wherever it appears.
 | `execute` / `replay` | idempotency | the request ran, or the stored response was served |
 | `acquired` | locks, leader election | this worker took it |
 | `unavailable` | locks, leader election | another worker holds it, which is not an error |
-| `lost` | lock renewals | the lease was gone before the work finished |
+| `lost` | lock extensions | the lease was gone before the work finished |
 | `skipped` / `missed` / `coordination_error` | tasks | see the fire table below |
 | `refused` | authentication | the request was refused, and `error.type` says why |
 
@@ -364,7 +364,7 @@ error rate stays at zero because no body ever ran.
 The same counter with `unavailable` is contention, not failure. A blocking
 acquire polls, so one point per poll is the normal shape of a busy lock.
 
-`grelmicro.lock.renewals` with `lost` is the one to page on. The lease
+`grelmicro.lock.extensions` with `lost` is the one to page on. The lease
 expired while the work under it was still running, so a second worker may
 already hold the lock and the at-most-once guarantee is gone. Raise
 `lease_duration` above the work's real duration.
@@ -372,7 +372,7 @@ already hold the lock and the at-most-once guarantee is gone. Raise
 ## Background work always reports its failure
 
 Work that runs outside your call stack has nowhere to raise. A cache
-cleanup sweep, an outbox relay, a lease renewal or a background refresh
+cleanup sweep, an outbox relay, a lease extension or a background refresh
 cannot hand you an exception, so grelmicro guarantees that each one
 instead becomes **observable**, through at least one of:
 

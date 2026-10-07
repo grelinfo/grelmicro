@@ -51,6 +51,7 @@ from grelmicro.coordination._tokens import (
 )
 from grelmicro.coordination.errors import (
     LockAcquireError,
+    LockExtendError,
     LockLockedCheckError,
     LockNotOwnedError,
     LockReentrantError,
@@ -126,11 +127,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     on other nodes.
 
     This lock is designed to be used as the `gate` of `@tasks.every`. There,
-    the task renews the lease every third of `lease_duration` from the moment
+    the task extends the lease every third of `lease_duration` from the moment
     it holds the lock until the body ends, so `lease_duration` only bounds how
     long a crashed worker keeps it. Entered directly with `async with`, the
-    lock renews nothing and relies on the TTL set at acquire time. Call
-    `refresh()` from a long body to extend it.
+    lock extends nothing and relies on the TTL set at acquire time. Call
+    `extend()` from a long body to push the lease further out.
 
     Supports live reconfiguration via
     `reconfigure(new_config)`.
@@ -445,6 +446,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         If elapsed < min_hold_duration, re-acquire with remaining duration (let TTL expire).
 
         Raises:
+            LockNotOwnedError: If the lock is not held or its lease ran out.
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
         config = self._config
@@ -459,36 +461,32 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             self._from_thread = ThreadTaskLockAdapter(task_lock=self)
         return self._from_thread
 
-    async def refresh(self) -> None:
-        """Renew the lease for another `lease_duration` without releasing.
+    async def extend(self) -> None:
+        """Extend the lease for another `lease_duration` without releasing.
 
         Raises:
             LockNotOwnedError: If this task does not hold the lock or the lease was lost.
-            LockAcquireError: If the backend call fails.
+            LockExtendError: If the backend call fails.
         """
-        config = self._config
         if self._acquired_at is None:
             raise LockNotOwnedError(name=self._name)
-        token = generate_task_token(config.worker, self._token_nonce)
-        renewed = await self.do_reacquire(token, config.lease_duration)
-        if not renewed:
+        token = generate_task_token(self._config.worker, self._token_nonce)
+        if not await self._extend_lease(token):
             raise LockNotOwnedError(name=self._name)
 
-    async def _renew_held(self) -> None:
-        """Renew the lease the lock holds, from any asyncio task.
+    async def _extend_held(self) -> None:
+        """Extend the lease the lock holds, from any asyncio task.
 
-        `refresh` answers only in the task that entered the lock. The
-        scheduler renews a claim from a task of its own while the body
+        `extend` answers only in the task that entered the lock. The
+        scheduler extends a claim from a task of its own while the body
         runs, with the token captured on entry.
 
         Raises:
             LockNotOwnedError: If the lock is not held or the lease was lost.
-            LockReleaseError: If the backend call fails.
+            LockExtendError: If the backend call fails.
         """
         token = self._held_token
-        if token is None or not await self.do_reacquire(
-            token, self._config.lease_duration
-        ):
+        if token is None or not await self._extend_lease(token):
             raise LockNotOwnedError(name=self._name)
 
     async def locked(self) -> bool:
@@ -572,11 +570,41 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         Raises:
             LockReleaseError: Cannot re-acquire the lock due to backend error.
         """
+        return await self._ask_backend(token, duration, LockReleaseError)
+
+    async def _extend_lease(self, token: str) -> bool:
+        """Extend the lease held with `token` for another `lease_duration`.
+
+        Returns:
+            bool: True if the lease was extended, False if it was lost.
+
+        Raises:
+            LockExtendError: Cannot extend the lease due to backend error.
+        """
+        return await self._ask_backend(
+            token, self._config.lease_duration, LockExtendError
+        )
+
+    async def _ask_backend(
+        self,
+        token: str,
+        duration: timedelta,
+        error: type[LockReleaseError | LockExtendError],
+    ) -> bool:
+        """Ask the backend to hold the lock for `duration`, counting the outcome.
+
+        Returns:
+            bool: True if the backend holds the lock for `token`, False otherwise.
+
+        Raises:
+            LockReleaseError: The backend call failed and `error` is it.
+            LockExtendError: The backend call failed and `error` is it.
+        """
         backend = self.backend
         try:
             # TaskLock does not surface the fencing token. A non-None result
-            # means the lock was re-acquired.
-            renewed = (
+            # means the lock is held.
+            held = (
                 await backend.acquire(
                     name=self._lock_name,
                     token=token,
@@ -584,10 +612,10 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 )
             ) is not None
         except Exception as exc:
-            self._metrics.renewal(ERROR)
-            raise LockReleaseError(name=self._name) from exc
-        self._metrics.renewal(SUCCESS if renewed else LOST)
-        return renewed
+            self._metrics.extension(ERROR)
+            raise error(name=self._name) from exc
+        self._metrics.extension(SUCCESS if held else LOST)
+        return held
 
     async def do_thread_enter(self) -> None:
         """Acquire the lock from a worker thread.
@@ -619,6 +647,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         release are atomic with respect to other threads.
 
         Raises:
+            LockNotOwnedError: If the lock is not held or its lease ran out.
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
         config = self._config
@@ -658,6 +687,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 `self._config.min_hold_duration` at the start of the
                 operation so the comparison and the
                 remaining-duration calculation always agree.
+
+        Raises:
+            LockNotOwnedError: If the lock is not held or its lease ran out.
+            LockReleaseError: If the lock cannot be released or re-acquired
+                due to a backend error.
         """
         if self._acquired_at is None:
             raise LockNotOwnedError(name=self._name)
@@ -748,6 +782,7 @@ class ThreadTaskLockAdapter:
         """Release or extend the lock based on elapsed time.
 
         Raises:
+            LockNotOwnedError: If the lock is not held or its lease ran out.
             LockReleaseError: If the lock cannot be released due to a backend error.
         """
         loop = self._backend_loop

@@ -162,7 +162,7 @@ class WriteGrant:
         int,
         Doc(
             "A strictly increasing integer minted for this lock name on"
-            " every free-to-held write transition. A renewal by the same"
+            " every free-to-held write transition. An extension by the same"
             " holder keeps the same value."
         ),
     ]
