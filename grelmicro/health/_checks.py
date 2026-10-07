@@ -2,14 +2,15 @@
 
 import asyncio
 import re
-import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from datetime import timedelta
 from logging import getLogger
+from time import monotonic, monotonic_ns
 from types import TracebackType
-from typing import Annotated, ClassVar, Self, cast
+from typing import Annotated, Any, ClassVar, Self, cast
 
-from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
+from pydantic import BaseModel, PositiveFloat, field_validator
 from typing_extensions import Doc
 
 from grelmicro._async import is_async_callable
@@ -18,6 +19,7 @@ from grelmicro._config import (
     default_env_prefix,
     resolve_config,
 )
+from grelmicro._duration import Retention, check_positive_wait, nanoseconds
 from grelmicro._markers import Registered, mark_registered
 from grelmicro.health import _liveness
 from grelmicro.health._liveness import Liveness, Watchdog
@@ -48,11 +50,27 @@ _NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9:_-]*$")
 _NAME_MAX_LEN = 64
 
 
+_NOT_SECONDS = "timeout must be a number of seconds"
+"""The refusal of a timeout that is a bool or not a number."""
+
+
+def _checked_timeout(value: object) -> float:
+    """Return a check timeout of float seconds, refused under `timeout`.
+
+    Raises:
+        ValueError: If `value` is a bool or not a number, is not finite,
+            or is zero or below. The message never repeats the value.
+    """
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return check_positive_wait(value, "timeout")
+    raise ValueError(_NOT_SECONDS)
+
+
 class HealthChecksConfig(BaseModel, frozen=True, extra="forbid"):
     """Health Checks Config."""
 
     timeout: Annotated[
-        PositiveFloat,
+        float,
         Doc(
             "Default per-check timeout in seconds. Checks that exceed "
             "this duration are reported as ``error``. Can be "
@@ -60,14 +78,30 @@ class HealthChecksConfig(BaseModel, frozen=True, extra="forbid"):
         ),
     ] = 5.0
     cache_ttl: Annotated[
-        NonNegativeFloat,
+        Retention,
         Doc(
-            "Per-check cache TTL in seconds. Each check's last "
-            "result is reused until it is older than ``cache_ttl``. "
-            "Concurrent calls coalesce via single-flight. Set to 0 "
-            "to disable caching."
+            "Per-check cache TTL, in whole seconds or as a `timedelta`. "
+            "A float is refused. Each check's last result is reused "
+            "until it is ``cache_ttl`` old. Concurrent calls coalesce "
+            "via single-flight. Set to 0 to disable caching. From "
+            "text, such as an environment variable, it reads whole "
+            'seconds (`"60"`) or an ISO 8601 duration (`"PT0.5S"`).'
         ),
-    ] = 1.0
+    ] = timedelta(seconds=1)
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def _refuse_bool_timeout(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse a bool timeout."""
+        if not isinstance(value, bool):
+            return value
+        raise ValueError(_NOT_SECONDS)
+
+    @field_validator("timeout")
+    @classmethod
+    def _check_timeout(cls, value: Any) -> Any:  # noqa: ANN401
+        """Refuse a timeout that is not a finite number, or is zero or below."""
+        return _checked_timeout(value)
 
 
 @dataclass(slots=True)
@@ -80,7 +114,8 @@ class _Entry:
     timeout: float
     liveness: bool = False
     cached_result: CheckResult | None = None
-    cached_at: float = 0.0
+    cached_at: int = 0
+    """When `cached_result` was stored, in monotonic nanoseconds."""
     inflight: asyncio.Event | None = field(default=None)
 
 
@@ -178,12 +213,13 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             ),
         ] = None,
         cache_ttl: Annotated[
-            NonNegativeFloat | None,
+            int | timedelta | None,
             Doc(
                 """
-                Per-check cache TTL in seconds. Set to 0 to disable.
+                Per-check cache TTL, in whole seconds or as a
+                `timedelta`. A float is refused. Set to 0 to disable.
 
-                Default: 1.0. When unset and env reads are enabled (see ``env_load`` and
+                Default: 1 second. When unset and env reads are enabled (see ``env_load`` and
                 ``GREL_ENV_LOAD``), resolves from the
                 environment variable ``GREL_HEALTH_CACHE_TTL`` (or
                 ``GREL_HEALTH_{NAME_UPPER}_CACHE_TTL`` for a named instance)
@@ -433,7 +469,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             ValueError: If ``name`` is already registered, or does not
                 match ``^[a-z0-9][a-z0-9:_-]*$`` (max 64 chars), or
                 ``liveness=True`` is set on a `HealthChecks` with no
-                `Liveness`. Colon is allowed for namespacing, e.g.
+                `Liveness`, or ``timeout`` is not a finite number of
+                seconds greater than zero. A colon is allowed in
+                ``name`` for namespacing, e.g.
                 ``"weather:circuitbreaker"``.
         """
         config = self._config
@@ -453,6 +491,8 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         if name in self._entries:
             msg = f"Health check '{name}' is already registered"
             raise ValueError(msg)
+        if timeout is not None:
+            timeout = _checked_timeout(timeout)
         if liveness and self._liveness is None:
             msg = (
                 f"Health check '{name}' sets liveness=True, but this "
@@ -550,8 +590,9 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         """Register a provider's built-in readiness check as ``provider:{name}``.
 
         Raises:
-            ValueError: If the provider ships no readiness check, or the
-                resulting name is already registered.
+            ValueError: If the provider ships no readiness check, the
+                resulting name is already registered, or ``timeout`` is
+                not a number of seconds greater than zero.
         """
         from grelmicro.providers._base import Provider  # noqa: PLC0415
 
@@ -618,7 +659,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         """Run the selected checks concurrently and aggregate.
 
         Each check runs with its own timeout. Results are cached per
-        check for ``cache_ttl`` seconds. Concurrent calls for the
+        check for ``cache_ttl``. Concurrent calls for the
         same check coalesce via single-flight.
 
         Returns:
@@ -643,11 +684,10 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             return HealthReport(status=HealthStatus.OK, checks={})
 
         results: dict[str, CheckResult] = {}
+        cache_ttl = nanoseconds(config.cache_ttl)
 
         async def _run(name: str, entry: _Entry) -> None:
-            results[name] = await self._get_or_run(
-                entry, cache_ttl=config.cache_ttl
-            )
+            results[name] = await self._get_or_run(entry, cache_ttl=cache_ttl)
 
         async with asyncio.TaskGroup() as tg:
             for name, entry in selected:
@@ -749,11 +789,12 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             return
 
     async def _get_or_run(
-        self, entry: _Entry, *, cache_ttl: float
+        self, entry: _Entry, *, cache_ttl: int
     ) -> CheckResult:
         """Return a cached or freshly computed result for one check.
 
-        Respects ``cache_ttl`` and serializes concurrent calls via a
+        Serves a cached result until it is ``cache_ttl`` nanoseconds old,
+        and serializes concurrent calls via a
         shared ``asyncio.Event``. If the single-flight leader is
         cancelled before it produces a result, waiters take the lead
         themselves instead of failing. The caller captures
@@ -763,7 +804,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
         """
         ttl = cache_ttl
         while True:
-            now = time.monotonic()
+            now = monotonic_ns()
             if (
                 ttl > 0
                 and entry.cached_result is not None
@@ -781,7 +822,7 @@ class HealthChecks(Reconfigurable[HealthChecksConfig]):
             try:
                 result = await _run_check(entry)
                 entry.cached_result = result
-                entry.cached_at = time.monotonic()
+                entry.cached_at = monotonic_ns()
                 return result
             finally:
                 entry.inflight = None
@@ -809,9 +850,9 @@ async def _run_check(entry: _Entry) -> CheckResult:
     `Metrics` component is active. The check name and critical flag are
     bounded attributes (registered names, not user input).
     """
-    start = time.monotonic()
+    start = monotonic()
     result = await _run_check_inner(entry)
-    elapsed = time.monotonic() - start
+    elapsed = monotonic() - start
     healthy = result["status"] == HealthStatus.OK
     _emit.observe(
         "grelmicro.health.check.up",

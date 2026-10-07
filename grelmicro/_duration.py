@@ -29,6 +29,9 @@ SECOND = timedelta(seconds=1)
 NANOSECONDS_PER_SECOND = 1_000_000_000
 """Nanoseconds in one second, for a clock read in whole nanoseconds."""
 
+NO_LIMIT = "none"
+"""The text an optional duration reads as `None`, no limit."""
+
 MAX_DURATION = timedelta(days=36_500)
 """Longest duration, a hundred years."""
 
@@ -211,6 +214,19 @@ def check_finite(value: float, name: str) -> float:
     return value
 
 
+def check_positive_wait(value: float, name: str) -> float:
+    """Return a wait of float seconds, refusing one not finite or not above zero.
+
+    Raises:
+        ValueError: If `value` is NaN or infinite, or is zero or below. The
+            message names `name` and never the value.
+    """
+    if check_finite(value, name) <= 0:
+        msg = f"{name} must be greater than zero"
+        raise ValueError(msg)
+    return value
+
+
 def _read(value: object, name: str) -> timedelta:
     """Read whole seconds, a `timedelta`, or text, and refuse a float."""
     if isinstance(value, str):
@@ -320,6 +336,17 @@ def read_duration(value: object, name: str) -> timedelta:
         ValueError: If `value` is not a valid duration.
     """
     return in_range(_read(value, name), name)
+
+
+def no_limit_from_text(value: Any) -> Any:  # noqa: ANN401
+    """Return `None` for the text `"none"`, in any case and trimmed.
+
+    Any other value comes back as it is, for an optional duration where
+    `None` means no limit.
+    """
+    if isinstance(value, str) and value.strip().lower() == NO_LIMIT:
+        return None
+    return value
 
 
 def check_retention(value: int | timedelta, name: str) -> timedelta:

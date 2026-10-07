@@ -67,6 +67,7 @@ from grelmicro._duration import (
     NANOSECONDS_PER_SECOND,
     Duration,
     check_finite,
+    check_positive_wait,
     nanoseconds,
     nanoseconds_from_seconds,
 )
@@ -571,13 +572,13 @@ class OAuthClientConfig(
             raise ValueError(msg)
         return value
 
-    @field_validator("timeout", "retry_interval")
+    @field_validator("timeout")
     @classmethod
-    def _check_finite(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
-        """Refuse a wait that is not a finite number."""
-        return check_finite(value, info.field_name or "value")
+    def _check_timeout(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
+        """Refuse a timeout that is not a finite number, or is zero or below."""
+        return check_positive_wait(value, info.field_name or "value")
 
-    @field_validator("timeout", "max_bytes")
+    @field_validator("max_bytes")
     @classmethod
     def _check_positive(cls, value: Any) -> Any:  # noqa: ANN401
         """Refuse a value that is not above zero."""
@@ -588,9 +589,9 @@ class OAuthClientConfig(
 
     @field_validator("retry_interval")
     @classmethod
-    def _check_not_negative(cls, value: Any) -> Any:  # noqa: ANN401
-        """Refuse a negative interval."""
-        if value < 0:
+    def _check_not_negative(cls, value: Any, info: ValidationInfo) -> Any:  # noqa: ANN401
+        """Refuse an interval that is not a finite number, or is negative."""
+        if check_finite(value, info.field_name or "value") < 0:
             msg = "value must not be negative"
             raise ValueError(msg)
         return value

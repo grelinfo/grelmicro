@@ -245,7 +245,7 @@
       ".from_config": "(config, *, name='default', auto_health=False, liveness=None) -> Self"
     },
     "HealthChecksConfig": {
-      "()": "(*, timeout=5.0, cache_ttl=1.0) -> None"
+      "()": "(*, timeout=5.0, cache_ttl=datetime.timedelta(seconds=1)) -> None"
     },
     "HealthDetails": null,
     "HealthError": {

@@ -16,6 +16,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from starlette.status import HTTP_200_OK, HTTP_503_SERVICE_UNAVAILABLE
 
 from grelmicro import Grelmicro
@@ -942,3 +943,47 @@ async def test_liveness_rounds_resume_after_the_app_reopens(
     # Assert
     assert health.is_alive
     assert not exits.stopped.is_set()
+
+
+# --- Wait settings ---
+
+
+@pytest.mark.parametrize(
+    "field", ["interval", "stall_timeout", "shutdown_timeout"]
+)
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf")],
+    ids=["nan", "inf", "minus-inf"],
+)
+def test_liveness_non_finite_wait_refused(field: str, value: float) -> None:
+    """A liveness wait that is not a finite number is refused, naming it."""
+    # Act / Assert
+    with pytest.raises(
+        ValidationError, match=f"{field} must be a finite number"
+    ):
+        Liveness(**{field: value})
+
+
+@pytest.mark.parametrize(
+    "field", ["interval", "stall_timeout", "shutdown_timeout"]
+)
+@pytest.mark.parametrize("value", [0, -1.0])
+def test_liveness_wait_of_zero_or_less_refused(
+    field: str, value: float
+) -> None:
+    """A liveness wait of zero or less is refused, naming it."""
+    # Act / Assert
+    with pytest.raises(
+        ValidationError, match=f"{field} must be greater than zero"
+    ):
+        Liveness(**{field: value})
+
+
+def test_liveness_stall_timeout_none_starts_no_watchdog() -> None:
+    """`stall_timeout=None` is taken, meaning no watchdog."""
+    # Act
+    liveness = Liveness(stall_timeout=None)
+
+    # Assert
+    assert liveness.stall_timeout is None

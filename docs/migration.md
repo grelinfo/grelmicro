@@ -104,6 +104,7 @@ What moved:
   environment variable, write `0` or `none`. Bool spellings such as `"true"`
   are refused, and `"1"` means one second too. `purge(older_than=0)` purges
   every delivered and dead row.
+- **Log and health**: `DuplicateFilter` `ttl`, and `HealthChecks` `cache_ttl` (`0` still turns the cache off).
 
 A backend of your own takes each lease, TTL or cool-down as a `timedelta`: the
 `LockBackend`, `ReadWriteLockBackend`, `LeaderElectionBackend` and

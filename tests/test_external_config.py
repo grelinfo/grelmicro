@@ -47,7 +47,7 @@ pytestmark = [pytest.mark.timeout(5)]
 _RELOADED_TIMEOUT = 9.5
 """Value patched into `GREL_HEALTH_TIMEOUT` by the reload test."""
 
-_RELOADED_CACHE_TTL = 2.0
+_RELOADED_CACHE_TTL = timedelta(seconds=2)
 """Value patched into `GREL_HEALTH_CACHE_TTL` by the reload test."""
 
 

@@ -11,12 +11,12 @@ from typing_extensions import Doc
 from grelmicro._app import resolve_ambient
 from grelmicro._backend_kinds import resolve_source
 from grelmicro._config import env_prefixes, resolve_config
-from grelmicro._duration import check_retention
+from grelmicro._duration import NO_LIMIT, check_retention
 from grelmicro._markers import Registered, mark_registered
 from grelmicro._unset import UNSET, Unset
 from grelmicro.metrics import _emit
 from grelmicro.outbox._codec import encode_payload
-from grelmicro.outbox._config import KEEP_FOREVER, OutboxConfig
+from grelmicro.outbox._config import OutboxConfig
 from grelmicro.outbox._message import OutboxRecord
 from grelmicro.outbox._otel import inject_trace_context
 from grelmicro.outbox._protocol import OutboxBackend
@@ -56,7 +56,7 @@ def _keep_delivered_kwarg(
     if isinstance(value, Unset):
         return None
     if value is None:
-        return KEEP_FOREVER
+        return NO_LIMIT
     return value
 
 

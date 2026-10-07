@@ -117,7 +117,7 @@ Timeout detection uses `asyncio.timeout`. The wrapper distinguishes the configur
 
 ### Caching
 
-`HealthChecks` caches each check's result for `cache_ttl` seconds (default `1.0`) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.
+`HealthChecks` caches each check's result for `cache_ttl` (default 1 second, in whole seconds or as a `timedelta`) and coalesces concurrent calls via single-flight per check. A given check runs at most once per TTL regardless of how many endpoints or concurrent requests are in flight. This prevents probe traffic from amplifying onto your database.
 
 ```python
 --8<-- "health/caching.py"

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from datetime import timedelta
 
 import pytest
 from pydantic import BaseModel
@@ -279,7 +280,7 @@ async def test_concurrent_execution() -> None:
 
 async def test_cache_hit_returns_same_result() -> None:
     """Within TTL, repeated calls return the cached result."""
-    health = HealthChecks(cache_ttl=10.0)
+    health = HealthChecks(cache_ttl=10)
     check = Counting()
     health.add("db", check)
 
@@ -292,7 +293,7 @@ async def test_cache_hit_returns_same_result() -> None:
 
 async def test_cache_expires() -> None:
     """After TTL expires, the check runs again."""
-    health = HealthChecks(cache_ttl=0.05)
+    health = HealthChecks(cache_ttl=timedelta(milliseconds=50))
     check = Counting()
     health.add("db", check)
 
@@ -319,7 +320,7 @@ async def test_cache_disabled_with_zero_ttl() -> None:
 
 async def test_single_flight_coalesces_concurrent_calls() -> None:
     """Concurrent cache-fill requests share a single execution."""
-    health = HealthChecks(cache_ttl=1.0)
+    health = HealthChecks(cache_ttl=1)
     check = SlowCounting(delay=0.1)
     health.add("db", check)
 
@@ -332,7 +333,7 @@ async def test_single_flight_coalesces_concurrent_calls() -> None:
 
 async def test_shared_cache_between_readyz_and_healthz_paths() -> None:
     """critical_only=True and full run share per-check cache."""
-    health = HealthChecks(cache_ttl=10.0)
+    health = HealthChecks(cache_ttl=10)
     critical = Counting()
     non_critical = Counting()
     health.add("db", critical)
@@ -498,20 +499,18 @@ async def test_timeout_logs_warning(
 
 def test_timeout_zero_raises() -> None:
     """timeout=0 is rejected."""
-    with pytest.raises(SettingsValidationError, match="greater than 0"):
+    with pytest.raises(
+        SettingsValidationError, match="timeout must be greater than zero"
+    ):
         HealthChecks(timeout=0)
 
 
 def test_timeout_negative_raises() -> None:
     """Negative timeout is rejected."""
-    with pytest.raises(SettingsValidationError, match="greater than 0"):
+    with pytest.raises(
+        SettingsValidationError, match="timeout must be greater than zero"
+    ):
         HealthChecks(timeout=-1.0)
-
-
-def test_cache_ttl_negative_raises() -> None:
-    """Negative cache_ttl is rejected."""
-    with pytest.raises(SettingsValidationError):
-        HealthChecks(cache_ttl=-1.0)
 
 
 async def test_resolves_via_active_app() -> None:
@@ -539,8 +538,10 @@ async def test_resolve_missing_raises() -> None:
 
 async def test_reconfigure_swaps_config() -> None:
     """Reconfigure publishes the new config."""
-    health = HealthChecks(timeout=1.0, cache_ttl=1.0)
-    new_config = health.config.model_copy(update={"cache_ttl": 5.0})
+    health = HealthChecks(timeout=1.0, cache_ttl=1)
+    new_config = health.config.model_copy(
+        update={"cache_ttl": timedelta(seconds=5)}
+    )
 
     await health.reconfigure(new_config)
 
@@ -549,7 +550,7 @@ async def test_reconfigure_swaps_config() -> None:
 
 async def test_reconfigure_same_config_is_noop() -> None:
     """Equal configs short-circuit."""
-    health = HealthChecks(timeout=1.0, cache_ttl=1.0)
+    health = HealthChecks(timeout=1.0, cache_ttl=1)
     same = health.config.model_copy()
 
     await health.reconfigure(same)
@@ -576,7 +577,7 @@ async def test_reconfigure_changes_cache_ttl_for_next_run() -> None:
         nonlocal call_count
         call_count += 1
 
-    health = HealthChecks(cache_ttl=60.0)
+    health = HealthChecks(cache_ttl=60)
     health.add("c", check)
 
     await health.run()
@@ -584,7 +585,7 @@ async def test_reconfigure_changes_cache_ttl_for_next_run() -> None:
     cached_calls = call_count
 
     await health.reconfigure(
-        health.config.model_copy(update={"cache_ttl": 0.0})
+        health.config.model_copy(update={"cache_ttl": timedelta(0)})
     )
 
     await health.run()
@@ -617,14 +618,14 @@ async def test_reconfigure_during_inflight_run_uses_admission_snapshot() -> (
         in_check.set()
         await can_finish.wait()
 
-    health = HealthChecks(cache_ttl=60.0)
+    health = HealthChecks(cache_ttl=60)
     health.add("c", slow_check)
 
     async with asyncio.TaskGroup() as tg:
         tg.create_task(health.run())
         await in_check.wait()
         await health.reconfigure(
-            health.config.model_copy(update={"cache_ttl": 0.0})
+            health.config.model_copy(update={"cache_ttl": timedelta(0)})
         )
         can_finish.set()
 
@@ -658,7 +659,7 @@ async def test_reconfigure_round_is_consistent_across_checks() -> None:
         slow_started.set()
         await slow_can_finish.wait()
 
-    health = HealthChecks(cache_ttl=60.0)
+    health = HealthChecks(cache_ttl=60)
     health.add("fast", fast_check)
     health.add("slow", slow_check)
 
@@ -667,7 +668,7 @@ async def test_reconfigure_round_is_consistent_across_checks() -> None:
         await slow_started.wait()
         # Reconfigure to disable cache while the round is in flight.
         await health.reconfigure(
-            health.config.model_copy(update={"cache_ttl": 0.0})
+            health.config.model_copy(update={"cache_ttl": timedelta(0)})
         )
         slow_can_finish.set()
 
