@@ -64,6 +64,7 @@ that a client library used to accept.
 | `TypeError: ... got an unexpected keyword argument 'key_maker'` | 0.42 | [Pass `key=`](#0-42-key-function) |
 | `ImportError: cannot import name 'IdempotencyKeyMakerError'` | 0.42 | [Catch `IdempotencyKeyFunctionError`](#0-42-key-function) |
 | `SettingsValidationError` naming `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE`: `is no longer read` | 0.42 | [Choose the preset in code](#0-42-shield-profile-env) |
+| `TypeError: AuthenticatedRequests.from_config takes the verifier first: pass from_config(verifier, config)` | 0.42 | [Pass the verifier first](#0-42-from-config) |
 
 ## 0.42
 
@@ -294,6 +295,19 @@ IdempotentRequests(key=tenant_key)
 
 `IdempotencyMiddleware(key_maker=...)` is `IdempotencyMiddleware(key=...)` the
 same way. `IdempotencyKeyMakerError` is renamed `IdempotencyKeyFunctionError`.
+
+### `from_config` takes the constructor's arguments in its order {#0-42-from-config}
+
+`AuthenticatedRequests.from_config` takes the verifier first, like
+`AuthenticatedRequests(verifier)`:
+
+```python title="fragment"
+# Before
+AuthenticatedRequests.from_config(config, verifier)
+
+# After
+AuthenticatedRequests.from_config(verifier, config)
+```
 
 ## 0.40
 

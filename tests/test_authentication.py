@@ -932,7 +932,7 @@ class TestCheck:
         check = Revocations()
         check.revoked.add("t-8")
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(), verifier(), check=check
+            verifier(), AuthenticatedRequestsConfig(), check=check
         )
         client = TestClient(app_with(component))
 
@@ -1650,8 +1650,8 @@ class TestConstruction:
             AuthenticatedRequests(verifier(), exclude=(pattern,))
         with pytest.raises(ValueError, match=refused):
             AuthenticatedRequests.from_config(
-                AuthenticatedRequestsConfig(exclude=("/livez", pattern)),
                 verifier(),
+                AuthenticatedRequestsConfig(exclude=("/livez", pattern)),
             )
         with pytest.raises(ValueError, match=refused):
             AuthenticatedRequestsMiddleware(
@@ -1699,8 +1699,8 @@ class TestConstruction:
         trusted = TrustedProxies(PROXIES)
         trusting = verifier()
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(),
             trusting,
+            AuthenticatedRequestsConfig(),
             bans=bans,
             trusted=trusted,
             name="edge",
@@ -1721,7 +1721,7 @@ class TestConstruction:
     def test_from_config_describes_the_schema_by_default(self) -> None:
         """Only `openapi=False` leaves the schema alone."""
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(), verifier()
+            verifier(), AuthenticatedRequestsConfig()
         )
         app = FastAPI()
         Grelmicro(uses=[ErrorResponses(), component]).install(app)
@@ -1760,12 +1760,27 @@ class TestConstruction:
     def test_from_config_takes_the_config_whole(self) -> None:
         """The declarative door serves exactly what the config says."""
         component = AuthenticatedRequests.from_config(
-            AuthenticatedRequestsConfig(exclude=("/livez",)), verifier()
+            verifier(), AuthenticatedRequestsConfig(exclude=("/livez",))
         )
         client = TestClient(app_with(component))
 
         assert client.get("/livez").status_code == HTTP_200_OK
         assert client.get("/whoami").status_code == HTTP_401_UNAUTHORIZED
+
+    def test_from_config_config_first_raises_type_error(self) -> None:
+        """A config in the verifier slot is refused, naming the order."""
+        # Arrange
+        config = AuthenticatedRequestsConfig()
+
+        # Act
+        with pytest.raises(TypeError) as caught:
+            AuthenticatedRequests.from_config(
+                config,  # ty: ignore[invalid-argument-type]
+                verifier(),  # ty: ignore[invalid-argument-type]
+            )
+
+        # Assert
+        assert "from_config(verifier, config)" in str(caught.value)
 
 
 class Opaque:

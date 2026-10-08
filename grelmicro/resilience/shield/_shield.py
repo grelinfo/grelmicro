@@ -461,14 +461,26 @@ class Shield(Reconfigurable[_BaseShieldConfig]):
             _BaseShieldConfig,
             Doc("The pre-built Shield profile configuration."),
         ],
+        *,
+        time_source: Annotated[
+            Callable[[], float] | None,
+            Doc("Monotonic clock for tests. Defaults to `time.monotonic`."),
+        ] = None,
+        random_source: Annotated[
+            Callable[[], float] | None,
+            Doc(
+                "Uniform `[0, 1)` random function for backoff jitter. "
+                "Defaults to `random.random`."
+            ),
+        ] = None,
     ) -> Self:
         """Construct a `Shield` from a name and a pre-built profile config."""
         instance = cls.__new__(cls)
         instance._setup(  # noqa: SLF001
             name=name,
             config=config,
-            time_source=None,
-            random_source=None,
+            time_source=time_source,
+            random_source=random_source,
         )
         return instance
 

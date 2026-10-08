@@ -130,6 +130,30 @@ def test_trace_from_config_keeps_name() -> None:
     assert trace.name == "audit"
 
 
+def test_trace_from_config_instrument_given_is_kept() -> None:
+    """`Trace.from_config(..., instrument=...)` keeps the selection."""
+    # Arrange
+    config = TraceConfig(exporter=TraceExporterType.NONE)
+
+    # Act
+    trace = Trace.from_config(config, instrument=["redis"])
+
+    # Assert
+    assert trace.instrument == ["redis"]
+
+
+def test_trace_from_config_instrument_omitted_instruments_everything() -> None:
+    """`Trace.from_config(cfg)` instruments every active target."""
+    # Arrange
+    config = TraceConfig(exporter=TraceExporterType.NONE)
+
+    # Act
+    trace = Trace.from_config(config)
+
+    # Assert
+    assert trace.instrument is True
+
+
 def test_trace_provider_unavailable_before_enter() -> None:
     """`Trace.provider` raises before the component has been entered."""
     trace = Trace(exporter=TraceExporterType.NONE)

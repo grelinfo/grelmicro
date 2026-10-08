@@ -36,7 +36,7 @@ from tests._contract_support import (
 
 PACKAGE_ROOT = Path(grelmicro.__file__).parent
 
-_MIN_DOORS = 27
+_MIN_DOORS = 37
 """Exact count today, so a door dropping out of discovery fails.
 
 Slack would hide erosion. `_discover_from_config` reads `node.body`, so
@@ -423,3 +423,187 @@ def test_both_doors_leave_the_same_attributes(
         f"{class_name}.__init__ sets {sorted(only_in_init)} which _setup "
         f"does not, so from_config leaves the instance incomplete"
     )
+
+
+_POSITIONAL = (
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+)
+
+_ENVIRONMENT_KEYWORDS = frozenset({"env_load", "env_prefix", "env_name"})
+"""Keywords that steer the environment read, which `from_config` skips.
+
+`from_config` may keep one, as the providers keep `env_prefix`, but never
+has to. `DuplicateFilter` and `RateLimitFilter` take `env_name`.
+"""
+
+_KEYWORD_EXCEPTIONS: dict[str, frozenset[str]] = {
+    # The config carries it as `basic_auth_username` and `basic_auth_password`.
+    "Metrics": frozenset({"basic_auth"}),
+    "Trace": frozenset({"basic_auth"}),
+    # Picks the grant the constructor or `on_behalf_of` builds, which the
+    # config does not carry.
+    "TokenExchange": frozenset({"grant"}),
+}
+"""Keywords that one side takes and the other does not, by design."""
+
+
+def _builders(cls: Any) -> list[inspect.Signature]:  # noqa: ANN401
+    """Return the signatures a caller builds the class with.
+
+    The constructor, or the public factories, inherited ones included, when
+    the constructor takes only `*args` and `**kwargs` and refuses every call.
+    """
+    constructor = inspect.signature(cls.__init__)
+    kinds = [
+        p.kind for p in constructor.parameters.values() if p.name != "self"
+    ]
+    if kinds != [
+        inspect.Parameter.VAR_POSITIONAL,
+        inspect.Parameter.VAR_KEYWORD,
+    ]:
+        return [constructor]
+    factories = [
+        inspect.signature(getattr(cls, name))
+        for name in dir(cls)
+        if not name.startswith(("_", "from_"))
+        and isinstance(inspect.getattr_static(cls, name), classmethod)
+    ]
+    assert factories, (
+        f"{cls.__name__} refuses its constructor and has no public factory,"
+        f" so there is nothing for from_config to mirror"
+    )
+    return factories
+
+
+def _shape(
+    signature: inspect.Signature, skipped: set[str] | frozenset[str]
+) -> tuple[list[str], set[str], set[str]]:
+    """Return the positional names, the `*args` name and the keyword names.
+
+    Parameters named in `skipped` are left out of all three.
+    """
+    params = [p for p in signature.parameters.values() if p.name not in skipped]
+    return (
+        [p.name for p in params if p.kind in _POSITIONAL],
+        {p.name for p in params if p.kind is inspect.Parameter.VAR_POSITIONAL},
+        {p.name for p in params if p.kind is inspect.Parameter.KEYWORD_ONLY},
+    )
+
+
+def _mirror_mismatches(cls: Any, fields: set[str]) -> list[str]:  # noqa: ANN401
+    """Return how `from_config` differs from the way the class is built.
+
+    The rule: the builder's positional parameters the config does not carry
+    come first, in order, then `config`, then a `*args` the builder takes,
+    then the same keyword-only parameters the builder takes and the config
+    does not carry.
+    """
+    exceptions = _KEYWORD_EXCEPTIONS.get(cls.__name__, frozenset())
+    ignored = _ENVIRONMENT_KEYWORDS | exceptions | {"self", "cls"}
+    positional: list[list[str]] = []
+    variadic: set[str] = set()
+    keywords: set[str] = set()
+    for builder in _builders(cls):
+        names, star, keyword = _shape(builder, fields | ignored)
+        positional.append(names)
+        variadic |= star
+        keywords |= keyword
+    actual, door_variadic, door_keywords = _shape(
+        inspect.signature(cls.from_config), ignored
+    )
+    mismatches: list[str] = []
+    if any(names != positional[0] for names in positional):
+        mismatches.append(f"its builders disagree on positionals {positional}")
+    expected = [*positional[0], "config"]
+    if actual != expected:
+        mismatches.append(f"positionals are {actual}, expected {expected}")
+    if door_variadic != variadic:
+        mismatches.append(f"*args is {door_variadic}, expected {variadic}")
+    if missing := sorted(keywords - door_keywords):
+        mismatches.append(f"lacks keywords {missing}")
+    if extra := sorted(door_keywords - keywords):
+        mismatches.append(f"takes keywords {extra} its builders do not")
+    return mismatches
+
+
+@pytest.mark.parametrize(("module_name", "class_name"), DOORS, ids=IDS)
+def test_from_config_signature_mirrors_constructor(
+    module_name: str, class_name: str
+) -> None:
+    """`from_config` takes what the constructor takes, less the config.
+
+    `Lock("cart")` becomes `Lock.from_config("cart", config)`, and
+    `TTLCache(name="sessions")` becomes
+    `TTLCache.from_config(config, name="sessions")`.
+    """
+    # Arrange
+    cls = _resolve(module_name, class_name)
+    fields: set[str] = set()
+    for config_cls in _config_classes(cls):
+        fields |= set(config_cls.model_fields)
+
+    # Act
+    mismatches = _mirror_mismatches(cls, fields)
+
+    # Assert
+    assert not mismatches, f"{class_name}.from_config: {mismatches}"
+
+
+class _Planted:
+    """Built from a name, with a backend and a size, to plant mismatches."""
+
+    def __init__(
+        self, name: str, *, backend: object = None, size: int = 1
+    ) -> None:
+        """Take a name, a backend and a size."""
+
+    @classmethod
+    def from_config(
+        cls, config: object, name: str, *, worker: str = ""
+    ) -> None:
+        """Take the config before the name, and a worker but no backend."""
+
+
+class _PlantedBase:
+    """Holds a factory that `_PlantedFactories` inherits."""
+
+    @classmethod
+    def second(cls, url: str) -> None:
+        """Take a URL."""
+
+
+class _PlantedFactories(_PlantedBase):
+    """Built only from factories that disagree on their positionals."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        """Refuse every call."""
+
+    @classmethod
+    def first(cls, name: str, *items: str) -> None:
+        """Take a name and items."""
+
+    @classmethod
+    def from_config(cls, name: str, config: object) -> None:
+        """Take a name and the config, and no items."""
+
+
+def test_from_config_mirror_check_planted_mismatches_reported() -> None:
+    """Order, keywords, `*args` and disagreeing factories are each reported."""
+    # Arrange
+    fields = {"size", "url"}
+
+    # Act
+    single = _mirror_mismatches(_Planted, fields)
+    factories = _mirror_mismatches(_PlantedFactories, fields)
+
+    # Assert
+    assert single == [
+        "positionals are ['config', 'name'], expected ['name', 'config']",
+        "lacks keywords ['backend']",
+        "takes keywords ['worker'] its builders do not",
+    ]
+    assert factories == [
+        "its builders disagree on positionals [['name'], []]",
+        "*args is set(), expected {'items'}",
+    ]

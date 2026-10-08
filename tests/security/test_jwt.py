@@ -289,6 +289,50 @@ def test_an_audience_list_matches_on_any_member() -> None:
     assert build().verify(token).audience == ("other-api", AUDIENCE)
 
 
+def test_jwt_verifier_from_config_name_given_is_kept() -> None:
+    """`from_config` takes `name=` like the factories."""
+    # Arrange
+    config = JWTKeysConfig(
+        keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+        audience=[AUDIENCE],
+    )
+
+    # Act
+    verifier = JWTVerifier.from_config(config, name="partners")
+
+    # Assert
+    assert verifier.name == "partners"
+
+
+def test_jwt_verifier_from_config_name_omitted_is_default() -> None:
+    """`from_config` without `name=` names the verifier `default`."""
+    # Arrange
+    config = JWTKeysConfig(
+        keys=[JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))],
+        audience=[AUDIENCE],
+    )
+
+    # Act
+    verifier = JWTVerifier.from_config(config)
+
+    # Assert
+    assert verifier.name == "default"
+
+
+def test_jwt_verifier_keys_name_given_is_kept() -> None:
+    """A factory hands its `name=` to the verifier it builds."""
+    # Arrange
+    key = JWTKey(algorithm="RS256", key=SIGNER.public_pem("RS256"))
+
+    # Act
+    verifier = JWTVerifier.keys(
+        key, audience=AUDIENCE, name="partners", env_load=False
+    )
+
+    # Assert
+    assert verifier.name == "partners"
+
+
 class TestKeySelection:
     """Key selection by `kid`, and the rotation it exists to support."""
 

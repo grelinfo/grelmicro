@@ -47,6 +47,7 @@
 * 💥 `LockNotOwnedError` is a `CoordinationError`, no longer a `LockReleaseError` or a `LockBackendError`. Catch it by name where `except LockReleaseError` caught a lost lease. ([#997](https://github.com/grelinfo/grelmicro/issues/997))
 * 💥 The `grelmicro.lock.renewals` metric is renamed `grelmicro.lock.extensions`, with the unit `{extension}`. ([#997](https://github.com/grelinfo/grelmicro/issues/997))
 * 💥 `GREL_SHIELD_{NAME}_PROFILE` and `GREL_SHIELD_PROFILE` are no longer read. A Shield refuses to build while either is set, and a live reload refuses a mounted `PROFILE` key. Choose the preset in code with `Shield.internal`, `Shield.api` or `Shield.slow`. ([#1002](https://github.com/grelinfo/grelmicro/issues/1002))
+* 💥 `AuthenticatedRequests.from_config` takes the verifier first, like the constructor: `AuthenticatedRequests.from_config(verifier, config)`. ([#999](https://github.com/grelinfo/grelmicro/issues/999))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -107,6 +108,8 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `JWTVerifier.from_config` takes `name=` like `keys`, `jwks` and `discover`, and `JWTVerifier.name` returns it. ([#999](https://github.com/grelinfo/grelmicro/issues/999))
+* ✨ `Trace.from_config` takes `instrument=`, and `Shield.from_config` takes `time_source=` and `random_source=`, like their constructors. ([#999](https://github.com/grelinfo/grelmicro/issues/999))
 * ✨ `HealthChecks(liveness=Liveness(...))` catches a stuck worker in every deployment. A loop watchdog and critical checks marked `liveness=True` make it exit, so whatever runs it starts another. ([#983](https://github.com/grelinfo/grelmicro/issues/983))
 * ✨ `FakeVerifier` and `fake_claims` in `grelmicro.testing` stand in for a `JWTVerifier` in a test: each token is a name for the claims it carries. ([#981](https://github.com/grelinfo/grelmicro/pull/981))
 * ✨ Starlette and Litestar requests get the request span and the HTTP server metrics FastAPI records, exported by `Trace` and `Metrics`. ([#964](https://github.com/grelinfo/grelmicro/issues/964))
