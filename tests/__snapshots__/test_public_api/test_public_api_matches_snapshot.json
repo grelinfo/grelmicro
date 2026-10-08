@@ -206,7 +206,7 @@
       "()": "(*args, **kwargs)"
     },
     "TaskLock": {
-      "()": "(name='default', *, backend=None, worker=None, min_hold_duration=None, lease_duration=None, env_prefix=None, env_load=None) -> None",
+      "()": "(name=None, *, backend=None, worker=None, min_hold_duration=None, lease_duration=None, env_prefix=None, env_load=None) -> None",
       ".from_config": "(name, config, *, backend=None) -> Self"
     },
     "TaskLockConfig": {

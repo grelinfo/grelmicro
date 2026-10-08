@@ -249,7 +249,7 @@ For an interval task, pass a [`TaskLock`](coordination/task-lock.md) to set the 
 --8<-- "task/interval_lock_custom.py"
 ```
 
-`min_hold_duration` must be at least `interval`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is how long a crashed worker keeps the claim, since the task extends it while the body runs. A lock still named `"default"` takes the task name, so you never repeat it, and an external config reload tunes it under `GREL_TASKLOCK_{TASK}_`. The task uses the lock you pass, so the handle you keep is the one it holds.
+`min_hold_duration` must be at least `interval`, or a peer could claim the same interval once the body ends. A later `reconfigure` to a shorter one is refused too. `lease_duration` is how long a crashed worker keeps the claim, since the task extends it while the body runs. A lock without a name takes the task name, so you never repeat it. A task named after its function in a script run directly (`__main__:job`) locks under `task-__main__:job`, and an explicit task `name=` cannot start with `task-`. An external config reload tunes the lock under `GREL_TASKLOCK_{TASK}_`. The task uses the lock you pass, so the handle you keep is the one it holds.
 
 Cron takes no `TaskLock`. Its claim is a compare-and-set on durable state, with nothing held while the body runs.
 

@@ -160,6 +160,11 @@ class TaskRouter:
                 The name of the task.
 
                 If None, a name will be generated automatically from the function.
+                A gate locks under the task name, unless it is a `TaskLock`
+                with a name of its own, so a name passed here must then be
+                a valid lock name, like `Lock`, that does not start with
+                `task-`. A generated name that is not one, such as
+                `__main__:job`, locks under `task-__main__:job`.
                 """,
             ),
         ] = None,
@@ -176,8 +181,8 @@ class TaskRouter:
                 - A `TaskLock`: one worker claims each interval, with the
                   lock's own `lease_duration`, `backend` and `worker`. Its
                   `min_hold_duration` must be at least `interval`, now and on
-                  every later `reconfigure`. A lock still named `"default"`
-                  takes the task name.
+                  every later `reconfigure`. A lock without a name takes
+                  the task name.
                 - A `LeaderElection`: only the elected worker runs the task.
                   It claims each interval as with `"claim"`, so a leader
                   handover never runs one interval twice.
@@ -221,7 +226,8 @@ class TaskRouter:
                 years.
             ValueError: If the gate `TaskLock` already gates another task.
             SettingsValidationError: If the gate `TaskLock` holds a claim
-                for less than `interval`.
+                for less than `interval`, or the gate locks under a `name`
+                that is not a valid lock name or starts with `task-`.
             TypeError: If `gate` is not a supported value, or `sync` is a
                 leader election.
         """

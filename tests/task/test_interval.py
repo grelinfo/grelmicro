@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import types
 from asyncio import sleep
 from datetime import datetime, timedelta
 from types import TracebackType
@@ -190,6 +191,128 @@ def test_interval_task_lock_gate_is_the_callers_handle() -> None:
     assert lock.name == "cleanup"
 
 
+def test_interval_task_lock_gate_named_default_keeps_its_name() -> None:
+    """A gate lock named `"default"` keeps that name instead of the task's."""
+    # Arrange
+    lock = TaskLock(
+        "default",
+        backend=MemoryLockAdapter(),
+        lease_duration=120,
+        min_hold_duration=60,
+    )
+
+    # Act
+    IntervalTask(interval=60, function=test1, name="cleanup", gate=lock)
+
+    # Assert
+    assert lock.name == "default"
+
+
+def test_interval_task_lock_gate_invalid_task_name_raises_settings_validation_error() -> (
+    None
+):
+    """An unnamed gate lock refuses a task name that is not a lock name."""
+    # Arrange
+    lock = TaskLock(
+        backend=MemoryLockAdapter(), lease_duration=120, min_hold_duration=60
+    )
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        IntervalTask(interval=60, function=test1, name="bad name", gate=lock)
+    assert lock.name is None
+
+
+def test_interval_task_claim_invalid_task_name_raises_settings_validation_error() -> (
+    None
+):
+    """A claim refuses a task name that is not a lock name."""
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        IntervalTask(interval=60, function=test1, name="bad name", gate="claim")
+
+
+def _main_module_function() -> types.FunctionType:
+    """Return `test1` as if it were defined in a script run directly."""
+    function = types.FunctionType(test1.__code__, test1.__globals__, "test1")
+    function.__module__ = "__main__"
+    function.__qualname__ = "test1"
+    return function
+
+
+def test_interval_task_claim_in_main_module_takes_a_valid_lock_name() -> None:
+    """A claim for a task defined in `__main__` gets a valid lock name."""
+    # Act
+    task = IntervalTask(
+        interval=60, function=_main_module_function(), gate="claim"
+    )
+
+    # Assert
+    (claim,) = task._sync_primitives
+    assert isinstance(claim, TaskLock)
+    assert task.name == "__main__:test1"
+    assert claim.name == "task-__main__:test1"
+
+
+def test_interval_task_lock_gate_in_main_module_takes_a_valid_lock_name() -> (
+    None
+):
+    """An unnamed gate lock for a `__main__` task keeps the task env names."""
+    # Arrange
+    lock = TaskLock(
+        backend=MemoryLockAdapter(), lease_duration=120, min_hold_duration=60
+    )
+
+    # Act
+    IntervalTask(interval=60, function=_main_module_function(), gate=lock)
+
+    # Assert
+    assert lock.name == "task-__main__:test1"
+    assert lock._env_prefix == "GREL_TASKLOCK_MAIN_TEST1_"
+
+
+@pytest.mark.parametrize("gate", ["claim", "unnamed lock", "leader"])
+def test_interval_task_gate_reserved_task_name_raises_settings_validation_error(
+    gate: str,
+) -> None:
+    """A task name a gate locks under may not start with `task-`."""
+    # Arrange
+    resolved = {
+        "unnamed lock": TaskLock(lease_duration=120, min_hold_duration=60),
+        "leader": LeaderElection("svc", backend=MemoryLeaderElectionAdapter()),
+    }.get(gate, gate)
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="'task-' is reserved"):
+        IntervalTask(
+            interval=60,
+            function=test1,
+            name="task-__main__:test1",
+            gate=resolved,  # ty: ignore[invalid-argument-type]
+        )
+
+
+@pytest.mark.parametrize("gate", [None, "named lock"])
+def test_interval_task_reserved_task_name_without_task_lock_name_is_accepted(
+    gate: str | None,
+) -> None:
+    """A task name starting with `task-` is accepted when no lock uses it."""
+    # Arrange
+    resolved = (
+        TaskLock("cleanup", lease_duration=120, min_hold_duration=60)
+        if gate == "named lock"
+        else None
+    )
+
+    # Act
+    task = IntervalTask(
+        interval=60, function=test1, name="task-report", gate=resolved
+    )
+
+    # Assert
+    assert task.name == "task-report"
+
+
 def test_interval_task_lock_gate_refuses_a_second_task() -> None:
     """One `TaskLock` gates one task."""
     lock = TaskLock(
@@ -225,6 +348,7 @@ def test_interval_task_sync_rejects_leader_election(*, as_guard: bool) -> None:
         (None, "none"),
         ("claim", "claim"),
         ("lock", "TaskLock('named')"),
+        ("unnamed lock", "TaskLock('tests.task.samples:test1')"),
         ("leader", "LeaderElection('svc')"),
     ],
 )
@@ -238,6 +362,7 @@ async def test_interval_task_logs_gate_at_start(
     caplog.set_level("INFO")
     resolved = {
         "lock": TaskLock("named", lease_duration=60, min_hold_duration=60),
+        "unnamed lock": TaskLock(lease_duration=60, min_hold_duration=60),
         "leader": LeaderElection("svc", backend=MemoryLeaderElectionAdapter()),
     }.get(gate or "", gate)
     task = IntervalTask(
@@ -661,10 +786,8 @@ async def test_interval_task_cancel_survives_a_claim_lost_on_release(
     assert handle.cancelled()
 
 
-async def test_interval_task_default_named_gate_reloads_under_its_task() -> (
-    None
-):
-    """A default-named gate lock takes external config under its task name."""
+async def test_interval_task_unnamed_gate_reloads_under_its_task() -> None:
+    """An unnamed gate lock takes external config under its task name."""
     first, second = (
         TaskLock(
             lease_duration=timedelta(seconds=RELOAD_INTERVAL * 10),
@@ -692,9 +815,9 @@ async def test_interval_task_default_named_gate_reloads_under_its_task() -> (
 
 
 async def test_interval_task_gate_built_from_config_stays_static() -> None:
-    """A default-named gate lock built from a config ignores external reload."""
+    """An unnamed gate lock built from a config ignores external reload."""
     lock = TaskLock.from_config(
-        "default",
+        None,
         TaskLockConfig(
             worker="worker",
             lease_duration=timedelta(seconds=RELOAD_INTERVAL * 10),

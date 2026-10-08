@@ -40,6 +40,7 @@ from grelmicro.coordination._protocol import (
     Seconds,
 )
 from grelmicro.coordination._tokens import resolve_worker
+from grelmicro.coordination.lock import validate_lock_name
 from grelmicro.errors import OutOfContextError, WouldBlockError
 from grelmicro.metrics import _emit
 
@@ -406,6 +407,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
         metadata: Mapping[str, str] | None = None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
+        validate_lock_name(name)
         self._name = name
         self._config = config
         self._metadata: dict[str, str] = dict(metadata or {})

@@ -28,8 +28,8 @@ async with task_lock:
 
 !!! tip
     For interval tasks, pass the lock as the
-    [`gate` of `every()`](../task.md#tune-the-claim). A lock still named
-    `"default"` takes the task name, and the task extends it while the body
+    [`gate` of `every()`](../task.md#tune-the-claim). A lock without a
+    name takes the task name, and the task extends it while the body
     runs, so you never call `extend()` yourself. Most tasks need no
     `TaskLock` at all: [`gate="claim"`](../task.md#claim) builds one sized
     to the interval. Cron tasks never take a lock. They claim each fire
