@@ -27,6 +27,7 @@ from grelmicro._config import (
     Reconfigurable,
     default_env_prefix,
     env_prefixes,
+    kind_env_prefix,
     resolve_config,
 )
 from grelmicro._duration import Duration
@@ -57,6 +58,7 @@ from grelmicro.coordination.errors import (
     LockReentrantError,
     LockReleaseError,
 )
+from grelmicro.coordination.lock import validate_lock_name
 from grelmicro.errors import (
     SettingsValidationError,
     WouldBlockError,
@@ -76,6 +78,12 @@ _NO_BACKEND: Final = (
 
 The lead names the miss, and the fix is given when no app is bound.
 """
+
+_NO_NAME: Final = (
+    "TaskLock has no name. Pass a name, such as TaskLock('cleanup'), "
+    "or use it as the gate of a task, where it takes the task name."
+)
+"""What a `TaskLock` without a name raises when it is used."""
 
 
 class TaskLockConfig(BaseLockConfig):
@@ -146,19 +154,20 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     def __init__(
         self,
         name: Annotated[
-            str,
+            str | None,
             Doc(
                 """
                 The name of the resource to lock.
 
                 It will be used as the lock name so make sure it is unique on the lock backend.
 
-                Defaults to `"default"`. When used as the `gate` of
-                `@tasks.every`, a lock still named `"default"` takes the
-                task name, so it does not need to be repeated.
+                When used as the `gate` of `@tasks.every`, a lock without a
+                name takes the task name, so it does not need to be
+                repeated. A lock without a name used on its own raises
+                `SettingsValidationError` when it is first used.
                 """
             ),
-        ] = "default",
+        ] = None,
         *,
         backend: Annotated[
             LockBackend | str | None,
@@ -192,8 +201,8 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 before this duration has elapsed. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASKLOCK_MIN_HOLD_DURATION` for the default
-                instance (`GREL_TASKLOCK_{NAME_UPPER}_MIN_HOLD_DURATION`
+                `GREL_TASKLOCK_MIN_HOLD_DURATION` for a lock without a
+                name (`GREL_TASKLOCK_{NAME_UPPER}_MIN_HOLD_DURATION`
                 for a named one) if present, otherwise falls back to the
                 `TaskLockConfig` default.
                 """
@@ -209,7 +218,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 Default: 60. Acts as the TTL on acquire. When unset and env reads
                 are enabled (see `env_load` and `GREL_ENV_LOAD`),
                 resolves from the environment variable
-                `GREL_TASKLOCK_LEASE_DURATION` for the default instance
+                `GREL_TASKLOCK_LEASE_DURATION` for a lock without a name
                 (`GREL_TASKLOCK_{NAME_UPPER}_LEASE_DURATION` for a named
                 one) if present, otherwise falls back to the
                 `TaskLockConfig` default.
@@ -222,7 +231,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 """
                 Override the auto-derived environment variable prefix.
 
-                Default: `GREL_TASKLOCK_` for the default instance,
+                Default: `GREL_TASKLOCK_` for a lock without a name,
                 `GREL_TASKLOCK_{NAME_UPPER}_` for a named one. Set this
                 to a custom prefix when the application uses a different
                 naming convention.
@@ -248,8 +257,10 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         ] = None,
     ) -> None:
         """Initialize the task lock."""
-        resolved_env_prefix, kind_prefix = env_prefixes(
-            "TASKLOCK", name, env_prefix
+        resolved_env_prefix, kind_prefix = (
+            env_prefixes("TASKLOCK", name, env_prefix)
+            if name is not None
+            else (env_prefix or kind_env_prefix("TASKLOCK"), None)
         )
         config = resolve_config(
             TaskLockConfig,
@@ -270,13 +281,15 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
     def from_config(
         cls,
         name: Annotated[
-            str,
+            str | None,
             Doc(
                 """
                 The name of the resource to lock.
 
                 Acts as the instance identity. Used as the backend
-                lock key and exposed via the `name` property.
+                lock key and exposed via the `name` property. Pass
+                `None` for a lock that takes the task name as the `gate`
+                of `@tasks.every`.
                 """
             ),
         ],
@@ -313,16 +326,16 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
 
     def _setup(
         self,
-        name: str,
+        name: str | None,
         config: TaskLockConfig,
         backend: LockBackend | str | None,
     ) -> None:
         """Wire the validated config and runtime deps onto the instance."""
-        self._name = name
+        self._name: str | None = None
+        if name is not None:
+            self._set_name(name)
         self._config = config
         self._reconfigure_lock = asyncio.Lock()
-        self._lock_name = f"{self._LOCK_PREFIX}:{name}"
-        self._metrics = LockMetrics(name, "task")
         self._backend: LockBackend | None = (
             backend if not isinstance(backend, str) else None
         )
@@ -342,20 +355,54 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         self._task_name: str | None = None
         self._min_hold_floor = timedelta(0)
 
-    def _bind_task(self, task_name: str, *, interval: timedelta) -> None:
+    def _set_name(self, name: str) -> None:
+        """Name the lock and the metrics derived from it.
+
+        Raises:
+            SettingsValidationError: If `name` is not a valid lock name.
+        """
+        validate_lock_name(name)
+        self._name = name
+        self._metrics = LockMetrics(name, "task")
+
+    @property
+    def _key(self) -> str:
+        """Return the backend lock key, refusing a lock without a name.
+
+        Raises:
+            SettingsValidationError: If the lock has no name.
+        """
+        return f"{self._LOCK_PREFIX}:{self._named}"
+
+    @property
+    def _named(self) -> str:
+        """Return the lock name, refusing a lock without one.
+
+        Raises:
+            SettingsValidationError: If the lock has no name.
+        """
+        if self._name is None:
+            raise SettingsValidationError(_NO_NAME)
+        return self._name
+
+    def _bind_task(
+        self, task_name: str, *, lock_name: str, interval: timedelta
+    ) -> None:
         """Bind the lock to the one interval task it gates.
 
-        A lock still named ``"default"`` takes the task name. The rename
-        happens in place, so the handle the caller holds is the lock the
-        task enters, and an external reload reads it under the task name,
-        ``GREL_TASKLOCK_{TASK}_``, instead of the prefix every default lock
-        shares. From then on, every config the lock takes must hold a
-        claim for at least ``interval``, a later `reconfigure` included.
+        A lock without a name takes ``lock_name``, the task name as a
+        valid lock name. The rename happens in place, so the handle the
+        caller holds is the lock the task enters, and an external reload
+        reads it under the task name, ``GREL_TASKLOCK_{TASK}_``, instead of
+        the prefix every lock without a name shares. From then on, every
+        config the lock takes must hold a claim for at least ``interval``,
+        a later `reconfigure` included.
 
         Raises:
             ValueError: If the lock already gates another task.
             SettingsValidationError: If `min_hold_duration` is shorter
-                than ``interval``.
+                than ``interval``, or the lock takes a ``lock_name`` that
+                is not a valid lock name.
         """
         if self._task_name is not None:
             msg = (
@@ -364,29 +411,25 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             )
             raise ValueError(msg)
         _check_min_hold(self._config, interval)
-        renamed = self._name == "default"
-        # A tracked lock that took the shared default prefix reloads under
-        # its task name from now on, like a lock named after it. A name no
-        # env var can spell leaves it out of external reload instead.
-        moves = renamed and getattr(self, "_env_prefix", None) == (
-            default_env_prefix("TASKLOCK", "default")
-        )
-        env_prefix: str | None = None
-        if moves:
-            with suppress(SettingsValidationError):
-                env_prefix = default_env_prefix("TASKLOCK", task_name)
+        if self._name is None:
+            self._set_name(lock_name)
+            # A tracked lock on the shared prefix of locks without a name
+            # reloads under its task name from now on, like a lock named
+            # after it. A name no env var can spell leaves it out of
+            # external reload instead.
+            if getattr(self, "_env_prefix", None) == kind_env_prefix(
+                "TASKLOCK"
+            ):
+                env_prefix: str | None = None
+                with suppress(SettingsValidationError):
+                    env_prefix = default_env_prefix("TASKLOCK", task_name)
+                self._env_prefix = env_prefix
         self._min_hold_floor = interval
         self._task_name = task_name
-        if renamed:
-            self._name = task_name
-            self._lock_name = f"{self._LOCK_PREFIX}:{task_name}"
-            self._metrics = LockMetrics(task_name, "task")
-        if moves:
-            self._env_prefix = env_prefix
 
     @property
-    def name(self) -> str:
-        """Return the task lock identity."""
+    def name(self) -> str | None:
+        """Return the task lock identity, or `None` for a lock without a name."""
         return self._name
 
     @property
@@ -420,15 +463,16 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             WouldBlockError: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
+            SettingsValidationError: If the lock has no name.
         """
         config = self._config
         if self._acquired_at is not None:
-            raise LockReentrantError(name=self._name)
+            raise LockReentrantError(name=self._named)
 
         self._take_back_hold()
         token = generate_task_token(config.worker, self._token_nonce)
         if not await self.do_acquire(token, duration=config.lease_duration):
-            msg = f"Task lock not acquired: name={self._name}, token={token}"
+            msg = f"Task lock not acquired: name={self._named}, token={token}"
             raise WouldBlockError(msg)
         self._held_token = token
 
@@ -469,10 +513,10 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             LockExtendError: If the backend call fails.
         """
         if self._acquired_at is None:
-            raise LockNotOwnedError(name=self._name)
+            raise LockNotOwnedError(name=self._named)
         token = generate_task_token(self._config.worker, self._token_nonce)
         if not await self._extend_lease(token):
-            raise LockNotOwnedError(name=self._name)
+            raise LockNotOwnedError(name=self._named)
 
     async def _extend_held(self) -> None:
         """Extend the lease the lock holds, from any asyncio task.
@@ -487,19 +531,21 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         """
         token = self._held_token
         if token is None or not await self._extend_lease(token):
-            raise LockNotOwnedError(name=self._name)
+            raise LockNotOwnedError(name=self._named)
 
     async def locked(self) -> bool:
         """Check if the lock is acquired.
 
         Raises:
             LockLockedCheckError: If the lock cannot be checked due to an error on the backend.
+            SettingsValidationError: If the lock has no name.
         """
+        key = self._key
         backend = self.backend
         try:
-            return await backend.locked(name=self._lock_name)
+            return await backend.locked(name=key)
         except Exception as exc:
-            raise LockLockedCheckError(name=self._name) from exc
+            raise LockLockedCheckError(name=self._named) from exc
 
     async def do_acquire(self, token: str, *, duration: timedelta) -> bool:
         """Acquire the lock.
@@ -520,18 +566,19 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         Raises:
             LockAcquireError: If the lock cannot be acquired due to an error on the backend.
         """
+        key = self._key
         backend = self.backend
         try:
             # TaskLock does not surface the fencing token. A non-None result
             # means the lock was acquired.
             fencing_token = await backend.acquire(
-                name=self._lock_name,
+                name=key,
                 token=token,
                 duration=duration,
             )
         except Exception as exc:
             self._metrics.attempt(ERROR)
-            raise LockAcquireError(name=self._name) from exc
+            raise LockAcquireError(name=self._named) from exc
         acquired = fencing_token is not None
         if acquired:
             self._hold_nonce = None
@@ -553,11 +600,12 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         Raises:
             LockReleaseError: Cannot release the lock due to backend error.
         """
+        key = self._key
         backend = self.backend
         try:
-            return await backend.release(name=self._lock_name, token=token)
+            return await backend.release(name=key, token=token)
         except Exception as exc:
-            raise LockReleaseError(name=self._name) from exc
+            raise LockReleaseError(name=self._named) from exc
 
     async def do_reacquire(self, token: str, duration: timedelta) -> bool:
         """Re-acquire the lock with a specific duration.
@@ -600,20 +648,21 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             LockReleaseError: The backend call failed and `error` is it.
             LockExtendError: The backend call failed and `error` is it.
         """
+        key = self._key
         backend = self.backend
         try:
             # TaskLock does not surface the fencing token. A non-None result
             # means the lock is held.
             held = (
                 await backend.acquire(
-                    name=self._lock_name,
+                    name=key,
                     token=token,
                     duration=duration,
                 )
             ) is not None
         except Exception as exc:
             self._metrics.extension(ERROR)
-            raise error(name=self._name) from exc
+            raise error(name=self._named) from exc
         self._metrics.extension(SUCCESS if held else LOST)
         return held
 
@@ -628,15 +677,16 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             WouldBlockError: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
+            SettingsValidationError: If the lock has no name.
         """
         config = self._config
         if self._acquired_at is not None:
-            raise LockReentrantError(name=self._name)
+            raise LockReentrantError(name=self._named)
 
         self._take_back_hold()
         token = generate_thread_token(config.worker, self._token_nonce)
         if not await self.do_acquire(token, duration=config.lease_duration):
-            msg = f"Task lock not acquired: name={self._name}, token={token}"
+            msg = f"Task lock not acquired: name={self._named}, token={token}"
             raise WouldBlockError(msg)
         self._held_token = token
 
@@ -694,7 +744,7 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
                 due to a backend error.
         """
         if self._acquired_at is None:
-            raise LockNotOwnedError(name=self._name)
+            raise LockNotOwnedError(name=self._named)
 
         elapsed = timedelta(seconds=monotonic() - self._acquired_at)
         self._acquired_at = None
@@ -707,14 +757,14 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
             # Task took longer than min_hold_duration, release immediately
             released = await self.do_release(token)
             if not released:
-                raise LockNotOwnedError(name=self._name)
+                raise LockNotOwnedError(name=self._named)
         else:
             # Re-acquire with remaining duration so the lock is held
             # until min_hold_duration.
             remaining = min_hold_duration - elapsed
             re_acquired = await self.do_reacquire(token, remaining)
             if not re_acquired:
-                raise LockNotOwnedError(name=self._name)
+                raise LockNotOwnedError(name=self._named)
             self._hold_nonce = nonce
             self._hold_ends = monotonic() + remaining.total_seconds()
 
@@ -746,13 +796,18 @@ class ThreadTaskLockAdapter:
 
     @property
     def _backend_loop(self) -> asyncio.AbstractEventLoop:
-        """Return the event loop the backend captured on ``__aenter__``."""
+        """Return the event loop the backend captured on ``__aenter__``.
+
+        Raises:
+            SettingsValidationError: If the lock has no name.
+        """
+        name = self._task_lock._named  # noqa: SLF001
         loop = self._task_lock.backend._loop  # noqa: SLF001
         if loop is None:
-            raise_backend_not_open(f"TaskLock {self._task_lock.name!r}")
+            raise_backend_not_open(f"TaskLock {name!r}")
         if on_backend_loop(loop):
             raise_event_loop_deadlock(
-                f"TaskLock {self._task_lock.name!r} `from_thread`",
+                f"TaskLock {name!r} `from_thread`",
                 "Use `async with task_lock:` from async code, or run the "
                 "sync call through `asyncio.to_thread(...)`.",
             )
@@ -765,6 +820,7 @@ class ThreadTaskLockAdapter:
             WouldBlockError: If the lock is already held by another worker.
             LockAcquireError: If the lock cannot be acquired due to a backend error.
             LockReentrantError: If the lock is already acquired (nested usage is not supported).
+            SettingsValidationError: If the lock has no name.
         """
         loop = self._backend_loop
         asyncio.run_coroutine_threadsafe(

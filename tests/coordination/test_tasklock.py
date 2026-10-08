@@ -1041,3 +1041,124 @@ async def test_tasklock_extend_held_refused_when_not_held(
     lock = TaskLock(LOCK_NAME, backend=backend, lease_duration=LOCK_AT_MOST_FOR)
     with pytest.raises(LockNotOwnedError):
         await lock._extend_held()
+
+
+# --- Names ---
+
+UNSAFE_NAMES = ["has space", "-leading-dash", ":leading-colon", "a" * 201]
+
+
+@pytest.mark.parametrize("name", UNSAFE_NAMES)
+def test_tasklock_unsafe_name_raises_settings_validation_error(
+    name: str,
+) -> None:
+    """A name that is not a valid lock name is refused at construction."""
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        TaskLock(name, backend=MemoryLockAdapter())
+
+
+@pytest.mark.parametrize("name", UNSAFE_NAMES)
+def test_tasklock_from_config_unsafe_name_raises_settings_validation_error(
+    name: str,
+) -> None:
+    """`from_config` refuses a name that is not a valid lock name."""
+    # Arrange
+    config = TaskLockConfig(worker=WORKER_1)
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        TaskLock.from_config(name, config, backend=MemoryLockAdapter())
+
+
+def test_tasklock_without_name_has_no_name() -> None:
+    """A `TaskLock` built without a name reports none."""
+    # Act
+    lock = TaskLock(backend=MemoryLockAdapter())
+
+    # Assert
+    assert lock.name is None
+
+
+async def test_tasklock_without_name_enter_raises_settings_validation_error(
+    backend: LockBackend,
+) -> None:
+    """A standalone `TaskLock` without a name is refused on first use."""
+    # Arrange
+    lock = TaskLock(backend=backend, worker=WORKER_1)
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="TaskLock has no name"):
+        async with lock:
+            pass
+    assert lock._acquired_at is None
+
+
+async def test_tasklock_without_name_locked_raises_settings_validation_error(
+    backend: LockBackend,
+) -> None:
+    """Checking a standalone `TaskLock` without a name is refused."""
+    # Arrange
+    lock = TaskLock(backend=backend)
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="gate"):
+        await lock.locked()
+
+
+async def test_tasklock_without_name_from_thread_raises_settings_validation_error(
+    backend: LockBackend,
+) -> None:
+    """Entering a standalone `TaskLock` without a name from a thread is refused."""
+    # Arrange
+    lock = TaskLock(backend=backend)
+
+    def enter() -> None:
+        lock.from_thread.__enter__()
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="TaskLock has no name"):
+        await asyncio.to_thread(enter)
+
+
+async def test_tasklock_without_name_extend_raises_settings_validation_error(
+    backend: LockBackend,
+) -> None:
+    """Extending a standalone `TaskLock` without a name is refused."""
+    # Arrange
+    lock = TaskLock(backend=backend)
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="TaskLock has no name"):
+        await lock.extend()
+
+
+async def test_tasklock_two_without_name_do_not_share_a_lock(
+    backend: LockBackend,
+) -> None:
+    """Two standalone `TaskLock`s without a name never share one backend key."""
+    # Arrange
+    first = TaskLock(backend=backend, worker=WORKER_1)
+    second = TaskLock(backend=backend, worker=WORKER_2)
+
+    # Act / Assert
+    for lock in (first, second):
+        with pytest.raises(SettingsValidationError):
+            async with lock:
+                pass
+    assert await backend.locked(name="tasklock:default") is False
+
+
+async def test_tasklock_without_name_unopened_from_thread_raises_settings_validation_error() -> (
+    None
+):
+    """A lock without a name is refused before its backend is checked."""
+    # Arrange
+    lock = TaskLock(backend=MemoryLockAdapter())
+
+    def enter() -> None:
+        lock.from_thread.__enter__()
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="TaskLock has no name"):
+        await asyncio.to_thread(enter)

@@ -19,7 +19,10 @@ from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.metrics import _emit
 from grelmicro.task._fire import FireInfo, FireRecorder
 from grelmicro.task._gate import LeaderWatch, check_sync, gate_label
-from grelmicro.task._utils import validate_and_generate_reference
+from grelmicro.task._utils import (
+    gate_lock_name,
+    validate_and_generate_reference,
+)
 
 logger = getLogger("grelmicro.task")
 
@@ -57,7 +60,8 @@ class IntervalTask(Task):
                 years.
             ValueError: If the gate lock already gates another task.
             SettingsValidationError: If the gate lock holds a claim for
-                less than `interval`.
+                less than `interval`, or the gate locks under a `name` that
+                is not a valid lock name or starts with `task-`.
             TypeError: If `gate` is not a supported value, or `sync` is
                 a leader election.
         """
@@ -66,6 +70,7 @@ class IntervalTask(Task):
 
         alt_name = validate_and_generate_reference(function)
         self._name = name or alt_name
+        self._name_derived = not name
         self._interval = interval
         self._interval_seconds = interval.total_seconds()
         self._function = function
@@ -73,13 +78,13 @@ class IntervalTask(Task):
             self._name, function, clock=partial(datetime.now, UTC)
         )
 
+        primitives = self._gate_primitives(gate, interval)
         self._gate_label = gate_label(gate, takes_lock=True)
         self._watch = (
             LeaderWatch(gate, self._name)
             if isinstance(gate, LeaderElection)
             else None
         )
-        primitives = self._gate_primitives(gate, interval)
         self._claim = next(
             (p for p in primitives if isinstance(p, TaskLock)), None
         )
@@ -103,11 +108,24 @@ class IntervalTask(Task):
         if gate is None:
             return []
         if isinstance(gate, TaskLock):
-            gate._bind_task(self._name, interval=interval)  # noqa: SLF001
+            gate._bind_task(  # noqa: SLF001
+                self._name,
+                lock_name=gate.name or self._gate_lock_name(),
+                interval=interval,
+            )
             return [gate]
         if isinstance(gate, LeaderElection):
             return [gate.guard(), self._claim_lock(interval)]
         return [self._claim_lock(interval)]
+
+    def _gate_lock_name(self) -> str:
+        """Return the lock name a gate takes from the task name.
+
+        Raises:
+            SettingsValidationError: If an explicit task name starts with
+                the reserved ``task-`` prefix.
+        """
+        return gate_lock_name(self._name, derived=self._name_derived)
 
     def _claim_lock(self, interval: timedelta) -> TaskLock:
         """Build the lock that holds one claim per interval.
@@ -118,15 +136,18 @@ class IntervalTask(Task):
         The lock is built from a fixed config, so neither the environment
         nor an external reload retunes it.
         """
+        lock_name = self._gate_lock_name()
         lock = TaskLock.from_config(
-            self._name,
+            lock_name,
             TaskLockConfig(
                 worker=generate_worker_id(),
                 min_hold_duration=interval,
                 lease_duration=interval * 2,
             ),
         )
-        lock._bind_task(self._name, interval=interval)  # noqa: SLF001
+        lock._bind_task(  # noqa: SLF001
+            self._name, lock_name=lock_name, interval=interval
+        )
         return lock
 
     @property

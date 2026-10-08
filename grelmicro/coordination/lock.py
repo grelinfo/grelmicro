@@ -62,7 +62,9 @@ from grelmicro.errors import (
 )
 
 _MIN_RETRY_INTERVAL: float = 0.001
-_NAME_MAX_LEN = 200
+LOCK_NAME_MAX_LENGTH = 200
+"""The longest name a lock, task lock or leader election takes."""
+
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\-]*$")
 
 
@@ -74,11 +76,15 @@ def validate_lock_name(name: str) -> None:
     control characters, and shell metacharacters while staying broad
     enough for namespaced names like ``users:42`` or ``payments/eu``.
     """
-    if not name or len(name) > _NAME_MAX_LEN or not _NAME_PATTERN.match(name):
+    if (
+        not name
+        or len(name) > LOCK_NAME_MAX_LENGTH
+        or not _NAME_PATTERN.match(name)
+    ):
         msg = (
             f"Invalid lock name {name!r}: must match "
             f"^[A-Za-z0-9][A-Za-z0-9._:/-]*$ and be at most "
-            f"{_NAME_MAX_LEN} chars. "
+            f"{LOCK_NAME_MAX_LENGTH} chars. "
             f"Valid examples: 'cart', 'users:42', 'payments/eu'."
         )
         raise SettingsValidationError(msg)

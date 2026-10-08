@@ -48,6 +48,8 @@
 * 💥 The `grelmicro.lock.renewals` metric is renamed `grelmicro.lock.extensions`, with the unit `{extension}`. ([#997](https://github.com/grelinfo/grelmicro/issues/997))
 * 💥 `GREL_SHIELD_{NAME}_PROFILE` and `GREL_SHIELD_PROFILE` are no longer read. A Shield refuses to build while either is set, and a live reload refuses a mounted `PROFILE` key. Choose the preset in code with `Shield.internal`, `Shield.api` or `Shield.slow`. ([#1002](https://github.com/grelinfo/grelmicro/issues/1002))
 * 💥 `AuthenticatedRequests.from_config` takes the verifier first, like the constructor: `AuthenticatedRequests.from_config(verifier, config)`. ([#999](https://github.com/grelinfo/grelmicro/issues/999))
+* 💥 `TaskLock()` has no name by default, instead of `"default"`. As the `gate` of a task it takes the task name. Used on its own it raises `SettingsValidationError` when entered, so two unnamed locks never share one. A `TaskLock("default")` gate keeps that name. ([#1001](https://github.com/grelinfo/grelmicro/issues/1001))
+* 💥 A task `name=` that a gate locks under cannot start with `task-`, which is reserved for the lock names of tasks named after their function. ([#1001](https://github.com/grelinfo/grelmicro/issues/1001))
 * 🔒 On FastAPI, every route carries a gate, decided once FastAPI dispatched the request and before it reads the body. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 On FastAPI, the route a request is dispatched to decides whether it needs a credential. A public route another route could also answer is served without one, and `micro.describe(app)` and the schema say so. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
 * 💥 A `CachedResponse()` written on a FastAPI route that runs a dependency of its own, not one of grelmicro's, fails install, naming the path. One declared on a router still leaves such a read uncached. ([#915](https://github.com/grelinfo/grelmicro/issues/915))
@@ -212,6 +214,7 @@
 * 🐛 `ClientBans.record()` no longer reports a ban that has already run out. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A full `ClientBans` table evicts the least recently recorded client, as documented, instead of the one that failed first, and a client `forget()` cleared no longer takes up room or gets a later entry evicted. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 * 🐛 A failure from an address `ClientBans` already tracks no longer evicts another address, so a full table can no longer be made to drop someone else's ban. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
+* 🐛 `TaskLock` and `LeaderElection` refuse a name that is not a valid lock name, like `Lock`. A task whose automatic name is not one, such as `__main__:job` in a script run directly, locks under `task-__main__:job`. That is also its gate log label and its `grelmicro.lock.name` metric label, so update dashboards that filter on the old one, and upgrade every worker running such a task at once. ([#1001](https://github.com/grelinfo/grelmicro/issues/1001))
 
 ### Performance
 * ⚡ Importing a grelmicro package no longer loads FastAPI or Starlette, and only `grelmicro.log` loads OpenTelemetry. ([#975](https://github.com/grelinfo/grelmicro/issues/975))

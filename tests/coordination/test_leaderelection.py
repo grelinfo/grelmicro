@@ -1120,3 +1120,32 @@ async def test_lead_repeat_reruns_after_reacquire(
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+
+
+@pytest.mark.parametrize(
+    "name", ["has space", "-leading-dash", ":leading-colon", "a" * 201]
+)
+def test_leader_election_unsafe_name_raises_settings_validation_error(
+    name: str,
+) -> None:
+    """A name that is not a valid lock name is refused at construction."""
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        LeaderElection(name, backend=MemoryLeaderElectionAdapter())
+
+
+@pytest.mark.parametrize(
+    "name", ["has space", "-leading-dash", ":leading-colon", "a" * 201]
+)
+def test_leader_election_from_config_unsafe_name_raises_settings_validation_error(
+    name: str,
+) -> None:
+    """`from_config` refuses a name that is not a valid lock name."""
+    # Arrange
+    config = LeaderElectionConfig(worker="worker")
+
+    # Act / Assert
+    with pytest.raises(SettingsValidationError, match="Invalid lock name"):
+        LeaderElection.from_config(
+            name, config, backend=MemoryLeaderElectionAdapter()
+        )

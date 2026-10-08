@@ -65,6 +65,10 @@ that a client library used to accept.
 | `ImportError: cannot import name 'IdempotencyKeyMakerError'` | 0.42 | [Catch `IdempotencyKeyFunctionError`](#0-42-key-function) |
 | `SettingsValidationError` naming `GREL_SHIELD_{NAME}_PROFILE` or `GREL_SHIELD_PROFILE`: `is no longer read` | 0.42 | [Choose the preset in code](#0-42-shield-profile-env) |
 | `TypeError: AuthenticatedRequests.from_config takes the verifier first: pass from_config(verifier, config)` | 0.42 | [Pass the verifier first](#0-42-from-config) |
+| `SettingsValidationError: TaskLock has no name` | 0.42 | [Name the lock or gate a task with it](#0-42-lock-names) |
+| `SettingsValidationError: Invalid lock name ...` from a `TaskLock`, a `LeaderElection` or a gated task | 0.42 | [Pass a valid name](#0-42-lock-names) |
+| `SettingsValidationError: Invalid task name ... The prefix 'task-' is reserved` | 0.42 | [Pass a valid name](#0-42-lock-names) |
+| A dashboard on `grelmicro.lock.name` lost a task defined in a script run directly | 0.42 | [Filter on the new lock name](#0-42-lock-names) |
 
 ## 0.42
 
@@ -308,6 +312,35 @@ AuthenticatedRequests.from_config(config, verifier)
 # After
 AuthenticatedRequests.from_config(verifier, config)
 ```
+
+### A `TaskLock` needs a name {#0-42-lock-names}
+
+`TaskLock()` has no name by default. As the `gate` of a task it takes the task
+name, as before. Used on its own, it raises `SettingsValidationError` when
+entered. Pass the name it used to share:
+
+```python title="fragment"
+# Before
+task_lock = TaskLock()
+
+# After
+task_lock = TaskLock("cleanup")
+```
+
+A gate named `TaskLock("default")` keeps that name instead of taking the task
+name. Drop the name to have it take the task name.
+
+`TaskLock`, `LeaderElection` and a gated task's `name=` follow the `Lock` rule:
+a letter or digit, then letters, digits and `._:/-`, up to 200 characters.
+Rename one that does not, such as `name="daily report"` to
+`name="daily-report"`. A gated task's `name=` cannot start with `task-` either.
+
+A task named after its function, whose name is not a valid lock name, locks
+under a derived name. In a script run directly, `__main__:job` locks under
+`task-__main__:job`. That is also its gate log label and its
+`grelmicro.lock.name` metric label, so update dashboards that filter on the
+old one. Workers on the previous version lock it under the old key and do not
+block the new ones, so upgrade every worker running such a task at once.
 
 ## 0.40
 
