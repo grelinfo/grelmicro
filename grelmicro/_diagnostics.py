@@ -60,6 +60,9 @@ AMBIENT_BINDING: Final = "ambient-binding"
 PROVIDER_ORDER: Final = "provider-order"
 """A Provider is listed after the Component that borrows it."""
 
+HEALTH_NOT_SERVED: Final = "health-not-served"
+"""A `HealthChecks` is registered but nothing serves its endpoints, so probes get 404."""
+
 LEADER_NOT_RUNNING: Final = "leader-not-running"
 """A task is gated on a leader election that does not run, so it never fires."""
 

@@ -195,6 +195,7 @@ taken out of the very sentence offering it.
 | Authentication runs ahead of every other answering middleware of ours | A cached or replayed response must never reach a caller that was not authenticated | A component of ours has to answer before the caller is known |
 | Authentication takes `exclude` and no `include` | A mistyped `include` would leave an endpoint public without a word | Default deny stops being the contract |
 | A refused websocket is denied, never accepted and then closed | Accepting completes the handshake for a caller that never authenticated | No server supports the denial response extension any more |
+| `install` mounts no health route: `health_router()`, `health_asgi()` or `OpsServer` serves the endpoints | Probe paths are kept out of authentication and rate limiting by hand, `/healthz` can expose check details, and `OpsServer` serves them on a port of their own, so a route mounted by default would need a silent exemption | Probes stop needing an exemption from default deny |
 
 ## Related
 

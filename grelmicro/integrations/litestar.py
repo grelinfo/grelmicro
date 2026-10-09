@@ -29,6 +29,7 @@ from grelmicro._paths import (
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
 )
+from grelmicro.health._served import HealthEndpoint, health_endpoint_in
 from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._authentication import (
     ANONYMOUS_OPT,
@@ -55,6 +56,7 @@ if TYPE_CHECKING:
     from collections.abc import (
         Awaitable,
         Callable,
+        Iterator,
         Mapping,
         MutableMapping,
         Sequence,
@@ -818,6 +820,23 @@ def _render_in(router: Any) -> None:  # noqa: ANN401
 
 _ROUTING_CACHE: Final = 1024
 """How many routed paths and methods each gated router keeps, as Litestar's own does."""
+
+
+def health_endpoints(
+    app: Annotated[
+        Litestar,
+        Doc("The Litestar application whose health endpoints to list."),
+    ],
+) -> Iterator[HealthEndpoint]:
+    """Yield the health endpoints the app serves, an ASGI mount included."""
+    for route in app.routes:
+        handlers = getattr(route, "route_handlers", None) or [
+            route.route_handler  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+        ]
+        for handler in handlers:
+            found = health_endpoint_in(getattr(handler, "fn", None))
+            if found is not None:
+                yield found
 
 
 def route_declarations(

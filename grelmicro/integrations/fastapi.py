@@ -8,7 +8,7 @@ the OpenAPI schema and the health and metrics routers.
 import inspect
 import logging
 import weakref
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
@@ -57,6 +57,11 @@ from grelmicro.health._endpoints import (
     status_code,
 )
 from grelmicro.health._models import HealthStatus
+from grelmicro.health._served import (
+    HealthEndpoint,
+    health_endpoints_in,
+    mark_health_endpoint,
+)
 from grelmicro.http import (
     ConditionalRequestsMiddleware,
     ErrorResponses,
@@ -274,6 +279,16 @@ def install_route_gate(
         ValueError: If a declaration cannot hold, naming its route.
     """
     gate_routes(app, gate)
+
+
+def health_endpoints(
+    app: Annotated[
+        FastAPI,
+        Doc("The FastAPI application whose health endpoints to list."),
+    ],
+) -> Iterator[HealthEndpoint]:
+    """Yield the health endpoints the app serves, included routers too."""
+    return health_endpoints_in(app.routes)
 
 
 def route_declarations(
@@ -2086,6 +2101,8 @@ def health_router(
             headers=NO_STORE_HEADERS,
         )
 
+    for route in router.routes:
+        mark_health_endpoint(getattr(route, "endpoint", None), component)
     return router
 
 

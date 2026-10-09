@@ -173,6 +173,8 @@ All three also accept `HEAD`. All responses set `Cache-Control: no-store`. Probe
 
 Paths follow the z-pages convention (`/livez`, `/readyz`, `/healthz`). The trailing `z` avoids collisions with application routes like `/health`.
 
+`micro.install(app)` does not mount these routes for you, so include the router yourself. A registered `HealthChecks` that nothing serves is reported at startup with the [`health-not-served`](diagnostics.md#health-not-served) warning.
+
 ### OpenAPI Schema
 
 The three endpoints stay out of the OpenAPI schema. They answer exactly the same, and `/openapi.json` and the docs pages name neither the probes nor the shape of the report. An orchestrator does not read your schema, and a generated client has no use for a probe.
