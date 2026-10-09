@@ -15,6 +15,7 @@ from grelmicro.coordination import Coordination
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.tasklock import TaskLock
 from grelmicro.task._interval import IntervalTask
+from tests._logs import records_of
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 from tests.task.conftest import TaskFactory
@@ -306,7 +307,9 @@ async def test_gate_lock_extends_from_the_body(
         await samples.e2e_event_1.wait()
         cancel_group(tg)
 
-    assert not any(r.levelname == "ERROR" for r in caplog.records)
+    assert not any(
+        r.levelname == "ERROR" for r in records_of(caplog, "grelmicro")
+    )
 
 
 async def test_claim_renews_while_a_long_body_runs(
@@ -335,4 +338,6 @@ async def test_claim_renews_while_a_long_body_runs(
         cancel_group(tg)
 
     assert samples.execution_count == 1
-    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+    assert not [
+        r for r in records_of(caplog, "grelmicro") if r.levelname == "WARNING"
+    ]

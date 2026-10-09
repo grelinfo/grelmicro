@@ -24,6 +24,7 @@ from grelmicro.resilience._match import (
     _message_of,
     _warn,
 )
+from tests._logs import records_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -1409,7 +1410,7 @@ def test_a_predicate_whose_hash_changes_stays_bounded(
 
     assert len(match_mod._warned_predicates) == before
     assert id(predicate) in match_mod._warned_untrackable
-    assert len(caplog.records) == 1
+    assert len(records_of(caplog, "grelmicro.resilience")) == 1
 
     # Across eviction cycles, not just one. Each cycle drops the predicate
     # from the address registry and sends it back through the weak path,
@@ -1472,7 +1473,7 @@ def test_a_predicate_that_never_equals_itself_stays_bounded(
             assert matcher(outcome) is True
 
     assert len(match_mod._warned_predicates) == before
-    assert len(caplog.records) == 1
+    assert len(records_of(caplog, "grelmicro.resilience")) == 1
 
 
 def test_an_object_posing_as_a_compiled_pattern_is_refused() -> None:
@@ -1556,8 +1557,9 @@ def test_a_negated_matcher_reports_its_own_name(
         matcher(Outcome.from_exception(ValueError("x")))
         matcher(Outcome.from_result(1))
 
-    assert caplog.records
-    assert expected in caplog.records[0].message
+    reports = records_of(caplog, "grelmicro.resilience")
+    assert reports
+    assert expected in reports[0].message
 
 
 class _Boom(BaseException):

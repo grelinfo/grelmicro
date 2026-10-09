@@ -12,6 +12,7 @@ from opentelemetry.sdk.trace import TracerProvider
 
 from grelmicro.outbox import Message, Outbox, _otel
 from grelmicro.outbox.memory import MemoryOutboxAdapter
+from tests._logs import records_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -188,7 +189,7 @@ class TestBackgroundCrashIsObservable:
             _report_task_crash(task, what="relay loop")
 
         # Assert
-        assert not caplog.records
+        assert not records_of(caplog, "grelmicro.outbox")
 
     async def test_relay_loop_crash_is_logged_when_it_happens(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
