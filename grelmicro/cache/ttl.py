@@ -29,6 +29,8 @@ from grelmicro._duration import Duration, check_duration
 from grelmicro.cache._stampede import (
     _SENTINEL,
     AsyncStampedeGuard,
+    Fold,
+    check_fold,
     compute_with_stampede,
 )
 from grelmicro.cache.serializers import (
@@ -38,6 +40,7 @@ from grelmicro.cache.serializers import (
 )
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -262,6 +265,7 @@ class TTLCache(Generic[T]):
         self._keys: OrderedDict[str, None] = OrderedDict()
         # Per-key in-process locks for get_or_set stampede protection.
         self._stampede = AsyncStampedeGuard()
+        self._folds: dict[BackendScope, Fold] = {}
 
     @classmethod
     def from_config(
@@ -398,6 +402,15 @@ class TTLCache(Generic[T]):
         if self._maxsize > 0:
             self._promote(key)
         return self._deserialize(raw)
+
+    def _fold(self, scope: BackendScope | None) -> Fold | None:
+        """Return how far `get_or_set` folds misses, kept per scope."""
+        if scope is None:
+            return None
+        fold = self._folds.get(scope)
+        if fold is None:
+            fold = self._folds[scope] = Fold("TTLCache.get_or_set", scope)
+        return fold
 
     async def _peek(self, key: str, default: T | None = None) -> T | None:
         """Read a key without recording hit/miss stats or LRU promotion.
@@ -548,6 +561,16 @@ class TTLCache(Generic[T]):
                 " `None` (default) propagates."
             ),
         ] = None,
+        lock: Annotated[
+            BackendScope | None,
+            Doc(
+                "How far concurrent misses on `key` share one call of"
+                ' `factory`. `"process"` (default) folds them in the'
+                ' process. `"host"` or `"cluster"` also folds them'
+                " through the lock backend of the app's `Coordination`, the"
+                " same as `@cached(lock=...)`. `None` turns folding off."
+            ),
+        ] = "process",
     ) -> T:
         """Return the cached value, or compute, store, and return it.
 
@@ -555,8 +578,7 @@ class TTLCache(Generic[T]):
         miss the ``factory`` runs once under stampede protection, the
         result is stored with the given ``ttl`` and ``tags``, and a miss
         is recorded by the initial read. Concurrent misses on the same
-        key fold into a single computation, across replicas when a lock
-        backend is configured.
+        key fold into a single computation, as far as ``lock`` says.
 
         With ``stale_ttl`` set, a ``factory`` that raises on a miss serves
         the most recent value (kept for ``stale_ttl`` past its TTL)
@@ -565,7 +587,15 @@ class TTLCache(Generic[T]):
         Raises:
             ValueError: If ttl or stale_ttl is a float, not positive, or
                 over 100 years.
+            SettingsValidationError: If ``lock`` is not a backend scope or
+                ``None``.
+            OutOfContextError: If ``lock`` reaches past the process and the
+                app has no lock backend.
+            BackendScopeError: If the app runs in ``staging`` or
+                ``production`` and its lock backend reaches less far than
+                ``lock``.
         """
+        fold = self._fold(check_fold(lock))
         entry_ttl = check_duration(ttl, "ttl") if ttl is not None else self._ttl
         stale_duration = (
             check_duration(stale_ttl, "stale_ttl")
@@ -600,8 +630,7 @@ class TTLCache(Generic[T]):
                     key,
                     compute,
                     self._stampede,
-                    per_key=True,
-                    auto_distributed=True,
+                    fold=fold,
                 ),
             )
 
@@ -613,8 +642,7 @@ class TTLCache(Generic[T]):
                     key,
                     compute,
                     self._stampede,
-                    per_key=True,
-                    auto_distributed=True,
+                    fold=fold,
                 ),
             )
         except Exception:  # serve stale on any recompute failure

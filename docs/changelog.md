@@ -4,6 +4,9 @@
 
 ### Breaking
 * 💥 `CacheError` is removed. Nothing raised it, so an `except CacheError:` never ran. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
+* 💥 `@cached(lock=...)` takes how far concurrent misses fold: `"process"` (default), `"host"`, `"cluster"` or `None`. `"local"` becomes `"process"`, `True` becomes `"cluster"` and `False` becomes `None`. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
+* 💥 `TTLCache.get_or_set` folds concurrent misses in the process by default, like `@cached`. Pass `lock="cluster"` to fold them through the lock backend. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
+* 💥 `lock="host"` or `lock="cluster"` with no lock backend raises `OutOfContextError` instead of folding in the process. With `@cached(ttl=...)` it raises `SettingsValidationError`. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 💥 `metrics_router` moved from `grelmicro.metrics` to `grelmicro.integrations.fastapi`, next to `health_router`. ([#979](https://github.com/grelinfo/grelmicro/pull/979))
 * 💥 `@cached` and `@limiter` take their key template as `key_template=`, like `key_template="user:{user_id}"`. A string passed to `key=` raises `TypeError`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
 * 💥 `@cached(key_maker=...)` and `@limiter(key_maker=...)` are renamed `key=`. The function still receives `(func, args, kwargs)`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
@@ -171,6 +174,7 @@
 * 🐛 A `ReadWriteLock` writer cancelled while it waits withdraws its intent, even when cancelled again, so readers no longer wait for the intent to expire. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 🐛 The `grelmicro.lock.holders` gauge drops when a task is cancelled while it releases its lock. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 🐛 `RateLimitedRequests` built with no limiter, or with neither `trusted=` nor `key=`, raises an error that names it and says how to fix the call. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
+* 🐛 A cache miss or a `CachedResponses` request folding through a lock backend that fails still runs and logs the failure, and one that outlived its lock returns what it stored instead of raising `LockNotOwnedError`. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 🐛 `IdempotentRequests(env_load=...)` decides whether its TTL is read from `GREL_IDEMPOTENCY_HTTP_TTL`, and `IdempotentRequests.from_config` reads no variable for it. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🐛 A Postgres lock is held for every worker whatever its session time zone, so a worker in another zone no longer takes a held lock. Setup converts the lock table once. Run every worker in the same session time zone while upgrading, since a live lease written in another zone shifts by the difference. ([#992](https://github.com/grelinfo/grelmicro/pull/992))
 * 🐛 A lease is never shorter than asked. Redis rounds a lock lease up to the millisecond and keeps a leader lease to the microsecond. SQLite holds a lease to the millisecond, not up to two seconds longer. ([#959](https://github.com/grelinfo/grelmicro/issues/959))

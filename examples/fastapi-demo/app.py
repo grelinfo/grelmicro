@@ -90,7 +90,7 @@ catalog = TTLCache[Product](ttl=30)
 
 
 @app.get("/product/{product_id}")
-@cached(catalog, lock=True)
+@cached(catalog, lock="cluster")
 async def get_product(product_id: int) -> Product:
     # Cache Pattern: the second call within the TTL skips this body.
     return Product(id=product_id, name=f"Product {product_id}")

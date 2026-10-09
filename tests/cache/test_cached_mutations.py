@@ -376,7 +376,7 @@ class TestDistributedComputePath:
         def impl(x: int, *, factor: int) -> int:
             return x * factor
 
-        fetch = cached(cache, lock=True)(impl)
+        fetch = cached(cache, lock="cluster")(impl)
         async with micro:
             result = await asyncio.to_thread(lambda: fetch(5, factor=3))
         assert result == 15  # noqa: PLR2004
@@ -392,7 +392,7 @@ class TestDistributedComputePath:
         def impl(user_id: int) -> int:
             return user_id
 
-        fetch = cached(cache, lock=True, tags=["user:{user_id}"])(impl)
+        fetch = cached(cache, lock="cluster", tags=["user:{user_id}"])(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(42))
             members = backend._tag_keys.get("user:42")
@@ -415,7 +415,7 @@ class TestDistributedComputePath:
             calls += 1
             return x * 2
 
-        fetch = cached(cache, lock=True)(impl)
+        fetch = cached(cache, lock="cluster")(impl)
         key = _derive_key(impl, (5,), {}, None, typed=False)
         async with micro:
             async with Lock(_stampede_lock_name(key)):
@@ -440,7 +440,11 @@ class TestDistributedComputePath:
             return x * 2
 
         # skip when the result equals 10, so the value-5 call is never cached.
-        fetch = cached(cache, lock=True, skip=lambda result: result == 10)(impl)  # noqa: PLR2004
+        fetch = cached(
+            cache,
+            lock="cluster",
+            skip=lambda result: result == 10,  # noqa: PLR2004
+        )(impl)
         async with micro:
             assert await asyncio.to_thread(lambda: fetch(5)) == 10  # noqa: PLR2004
             assert await asyncio.to_thread(lambda: fetch(5)) == 10  # noqa: PLR2004
@@ -477,12 +481,12 @@ class TestLockDefault:
         assert calls == 1
 
     async def test_lock_false_does_not_fold_concurrent_misses(self) -> None:
-        """`lock=False` opts out: every concurrent miss runs the function."""
+        """`lock=None` opts out: every concurrent miss runs the function."""
         cache = _make_cache()
         calls = 0
         barrier = asyncio.Event()
 
-        @cached(cache, lock=False)
+        @cached(cache, lock=None)
         async def fetch(x: int) -> int:
             nonlocal calls
             calls += 1
@@ -655,7 +659,7 @@ class TestDistributedComputeDeltaAndStale:
         def impl(x: int) -> int:
             return x * 2
 
-        fetch = cached(cache, lock=True, early=0.5)(impl)
+        fetch = cached(cache, lock="cluster", early=0.5)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
             key = _derive_key(impl, (5,), {}, None, typed=False)
@@ -676,7 +680,7 @@ class TestDistributedComputeDeltaAndStale:
         def impl(x: int) -> int:
             return x * 2
 
-        fetch = cached(cache, lock=True, stale_ttl=30)(impl)
+        fetch = cached(cache, lock="cluster", stale_ttl=30)(impl)
         async with micro:
             await asyncio.to_thread(lambda: fetch(5))
             key = _derive_key(impl, (5,), {}, None, typed=False)

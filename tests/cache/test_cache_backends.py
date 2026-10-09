@@ -469,7 +469,7 @@ async def test_cached_end_to_end_with_postgres() -> None:
             )
             call_count = 0
 
-            @cached(cache, lock="local")
+            @cached(cache, lock="process")
             async def fetch_user(user_id: int) -> dict:
                 nonlocal call_count
                 call_count += 1

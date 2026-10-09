@@ -58,8 +58,9 @@ load spike the cache was there to prevent.
 
 Here the first request runs the handler and every other one waits for it, in
 the process and across replicas when a
-[Coordination](../coordination/index.md) backend is configured. It is the same
-stampede protection [`TTLCache`](../cache/index.md) already gives `@cached`.
+[Coordination](../coordination/index.md) backend is configured. With no lock
+backend, the requests fold in the process only. A lock backend that fails does
+not fail the request.
 
 A request's own `Cache-Control` is not read. This answers for the resource
 rather than for one caller, so honouring `no-cache` from an unauthenticated

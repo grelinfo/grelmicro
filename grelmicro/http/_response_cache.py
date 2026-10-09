@@ -63,7 +63,11 @@ from grelmicro._paths import (
     route_path,
     walk_routes,
 )
-from grelmicro.cache._stampede import compute_with_stampede
+from grelmicro.cache._stampede import (
+    Fold,
+    _has_lock_backend,
+    compute_with_stampede,
+)
 from grelmicro.cache.serializers import JsonSerializer
 from grelmicro.cache.ttl import TTLCache
 from grelmicro.http._authentication import is_anonymous_declaration
@@ -1353,6 +1357,10 @@ class CachedResponsesMiddleware:
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()
+        self._folds = {
+            scope: Fold("CachedResponses", scope, check=False)
+            for scope in ("process", "cluster")
+        }
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -1494,8 +1502,9 @@ class CachedResponsesMiddleware:
                     storage_key,
                     compute,
                     self._cache._stampede,  # noqa: SLF001
-                    per_key=True,
-                    auto_distributed=True,
+                    fold=self._folds[
+                        "cluster" if _has_lock_backend() else "process"
+                    ],
                 ),
             )
         except _NotStored:

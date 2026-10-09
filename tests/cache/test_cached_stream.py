@@ -329,7 +329,7 @@ class TestStampede:
         calls = 0
         released = asyncio.Event()
 
-        @cached(cache, key_template="s", lock=False)
+        @cached(cache, key_template="s", lock=None)
         async def produce() -> AsyncIterator[int]:
             nonlocal calls
             calls += 1
@@ -351,7 +351,7 @@ class TestStampede:
         assert calls == EXPECTED_CALLS_2
 
     async def test_two_replicas_fold_through_the_lock_backend(self) -> None:
-        """lock=True serializes streaming misses across replicas."""
+        """lock="cluster" serializes streaming misses across replicas."""
         # Arrange
         loop = asyncio.get_running_loop()
         backend = MemoryCacheAdapter()
@@ -368,8 +368,8 @@ class TestStampede:
             for item in range(3):
                 yield item
 
-        replica_a = cached(cache, key_template="s", lock=True)(impl)
-        replica_b = cached(cache, key_template="s", lock=True)(impl)
+        replica_a = cached(cache, key_template="s", lock="cluster")(impl)
+        replica_b = cached(cache, key_template="s", lock="cluster")(impl)
 
         # Act
         async with micro:
@@ -405,8 +405,8 @@ class TestStampede:
             for item in range(3):
                 yield item
 
-        replica_a = cached(cache, key_template="s", lock=True)(impl)
-        replica_b = cached(cache, key_template="s", lock=True)(impl)
+        replica_a = cached(cache, key_template="s", lock="cluster")(impl)
+        replica_b = cached(cache, key_template="s", lock="cluster")(impl)
 
         # Act
         async with micro:
