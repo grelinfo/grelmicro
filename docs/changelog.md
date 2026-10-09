@@ -116,6 +116,7 @@
 * 💥 `Cache`, `Coordination`, `Outbox`, `RateLimiterComponent` and `CircuitBreakerComponent` refuse a first argument that is neither a Provider nor one of their backends, and name the component a backend of another kind belongs to. ([#880](https://github.com/grelinfo/grelmicro/issues/880))
 
 ### Added
+* ✨ `async with lock.hold(timeout=5) as held:` waits at most `timeout` seconds for the lock, then holds it for the body. `ReadWriteLock.read`, `ReadWriteLock.write` and every `from_thread` adapter have it too. ([#1032](https://github.com/grelinfo/grelmicro/issues/1032))
 * ✨ `JWTVerifier.from_config` takes `name=` like `keys`, `jwks` and `discover`, and `JWTVerifier.name` returns it. ([#999](https://github.com/grelinfo/grelmicro/issues/999))
 * ✨ `Trace.from_config` takes `instrument=`, and `Shield.from_config` takes `time_source=` and `random_source=`, like their constructors. ([#999](https://github.com/grelinfo/grelmicro/issues/999))
 * ✨ `HealthChecks(liveness=Liveness(...))` catches a stuck worker in every deployment. A loop watchdog and critical checks marked `liveness=True` make it exit, so whatever runs it starts another. ([#983](https://github.com/grelinfo/grelmicro/issues/983))

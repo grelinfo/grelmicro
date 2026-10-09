@@ -32,6 +32,7 @@ from grelmicro.coordination._base import (
     jittered_interval,
 )
 from grelmicro.coordination._handle import LockHandle
+from grelmicro.coordination._hold import Hold, ThreadHold
 from grelmicro.coordination._metrics import (
     ACQUIRED,
     ERROR,
@@ -454,6 +455,33 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
             msg = "Lock async APIs must be called from a running asyncio task"
             raise RuntimeError(msg)
         return task
+
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `async with lock:` does.
+                """,
+            ),
+        ],
+    ) -> Hold[LockHandle]:
+        """Hold the lock for the body of `async with`, waiting at most `timeout`.
+
+        ```python
+        async with lock.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the lock.
+        """
+        return Hold(self.acquire, self.__aexit__, timeout)
 
     async def acquire(
         self,
@@ -926,6 +954,33 @@ class ThreadLockAdapter:
             LockReleaseError: Cannot release the lock due to backend error.
         """
         self.release()
+
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `with lock.from_thread:` does.
+                """,
+            ),
+        ],
+    ) -> ThreadHold[LockHandle]:
+        """Hold the lock for the body of `with`, waiting at most `timeout`.
+
+        ```python
+        with lock.from_thread.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the lock.
+        """
+        return ThreadHold(self.acquire, self.__exit__, timeout)
 
     def acquire(self, *, timeout: Seconds | None = None) -> LockHandle:
         """Acquire the lock.

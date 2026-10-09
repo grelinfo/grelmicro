@@ -29,6 +29,7 @@ from grelmicro.coordination._base import (
     jittered_interval,
 )
 from grelmicro.coordination._guards import ReadGuard, WriteGuard
+from grelmicro.coordination._hold import Hold, ThreadHold
 from grelmicro.coordination._metrics import (
     ACQUIRED,
     ERROR,
@@ -449,6 +450,33 @@ class ReadMode(_Mode):
             self._thread_adapter = ThreadReadAdapter(mode=self)
         return self._thread_adapter
 
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `async with lock.read:` does.
+                """,
+            ),
+        ],
+    ) -> Hold[ReadGuard]:
+        """Hold the read lease for the body of `async with`, waiting at most `timeout`.
+
+        ```python
+        async with lock.read.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the read lease.
+        """
+        return Hold(self.acquire, self.__aexit__, timeout)
+
     async def acquire(
         self,
         *,
@@ -839,6 +867,33 @@ class WriteMode(_Mode):
         if self._thread_adapter is None:
             self._thread_adapter = ThreadWriteAdapter(mode=self)
         return self._thread_adapter
+
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `async with lock.write:` does.
+                """,
+            ),
+        ],
+    ) -> Hold[WriteGuard]:
+        """Hold the write lease for the body of `async with`, waiting at most `timeout`.
+
+        ```python
+        async with lock.write.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the write lease.
+        """
+        return Hold(self.acquire, self.__aexit__, timeout)
 
     async def acquire(
         self,
@@ -1311,6 +1366,33 @@ class ThreadReadAdapter(_ThreadAdapter[ReadMode]):
         """
         self.release()
 
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `with lock.read.from_thread:` does.
+                """,
+            ),
+        ],
+    ) -> ThreadHold[ReadGuard]:
+        """Hold the read lease for the body of `with`, waiting at most `timeout`.
+
+        ```python
+        with lock.read.from_thread.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the read lease.
+        """
+        return ThreadHold(self.acquire, self.__exit__, timeout)
+
     def acquire(self, *, timeout: Seconds | None = None) -> ReadGuard:
         """Acquire the read lock, blocking this thread."""
         loop = self._backend_loop
@@ -1372,6 +1454,33 @@ class ThreadWriteAdapter(_ThreadAdapter[WriteMode]):
             LockReleaseError: The backend call failed.
         """
         self.release()
+
+    def hold(
+        self,
+        *,
+        timeout: Annotated[
+            Seconds | None,
+            Doc(
+                """
+                Seconds to wait for the lock before raising
+                `LockTimeoutError`. It bounds the wait, never the lease.
+                `0` makes one attempt, and `None` waits as long as
+                `with lock.write.from_thread:` does.
+                """,
+            ),
+        ],
+    ) -> ThreadHold[WriteGuard]:
+        """Hold the write lease for the body of `with`, waiting at most `timeout`.
+
+        ```python
+        with lock.write.from_thread.hold(timeout=5) as held:
+            ...
+        ```
+
+        Entering raises `LockTimeoutError` when `timeout` elapses first,
+        and the body does not run. Leaving releases the write lease.
+        """
+        return ThreadHold(self.acquire, self.__exit__, timeout)
 
     def acquire(self, *, timeout: Seconds | None = None) -> WriteGuard:
         """Acquire the write lock, blocking this thread."""
