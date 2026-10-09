@@ -20,6 +20,7 @@ from grelmicro.cache.ttl import TTLCache
 from grelmicro.coordination import Coordination
 from grelmicro.coordination.memory import MemoryLockAdapter
 from grelmicro.errors import EventLoopDeadlockError
+from tests._logs import records_of
 
 pytestmark = [pytest.mark.timeout(10)]
 
@@ -2417,4 +2418,4 @@ class TestEarlyRefreshFailureIsObservable:
             cached_mod._report_refresh_failure(TTLCache(), "k", task)
 
         # Assert
-        assert not caplog.records
+        assert not records_of(caplog, "grelmicro.cache.cached")

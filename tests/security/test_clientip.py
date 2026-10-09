@@ -28,6 +28,7 @@ from grelmicro.security import (
     TrustedProxies,
     resolve_client_address,
 )
+from tests._logs import records_of
 
 TRUSTED = ["10.0.0.0/8"]
 EXPECTED_HOPS = 2
@@ -645,12 +646,12 @@ class TestUntrustedPeerWarning:
             resolve_client_address(
                 scope(peer="9.9.9.9", forwarded=forwarded), trusted
             )
-            silent = caplog.text
+            silent = records_of(caplog, "grelmicro.security.clientip")
             resolve_client_address(
                 scope(peer="9.9.9.9", forwarded="1.2.3.4"), trusted
             )
         # Assert
-        assert silent == ""
+        assert silent == []
         assert caplog.text.count("Ignored X-Forwarded-For") == 1
 
     def test_an_empty_trusted_set_stays_silent(
@@ -667,7 +668,7 @@ class TestUntrustedPeerWarning:
                 scope(peer="9.9.9.9", forwarded="1.2.3.4"), trusted
             )
         # Assert
-        assert caplog.text == ""
+        assert records_of(caplog, "grelmicro.security.clientip") == []
 
     def test_a_trusted_peer_stays_silent(
         self, caplog: pytest.LogCaptureFixture
@@ -683,7 +684,7 @@ class TestUntrustedPeerWarning:
                 scope(peer=PEER, forwarded="1.2.3.4"), trusted
             )
         # Assert
-        assert caplog.text == ""
+        assert records_of(caplog, "grelmicro.security.clientip") == []
 
 
 class TestConfigTypes:

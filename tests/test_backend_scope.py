@@ -54,6 +54,7 @@ from grelmicro.resilience.circuitbreaker.memory import (
 from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.task._cron import CronTask
 from grelmicro.types import Environment
+from tests._logs import records_of
 
 STRICT_ENVIRONMENTS: list[Environment] = ["staging", "production"]
 QUIET_ENVIRONMENTS: list[Environment] = ["development", "test"]
@@ -160,10 +161,11 @@ async def test_undeclared_environment_warns_once_on_both_channels(
         flush_ignored_env_reports()
         await micro.__aexit__(None, None, None)
 
-    record = caplog.records[0].__dict__
+    report = records_of(caplog, "grelmicro")[0]
+    record = report.__dict__
     assert record["component"] == "Coordination('default')"
     assert record["backend_scope"] == "process"
-    message = caplog.records[0].getMessage()
+    message = report.getMessage()
     assert "GREL_ENVIRONMENT" in message
     assert "requires='process'" in message
 
@@ -324,7 +326,8 @@ def test_a_value_naming_no_tier_warns_and_reads_as_undeclared(
         flush_ignored_env_reports()
 
     assert micro.environment is None
-    assert caplog.records[0].__dict__["variable"] == "GREL_ENVIRONMENT"
+    report = records_of(caplog, "grelmicro")[0]
+    assert report.__dict__["variable"] == "GREL_ENVIRONMENT"
 
 
 def test_a_value_naming_no_tier_is_reported_once(
@@ -400,7 +403,8 @@ async def test_the_report_logs_straight_away_once_logging_is_configured(
             await micro.__aenter__()
         await micro.__aexit__(None, None, None)
 
-    assert "MemoryLockAdapter" in caplog.records[0].getMessage()
+    report = records_of(caplog, "grelmicro")[0]
+    assert "MemoryLockAdapter" in report.getMessage()
 
 
 async def test_a_bulkhead_checks_the_components_it_opens() -> None:

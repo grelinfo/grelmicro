@@ -11,6 +11,7 @@ from grelmicro.log import (
     RateLimitFilter,
     RateLimitFilterConfig,
 )
+from tests._logs import records_of
 
 pytestmark = [pytest.mark.timeout(2)]
 
@@ -341,4 +342,4 @@ def test_attached_filter_drops_records(
         rate_limited_logger.info("hello")
 
     # Assert
-    assert len(caplog.records) == capacity
+    assert len(records_of(caplog, rate_limited_logger.name)) == capacity

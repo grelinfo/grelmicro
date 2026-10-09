@@ -23,6 +23,7 @@ from grelmicro.coordination.tasklock import TaskLock, TaskLockConfig
 from grelmicro.errors import SettingsValidationError
 from grelmicro.task import FireInfo, FireOutcome
 from grelmicro.task._interval import IntervalTask
+from tests._logs import records_of
 from tests.task import samples
 from tests.task._helpers import cancel_group, start_task
 from tests.task.samples import (
@@ -940,7 +941,9 @@ async def test_interval_task_extension_outlasts_a_short_backend_outage(
 
     await task._run_with_sync(task._sync_primitives)
 
-    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+    assert not [
+        r for r in records_of(caplog, "grelmicro") if r.levelname == "WARNING"
+    ]
 
 
 async def test_interval_task_default_gate_on_a_name_env_cannot_spell() -> None:

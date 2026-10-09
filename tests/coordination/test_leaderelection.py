@@ -20,6 +20,7 @@ from grelmicro.coordination.leaderelection import (
 from grelmicro.coordination.memory import MemoryLeaderElectionAdapter
 from grelmicro.errors import OutOfContextError, SettingsValidationError
 from grelmicro.errors import WouldBlockError as WouldBlock
+from tests._logs import records_of
 from tests.task._helpers import cancel_group, start_task
 
 LEADER_NAME = "test_leader_election"
@@ -580,7 +581,9 @@ async def test_error_interval(
         await sleep(0.01)
         cancel_group(tg)
     leader_election1_nb_errors = sum(
-        1 for record in caplog.records if record.levelname == "ERROR"
+        1
+        for record in records_of(caplog, "grelmicro.leader_election")
+        if record.levelname == "ERROR"
     )
     caplog.clear()
 
@@ -589,7 +592,9 @@ async def test_error_interval(
         await sleep(0.01)
         cancel_group(tg)
     leader_election2_nb_errors = sum(
-        1 for record in caplog.records if record.levelname == "ERROR"
+        1
+        for record in records_of(caplog, "grelmicro.leader_election")
+        if record.levelname == "ERROR"
     )
 
     # Assert

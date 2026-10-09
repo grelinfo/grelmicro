@@ -23,6 +23,7 @@ from grelmicro.http import OpsServer, OpsServerConfig, OpsServerError
 from grelmicro.http import _server as server_module
 from grelmicro.http._server import _Answer, _call_app
 from grelmicro.metrics import Metrics, MetricsConfig, MetricsExporterType
+from tests._logs import records_of
 from tests.health.conftest import (
     healthy,
     healthy_with_details,
@@ -976,7 +977,9 @@ async def test_a_caller_that_hangs_up_is_not_an_error(
             await asyncio.sleep(0.5)
 
     assert not [
-        record for record in caplog.records if record.levelno >= logging.ERROR
+        record
+        for record in records_of(caplog, "grelmicro.http")
+        if record.levelno >= logging.ERROR
     ]
     assert "lost a connection before answering" in caplog.text
 

@@ -14,6 +14,7 @@ from grelmicro._config import (
 )
 from grelmicro.coordination.lock import Lock, LockConfig
 from grelmicro.coordination.memory import MemoryLockAdapter
+from tests._logs import records_of
 
 LEASE_OVERRIDE = 999
 LEASE_FROM_ENV = 42
@@ -96,11 +97,11 @@ def test_ignored_env_waits_for_logging_then_logs(
         with pytest.warns(GrelmicroConfigWarning):
             Lock("cart", backend=backend)
 
-        assert caplog.records == []  # queued, logging is not configured yet
+        # Queued, logging is not configured yet.
+        assert records_of(caplog, "grelmicro") == []
         flush_ignored_env_reports()
 
-    assert len(caplog.records) == 1
-    record = caplog.records[0]
+    [record] = records_of(caplog, "grelmicro")
     assert record.__dict__["variable"] == "GREL_LOCK_CART_LEASE_DURATION"
     assert "GREL_ENV_LOAD=1" in record.getMessage()
 
@@ -121,7 +122,7 @@ def test_ignored_env_is_logged_once(
         flush_ignored_env_reports()
         flush_ignored_env_reports()
 
-    assert len(caplog.records) == 1
+    assert len(records_of(caplog, "grelmicro")) == 1
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")
@@ -140,11 +141,8 @@ def test_ignored_env_after_logging_is_logged_straight_away(
     ):
         Lock("cart", backend=backend)
 
-    assert len(caplog.records) == 1
-    assert (
-        caplog.records[0].__dict__["variable"]
-        == "GREL_LOCK_CART_LEASE_DURATION"
-    )
+    [record] = records_of(caplog, "grelmicro")
+    assert record.__dict__["variable"] == "GREL_LOCK_CART_LEASE_DURATION"
 
 
 @pytest.mark.usefixtures("_no_env_opt_in")

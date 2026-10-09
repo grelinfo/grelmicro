@@ -23,6 +23,7 @@ from grelmicro.resilience.ratelimiter.memory import (  # noqa: E402
     MemoryRateLimiterAdapter,
 )
 from grelmicro.trace import Trace, TraceExporterType  # noqa: E402
+from tests._logs import records_of  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -168,7 +169,7 @@ def test_install_faststream_telemetry_missing_extra_silent_by_default(
     caplog.set_level("WARNING")
     micro.install(FastStream(broker))
     assert not _has_telemetry_middleware(broker)
-    assert caplog.text == ""
+    assert records_of(caplog, "grelmicro") == []
 
 
 async def test_install_ambient_false_still_opens_lifecycle() -> None:

@@ -62,6 +62,7 @@ from grelmicro.http._response_cache import (
     declared_ttl,
 )
 from grelmicro.integrations.fastapi import CachedResponse
+from tests._logs import records_of
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -4419,7 +4420,7 @@ def test_a_store_that_is_down_does_not_become_the_log(
         _through_a_broken_store("get", reads=READS)
 
     # Assert
-    assert len(caplog.records) == TWICE
+    assert len(records_of(caplog, "grelmicro.http.cache")) == TWICE
 
 
 def test_the_most_specific_pattern_decides() -> None:
