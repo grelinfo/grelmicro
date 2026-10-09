@@ -140,7 +140,7 @@ def test_the_component_forwards_every_middleware_option() -> None:
         require_key=True,
         fingerprint_body=True,
         max_body_size=MAX_BODY_SIZE,
-        wait_timeout=1.0,
+        max_wait=1.0,
     )
 
     # Act
@@ -160,7 +160,7 @@ def test_the_component_forwards_every_middleware_option() -> None:
     assert config.require_key is True
     assert config.fingerprint_body is True
     assert config.max_body_size == MAX_BODY_SIZE
-    assert config.wait_timeout == 1.0
+    assert config.max_wait == 1.0
 
 
 def test_a_custom_replay_header_marks_the_replay() -> None:

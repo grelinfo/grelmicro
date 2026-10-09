@@ -710,7 +710,7 @@ class IdempotentRequestsConfig(BaseModel, frozen=True, extra="forbid"):
         PositiveInt,
         Doc("Largest body held in memory, in bytes."),
     ] = 1024 * 1024
-    wait_timeout: Annotated[
+    max_wait: Annotated[
         NonNegativeFloat,
         Doc(
             "Seconds a duplicate waits for an execution already in "
@@ -803,7 +803,7 @@ class IdempotencyMiddleware:
     A duplicate that arrives while the first execution is in flight waits
     for it and replays its response. The wait folds across replicas when
     a `Coordination` lock backend is configured, and in-process
-    otherwise. It is bounded by `wait_timeout`.
+    otherwise. It is bounded by `max_wait`.
 
     Every response the app returns is stored, errors included. A handler
     that raises an unhandled exception stores nothing, so the framework's
@@ -923,7 +923,7 @@ class IdempotencyMiddleware:
                 "with `413`."
             ),
         ] = 1024 * 1024,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float,
             Doc(
                 """
@@ -1002,7 +1002,7 @@ class IdempotencyMiddleware:
                         require_key=require_key,
                         fingerprint_body=fingerprint_body,
                         max_body_size=max_body_size,
-                        wait_timeout=wait_timeout,
+                        max_wait=max_wait,
                         include=as_patterns(include, name="include"),
                         exclude=as_patterns(exclude, name="exclude"),
                         reused_status=reused_status,
@@ -1128,7 +1128,7 @@ class IdempotencyMiddleware:
         block = self._idempotency(
             storage_key,
             fingerprint=fingerprint,
-            wait_timeout=config.wait_timeout,
+            max_wait=config.max_wait,
         )
         try:
             operation = await block.__aenter__()
@@ -1724,7 +1724,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
             int | None,
             Doc("Largest body held in memory, in bytes."),
         ] = None,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float | None,
             Doc(
                 "Seconds a duplicate waits for an execution already in "
@@ -1795,7 +1795,7 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
                 "require_key": require_key,
                 "fingerprint_body": fingerprint_body,
                 "max_body_size": max_body_size,
-                "wait_timeout": wait_timeout,
+                "max_wait": max_wait,
                 "include": include,
                 "exclude": exclude,
                 "reused_status": reused_status,

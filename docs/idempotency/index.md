@@ -138,13 +138,13 @@ With a lock backend, two replicas that receive the same key at the same time run
 
 ### Bounding the wait
 
-The wait is unbounded by default. Pass `wait_timeout=` to bound it, on the block or on `run()`. Past it the wait raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`.
+The wait is unbounded by default. Pass `max_wait=` to bound it, on the block or on `run()`. Past it the wait raises `IdempotencyWaitTimeoutError`, which subclasses `TimeoutError`.
 
 ```python title="fragment"
 from grelmicro.idempotency import IdempotencyWaitTimeoutError
 
 try:
-    async with idem(key, wait_timeout=5) as op:
+    async with idem(key, max_wait=5) as op:
         ...
 except IdempotencyWaitTimeoutError:
     ...  # an execution for this key is still in flight

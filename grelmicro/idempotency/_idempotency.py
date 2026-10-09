@@ -130,13 +130,13 @@ class _Block(Generic[T]):
         idempotency: Idempotency[T],
         key: str,
         fingerprint: str | None,
-        wait_timeout: float | None = None,
+        max_wait: float | None = None,
     ) -> None:
         """Initialize the block."""
         self._idempotency = idempotency
         self._key = key
         self._fingerprint = fingerprint
-        self._wait_timeout = wait_timeout
+        self._max_wait = max_wait
         self._operation: Operation[T] | None = None
         self._local_lock: Any = None
         self._distributed_lock: Lock | None = None
@@ -167,7 +167,7 @@ class _Block(Generic[T]):
                 covers request and message handlers, and not a lifespan of
                 your own. Also raised, with its own fix, when the cache
                 backend is not open.
-            IdempotencyWaitTimeoutError: `wait_timeout` elapsed while an
+            IdempotencyWaitTimeoutError: `max_wait` elapsed while an
                 execution already in flight held the single-flight lock.
         """
         try:
@@ -193,7 +193,7 @@ class _Block(Generic[T]):
 
         guard = self._idempotency._guard  # noqa: SLF001
         try:
-            async with asyncio.timeout(self._wait_timeout) as scope:
+            async with asyncio.timeout(self._max_wait) as scope:
                 self._local_lock = await guard.get_lock(self._key)
                 await self._local_lock.acquire()
                 try:
@@ -252,7 +252,7 @@ class _Block(Generic[T]):
                 raise IdempotencyWaitTimeoutError(
                     name=self._idempotency._name,  # noqa: SLF001
                     key=self._key,
-                    timeout=cast("float", self._wait_timeout),
+                    timeout=cast("float", self._max_wait),
                 ) from None
             raise
 
@@ -627,7 +627,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """,
             ),
         ] = None,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float | None,
             Doc(
                 """
@@ -651,7 +651,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
             self,
             key,
             fingerprint if fingerprint is not None else self._fingerprint,
-            wait_timeout,
+            max_wait,
         )
 
     async def run(
@@ -680,7 +680,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
                 """,
             ),
         ] = None,
-        wait_timeout: Annotated[
+        max_wait: Annotated[
             float | None,
             Doc(
                 """
@@ -703,7 +703,7 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         import inspect  # noqa: PLC0415
 
         async with self(
-            key, fingerprint=fingerprint, wait_timeout=wait_timeout
+            key, fingerprint=fingerprint, max_wait=max_wait
         ) as operation:
             if operation.replayed:
                 return operation.result()

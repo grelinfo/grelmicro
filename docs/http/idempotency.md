@@ -308,7 +308,7 @@ A duplicate that arrives while the first execution is still running waits for it
 
 The wait folds duplicates across replicas when a `Coordination` lock backend is configured, and in-process otherwise. See [Single-flight duplicates](../idempotency/index.md#single-flight-duplicates).
 
-The wait is bounded by `wait_timeout`, ten seconds by default:
+The wait is bounded by `max_wait`, ten seconds by default:
 
 ```http
 HTTP/1.1 409 Conflict
@@ -402,7 +402,7 @@ A background task runs after the response is sent, so the response is stored and
 | `require_key` | `False` | Answer `400` when a matched method arrives without the header. |
 | `fingerprint_body` | `False` | Hash the request body and answer `422` on a reused key with a different body. |
 | `max_body_size` | `1048576` | Largest body held in memory, in bytes. Caps the stored response, and the fingerprinted request. |
-| `wait_timeout` | `10.0` | Seconds a duplicate waits for an execution in flight before `409`. |
+| `max_wait` | `10.0` | Seconds a duplicate waits for an execution in flight before `409`. |
 | `include` | `()` | Paths the middleware acts on. Empty means every path. Exact match unless the pattern ends with `*`. |
 | `exclude` | `()` | Paths the middleware leaves alone, whatever `include` says. |
 | `reused_status` | `422` | Status for a key reused with a different payload. `400` matches Stripe. |

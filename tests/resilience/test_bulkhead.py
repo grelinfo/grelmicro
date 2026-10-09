@@ -2712,3 +2712,16 @@ async def _enter(bulkhead: Bulkhead) -> None:
     """Enter and leave the bulkhead once."""
     async with bulkhead:
         pass
+
+
+def test_bulkhead_config_max_wait_defaults_to_fail_fast() -> None:
+    """A bulkhead waits no time for a permit unless told to."""
+    # Act / Assert
+    assert BulkheadConfig().max_wait == 0.0
+
+
+def test_bulkhead_config_max_wait_none_is_refused() -> None:
+    """`None` would read as "wait forever", so it is refused rather than failing fast."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="max_wait"):
+        BulkheadConfig(max_wait=None)  # ty: ignore[invalid-argument-type]

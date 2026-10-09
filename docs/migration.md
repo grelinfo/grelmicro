@@ -48,6 +48,8 @@ that a client library used to accept.
 | `SettingsValidationError: lock= takes 'process', 'host', 'cluster' or None` | 0.42 | [Name the fold scope](#0-42-fold-scope) |
 | `OutOfContextError` from a `@cached` function or `get_or_set` with `lock="cluster"` | 0.42 | [Register a lock backend](#0-42-fold-scope) |
 | A `get_or_set` value computed once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-fold-scope) |
+| `TypeError: ... got an unexpected keyword argument 'wait_timeout'` | 0.42 | [Pass `max_wait=`](#0-42-max-wait) |
+| `SettingsValidationError` on `BulkheadConfig.max_wait` set to `None` | 0.42 | [Pass `0`](#0-42-max-wait) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ImportError: cannot import name 'CacheError' from 'grelmicro.cache'` | 0.42 | [Delete the `except CacheError:` block](#0-42-cache-error) |
@@ -273,6 +275,20 @@ Nothing raised `CacheError`, so an `except CacheError:` block never ran. Delete 
 | `cache.get_or_set(key, factory)` | `cache.get_or_set(key, factory, lock="cluster")` to keep folding across replicas |
 
 `"host"` and `"cluster"` fold through the lock backend of the app's `Coordination`. Register one, or the call raises `OutOfContextError`. A lock backend that reaches less far than the scope is refused in `staging` and `production`, like `requires=`.
+
+### `max_wait=` bounds every wait to get in {#0-42-max-wait}
+
+Idempotency spells its wait the way the bulkhead and the rate limiter do:
+
+| Before | After |
+|---|---|
+| `Idempotency(..., wait_timeout=5)` | `Idempotency(..., max_wait=5)` |
+| `idem.run(key, fn, wait_timeout=5)` | `idem.run(key, fn, max_wait=5)` |
+| `IdempotentRequests(wait_timeout=5)` | `IdempotentRequests(max_wait=5)` |
+| `GREL_IDEMPOTENT_REQUESTS_WAIT_TIMEOUT` | `GREL_IDEMPOTENT_REQUESTS_MAX_WAIT` |
+| `BulkheadConfig(max_wait=None)` | `BulkheadConfig(max_wait=0)`, the default |
+
+A lock keeps `timeout=` on `acquire()` and `hold()`.
 
 ### Extend a lease with `extend()` {#0-42-lock-extend}
 

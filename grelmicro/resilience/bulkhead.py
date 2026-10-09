@@ -87,14 +87,14 @@ class BulkheadConfig(BaseModel, frozen=True, extra="forbid"):
     ] = None
 
     max_wait: Annotated[
-        NonNegativeFloat | None,
+        NonNegativeFloat,
         Doc(
             "Seconds a caller waits for a free permit before the "
-            "bulkhead rejects it with `BulkheadFullError`. `None` (the "
-            "default) and `0` reject immediately (fail fast). Ignored "
-            "when `max_concurrent` is `None`."
+            "bulkhead rejects it with `BulkheadFullError`. `0` (the "
+            "default) rejects immediately (fail fast). Ignored when "
+            "`max_concurrent` is `None`."
         ),
-    ] = None
+    ] = 0.0
 
     max_workers: Annotated[
         PositiveInt | None,
@@ -183,8 +183,8 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         max_wait: Annotated[
             NonNegativeFloat | None,
             Doc(
-                "Seconds to wait for a permit before rejecting. `None` "
-                "or `0` fails fast."
+                "Seconds to wait for a permit before rejecting. `0` (the "
+                "default) fails fast."
             ),
         ] = None,
         max_workers: Annotated[
@@ -339,7 +339,7 @@ class Bulkhead(Reconfigurable[BulkheadConfig]):
         state = self._state
         semaphore = state.semaphore
         if semaphore is not None:
-            wait = state.config.max_wait or 0.0
+            wait = state.config.max_wait
             try:
                 async with asyncio.timeout(wait):
                     await semaphore.acquire()

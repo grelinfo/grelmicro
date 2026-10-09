@@ -701,9 +701,9 @@ def test_invalid_config_raises_settings_error() -> None:
 
 
 async def test_idempotency_block_waits_out_the_timeout() -> None:
-    """A duplicate past `wait_timeout` raises the wait error."""
+    """A duplicate past `max_wait` raises the wait error."""
     # Arrange
-    wait_timeout = 0.05
+    max_wait = 0.05
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     idem: Idempotency = Idempotency("charge", ttl=60)
     started = asyncio.Event()
@@ -720,13 +720,13 @@ async def test_idempotency_block_waits_out_the_timeout() -> None:
         task = asyncio.create_task(first())
         await started.wait()
         with pytest.raises(IdempotencyWaitTimeoutError) as exc_info:
-            async with idem("key-1", wait_timeout=wait_timeout):
+            async with idem("key-1", max_wait=max_wait):
                 pass  # pragma: no cover
         release.set()
         await task
 
     # Assert
-    assert exc_info.value.timeout == wait_timeout
+    assert exc_info.value.timeout == max_wait
     assert isinstance(exc_info.value, TimeoutError)
 
 
@@ -751,7 +751,7 @@ async def test_idempotency_block_propagates_a_backend_timeout() -> None:
             patch.object(idem, "_replay", flaky),
             pytest.raises(TimeoutError) as exc_info,
         ):
-            async with idem("key-1", wait_timeout=5):
+            async with idem("key-1", max_wait=5):
                 pass  # pragma: no cover
 
     # Assert
@@ -761,7 +761,7 @@ async def test_idempotency_block_propagates_a_backend_timeout() -> None:
 async def test_idempotency_run_waits_out_the_timeout() -> None:
     """`run` bounds the wait the same way the block does."""
     # Arrange
-    wait_timeout = 0.05
+    max_wait = 0.05
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     idem: Idempotency = Idempotency("charge", ttl=60)
     started = asyncio.Event()
@@ -777,7 +777,7 @@ async def test_idempotency_run_waits_out_the_timeout() -> None:
         task = asyncio.create_task(idem.run("key-1", slow))
         await started.wait()
         with pytest.raises(IdempotencyWaitTimeoutError):
-            await idem.run("key-1", slow, wait_timeout=wait_timeout)
+            await idem.run("key-1", slow, max_wait=max_wait)
         release.set()
         result = await task
 
