@@ -25,6 +25,7 @@ from grelmicro._paths import (
     starlette_route,
 )
 from grelmicro._wrapping import refuse_registered
+from grelmicro.health._served import HealthEndpoint, health_endpoints_in
 from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
 from grelmicro.http._requirement import (
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
         AsyncIterator,
         Awaitable,
         Callable,
+        Iterator,
         MutableMapping,
         Sequence,
     )
@@ -537,6 +539,16 @@ def install_route_gate(
         ValueError: If a declaration cannot hold, naming its route.
     """
     gate_routes(app, gate)
+
+
+def health_endpoints(
+    app: Annotated[
+        Starlette,
+        Doc("The Starlette application whose health endpoints to list."),
+    ],
+) -> Iterator[HealthEndpoint]:
+    """Yield the health endpoints the app serves, mounted ones included."""
+    return health_endpoints_in(app.routes)
 
 
 def route_declarations(

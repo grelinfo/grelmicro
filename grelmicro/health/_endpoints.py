@@ -22,6 +22,7 @@ from grelmicro._endpoints import (
 )
 from grelmicro._json import json_dumps_bytes
 from grelmicro.health._models import HealthStatus
+from grelmicro.health._served import mark_health_endpoint
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, MutableMapping
@@ -228,6 +229,8 @@ def health_asgi(
     adds the OpenAPI schema, the `Depends` gate on ``/healthz``, and the
     dependency form of ``show_details``.
     """
-    return build_asgi(
+    app = build_asgi(
         health_routes(component, prefix=prefix, show_details=show_details)
     )
+    mark_health_endpoint(app, component)
+    return app

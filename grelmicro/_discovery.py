@@ -42,7 +42,8 @@ from loading every framework grelmicro knows about.
 
 An integration module exposes `install(app, micro, *, ambient)` and
 `is_bound(app)`, and may expose `install_error_responses`,
-`install_middleware`, `install_route_gate` and `route_declarations`.
+`install_middleware`, `install_route_gate`, `route_declarations` and
+`health_endpoints`.
 """
 
 
@@ -82,6 +83,11 @@ class Integration(Protocol):
     carries no gate stops the app from starting. An integration without
     them declares nothing, so every route stays authenticated and is
     decided before routing.
+
+    `health_endpoints(app)` yields the health endpoints the app serves, or
+    returns `None` for an app that serves no HTTP. Once the app opens, a
+    registered `HealthChecks` none of them serves is reported. An
+    integration without it is never checked.
     """
 
     def install(
