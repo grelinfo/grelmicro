@@ -133,6 +133,15 @@ A bad argument is a different case: `Match` raises `ValueError` when you build i
 
 `asyncio.CancelledError`, `KeyboardInterrupt`, and `SystemExit` are `BaseException` subclasses outside `Exception`. They always propagate, regardless of the `Match` you pass. This is required for correct asyncio shutdown.
 
+### When the client disconnects
+
+What happens to a retry inside a request handler depends on whether the server cancels the handler when the client goes away.
+
+- **The server cancels the handler.** The cancellation reaches the retry during an attempt or during the wait before the next one. It propagates at once and no further attempt runs.
+- **The server lets the handler run.** Uvicorn does this. The retry runs to its end as if the client were still there, and the response is then dropped.
+
+Bound the work either way with `attempts` and `max_seconds`, or wrap the call in a [Timeout](timeout.md).
+
 ## Behavior on exhaustion
 
 When `attempts` is exhausted, the underlying exception is re-raised with a [PEP 678](https://peps.python.org/pep-0678/) note attached:

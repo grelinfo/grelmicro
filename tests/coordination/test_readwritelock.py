@@ -150,16 +150,16 @@ async def test_readers_run_together(lock: ReadWriteLock) -> None:
 
 async def test_writer_waits_for_the_reader(lock: ReadWriteLock) -> None:
     """A writer retries until the reader releases."""
-    released = asyncio.Event()
+    leaving = asyncio.Event()
 
     async def reader() -> None:
         async with lock.read:
             await asyncio.sleep(0.05)
-        released.set()
+            leaving.set()
 
     async def writer() -> int:
         async with lock.write as writing:
-            assert released.is_set()
+            assert leaving.is_set()
             return writing.fencing_token
 
     reader_task = asyncio.create_task(reader())

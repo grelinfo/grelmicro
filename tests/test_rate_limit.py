@@ -424,15 +424,22 @@ def test_a_websocket_scope_passes_through() -> None:
 def test_a_middleware_that_meters_nothing_is_refused() -> None:
     """It would let every request through while reporting a limit."""
     # Act / Assert
-    with pytest.raises(TypeError, match="at least one limiter"):
+    with pytest.raises(TypeError, match="at least one limiter") as caught:
         RateLimitedRequests(trusted=TrustedProxies(list(PROXIES)))
+    assert str(caught.value).startswith("RateLimitedRequests ")
+    assert "RateLimitMiddleware" not in str(caught.value)
 
 
 def test_a_middleware_with_no_caller_to_meter_is_refused() -> None:
     """The only key left would be the ingress rather than the caller."""
     # Act / Assert
-    with pytest.raises(TypeError, match="trusted= to resolve the caller"):
+    with pytest.raises(TypeError) as caught:
         RateLimitedRequests(_limiter("api", 1))
+    message = str(caught.value)
+    assert message.startswith("RateLimitedRequests ")
+    assert "RateLimitMiddleware" not in message
+    assert "trusted=TrustedProxies(" in message
+    assert "key=" in message
 
 
 @pytest.mark.parametrize(

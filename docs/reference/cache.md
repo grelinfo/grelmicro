@@ -9,7 +9,6 @@
       show_submodules: true
       members:
         - CacheBackend
-        - CacheError
         - CacheInfo
         - CacheSerializer
         - CachedFunction

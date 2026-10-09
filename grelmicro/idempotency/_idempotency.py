@@ -293,8 +293,8 @@ class _Block(Generic[T]):
     async def _release(self) -> None:
         """Release the distributed and in-process locks, in that order.
 
-        The in-process release runs even when the distributed release is
-        cancelled mid-flight, so a key never stays locked for the life of
+        The in-process release runs even when the distributed release
+        fails or is cancelled, so a key never stays locked for the life of
         the process.
         """
         try:

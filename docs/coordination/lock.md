@@ -134,6 +134,30 @@ async with lock as held:
 (expired or taken over by another holder), and `LockExtendError` when the
 backend call fails.
 
+## When the body outlives its lease
+
+The lease bounds how long the lock is yours. Once it expires, another holder
+can acquire the lock while your body still runs. Two bodies then run at once.
+Leaving `async with lock:` afterwards raises `LockNotOwnedError`, because the
+lock is no longer yours to release.
+
+Protect against it in two ways:
+
+- Pass `held.fencing_token` from `async with lock as held:` to every write, so
+  the resource rejects the old holder. See [Fencing tokens](#fencing-tokens).
+- Set a `lease_duration` longer than the work really takes, or call
+  `extend()` before the lease runs out.
+
+## Releasing
+
+A release that has started finishes on the backend even when the task is
+cancelled, by a client disconnect or a shutdown. The cancellation is raised
+once the release ends, so the lock is never left held until its lease expires.
+
+A release the backend never answers gives up once `lease_duration` has
+passed and raises `LockReleaseError`. By then the backend has freed the lock
+on its own.
+
 ## Fencing tokens
 
 A fencing token is a strictly increasing integer the backend mints for a lock

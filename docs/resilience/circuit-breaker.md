@@ -35,6 +35,8 @@ The breaker sees raised errors only. A returned value always counts as a success
 
 From the environment, `GREL_CIRCUITBREAKER_{NAME_UPPER}_WHEN` takes a CSV or JSON list of fully-qualified class names, such as `httpx.HTTPError`.
 
+--8<-- "env_gate.md"
+
 ## Lifecycle
 
 Declare a breaker once at module level and reuse it across requests:

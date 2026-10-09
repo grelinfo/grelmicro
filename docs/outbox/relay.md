@@ -115,6 +115,8 @@ You can also set your own `headers` on `publish` and read them in the handler fo
 
 `OutboxConfig` is a plain Pydantic model. Component defaults read from the environment under `GREL_OUTBOX_` unless you set fields directly.
 
+--8<-- "env_gate.md"
+
 | field | default | description |
 |---|---|---|
 | `table` | `grelmicro_outbox` | table name |

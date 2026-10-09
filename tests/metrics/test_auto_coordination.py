@@ -82,6 +82,38 @@ def _outcomes(
     }
 
 
+async def test_lock_cancelled_mid_release_drops_the_gauge(
+    metrics_reader: MetricsHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A task cancelled while it releases still takes its holder off the gauge."""
+    async with MemoryLockAdapter() as backend:
+        lock = Lock("orders", backend=backend, lease_duration=LEASE)
+        started = asyncio.Event()
+        resume = asyncio.Event()
+        release = backend.release
+
+        async def paused(*, name: str, token: str) -> bool:
+            started.set()
+            await resume.wait()
+            return await release(name=name, token=token)
+
+        monkeypatch.setattr(backend, "release", paused)
+
+        async def body() -> None:
+            async with lock:
+                pass
+
+        task = asyncio.create_task(body())
+        await started.wait()
+        task.cancel()
+        await asyncio.sleep(0)
+        resume.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert metrics_reader.points("grelmicro.lock.holders")[0][0] == 0
+
+
 async def test_lock_counts_an_acquired_attempt_and_holds_the_gauge(
     metrics_reader: MetricsHarness,
 ) -> None:

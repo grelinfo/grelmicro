@@ -14,7 +14,7 @@ from pydantic import model_validator
 from typing_extensions import Doc
 
 from grelmicro._app import resolve_ambient
-from grelmicro._async import sleep_or_stop
+from grelmicro._async import run_to_completion, sleep_or_stop
 from grelmicro._config import (
     Reconfigurable,
     env_prefixes,
@@ -684,17 +684,9 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             raise
         finally:
             self._service_running = False
-            # Run release as a separate task and keep waiting through
-            # repeated cancellations so the lock is released on the
-            # backend before the loop unwinds. asyncio.shield only
-            # protects the inner task from the awaiter's cancel; on a
-            # re-cancel of the awaiter, the inner task keeps running.
-            release_task = asyncio.ensure_future(self._release())
-            while not release_task.done():
-                try:
-                    await asyncio.shield(release_task)
-                except asyncio.CancelledError:  # pragma: no cover
-                    continue
+            # The lock is released on the backend before the loop
+            # unwinds, through every cancellation delivered meanwhile.
+            await run_to_completion(self._release())
 
     async def _update_state(
         self, *, is_leader: bool, reason_if_no_more_leader: str

@@ -49,6 +49,8 @@ Pick an exporter with the `exporter` field or the `GREL_METRICS_EXPORTER` enviro
 
 `Metrics()` reads `GREL_METRICS_*` environment variables (see `MetricsConfig` for the full field set) or accepts the same fields as keyword arguments. The OTLP and Prometheus exporters require their own packages and are imported only when selected.
 
+--8<-- "env_gate.md"
+
 ## Measure your own functions
 
 `@measure` times a function and counts its calls. It works on sync and async functions.

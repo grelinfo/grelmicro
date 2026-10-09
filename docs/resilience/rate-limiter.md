@@ -174,6 +174,8 @@ List a provider on the app before using `RateLimiter`. It registers the rate lim
 | **Multi-node** | Yes | Yes | No | No |
 | **Persistence** | Yes (auto-expiring keys) | Yes (table-backed) | Yes (file-backed) | No |
 
+SQLite is host-scoped: it shares state with the processes on one host only. `RateLimiterComponent` requires `process`, so it accepts SQLite. Pass `requires="cluster"` and a SQLite backend is refused at startup in `staging` and `production`, and warns once when `GREL_ENVIRONMENT` is unset. See [The backend check](../deployment.md#the-backend-check).
+
 ### Choosing a backend
 
 Use **Redis** in production when you already run Redis and want the lowest-latency distributed limiter. Use **Postgres** when Postgres is your only stateful dependency and you want one fewer service to run. Use **SQLite** for a single host that needs limits to survive restarts. Use **Memory** for tests and single-process apps. Redis and Postgres coordinate across replicas. SQLite and Memory do not.
