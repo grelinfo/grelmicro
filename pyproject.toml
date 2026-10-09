@@ -232,7 +232,7 @@ dev = [
 ]
 docs = [
     "mkdocs-material>=9.5.44",
-    "mkdocstrings[python]>=0.27.0",
+    "mkdocstrings[python]>=1.0.6",
     "griffe-typingdoc>=0.2.7",
     "pygments>=2.18.0",
     "pymdown-extensions>=10.12",
