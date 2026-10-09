@@ -45,6 +45,9 @@ that a client library used to accept.
 | `EventLoopDeadlockError` from a `CircuitBreaker` on a callable object, which an `except Exception` did not catch | 0.41 | [Nothing to change](#0-41-async-callable-objects) |
 | `TypeError: ... got an unexpected keyword argument 'lock'` or `'leader'` from `every` | 0.42 | [Pass `gate=`](#0-42-task-gate) |
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
+| `SettingsValidationError: lock= takes 'process', 'host', 'cluster' or None` | 0.42 | [Name the fold scope](#0-42-fold-scope) |
+| `OutOfContextError` from a `@cached` function or `get_or_set` with `lock="cluster"` | 0.42 | [Register a lock backend](#0-42-fold-scope) |
+| A `get_or_set` value computed once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-fold-scope) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ImportError: cannot import name 'CacheError' from 'grelmicro.cache'` | 0.42 | [Delete the `except CacheError:` block](#0-42-cache-error) |
@@ -257,6 +260,19 @@ from grelmicro.integrations.fastapi import metrics_router
 ### `CacheError` is removed {#0-42-cache-error}
 
 Nothing raised `CacheError`, so an `except CacheError:` block never ran. Delete it. A backend failure reaches the caller as the backend's own error, such as `redis.exceptions.ConnectionError`.
+
+### `lock=` names how far misses fold {#0-42-fold-scope}
+
+`@cached` and `TTLCache.get_or_set` take the same `lock=`, a backend scope:
+
+| Before | After |
+|---|---|
+| `@cached(cache, lock="local")` | `@cached(cache, lock="process")`, the default |
+| `@cached(cache, lock=True)` | `@cached(cache, lock="cluster")` |
+| `@cached(cache, lock=False)` | `@cached(cache, lock=None)` |
+| `cache.get_or_set(key, factory)` | `cache.get_or_set(key, factory, lock="cluster")` to keep folding across replicas |
+
+`"host"` and `"cluster"` fold through the lock backend of the app's `Coordination`. Register one, or the call raises `OutOfContextError`. A lock backend that reaches less far than the scope is refused in `staging` and `production`, like `requires=`.
 
 ### Extend a lease with `extend()` {#0-42-lock-extend}
 

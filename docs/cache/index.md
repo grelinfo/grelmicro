@@ -224,7 +224,7 @@ user = await cache.get_or_set(
 )
 ```
 
-The factory shares the same stampede protection as [`@cached(lock=True)`](cached.md#stampede-protection). When many callers miss the same key at once, the factory runs once and the rest reuse its result. This works across replicas when a `Coordination` backend is configured.
+Concurrent misses on one key fold: the factory runs once and the other callers reuse its result. `lock=` says how far, the same as [`@cached(lock=...)`](cached.md#stampede-protection). The default `"process"` folds in one process, so each replica still runs the factory once. Pass `lock="cluster"` to fold across replicas through the app's `Coordination` lock backend, or `lock=None` to turn folding off.
 
 Pass `stale_ttl=` to serve the last good value when the factory fails, the same serve-stale-on-error behavior as [`@cached(stale_ttl=...)`](cached.md#serve-stale-on-error).
 

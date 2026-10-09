@@ -22,7 +22,6 @@ from datetime import timedelta
 from typing import (
     Annotated,
     Any,
-    Literal,
     NamedTuple,
     ParamSpec,
     Protocol,
@@ -45,8 +44,8 @@ from grelmicro._wrapping import refuse_registered
 from grelmicro.cache._key import make_cache_key
 from grelmicro.cache._stampede import (
     AsyncStampedeGuard,
-    _has_lock_backend,
-    _stampede_lock_name,
+    Fold,
+    check_fold,
     compute_with_stampede,
     stream_with_stampede,
 )
@@ -58,10 +57,10 @@ from grelmicro.cache.ttl import (
     CacheInfo,
     TTLCache,
 )
-from grelmicro.coordination.lock import Lock
 from grelmicro.errors import SettingsValidationError
 from grelmicro.metrics import _emit
 from grelmicro.metrics._naming import callable_name
+from grelmicro.types import BackendScope
 
 # Decorator factories cannot use PEP 695 cleanly: the inner
 # ``decorator`` would inherit ``cached``'s type parameters instead
@@ -99,7 +98,8 @@ class CachedFunction(Protocol[P, R]):
         Each caller recomputes, so a refresh never returns a value
         computed before the call started. Under the default `lock`,
         refreshes for one key also serialize, within the process and,
-        with `lock=True` and a lock backend, across replicas. An error
+        with `lock="host"` or `lock="cluster"`, through the app's lock
+        backend. An error
         propagates, even under `stale_ttl`, because a caller asking for
         fresh data is not served the value it asked to bypass.
 
@@ -448,25 +448,25 @@ def cached(  # noqa: PLR0913, C901
         ),
     ] = False,
     lock: Annotated[
-        bool | Literal["local"],
+        BackendScope | None,
         Doc(
             """
-            Protect against duplicate work when many callers miss the
-            same key at once (the "dog-pile" effect).
+            How far concurrent misses on one key share a single call of
+            the function.
 
-            - ``"local"`` (default): fold concurrent misses within the
-              worker through an in-process lock, with no backend round-trip
-              on a cold miss. Per-replica recompute is still possible.
-            - ``True``: fold concurrent misses to one execution. When the
-              active `Grelmicro` app has a lock backend, misses fold
-              across replicas through it. Otherwise an in-process lock
-              folds them within the worker. An in-process lock is always
-              applied first, so the backend is hit once per cold miss.
-            - ``False``: no protection. Every concurrent miss runs the
+            - ``"process"`` (default): misses fold in the process, with no
+              lock backend call. Each replica still calls the function once.
+            - ``"host"`` or ``"cluster"``: misses fold in the process, then
+              through the lock backend of the app's `Coordination`, so one
+              call serves every process the backend reaches. The backend
+              has to reach that far, and its absence raises
+              `OutOfContextError`. A lock backend that fails is logged,
+              and the misses fold in the process only.
+            - ``None``: no folding. Every concurrent miss calls the
               function.
             """,
         ),
-    ] = "local",
+    ] = "process",
     early: Annotated[
         float | None,
         Doc(
@@ -548,9 +548,10 @@ def cached(  # noqa: PLR0913, C901
             ``key_template`` are given, if the decorated function is a
             sync generator, or if the ``ttl=`` form decorates a sync
             function.
-        SettingsValidationError: If ``lock`` is not ``True``, ``False``, or
-            ``"local"``, if ``early`` is outside ``[0, 1)``, or if ``ttl``
-            or ``stale_ttl`` is a float, not positive, or over 100 years.
+        SettingsValidationError: If ``lock`` is not a backend scope or
+            ``None``, if ``lock`` reaches past the process with ``ttl=``,
+            if ``early`` is outside ``[0, 1)``, or if ``ttl`` or
+            ``stale_ttl`` is a float, not positive, or over 100 years.
 
     Returns:
         A decorator that caches function results.
@@ -558,8 +559,14 @@ def cached(  # noqa: PLR0913, C901
     check_key_choice(key, key_template)
     is_private_cache = cache is None
     _check_cache_choice(cache, ttl)
-    if lock not in (True, False, "local"):
-        msg = "lock= must be True, False, or 'local'"
+    scope = check_fold(lock)
+    if is_private_cache and scope in {"host", "cluster"}:
+        msg = (
+            f"@cached(ttl=..., lock={scope!r}) keeps its entries in one "
+            "process, so folding misses across processes buys nothing. "
+            "Pass a TTLCache the app shares to fold across processes, or "
+            "leave lock='process'."
+        )
         raise SettingsValidationError(msg)
     if early is not None and not 0 <= early < 1:
         msg = "early= must be a float in [0, 1)"
@@ -616,8 +623,7 @@ def cached(  # noqa: PLR0913, C901
                 "functools.lru_cache for pure sync memoization."
             )
             raise TypeError(msg)
-        per_key = lock is not False
-        auto_distributed = lock is True
+        fold = None if scope is None else Fold(callable_name(func), scope)
         tag_spec = _TagSpec(tags, inspect.signature(func) if tags else None)
         resolved_key_function = key
         if key_template is not None and "{" in key_template:
@@ -645,8 +651,7 @@ def cached(  # noqa: PLR0913, C901
                 resolved_key_function,
                 skip,
                 typed=typed,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
                 early=early,
                 stale_ttl=stale_duration,
                 tag_spec=tag_spec,
@@ -658,8 +663,7 @@ def cached(  # noqa: PLR0913, C901
                 resolved_key_function,
                 skip,
                 typed=typed,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
                 early=early,
                 stale_ttl=stale_duration,
                 tag_spec=tag_spec,
@@ -671,8 +675,7 @@ def cached(  # noqa: PLR0913, C901
                 resolved_key_function,
                 skip,
                 typed=typed,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
                 early=early,
                 stale_ttl=stale_duration,
                 tag_spec=tag_spec,
@@ -787,15 +790,14 @@ def _serve_stale_sync(cache: TTLCache, key: str, loop: Any) -> tuple[bool, Any]:
 # --- Async function ---
 
 
-def _build_async_wrapper(  # noqa: C901, PLR0913
+def _build_async_wrapper(  # noqa: C901
     func: Any,  # noqa: ANN401
     cache: TTLCache,
     key_function: Any,  # noqa: ANN401
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    per_key: bool,
-    auto_distributed: bool,
+    fold: Fold | None,
     early: float | None,
     stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
@@ -855,8 +857,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
                 key,
                 compute,
                 guard,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
             )
 
         try:
@@ -865,8 +866,7 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
                 key,
                 compute,
                 guard,
-                per_key=per_key,
-                auto_distributed=auto_distributed,
+                fold=fold,
             )
         except Exception:  # serve stale on any recompute failure
             found, value = await _serve_stale_async(cache, key)
@@ -890,16 +890,13 @@ def _build_async_wrapper(  # noqa: C901, PLR0913
                 tag_spec=tag_spec,
             )
 
-        if not per_key:
+        if fold is None:
             return await recompute()
         # Serialized, never folded: each caller runs the function itself,
         # so a refresh never returns a value computed before it started.
         # The locks nest in the same order as a miss, so the two never
         # deadlock against each other.
-        async with await guard.get_lock(key):
-            if auto_distributed and _has_lock_backend():
-                async with Lock(_stampede_lock_name(key)):
-                    return await recompute()
+        async with await guard.get_lock(key), fold.across(key):
             return await recompute()
 
     wrapper: Any = async_wrapper
@@ -1025,8 +1022,7 @@ def _build_async_gen_wrapper(
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    per_key: bool,
-    auto_distributed: bool,
+    fold: Fold | None,
     early: float | None,
     stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
@@ -1048,8 +1044,7 @@ def _build_async_gen_wrapper(
         key_function,
         skip,
         typed=typed,
-        per_key=per_key,
-        auto_distributed=auto_distributed,
+        fold=fold,
         early=early,
         stale_ttl=stale_ttl,
         tag_spec=tag_spec,
@@ -1097,8 +1092,7 @@ def _build_async_gen_wrapper(
             key,
             produce,
             guard,
-            per_key=per_key,
-            auto_distributed=auto_distributed,
+            fold=fold,
         )
         if stale_ttl is not None:
             stream = _stream_stale_on_error(stream, cache, key)
@@ -1183,8 +1177,7 @@ def _build_sync_wrapper(  # noqa: C901
     skip: Any,  # noqa: ANN401
     *,
     typed: bool,
-    per_key: bool,
-    auto_distributed: bool,
+    fold: Fold | None,
     early: float | None,
     stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
@@ -1240,10 +1233,10 @@ def _build_sync_wrapper(  # noqa: C901
                 tag_spec=tag_spec,
             )
 
-        if not per_key:
+        if fold is None:
             return recompute()
         with get_key_lock(key):
-            if auto_distributed and _has_lock_backend():
+            if fold.crosses:
                 return _run(
                     _distributed_orchestrate(
                         func,
@@ -1256,6 +1249,7 @@ def _build_sync_wrapper(  # noqa: C901
                         early=early,
                         stale_ttl=stale_ttl,
                         tag_spec=tag_spec,
+                        fold=fold,
                         peek=False,
                     ),
                     loop,
@@ -1285,7 +1279,7 @@ def _build_sync_wrapper(  # noqa: C901
             return result
 
         def miss() -> Any:  # noqa: ANN401
-            if not per_key:
+            if fold is None:
                 return _compute_and_cache_sync(
                     func,
                     args,
@@ -1304,7 +1298,7 @@ def _build_sync_wrapper(  # noqa: C901
                 peeked = _run(cache._peek(key, _SENTINEL), loop)  # noqa: SLF001
                 if peeked is not _SENTINEL:
                     return peeked
-                if auto_distributed and _has_lock_backend():
+                if fold.crosses:
                     return _run(
                         _distributed_orchestrate(
                             func,
@@ -1317,6 +1311,7 @@ def _build_sync_wrapper(  # noqa: C901
                             early=early,
                             stale_ttl=stale_ttl,
                             tag_spec=tag_spec,
+                            fold=fold,
                         ),
                         loop,
                     )
@@ -1365,17 +1360,18 @@ async def _distributed_orchestrate(  # noqa: PLR0913
     early: float | None,
     stale_ttl: timedelta | None,
     tag_spec: _TagSpec,
+    fold: Fold,
     peek: bool = True,
 ) -> Any:  # noqa: ANN401
-    """Hold the cross-replica lock and recompute, all in one loop task.
+    """Hold the cross-process fold and recompute, all in one loop task.
 
     The blocking function runs in an executor so it does not stall the
     loop, while the `Lock` acquire and release stay on the same task so
     ownership holds. A refresh passes `peek=False`, so it recomputes
     instead of returning an entry another caller just stored.
     """
-    async with Lock(_stampede_lock_name(key)):
-        if peek:
+    async with fold.across(key) as crossed:
+        if peek and crossed:
             result = await cache._peek(key, _SENTINEL)  # noqa: SLF001
             if result is not _SENTINEL:
                 return result

@@ -62,7 +62,7 @@ structlog with orjson reaches roughly 283,000 records per second against 137,000
 
 ## Fold cache misses at the right level
 
-`@cached` defaults to `lock="local"`, which folds concurrent misses inside one worker and never touches a backend. That is free. Raise it to `lock=True` only when you need misses folded across replicas, because it costs one backend acquire per cold miss.
+`@cached` and `get_or_set` default to `lock="process"`, which folds concurrent misses inside one worker and never touches a backend. That is free. Raise it to `lock="cluster"` only when you need misses folded across replicas, because it costs one lock backend call per cold miss.
 
 [Stampede protection](cache/cached.md#stampede-protection) compares every mode.
 

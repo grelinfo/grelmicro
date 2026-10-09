@@ -285,8 +285,12 @@ class TestDistributedGetOrSet:
             return calls * 10
 
         async with micro:
-            task_a = asyncio.create_task(cache_a.get_or_set("k", factory))
-            task_b = asyncio.create_task(cache_b.get_or_set("k", factory))
+            task_a = asyncio.create_task(
+                cache_a.get_or_set("k", factory, lock="cluster")
+            )
+            task_b = asyncio.create_task(
+                cache_b.get_or_set("k", factory, lock="cluster")
+            )
             await asyncio.sleep(0.05)
             barrier.set()
             result_a = await task_a
@@ -323,10 +327,14 @@ class TestDistributedGetOrSet:
 
         async with micro:
             task_a = asyncio.create_task(
-                cache_a.get_or_set("k", factory, stale_ttl=_STALE_TTL)
+                cache_a.get_or_set(
+                    "k", factory, stale_ttl=_STALE_TTL, lock="cluster"
+                )
             )
             task_b = asyncio.create_task(
-                cache_b.get_or_set("k", factory, stale_ttl=_STALE_TTL)
+                cache_b.get_or_set(
+                    "k", factory, stale_ttl=_STALE_TTL, lock="cluster"
+                )
             )
             await asyncio.sleep(0.05)
             barrier.set()

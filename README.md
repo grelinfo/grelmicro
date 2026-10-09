@@ -130,7 +130,7 @@ Both copies now share the lock and the breaker's state as well as the job.
 
 | Module | Guarantee |
 |---|---|
-| [**Cache**](https://grelmicro.grel.info/cache/) | `@cached(ttl=30)` memoizes in one process. `@cached(TTLCache(...))` shares entries across replicas, and concurrent misses on one key run the function once per process. With a `Coordination` backend, `lock=True` runs it once across replicas. |
+| [**Cache**](https://grelmicro.grel.info/cache/) | `@cached(ttl=30)` memoizes in one process. `@cached(TTLCache(...))` shares entries across replicas, and concurrent misses on one key run the function once per process. With a `Coordination` backend, `lock="cluster"` runs it once across replicas. |
 | [**Idempotency**](https://grelmicro.grel.info/idempotency/) | A repeated key within `ttl` replays the stored response without running the operation again. |
 | [**Coordination**](https://grelmicro.grel.info/coordination/) | A `Lock` has one holder at a time for as long as its lease, and a `LeaderElection` one leader. A `lost` extension metric tells you when the work outran the lease. |
 | [**Outbox**](https://grelmicro.grel.info/outbox/) | A message published inside your transaction runs its handler at least once, and never for a transaction that rolled back. |

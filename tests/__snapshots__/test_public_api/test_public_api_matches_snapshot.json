@@ -57,7 +57,7 @@
   "grelmicro.cache": {
     "Cache": {
       "()": "(source, *, requires=None, name='default') -> 'None'",
-      ".cached": "(cache=None, *, ttl=None, maxsize=0, key=None, key_template=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
+      ".cached": "(cache=None, *, ttl=None, maxsize=0, key=None, key_template=None, skip=None, typed=False, lock='process', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
     },
     "CacheBackend": {
       "()": "(*args, **kwargs)"
@@ -91,7 +91,7 @@
       "()": "(*, maxsize=0, ttl=datetime.timedelta(seconds=60)) -> None"
     },
     "cached": {
-      "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_template=None, skip=None, typed=False, lock='local', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
+      "()": "(cache=None, *, ttl=None, maxsize=0, key=None, key_template=None, skip=None, typed=False, lock='process', early=None, stale_ttl=None, tags=()) -> _CachedDecorator"
     }
   },
   "grelmicro.clock": {
