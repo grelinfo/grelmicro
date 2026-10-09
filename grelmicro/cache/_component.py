@@ -28,7 +28,7 @@ class Cache:
     users do not need to thread `backend=` on every cache instance.
 
     Accepts a `Provider` or a `CacheBackend`. When given a Provider, the
-    component calls `provider.cache()` to build the matching adapter.
+    component calls `provider.cache_backend()` to build the matching adapter.
 
     Example:
         ```python
@@ -67,7 +67,7 @@ class Cache:
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `CacheBackend`
                 instance. When a Provider is given, the component calls
-                `provider.cache()` to build the matching adapter. A zero-arg
+                `provider.cache_backend()` to build the matching adapter. A zero-arg
                 class (e.g. `MemoryCacheAdapter`) is instantiated for you.
                 """,
             ),
@@ -110,7 +110,7 @@ class Cache:
             ),
         )
         if isinstance(resolved, Provider):
-            self._backend = resolved.cache()
+            self._backend = resolved.cache_backend()
         else:
             self._backend = resolved
 

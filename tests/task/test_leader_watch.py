@@ -51,7 +51,7 @@ def _app(clock: VirtualClock, *uses: Tasks) -> Grelmicro:
             clock,
             Coordination(
                 lock=MemoryLockAdapter(),
-                election=MemoryLeaderElectionAdapter(),
+                leaderelection=MemoryLeaderElectionAdapter(),
                 schedule=MemoryScheduleAdapter(),
             ),
             *uses,

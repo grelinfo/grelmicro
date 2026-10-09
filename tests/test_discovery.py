@@ -53,9 +53,13 @@ def test_load_provider_unknown_raises() -> None:
         ("coordination", "memory", "MemoryLockAdapter"),
         ("coordination", "redis", "RedisLockAdapter"),
         ("coordination", "kubernetes", "KubernetesLockAdapter"),
-        ("coordination.election", "memory", "MemoryLeaderElectionAdapter"),
         (
-            "coordination.election",
+            "coordination.leaderelection",
+            "memory",
+            "MemoryLeaderElectionAdapter",
+        ),
+        (
+            "coordination.leaderelection",
             "kubernetes",
             "KubernetesLeaderElectionAdapter",
         ),
@@ -94,8 +98,8 @@ def test_provider_error_renders_empty_group() -> None:
 
 COORDINATION_GROUPS = {
     "lock": "coordination",
-    "rwlock": "coordination.readwritelock",
-    "election": "coordination.election",
+    "readwritelock": "coordination.readwritelock",
+    "leaderelection": "coordination.leaderelection",
     "schedule": "coordination.schedule",
 }
 """The adapter group each coordination backend resolves through."""
@@ -124,7 +128,7 @@ def test_a_coordination_group_ships_its_memory_adapter(kind: str) -> None:
     [
         "coordination",
         "coordination.readwritelock",
-        "coordination.election",
+        "coordination.leaderelection",
         "coordination.schedule",
         "cache",
         "ratelimiter",

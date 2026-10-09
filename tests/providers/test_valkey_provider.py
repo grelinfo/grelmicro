@@ -270,63 +270,63 @@ class TestSafeUrl:
 
 
 class TestBuilders:
-    """Pure-sugar `.lock()` / `.cache()` builders."""
+    """Pure-sugar `.lock_backend()` / `.cache_backend()` builders."""
 
     def test_lock_builder_binds_provider(self) -> None:
-        """`provider.lock()` returns a `RedisLockAdapter` borrowing the provider."""
+        """`provider.lock_backend()` returns a `RedisLockAdapter` borrowing the provider."""
         provider = ValkeyProvider(URL)
 
-        adapter = provider.lock()
+        adapter = provider.lock_backend()
 
         assert isinstance(adapter, RedisLockAdapter)
         assert adapter.provider is provider
         assert adapter._owns_provider is False
 
     def test_cache_builder_binds_provider(self) -> None:
-        """`provider.cache()` returns a `RedisCacheAdapter` borrowing the provider."""
+        """`provider.cache_backend()` returns a `RedisCacheAdapter` borrowing the provider."""
         provider = ValkeyProvider(URL)
 
-        adapter = provider.cache(prefix="ns:")
+        adapter = provider.cache_backend(prefix="ns:")
 
         assert isinstance(adapter, RedisCacheAdapter)
         assert adapter.provider is provider
         assert adapter._key_prefix == "ns:"
 
     def test_ratelimiter_builder_binds_provider(self) -> None:
-        """`provider.ratelimiter()` returns a `RedisRateLimiterAdapter` borrowing the provider."""
+        """`provider.ratelimiter_backend()` returns a `RedisRateLimiterAdapter`."""
         provider = ValkeyProvider(URL)
 
-        adapter = provider.ratelimiter(prefix="rl:")
+        adapter = provider.ratelimiter_backend(prefix="rl:")
 
         assert isinstance(adapter, RedisRateLimiterAdapter)
         assert adapter.provider is provider
         assert adapter._prefix == "rl:"
 
     def test_circuitbreaker_factory(self) -> None:
-        """`provider.circuitbreaker()` returns a `RedisCircuitBreakerAdapter`."""
+        """`provider.circuitbreaker_backend()` returns a `RedisCircuitBreakerAdapter`."""
         provider = ValkeyProvider(URL)
 
-        adapter = provider.circuitbreaker(prefix="cb:")
+        adapter = provider.circuitbreaker_backend(prefix="cb:")
 
         assert isinstance(adapter, RedisCircuitBreakerAdapter)
         assert adapter.provider is provider
         assert adapter._prefix == "cb:"
 
     def test_leaderelection_builder_binds_provider(self) -> None:
-        """`provider.leaderelection()` returns a `RedisLeaderElectionAdapter`."""
+        """`provider.leaderelection_backend()` returns a `RedisLeaderElectionAdapter`."""
         provider = ValkeyProvider(URL)
 
-        adapter = provider.leaderelection()
+        adapter = provider.leaderelection_backend()
 
         assert isinstance(adapter, RedisLeaderElectionAdapter)
         assert adapter._provider is provider
         assert adapter._owns_provider is False
 
     def test_schedule_builder_binds_provider(self) -> None:
-        """`provider.schedule()` returns a `RedisScheduleAdapter` borrowing the provider."""
+        """`provider.schedule_backend()` returns a `RedisScheduleAdapter` borrowing the provider."""
         provider = ValkeyProvider(URL)
 
-        adapter = provider.schedule()
+        adapter = provider.schedule_backend()
 
         assert isinstance(adapter, RedisScheduleAdapter)
         assert adapter._provider is provider

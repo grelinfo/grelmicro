@@ -76,7 +76,7 @@ class MongoProvider(Provider):
         """Store the connection URL (open the real client in `__aenter__`)."""
         self._url = url
 
-    def lock(self, **kwargs: Any) -> MongoLockAdapter:  # noqa: ANN401, ARG002
+    def lock_backend(self, **kwargs: Any) -> MongoLockAdapter:  # noqa: ANN401, ARG002
         """Build the matching lock adapter bound to this provider."""
         return MongoLockAdapter(self)
 

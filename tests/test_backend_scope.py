@@ -562,7 +562,7 @@ def test_the_error_for_a_pattern_names_the_component_to_register() -> None:
     with pytest.raises(BackendScopeError) as error:
         Grelmicro().check_backends()
 
-    assert "Coordination(election=..., requires=...)" in str(error.value)
+    assert "Coordination(leaderelection=..., requires=...)" in str(error.value)
     del lock
 
 

@@ -9,7 +9,7 @@ micro = Grelmicro(
     uses=[
         Coordination(
             lock=redis,  # Lock on Redis: low-latency mutual exclusion
-            election=KubernetesLeaderElectionAdapter(  # leader on a K8s Lease
+            leaderelection=KubernetesLeaderElectionAdapter(  # leader on a K8s Lease
                 namespace="default"
             ),
         ),

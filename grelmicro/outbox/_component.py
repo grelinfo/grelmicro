@@ -65,7 +65,7 @@ class Outbox:
 
     Registered as `micro.outbox` after `Grelmicro(uses=[Outbox(...)])`.
     Accepts a `Provider` or an `OutboxBackend`. When given a Provider, the
-    component calls `provider.outbox()` to build the matching adapter.
+    component calls `provider.outbox_backend()` to build the matching adapter.
 
     Example:
         ```python
@@ -101,7 +101,7 @@ class Outbox:
                 """
                 A `Provider` (e.g. `PostgresProvider`) or an `OutboxBackend`.
                 When a Provider is given, the component calls
-                `provider.outbox()` to build the matching adapter.
+                `provider.outbox_backend()` to build the matching adapter.
                 """,
             ),
         ],
@@ -234,7 +234,7 @@ class Outbox:
             ),
         )
         if isinstance(resolved, Provider):
-            self._backend = resolved.outbox(
+            self._backend = resolved.outbox_backend(
                 table=self._config.table,
                 auto_migrate=self._config.auto_migrate,
                 notify=self._config.notify,

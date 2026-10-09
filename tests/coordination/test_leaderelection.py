@@ -751,7 +751,7 @@ async def test_graceful_stop_releases_app_resolved_backend() -> None:
     # Arrange: an app-resolved election backend, no explicit backend= on the
     # LeaderElection.
     backend = MemoryLeaderElectionAdapter()
-    micro = Grelmicro(uses=[Coordination(election=backend)])
+    micro = Grelmicro(uses=[Coordination(leaderelection=backend)])
     leader_election = LeaderElection(
         LEADER_NAME,
         worker="worker_app",

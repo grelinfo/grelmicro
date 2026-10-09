@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 if TYPE_CHECKING:
     from grelmicro.cache._protocol import CacheBackend
@@ -19,6 +19,19 @@ if TYPE_CHECKING:
         CircuitBreakerBackend,
         RateLimiterBackend,
     )
+
+
+PATTERNS: Final = (
+    "lock",
+    "readwritelock",
+    "leaderelection",
+    "schedule",
+    "cache",
+    "outbox",
+    "ratelimiter",
+    "circuitbreaker",
+)
+"""Every pattern a `Provider` builds a backend for, with `<pattern>_backend()`."""
 
 
 class Provider(AbstractAsyncContextManager["Provider"]):
@@ -39,6 +52,32 @@ class Provider(AbstractAsyncContextManager["Provider"]):
     """
 
     short_name: ClassVar[str]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:  # noqa: ANN401
+        """Refuse a factory named after its pattern without `_backend`.
+
+        A subclass with a `lock()` method, its own or from a mixin, and no
+        `lock_backend()` is refused. A method named after a pattern is fine
+        once the subclass, or a Provider it extends, defines that pattern's
+        `_backend()` factory. A plain attribute named after a pattern is
+        not checked.
+
+        Raises:
+            TypeError: If the subclass has a `<pattern>()` method and no
+                `<pattern>_backend()` overrides the base one.
+        """
+        super().__init_subclass__(**kwargs)
+        for pattern in PATTERNS:
+            factory = f"{pattern}_backend"
+            if callable(getattr(cls, pattern, None)) and getattr(
+                cls, factory
+            ) is getattr(Provider, factory):
+                msg = (
+                    f"Rename {cls.__name__}.{pattern}() to {factory}(). "
+                    f"Components build a {pattern} backend with "
+                    f"provider.{factory}()."
+                )
+                raise TypeError(msg)
 
     _skips: int = 0
     """How many open apps `micro.fake()` left this Provider closed in.
@@ -83,7 +122,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
             )
             raise OutOfContextError(msg)
 
-    def lock(self, **kwargs: Any) -> LockBackend:  # noqa: ANN401
+    def lock_backend(self, **kwargs: Any) -> LockBackend:  # noqa: ANN401
         """Return the matching `LockBackend` adapter for this Provider.
 
         Raises:
@@ -95,7 +134,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def readwritelock(
+    def readwritelock_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> ReadWriteLockBackend:
@@ -107,12 +146,12 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         """
         msg = (
             f"{type(self).__name__} has no read-write lock adapter. "
-            f"Pass a ReadWriteLockBackend instance to Coordination(rwlock=...) "
-            f"directly."
+            "Pass a ReadWriteLockBackend instance to "
+            "Coordination(readwritelock=...) directly."
         )
         raise NotImplementedError(msg)
 
-    def leaderelection(
+    def leaderelection_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> LeaderElectionBackend:
@@ -127,12 +166,12 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         """
         msg = (
             f"{type(self).__name__} has no leader election adapter. "
-            f"Pass a LeaderElectionBackend instance to Coordination(...) "
-            f"directly."
+            "Pass a LeaderElectionBackend instance to "
+            "Coordination(leaderelection=...) directly."
         )
         raise NotImplementedError(msg)
 
-    def schedule(self, **kwargs: Any) -> ScheduleBackend:  # noqa: ANN401
+    def schedule_backend(self, **kwargs: Any) -> ScheduleBackend:  # noqa: ANN401
         """Return the matching `ScheduleBackend` adapter for this Provider.
 
         The schedule backend holds the durable `last_fired` state behind
@@ -149,7 +188,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def cache(self, **kwargs: Any) -> CacheBackend:  # noqa: ANN401
+    def cache_backend(self, **kwargs: Any) -> CacheBackend:  # noqa: ANN401
         """Return the matching `CacheBackend` adapter for this Provider.
 
         Raises:
@@ -161,7 +200,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def outbox(self, **kwargs: Any) -> OutboxBackend:  # noqa: ANN401
+    def outbox_backend(self, **kwargs: Any) -> OutboxBackend:  # noqa: ANN401
         """Return the matching `OutboxBackend` adapter for this Provider.
 
         Raises:
@@ -174,7 +213,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def ratelimiter(self, **kwargs: Any) -> RateLimiterBackend:  # noqa: ANN401
+    def ratelimiter_backend(self, **kwargs: Any) -> RateLimiterBackend:  # noqa: ANN401
         """Return the matching `RateLimiterBackend` adapter for this Provider.
 
         Raises:
@@ -187,7 +226,7 @@ class Provider(AbstractAsyncContextManager["Provider"]):
         )
         raise NotImplementedError(msg)
 
-    def circuitbreaker(self, **kwargs: Any) -> CircuitBreakerBackend:  # noqa: ANN401
+    def circuitbreaker_backend(self, **kwargs: Any) -> CircuitBreakerBackend:  # noqa: ANN401
         """Return the matching `CircuitBreakerBackend` adapter for this Provider.
 
         Raises:

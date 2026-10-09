@@ -24,7 +24,7 @@ async def main() -> None:
     # Memory keeps this demo in one process.
     # The calls are the same on every backend.
     async with MemoryProvider() as provider:
-        lock = Lock("cart", backend=provider.lock())
+        lock = Lock("cart", backend=provider.lock_backend())
 
         # A stale holder writes with an old token.
         stale = await lock.acquire()

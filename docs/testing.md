@@ -93,7 +93,7 @@ from grelmicro.testing import record
 
 
 async def test_login_takes_the_lock() -> None:
-    backend = MemoryProvider().lock()
+    backend = MemoryProvider().lock_backend()
     log = record(backend)
     micro = Grelmicro(uses=[Coordination(lock=backend)])
 

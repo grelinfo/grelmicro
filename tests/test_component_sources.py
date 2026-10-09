@@ -25,8 +25,8 @@ from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
     ("adapter", "slot"),
     [
         (MemoryLockAdapter, "lock_backend"),
-        (MemoryReadWriteLockAdapter, "rwlock_backend"),
-        (MemoryLeaderElectionAdapter, "election_backend"),
+        (MemoryReadWriteLockAdapter, "readwritelock_backend"),
+        (MemoryLeaderElectionAdapter, "leaderelection_backend"),
         (MemoryScheduleAdapter, "schedule_backend"),
     ],
 )
@@ -55,7 +55,7 @@ def test_a_keyword_overrides_the_backend_the_source_filled() -> None:
 
     coordination = Coordination(election, lock=lock)
 
-    assert coordination.election_backend is election
+    assert coordination.leaderelection_backend is election
     assert coordination.lock_backend is lock
 
 
@@ -71,7 +71,7 @@ def test_a_provider_that_breaks_building_a_backend_is_not_hidden() -> None:
     """Only a kind the Provider does not ship leaves a slot empty."""
 
     class Broken(MemoryProvider):
-        def lock(self, **_: object) -> MemoryLockAdapter:
+        def lock_backend(self, **_: object) -> MemoryLockAdapter:
             msg = "typo"
             raise AttributeError(msg)
 

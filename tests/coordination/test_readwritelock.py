@@ -525,7 +525,9 @@ async def test_backend_resolves_from_the_app(
     backend: MemoryReadWriteLockAdapter,
 ) -> None:
     """A lock with no backend resolves through the active app."""
-    micro = Grelmicro(uses=[Coordination(rwlock=backend, name="default")])
+    micro = Grelmicro(
+        uses=[Coordination(readwritelock=backend, name="default")]
+    )
     lock = ReadWriteLock("catalog", lease_duration=5)
 
     async with micro, lock.write as writing:
@@ -544,15 +546,15 @@ async def test_component_without_a_backend() -> None:
     """A component with no read-write lock backend says so."""
     component = Coordination()
 
-    with pytest.raises(CoordinationBackendError, match="rwlock"):
-        _ = component.rwlock_backend
+    with pytest.raises(CoordinationBackendError, match="readwritelock"):
+        _ = component.readwritelock_backend
 
 
 async def test_component_builds_the_lock(
     backend: MemoryReadWriteLockAdapter,
 ) -> None:
     """The component hands back a lock bound to its backend."""
-    component = Coordination(rwlock=backend)
+    component = Coordination(readwritelock=backend)
 
     lock = component.readwritelock("catalog", lease_duration=5)
 

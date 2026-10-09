@@ -1725,9 +1725,9 @@ class Grelmicro:
         micro = Grelmicro(uses=[Coordination(redis), Cache(redis)])  # adopted
         ```
 
-        A `Coordination` holds three backends (a lock backend, an election
-        backend, and a schedule backend), each able to borrow its own Provider,
-        so all are walked and each borrowed Provider is adopted.
+        A `Coordination` holds four backends (lock, read-write lock, leader
+        election and schedule), each able to borrow its own Provider, so all
+        are walked and each borrowed Provider is adopted.
 
         Providers the user already listed are left untouched, so their declared
         order still applies and the ordering check in
@@ -2163,15 +2163,15 @@ def _default_components_for_provider(provider: Provider) -> list[Component]:
     if any(backend is not None for backend in coordination.values()):
         components.append(Coordination(**coordination))
 
-    cache = _provider_backend_or_none(provider.cache)
+    cache = _provider_backend_or_none(provider.cache_backend)
     if cache is not None:
         components.append(Cache(cache))
 
-    ratelimiter = _provider_backend_or_none(provider.ratelimiter)
+    ratelimiter = _provider_backend_or_none(provider.ratelimiter_backend)
     if ratelimiter is not None:
         components.append(RateLimiterComponent(ratelimiter))
 
-    circuitbreaker = _provider_backend_or_none(provider.circuitbreaker)
+    circuitbreaker = _provider_backend_or_none(provider.circuitbreaker_backend)
     if circuitbreaker is not None:
         components.append(CircuitBreakerComponent(circuitbreaker))
 

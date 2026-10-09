@@ -320,7 +320,7 @@ class ValkeyProvider(RedisProvider):
         cls._bind_valkey_classes()
         return super().cluster(**kwargs)
 
-    def lock(self, **kwargs: Any) -> RedisLockAdapter:  # noqa: ANN401
+    def lock_backend(self, **kwargs: Any) -> RedisLockAdapter:  # noqa: ANN401
         """Build a `RedisLockAdapter` bound to this provider."""
         from grelmicro.coordination.redis import (  # noqa: PLC0415
             RedisLockAdapter,
@@ -328,14 +328,14 @@ class ValkeyProvider(RedisProvider):
 
         return RedisLockAdapter(provider=self, **kwargs)
 
-    def readwritelock(
+    def readwritelock_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> RedisReadWriteLockAdapter:
         """Return a `RedisReadWriteLockAdapter` bound to this provider."""
-        return super().readwritelock(**kwargs)
+        return super().readwritelock_backend(**kwargs)
 
-    def leaderelection(
+    def leaderelection_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> RedisLeaderElectionAdapter:
@@ -346,7 +346,7 @@ class ValkeyProvider(RedisProvider):
 
         return RedisLeaderElectionAdapter(provider=self, **kwargs)
 
-    def schedule(self, **kwargs: Any) -> RedisScheduleAdapter:  # noqa: ANN401
+    def schedule_backend(self, **kwargs: Any) -> RedisScheduleAdapter:  # noqa: ANN401
         """Build a `RedisScheduleAdapter` bound to this provider."""
         from grelmicro.coordination.redis import (  # noqa: PLC0415
             RedisScheduleAdapter,
@@ -354,13 +354,13 @@ class ValkeyProvider(RedisProvider):
 
         return RedisScheduleAdapter(provider=self, **kwargs)
 
-    def cache(self, **kwargs: Any) -> RedisCacheAdapter:  # noqa: ANN401
+    def cache_backend(self, **kwargs: Any) -> RedisCacheAdapter:  # noqa: ANN401
         """Build a `RedisCacheAdapter` bound to this provider."""
         from grelmicro.cache.redis import RedisCacheAdapter  # noqa: PLC0415
 
         return RedisCacheAdapter(provider=self, **kwargs)
 
-    def ratelimiter(self, **kwargs: Any) -> RedisRateLimiterAdapter:  # noqa: ANN401
+    def ratelimiter_backend(self, **kwargs: Any) -> RedisRateLimiterAdapter:  # noqa: ANN401
         """Build a `RedisRateLimiterAdapter` bound to this provider."""
         from grelmicro.resilience.ratelimiter.redis import (  # noqa: PLC0415
             RedisRateLimiterAdapter,
@@ -368,7 +368,10 @@ class ValkeyProvider(RedisProvider):
 
         return RedisRateLimiterAdapter(provider=self, **kwargs)
 
-    def circuitbreaker(self, **kwargs: Any) -> RedisCircuitBreakerAdapter:  # noqa: ANN401
+    def circuitbreaker_backend(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> RedisCircuitBreakerAdapter:
         """Build a `RedisCircuitBreakerAdapter` bound to this provider."""
         from grelmicro.resilience.circuitbreaker.redis import (  # noqa: PLC0415
             RedisCircuitBreakerAdapter,
