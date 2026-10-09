@@ -38,9 +38,9 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore::DeprecationWarning"),
 ]
 
-pytest.importorskip("testcontainers.redis")
+pytest.importorskip("testcontainers.community.redis")
 
-from testcontainers.redis import RedisContainer  # noqa: E402
+from testcontainers.community.redis import RedisContainer  # noqa: E402
 
 WORKERS = 4
 ELECTION_NAME = "multiprocess-election"

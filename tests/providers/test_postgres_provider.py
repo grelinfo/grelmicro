@@ -856,7 +856,9 @@ class TestFromEngineAgainstPostgres:
     @pytest.fixture
     async def engine(self) -> AsyncGenerator[AsyncEngine]:
         """Provide an app-owned async engine pointing at a container."""
-        from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+        from testcontainers.community.postgres import (  # noqa: PLC0415
+            PostgresContainer,
+        )
 
         with PostgresContainer() as container:
             port = container.get_exposed_port(5432)
@@ -937,11 +939,12 @@ class TestFromEngineAgainstPostgres:
 
         @event.listens_for(engine.sync_engine, "connect")
         def _set_search_path(dbapi_connection: Any, _record: object) -> None:  # noqa: ANN401
-            dbapi_connection.await_(
-                dbapi_connection.driver_connection.execute(
-                    "SET search_path TO grelmicro_probe, public"
-                )
-            )
+            autocommit = dbapi_connection.autocommit
+            dbapi_connection.autocommit = True
+            cursor = dbapi_connection.cursor()
+            cursor.execute("SET search_path TO grelmicro_probe, public")
+            cursor.close()
+            dbapi_connection.autocommit = autocommit
 
         provider = PostgresProvider.from_engine(engine)
 

@@ -13,9 +13,9 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 from testcontainers.core.container import DockerContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 from grelmicro.coordination._protocol import ReadWriteLockBackend
 from grelmicro.coordination.kubernetes import KubernetesReadWriteLockAdapter

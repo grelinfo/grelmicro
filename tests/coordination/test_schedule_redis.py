@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from testcontainers.redis import RedisContainer
+from testcontainers.community.redis import RedisContainer
 
 from grelmicro.coordination.redis import RedisScheduleAdapter
 from grelmicro.providers.redis import RedisProvider

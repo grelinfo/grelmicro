@@ -8,9 +8,9 @@ from uuid import uuid4
 
 import pytest
 from docker.errors import APIError
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 from testcontainers.core.container import DockerContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 from grelmicro.coordination._protocol import LockBackend
 from grelmicro.coordination.kubernetes import KubernetesLockAdapter

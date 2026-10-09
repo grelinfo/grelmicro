@@ -203,7 +203,9 @@ pytestmark: list[pytest.MarkDecorator] = []
 @pytest.fixture(scope="module")
 async def backend() -> AsyncGenerator[PostgresScheduleAdapter]:
     """Provide a Postgres-backed schedule adapter in a container."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)

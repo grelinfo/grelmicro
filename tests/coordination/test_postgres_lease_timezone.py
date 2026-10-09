@@ -56,7 +56,9 @@ _SQL_FILENODE = "SELECT pg_relation_filenode($1::regclass);"
 @pytest.fixture(scope="module")
 async def url() -> AsyncGenerator[str]:
     """Start a Postgres container and return its connection URL."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)

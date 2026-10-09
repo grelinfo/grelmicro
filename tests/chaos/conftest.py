@@ -30,9 +30,9 @@ import pytest
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-testcontainers = pytest.importorskip("testcontainers.redis")
+testcontainers = pytest.importorskip("testcontainers.community.redis")
 
-from testcontainers.redis import RedisContainer  # noqa: E402
+from testcontainers.community.redis import RedisContainer  # noqa: E402
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Generator
