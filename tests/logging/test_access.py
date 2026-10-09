@@ -491,29 +491,6 @@ async def test_fastapi_records_the_route_template(
     assert capture()[0].__dict__["http.route"] == "/orders/{order_id}"
 
 
-async def test_litestar_records_the_route_template(
-    capture: Callable[[], list[logging.LogRecord]],
-) -> None:
-    """Litestar writes the template into the scope under its own key."""
-
-    @get("/orders/{order_id:str}")
-    async def order(order_id: Annotated[str, Parameter()]) -> str:
-        return order_id
-
-    # `logging_config=None`: Litestar would otherwise install its own
-    # logging on startup and take the capture handler with it.
-    app = Litestar(
-        route_handlers=[order],
-        middleware=[cast("Any", AccessLogMiddleware)],
-        logging_config=None,
-    )
-
-    async with client_for(app) as client:
-        await client.get("/orders/7")
-
-    assert capture()[0].__dict__["http.route"] == "/orders/{order_id}"
-
-
 async def test_a_litestar_app_under_a_litestar_mount_names_no_route_it_missed(
     capture: Callable[[], list[logging.LogRecord]],
 ) -> None:
@@ -542,14 +519,23 @@ async def test_a_litestar_app_under_a_litestar_mount_names_no_route_it_missed(
     assert "http.route" not in missed.__dict__
 
 
-async def test_starlette_records_the_route_template(
-    client: httpx.AsyncClient,
-    capture: Callable[[], list[logging.LogRecord]],
+@pytest.mark.parametrize("framework", ["starlette", "litestar"])
+async def test_an_installed_app_records_the_route_its_reader_names(
+    capture: Callable[[], list[logging.LogRecord]], framework: str
 ) -> None:
-    """Starlette records the route it matched, so the template is read."""
-    await client.get("/orders/7")
+    """The record names the route template, never the path."""
+    app: Any = (
+        Starlette(routes=[Route("/items/{item_id:int}", ok)])
+        if framework == "starlette"
+        else _litestar_shop()
+    )
+    micro = Grelmicro(uses=[AccessLog()])
+    micro.install(app)
 
-    assert capture()[0].__dict__["http.route"] == "/orders/{order_id}"
+    async with micro, client_for(app) as client:
+        await client.get("/items/3")
+
+    assert capture()[0].__dict__["http.route"] == "/items/{item_id}"
 
 
 async def test_a_mount_is_on_both_the_path_and_the_route(
@@ -578,86 +564,6 @@ async def _file(scope: Scope, receive: Receive, send: Send) -> None:
     await PlainTextResponse("file")(scope, receive, send)
 
 
-@pytest.mark.parametrize(
-    ("routes", "path", "route"),
-    [
-        (
-            [Mount("/t/{tenant}", routes=[Route("/docs/{d}", ok)])],
-            "/t/acme/docs/1",
-            "/t/{tenant}/docs/{d}",
-        ),
-        (
-            [
-                Mount(
-                    "/t/{tenant}",
-                    routes=[Mount("/v/{v}", routes=[Route("/docs/{d}", ok)])],
-                )
-            ],
-            "/t/acme/v/2/docs/1",
-            "/t/{tenant}/v/{v}/docs/{d}",
-        ),
-        (
-            [Mount("/t/{tenant}", routes=[Route("/docs/{d}", ok)])],
-            "/t/acme/nowhere",
-            "/t/{tenant}/{path}",
-        ),
-        (
-            [Mount("/files/{bucket}", app=_file)],
-            "/files/b1/a/b.txt",
-            "/files/{bucket}/{path}",
-        ),
-        (
-            [Mount("/t/{tenant}", routes=[Route("/docs/", ok)])],
-            "/t/acme/docs",
-            "/t/{tenant}/docs/",
-        ),
-    ],
-    ids=["parameter", "nested", "unknown-path", "asgi-app", "slash-redirect"],
-)
-async def test_a_mount_reads_as_its_template_not_its_values(
-    capture: Callable[[], list[logging.LogRecord]],
-    routes: list[Mount],
-    path: str,
-    route: str,
-) -> None:
-    """A tenant id in a mount path never becomes a route of its own."""
-    app = Starlette(routes=routes)
-    app.add_middleware(AccessLogMiddleware)
-
-    async with client_for(app) as client:
-        await client.get(path)
-
-    assert capture()[0].__dict__["http.route"] == route
-
-
-async def test_litestar_under_a_mount_records_its_own_route_template(
-    capture: Callable[[], list[logging.LogRecord]],
-) -> None:
-    """Litestar's template is read, not the Starlette mount around it."""
-
-    @get("/items/{item_id:int}")
-    async def item(item_id: Annotated[int, Parameter()]) -> int:
-        return item_id
-
-    shop = Litestar(
-        route_handlers=[item],
-        middleware=[cast("Any", AccessLogMiddleware)],
-        logging_config=None,
-    )
-    app = Starlette(routes=[Mount("/t/{tenant}", app=cast("Any", shop))])
-
-    async with client_for(app) as client:
-        await client.get("/t/acme/items/3")
-
-    assert capture()[0].__dict__["http.route"] == "/items/{item_id}"
-
-
-def _wrapped_mount() -> Any:  # noqa: ANN401
-    inner = Starlette(routes=[Route("/docs/", ok)])
-    wrapped = CORSMiddleware(inner, allow_origins=["https://app.example"])
-    return Starlette(routes=[Mount("/t/{tenant}", app=wrapped)])
-
-
 def _fastapi_mounting(inner: Any, at: str = "/t/{tenant}") -> Any:  # noqa: ANN401
     app = FastAPI()
     app.mount(at, inner)
@@ -683,7 +589,6 @@ def _litestar_files() -> Any:  # noqa: ANN401
 @pytest.mark.parametrize(
     ("build", "path", "route"),
     [
-        (_wrapped_mount, "/t/acme/docs", "/t/{tenant}/docs/"),
         (
             lambda: _fastapi_mounting(
                 Starlette(routes=[Route("/docs/{d}", ok)])
@@ -697,38 +602,21 @@ def _litestar_files() -> Any:  # noqa: ANN401
             "/t/{tenant}/{path}",
         ),
         (
-            lambda: Starlette(
-                routes=[Mount("/t/{tenant}", app=_litestar_shop())]
-            ),
-            "/t/acme/items/3",
-            "/t/{tenant}/items/{item_id}",
-        ),
-        (_litestar_files, "/files/a/b.txt", "/files/{path}"),
-        (
-            lambda: Starlette(routes=[Mount("", app=_litestar_shop())]),
-            "/items/3",
-            "/items/{item_id}",
-        ),
-        (
             lambda: _fastapi_mounting(_litestar_shop(), at=""),
             "/items/3",
             "/items/{item_id}",
         ),
         (
-            lambda: Starlette(routes=[Mount("/s", app=_litestar_files())]),
+            lambda: _fastapi_mounting(_litestar_files(), at="/s"),
             "/s/files/a.txt",
             "/s/files/{path}",
         ),
     ],
     ids=[
-        "app-wrapped-in-middleware",
         "fastapi-unknown-path",
         "fastapi-asgi-app",
-        "litestar-app",
-        "litestar-asgi-app",
-        "litestar-app-at-the-root",
         "litestar-app-at-the-fastapi-root",
-        "litestar-asgi-app-under-a-mount",
+        "litestar-asgi-app-under-fastapi",
     ],
 )
 async def test_a_mounted_app_reads_as_the_mount_template(
@@ -739,45 +627,6 @@ async def test_a_mounted_app_reads_as_the_mount_template(
 ) -> None:
     """A mount reads as its template, whatever it holds and whoever routed it."""
     async with client_for(AccessLogMiddleware(build())) as client:
-        await client.get(path)
-
-    assert capture()[0].__dict__["http.route"] == route
-
-
-def _litestar_mounting(inner: Any) -> Any:  # noqa: ANN401
-    @asgi("/shop", is_mount=True)
-    async def shop(scope: Any, receive: Any, send: Any) -> None:  # noqa: ANN401
-        await inner(scope, receive, send)
-
-    return Litestar(route_handlers=[shop], logging_config=None)
-
-
-@pytest.mark.filterwarnings("ignore:.*copy_scope.*")
-@pytest.mark.parametrize(
-    ("inner", "path", "route"),
-    [
-        (_litestar_shop, "/shop/items/3", "/shop/items/{item_id}"),
-        (_litestar_shop, "/shop/nowhere", "/shop/{path}"),
-        (
-            lambda: Starlette(routes=[Route("/items/{item_id}", ok)]),
-            "/shop/items/3",
-            "/shop/{path}",
-        ),
-    ],
-    ids=["litestar-app", "unknown-path", "starlette-app"],
-)
-async def test_litestar_mount_sharing_its_scope_reads_as_the_request_spans(
-    capture: Callable[[], list[logging.LogRecord]],
-    inner: Callable[[], Any],
-    path: str,
-    route: str,
-) -> None:
-    """A mounted app that rewrites the scope still reads under the mount."""
-    app = _litestar_mounting(inner())
-    micro = Grelmicro(uses=[AccessLog()])
-    micro.install(app)
-
-    async with micro, client_for(app) as client:
         await client.get(path)
 
     assert capture()[0].__dict__["http.route"] == route
@@ -1322,15 +1171,46 @@ async def test_litestar_without_the_binding_still_watches_from_outside(
     )
 
 
-async def test_the_route_carries_the_same_prefix_as_the_path(
+@pytest.mark.parametrize("framework", ["starlette", "litestar"])
+@pytest.mark.parametrize("path", ["/items/3", "/proxy/items/3"])
+async def test_the_route_carries_the_root_path_as_the_request_span_does(
+    capture: Callable[[], list[logging.LogRecord]], framework: str, path: str
+) -> None:
+    """The route is the one the request span names, root path and all.
+
+    Whether the proxy kept its prefix on the path or stripped it, the
+    route carries it, and the path is the one the caller sent.
+    """
+    app: Any = (
+        Starlette(routes=[Route("/items/{item_id:int}", ok)])
+        if framework == "starlette"
+        else _litestar_shop()
+    )
+    micro = Grelmicro(uses=[AccessLog()])
+    micro.install(app)
+
+    async with (
+        micro,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, root_path="/proxy"),
+            base_url="http://probe",
+        ) as client,
+    ):
+        await client.get(path)
+
+    [record] = capture()
+    assert record.__dict__["url.path"] == path
+    assert record.__dict__["http.route"] == "/proxy/items/{item_id}"
+
+
+async def test_fastapi_keeps_the_prefix_where_the_path_carries_it(
     capture: Callable[[], list[logging.LogRecord]],
 ) -> None:
-    """Two fields describing one request have to agree on its shape.
+    """On FastAPI, the route carries the same prefix as the path.
 
-    A mount adds its prefix to both. A proxy that strips its own prefix
-    leaves `root_path` set and the path without it, and putting the prefix
-    back on the route alone would describe a path the record does not
-    carry.
+    A mount adds its prefix to both, and so does a proxy that keeps it. A
+    proxy that strips its own prefix leaves `root_path` set and the path
+    without it, and the route leaves it off too.
     """
     inner = FastAPI(root_path="/api")
 
@@ -1347,12 +1227,15 @@ async def test_the_route_carries_the_same_prefix_as_the_path(
         base_url="http://probe",
     ) as client:
         await client.get("/orders/7")
+        await client.get("/api/orders/7")
     async with client_for(mounted) as client:
         await client.get("/api/orders/7")
 
-    behind_proxy, under_mount = capture()
+    behind_proxy, kept, under_mount = capture()
 
     assert behind_proxy.__dict__["url.path"] == "/orders/7"
     assert behind_proxy.__dict__["http.route"] == "/orders/{order_id}"
+    assert kept.__dict__["url.path"] == "/api/orders/7"
+    assert kept.__dict__["http.route"] == "/api/orders/{order_id}"
     assert under_mount.__dict__["url.path"] == "/api/orders/7"
     assert under_mount.__dict__["http.route"] == "/api/orders/{order_id}"

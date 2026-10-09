@@ -10,26 +10,45 @@ import functools
 import itertools
 import re
 from ipaddress import IPv6Address, ip_address
-from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
 from pydantic import BeforeValidator
 from typing_extensions import Doc
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, MutableMapping, Sequence
+    from collections.abc import (
+        Awaitable,
+        Callable,
+        Iterator,
+        MutableMapping,
+        Sequence,
+    )
     from re import Pattern
 
+    Scope = MutableMapping[str, Any]
+    Message = MutableMapping[str, Any]
+    Receive = Callable[[], Awaitable[Message]]
+    Send = Callable[[Message], Awaitable[None]]
+    ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
+    RouteReader = Callable[[Scope, str, str, int | None], str | None]
+    """How an app names the route template of a request it answers.
+
+    Called with the scope, the root path and the path the request arrived
+    with, and the status it was answered with, `None` before one started.
+    """
+
 __all__ = [
+    "ACCESS_RECORDED_KEY",
     "BARE_METHOD_MESSAGE",
     "BARE_NAME_MESSAGE",
     "BARE_STRING_MESSAGE",
     "MALFORMED_JSON_MESSAGE",
     "ROUTE_KEY",
-    "ROUTE_OF_KEY",
-    "Answered",
+    "ROUTE_READER_KEY",
     "FieldNames",
     "MethodNames",
     "PathPatterns",
+    "RouteReading",
     "as_patterns",
     "compile_mount",
     "compile_route",
@@ -38,9 +57,9 @@ __all__ = [
     "litestar_mount",
     "litestar_owned_handler",
     "litestar_route_handler",
-    "litestar_route_template",
     "matches",
     "names_route",
+    "read_route",
     "refuse_bare_method",
     "refuse_bare_name",
     "refuse_bare_string",
@@ -102,19 +121,42 @@ send them looking for the mistake they did not make.
 ROUTE_KEY: Final = "grelmicro.route"
 """Where the route a refused request names is left, `None` when no route answers it."""
 
-ROUTE_OF_KEY: Final = "grelmicro.route_of"
-"""Where an installed app leaves how to read a request's route, and the request as it arrived."""
+ROUTE_READER_KEY: Final = "grelmicro.route_reader"
+"""Where an installed app leaves its route reader, and how the request arrived.
+
+Held as the reader, the root path and the path the request arrived with.
+"""
+
+ACCESS_RECORDED_KEY: Final = "grelmicro.access_recorded"
+"""Where a request an access log records is marked, so a nested one writes nothing."""
 
 
-class Answered(NamedTuple):
-    """A request as it arrived, and the status it was answered with."""
+class RouteReading:
+    """Leave an app's route reader in the scope, with the request as it arrived.
 
-    root_path: str
-    """The root path the request arrived with."""
-    path: str
-    """The path the request arrived with."""
-    status: int | None
-    """The status of the answer, `None` before one started."""
+    Wraps the whole app. The first one a request goes through leaves its
+    reader, so inside a mount the outermost installed app's reader stays.
+    `route_template` reads the route through it.
+    """
+
+    __slots__ = ("app", "reader")
+
+    def __init__(self, app: ASGIApp, *, reader: RouteReader) -> None:
+        """Wrap `app`, whose requests `reader` names the route of."""
+        self.app = app
+        self.reader = reader
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        """Leave the reader, unless an outer app left one, then run the app."""
+        if scope["type"] != "lifespan" and ROUTE_READER_KEY not in scope:
+            scope[ROUTE_READER_KEY] = (
+                self.reader,
+                scope.get("root_path", ""),
+                scope["path"],
+            )
+        await self.app(scope, receive, send)
 
 
 def _refuse(value: Any, message: str) -> Any:  # noqa: ANN401
@@ -366,25 +408,6 @@ def _litestar_mounted_path(app: Any, handler: Any, remaining: str) -> str:  # no
         RuntimeError: If the router lists no mount for the handler.
     """
     return _litestar_normalize()(f"{litestar_mount(app, handler)}{remaining}")
-
-
-def litestar_route_template(app: Any, path: str) -> str:  # noqa: ANN401
-    """Return the template of the route `path` matches, whatever the method.
-
-    For a path a Litestar app matched and refused for its method, so a
-    route holds it.
-    """
-    from litestar._asgi.routing_trie.traversal import (  # noqa: PLC0415
-        traverse_route_map,
-    )
-
-    router = app.asgi_router
-    if path in router._plain_routes:  # noqa: SLF001
-        return router.root_route_map_node.children[path].path_template
-    node, _, _ = traverse_route_map(
-        root_node=router.root_route_map_node, path=path
-    )
-    return node.path_template
 
 
 def litestar_mount(app: Any, handler: Any) -> str:  # noqa: ANN401
@@ -1364,57 +1387,51 @@ def _watch_topology_node(  # noqa: PLR0911
         )
 
 
+def read_route(scope: MutableMapping[str, Any]) -> str | None:
+    """Return the route the route reader in the scope names, `None` without one."""
+    reading = scope.get(ROUTE_READER_KEY)
+    if reading is None:
+        return None
+    reader, root_path, path = reading
+    return reader(scope, root_path, path, None)
+
+
 def route_template(
     scope: MutableMapping[str, Any],
     asked: str,
     status: int | None = None,
 ) -> str | None:
-    """Return the route template the request matched, when there is one.
+    """Return the route template of the request, when there is one.
 
-    Read after the router has run, because that is when it has written
-    what it matched into the scope. There is no standard key for it, so
-    each framework is read the way it records it: Litestar writes
-    `path_template`, and FastAPI and Starlette the route they matched.
-    Litestar's key is
-    read only when the app in `scope["app"]` owns the handler in the scope.
-    On FastAPI, a route reached through included routers reads the
-    template with every router prefix. A refused request reads the route
-    its refusal named. A request that arrived at an installed Litestar app
-    as `asked` reads as that app's request spans read it. A request that
-    went through a Starlette mount reads as `starlette_route` reads it,
-    with the template of each mount, and `status` names the route a slash
-    redirect sends it to. A Litestar app's own access log under such a
-    mount, which sees the path without the mount, reads Litestar's
-    template alone. A Litestar mount of an ASGI app reads as `{path}`
-    under the mount.
+    A refused request reads the route its refusal named. A request to an
+    installed Starlette or Litestar app reads the route its route reader
+    names, the one its request span names. A request through several
+    installed apps reads the outermost one's. `status` names the route a
+    slash redirect sends the request to.
 
-    A mount prefix goes back on, so the route reads as the path it
-    grouped, which is what `asked` carries. A proxy that strips its own
+    A FastAPI app reads the route its router recorded, read after the
+    router has run, with every router prefix. A request that went through
+    a mount reads as `starlette_route` reads it, with the template of
+    each mount, and a mounted Litestar app's own route under it. A mount
+    prefix goes back on, so the route reads as the path it grouped, which
+    is what `asked` carries. On FastAPI, a proxy that strips its own
     prefix leaves `root_path` set and the path without it, and there the
-    prefix stays off, for the same reason: the two describe one request
-    and have to agree.
+    prefix stays off.
     """
     if ROUTE_KEY in scope:
         return scope[ROUTE_KEY]
-    reading = scope.get(ROUTE_OF_KEY)
-    if reading is not None and reading[1].path == asked:
-        route_of, arrived = reading
-        kept = asked.startswith(arrived.root_path.rstrip("/"))
-        return route_of(
-            scope, Answered(arrived.root_path if kept else "", asked, status)
-        )
+    reading = scope.get(ROUTE_READER_KEY)
+    if reading is not None:
+        reader, root_path, path = reading
+        return reader(scope, root_path, path, status)
     root = scope.get("root_path", "")
     router = scope.get("router")
-    template = _litestar_template(scope)
-    owned = isinstance(template, str)
-    if (
-        "app_root_path" in scope
-        and router is not None
-        and (not owned or asked.startswith(root.rstrip("/")))
-    ):
+    if "app_root_path" in scope and router is not None:
         root = scope["app_root_path"]
-        template = starlette_route(router, scope, root, asked, status)
-    elif not owned:
+        template = starlette_route(
+            router, scope, root, asked, status, mounted=_litestar_template
+        )
+    else:
         route = scope.get("route")
         template = getattr(
             _included(scope, route) or route, "path_format", None
@@ -1428,7 +1445,7 @@ def route_template(
 
 
 def _litestar_template(scope: MutableMapping[str, Any]) -> str | None:
-    """Return the template of the handler the serving Litestar app matched.
+    """Return the template of the handler a Litestar app mounted under FastAPI matched.
 
     A mounted ASGI app reads as `{path}` under its mount.
     """
@@ -1459,6 +1476,11 @@ def starlette_route(  # noqa: C901
     root_path: Annotated[str, Doc("The root path the request arrived with.")],
     path: Annotated[str, Doc("The path the request arrived with.")],
     status: Annotated[int | None, Doc("The status it was answered with.")],
+    *,
+    mounted: Annotated[
+        Callable[[MutableMapping[str, Any]], str | None],
+        Doc("Reads the route a mounted app of another framework matched."),
+    ],
 ) -> str | None:
     """Return the route template a Starlette router matched, under the root path.
 
@@ -1468,10 +1490,10 @@ def starlette_route(  # noqa: C901
     template of each mount, whether or not its router recorded the mount,
     and through any middleware wrapping a mounted app. When no router
     inside the last mount recorded a route, the one matching again finds
-    is read, then the template a mounted Litestar app wrote, else
-    `{path}`. A FastAPI route reached through included routers reads with
-    every prefix. A request a router redirects to add or drop a trailing
-    slash reads the route it is redirected to.
+    is read, then the one `mounted` reads, else `{path}`. A FastAPI
+    route reached through included routers reads with every prefix. A
+    request a router redirects to add or drop a trailing slash reads the
+    route it is redirected to.
     """
     from starlette.routing import BaseRoute, Host, Match, Mount  # noqa: PLC0415
     from starlette.status import HTTP_307_TEMPORARY_REDIRECT  # noqa: PLC0415
@@ -1539,7 +1561,7 @@ def starlette_route(  # noqa: C901
     if route:
         walked = template(scope, matched)
     elif walked is None:
-        walked = _litestar_template(scope)
+        walked = mounted(scope)
     if walked is not None:
         return mounts + walked
     return redirected() or mounts + "/{path}"

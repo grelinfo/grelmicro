@@ -29,6 +29,7 @@ from grelmicro._config import (
 )
 from grelmicro._paths import (
     _PREFIX,
+    ACCESS_RECORDED_KEY,
     PathPatterns,
     as_patterns,
     matches,
@@ -164,6 +165,12 @@ class AccessLogMiddleware:
     conventions](https://opentelemetry.io/docs/specs/semconv/http/http-spans/)
     field names, the same ones the request span carries, so a backend reads
     one vocabulary across the log and the trace.
+
+    A request already seen by an access log further out, such as the one
+    of an installed app mounting this one, is passed through, so each
+    request writes one record. The outermost access log decides, its
+    `include` and `exclude` included: a path it leaves out is not
+    recorded by a nested one either.
     """
 
     def __init__(
@@ -245,9 +252,10 @@ class AccessLogMiddleware:
         self, scope: Scope, receive: Receive, send: Send
     ) -> None:
         """Time the request, then write what it did."""
-        if scope["type"] != "http":
+        if scope["type"] != "http" or ACCESS_RECORDED_KEY in scope:
             await self.app(scope, receive, send)
             return
+        scope[ACCESS_RECORDED_KEY] = None
         # One read, at the top, for the whole request. A reconfigure
         # publishes a new snapshot between requests, and one already
         # running finishes on the one it started with.

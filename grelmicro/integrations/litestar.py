@@ -7,6 +7,7 @@ import warnings
 from typing import TYPE_CHECKING, Annotated, Any, Final, cast
 
 from litestar import Litestar
+from litestar._asgi.routing_trie.traversal import traverse_route_map
 from litestar.exceptions import (
     HTTPException,
     LitestarException,
@@ -20,11 +21,10 @@ from typing_extensions import Doc
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
 from grelmicro._paths import (
-    ROUTE_OF_KEY,
-    Answered,
+    RouteReading,
     litestar_mount,
     litestar_owned_handler,
-    litestar_route_template,
+    read_route,
 )
 from grelmicro.errors import (
     MiddlewarePlacementWarning,
@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from litestar.response import Response
 
     from grelmicro import Grelmicro
+    from grelmicro._paths import RouteReader
     from grelmicro.http import Gate
     from grelmicro.http._kinds import Unhandled
     from grelmicro.security.principal import VerifiedToken
@@ -122,7 +123,8 @@ def install(
     marked request.
 
     With `Trace` or `Metrics` registered, records the request span and the
-    HTTP server metrics of every request.
+    HTTP server metrics of every request. The request span, the access
+    record and the security event of a request name the same route.
 
     When `ambient` is `True`, wraps the app's ASGI handler so patterns resolve
     through `Grelmicro.current()` inside route handlers. The wrap sits outside
@@ -184,56 +186,41 @@ def install(
         app.asgi_handler = cast(
             "Any", GrelmicroMiddleware(handler, micro=micro)
         )
-    _wire_route_reading(app)
-    _wire_request_telemetry(app, micro)
+    reader = _wire_route_reading(app)
+    _wire_request_telemetry(app, micro, reader)
 
 
-class _RouteReading:
-    """Leave how `app` reads a request's route in the scope, with the request.
+def _wire_route_reading(app: Litestar) -> RouteReader:
+    """Leave the route reader of `app` in the scope of every request, and return it.
 
-    The access log and security events then read the route the request
-    spans read, even after an app mounted with a shared scope rewrote it.
-    An app mounted under another installed app leaves the outer one's.
+    The reading wraps the app's ASGI handler, outside the binding. The
+    first install wires it, and a later one returns the same reader.
     """
-
-    def __init__(
-        self, app: ASGIApp, *, route: Callable[[Scope, Answered], str | None]
-    ) -> None:
-        self.app = app
-        self._route = route
-
-    async def __call__(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
-        if scope["type"] != "lifespan" and ROUTE_OF_KEY not in scope:
-            scope[ROUTE_OF_KEY] = (
-                self._route,
-                Answered(scope.get("root_path", ""), scope["path"], None),
-            )
-        await self.app(scope, receive, send)
-
-
-def _wire_route_reading(app: Litestar) -> None:
-    """Read the route of a request to `app` the way its request spans do."""
-    if _wrapped_already(app.asgi_handler, _RouteReading):
-        return
-    options: dict[str, Any] = {"route": _route_of(app)}
+    reading = _wrapper_in(app.asgi_handler, RouteReading)
+    if reading is not None:
+        return reading.reader
+    reader = _route_reader(app)
+    options: dict[str, Any] = {"reader": reader}
     binding = app.asgi_handler
     if isinstance(binding, GrelmicroMiddleware):
-        _wrap_outside(binding, _RouteReading, options)
+        _wrap_outside(binding, RouteReading, options)
     else:
         app.asgi_handler = cast(
-            "Any", _RouteReading(cast("ASGIApp", binding), **options)
+            "Any", RouteReading(cast("ASGIApp", binding), **options)
         )
+    return reader
 
 
-def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
+def _wire_request_telemetry(
+    app: Litestar, micro: Grelmicro, reader: RouteReader
+) -> None:
     """Record the request telemetry of `app` when `micro` exports it.
 
     The recorder goes over everything the app built, under the binding, and
-    an `after_exception` hook hands it the exceptions no handler answers. A
-    `Trace` that is off, or whose `instrument` leaves out `litestar`, turns
-    the request spans off and keeps the metrics.
+    an `after_exception` hook hands it the exceptions no handler answers.
+    `reader` names the route. A `Trace` that is off, or whose `instrument`
+    leaves out `litestar`, turns the request spans off and keeps the
+    metrics.
     """
     tracing = request_spans(micro.components, "litestar")
     if tracing is None:
@@ -250,7 +237,7 @@ def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
     if _wrapped_already(app.asgi_handler, RequestTelemetry):
         return
     options: dict[str, Any] = {
-        "route": _route_of(app),
+        "route": reader,
         "tracing": tracing,
         "exclude": excluding("litestar"),
         "methods": known_methods(),
@@ -284,8 +271,8 @@ def _wire_request_telemetry(app: Litestar, micro: Grelmicro) -> None:
     app.after_exception.append(cast("Any", record))
 
 
-def _route_of(app: Litestar) -> Callable[[Scope, Answered], str | None]:
-    """Return how to read the route template a request to `app` matched.
+def _route_reader(app: Litestar) -> RouteReader:
+    """Return the route reader of `app`.
 
     Router prefixes are included. A mounted ASGI app reads as `{path}`
     under its mount, and a mounted Litestar app as its own route under
@@ -294,16 +281,18 @@ def _route_of(app: Litestar) -> Callable[[Scope, Answered], str | None]:
     preflight, reads no route.
     """
 
-    def route(scope: Scope, answered: Answered) -> str | None:
+    def route(
+        scope: Scope, root_path: str, path: str, status: int | None
+    ) -> str | None:
         handler = litestar_owned_handler(app, scope.get("route_handler"))
         template: str | None = (
             _handler_template(app, handler, scope["path_template"])
             if scope.get("litestar_app") is app and handler is not None
-            else _routed_template(app, scope, answered)
+            else _routed_template(app, scope, root_path, path, status)
         )
         if template is None:
             return None
-        return answered.root_path.rstrip("/") + template
+        return root_path.rstrip("/") + template
 
     return route
 
@@ -316,7 +305,11 @@ def _handler_template(app: Litestar, handler: Any, template: str) -> str:  # noq
 
 
 def _routed_template(
-    app: Litestar, scope: Scope, answered: Answered
+    app: Litestar,
+    scope: Scope,
+    root_path: str,
+    path: str,
+    status: int | None,
 ) -> str | None:
     """Return the template of the route `app` routes the request's path to.
 
@@ -325,7 +318,6 @@ def _routed_template(
     before routing. A mounted Litestar app adds the route it matched.
     `None` when no route of `app` matched the request.
     """
-    root_path, path, status = answered
     routed = path.split(root_path, maxsplit=1)[-1] if root_path else path
     routed = normalize_path(routed)
     router = app.asgi_router
@@ -334,7 +326,7 @@ def _routed_template(
     except MethodNotAllowedException:
         if status != HTTP_405_METHOD_NOT_ALLOWED:
             return None
-        return litestar_route_template(app, routed)
+        return _template_matching(app, routed)
     except Exception:  # noqa: BLE001
         return None
     if not getattr(handler, "is_mount", False):
@@ -351,6 +343,21 @@ def _routed_template(
     ):
         return mount.rstrip("/") + inner_template
     return mount.rstrip("/") + "/{path}"
+
+
+def _template_matching(app: Litestar, path: str) -> str:
+    """Return the template of the route `path` matches, whatever the method.
+
+    For a path the app matched and refused for its method, so a route
+    holds it.
+    """
+    router = app.asgi_router
+    if path in router._plain_routes:  # noqa: SLF001
+        return router.root_route_map_node.children[path].path_template
+    node, _, _ = traverse_route_map(
+        root_node=router.root_route_map_node, path=path
+    )
+    return node.path_template
 
 
 def _raised_by_app(exc: BaseException) -> BaseException:
@@ -625,12 +632,21 @@ def install_route_gate(
         wrapped = gate(
             asgi_app,
             declaration,
-            name=functools.partial(template_under_root, declaration.path),
+            name=functools.partial(_gated_route, declaration.path),
         )
         gated[id(asgi_app)] = (asgi_app, wrapped)
         return wrapped
 
     _gate_router(app.asgi_router, gated_for)
+
+
+def _gated_route(declared: str, scope: Scope) -> str:
+    """Return the route a gate refused, as the app's route reader names it.
+
+    Falls back to the path the route was declared with, under the root
+    path, on an app no route reader was left for.
+    """
+    return read_route(scope) or template_under_root(declared, scope)
 
 
 def _gate_router(
@@ -1106,13 +1122,18 @@ def _declared_by_app(app: Litestar, component: Any) -> bool:  # noqa: ANN401
 
 def _wrapped_already(handler: object, middleware: type[Any]) -> bool:
     """Return whether the handler chain already holds one of these."""
+    return _wrapper_in(handler, middleware) is not None
+
+
+def _wrapper_in[M](handler: object, middleware: type[M]) -> M | None:
+    """Return the first of these the handler chain holds, if any."""
     seen = 0
     while handler is not None and seen < _MAX_CHAIN:
         if isinstance(handler, middleware):
-            return True
+            return handler
         handler = getattr(handler, "app", None)
         seen += 1
-    return False
+    return None
 
 
 _MAX_CHAIN = 32

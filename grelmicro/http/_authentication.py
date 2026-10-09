@@ -33,6 +33,7 @@ from grelmicro._caller import is_authenticated, subject_of
 from grelmicro._config import build_config
 from grelmicro._discovery import load_integration
 from grelmicro._paths import (
+    ROUTE_READER_KEY,
     PathPatterns,
     _has_configured_middleware,
     _is_mount,
@@ -663,10 +664,12 @@ class _PublicRoutes:
         """Return the template of the route a request is served by, before routing.
 
         For a refusal the middleware answers before the router runs, so the
-        record names the route rather than the path. A prefix a proxy
-        stripped stays off, as it does once the router has run. Inside a
-        mount the root path the request arrived with is read, since the
-        mount has added its own prefix to `root_path`.
+        record names the route rather than the path. On an installed
+        Starlette or Litestar app the root path goes on, as the request
+        span names the route. On FastAPI a prefix a proxy stripped stays
+        off, as it does once the router has run. Inside a mount the root
+        path the request arrived with is read, since the mount has added
+        its own prefix to `root_path`.
         """
         routes = self._apps.get(scope.get("app"))
         path = scope["path"]
@@ -681,7 +684,11 @@ class _PublicRoutes:
             )
         )
         root = root_path.rstrip("/")
-        if template is None or not root or not path.startswith(root):
+        if (
+            template is None
+            or not root
+            or not (ROUTE_READER_KEY in scope or path.startswith(root))
+        ):
             return template
         return f"{root}{template}"
 

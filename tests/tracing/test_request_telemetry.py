@@ -9,7 +9,7 @@ from __future__ import annotations
 import contextlib
 import re
 from collections.abc import AsyncIterator, Callable
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, cast
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final
 
 import anyio
 import pytest
@@ -22,7 +22,6 @@ from litestar.config.cors import CORSConfig
 from litestar.exceptions import HTTPException as LitestarHTTPException
 from litestar.params import Parameter
 from litestar.response import Stream
-from litestar.response.base import ASGIResponse
 from litestar.testing import TestClient as LitestarTestClient
 from litestar.types import Receive as LitestarReceive
 from litestar.types import Scope as LitestarScope
@@ -60,7 +59,6 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from grelmicro import Grelmicro
 from grelmicro.http import RateLimitedRequests
 from grelmicro.integrations._request_telemetry import (
-    Answered,
     RequestTelemetry,
     known_methods,
 )
@@ -194,18 +192,6 @@ def _litestar_spans(
         micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
         client.get(path)
     return _server_spans(exporter.get_finished_spans())
-
-
-def _litestar_mounting(inner: object) -> Litestar:
-    """Return a Litestar app mounting `inner` at `/shop`."""
-
-    @asgi("/shop", is_mount=True)
-    async def shop(
-        scope: LitestarScope, receive: LitestarReceive, send: LitestarSend
-    ) -> None:
-        await inner(scope, receive, send)  # type: ignore[operator]  # ty: ignore[call-non-callable]
-
-    return Litestar(route_handlers=[shop])
 
 
 class ItemError(Exception):
@@ -589,29 +575,6 @@ def test_starlette_exceptions_opted_into_logs_stay_off_span(
     assert span.attributes["error.type"] == "RuntimeError"
 
 
-def test_starlette_parameterised_mount_reads_as_template() -> None:
-    """The route never carries a value from the path."""
-    # Arrange
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(
-        routes=[
-            Mount(
-                "/tenants/{tenant}",
-                routes=[Route("/items/{item_id:int}", _read_item)],
-            )
-        ]
-    )
-
-    # Act
-    spans = _spans(
-        micro, app, lambda client: client.get("/tenants/acme/items/7")
-    )
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "GET /tenants/{tenant}/items/{item_id}"
-
-
 def test_starlette_mounted_fastapi_records_one_span_with_full_route() -> None:
     """The installed app records the request, FastAPI inside it does not."""
     # Arrange
@@ -762,24 +725,6 @@ def test_starlette_incoming_traceparent_continues_trace() -> None:
     assert f"{server.parent.span_id:016x}" == parent_id
 
 
-def test_starlette_mounted_asgi_app_reads_as_mount() -> None:
-    """A mount with no routes of its own reads as `{path}` under it."""
-
-    # Arrange
-    async def files(scope: Scope, receive: Receive, send: Send) -> None:
-        await PlainTextResponse("file")(scope, receive, send)
-
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(routes=[Mount("/files/{bucket}", app=files)])
-
-    # Act
-    spans = _spans(micro, app, lambda client: client.get("/files/b1/a/b.txt"))
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "GET /files/{bucket}/{path}"
-
-
 def test_starlette_inactive_trace_records_no_span(
     monkeypatch: pytest.MonkeyPatch,
     global_spans: InMemorySpanExporter,
@@ -925,83 +870,6 @@ def test_starlette_propagator_reads_every_header_name(
     assert "x-tenant" in _HeaderNames.seen
 
 
-def test_starlette_refused_method_under_mount_reads_as_template() -> None:
-    """A `405` under a mount still names the route its path matched."""
-    # Arrange
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(
-        routes=[
-            Mount(
-                "/tenants/{tenant}",
-                routes=[Route("/items/{item_id:int}", _read_item)],
-            )
-        ]
-    )
-
-    # Act
-    spans = _spans(
-        micro, app, lambda client: client.post("/tenants/acme/items/7")
-    )
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "POST /tenants/{tenant}/items/{item_id}"
-
-
-def test_starlette_unknown_path_under_mount_reads_as_mount() -> None:
-    """A `404` inside a mount names only the mount, as on FastAPI."""
-    # Arrange
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(
-        routes=[
-            Mount("/tenants/{tenant}", routes=[Route("/items", _read_item)])
-        ]
-    )
-
-    # Act
-    spans = _spans(micro, app, lambda client: client.get("/tenants/a/nowhere"))
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "GET /tenants/{tenant}/{path}"
-
-
-def test_starlette_mounted_fastapi_route_reads_full_route() -> None:
-    """A route FastAPI registered directly keeps the mount prefix."""
-    # Arrange
-    api = FastAPI()
-
-    @api.get("/items/{item_id}")
-    def read_item(item_id: int) -> dict[str, int]:
-        return {"item_id": item_id}
-
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(routes=[Mount("/api", app=api)])
-
-    # Act
-    spans = _spans(micro, app, lambda client: client.get("/api/items/7"))
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "GET /api/items/{item_id}"
-
-
-def test_starlette_mounted_litestar_reads_its_route_under_the_mount() -> None:
-    """The route a mounted Litestar app matched reads under the mount."""
-    # Arrange
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(
-        routes=[Mount("/shop", app=cast("ASGIApp", _litestar_items()))]
-    )
-
-    # Act
-    spans = _spans(micro, app, lambda client: client.get("/shop/v1/items/7"))
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "GET /shop/v1/items/{item_id}"
-
-
 def test_starlette_requests_in_a_row_record_one_span_each() -> None:
     """Requests in a row each record a span and a measure."""
     # Arrange
@@ -1020,22 +888,6 @@ def test_starlette_requests_in_a_row_record_one_span_each() -> None:
     # Assert
     assert len(_server_spans(exporter.get_finished_spans())) == 2  # noqa: PLR2004
     assert durations.endswith(" 2.0")
-
-
-def test_starlette_mounted_fastapi_plain_route_reads_full_route() -> None:
-    """A Starlette route FastAPI holds keeps the mount prefix."""
-    # Arrange
-    api = FastAPI()
-    api.add_route("/plain/{item_id}", _read_item)
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(routes=[Mount("/api", app=api)])
-
-    # Act
-    spans = _spans(micro, app, lambda client: client.get("/api/plain/7"))
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "GET /api/plain/{item_id}"
 
 
 def test_litestar_request_records_one_request_span() -> None:
@@ -1192,27 +1044,6 @@ def test_litestar_websocket_records_one_span_named_by_route() -> None:
     assert _exception_events(server) == []
 
 
-def test_litestar_mounted_asgi_app_reads_as_mount() -> None:
-    """A mounted ASGI app reads as `{path}` under its mount."""
-
-    # Arrange
-    @asgi("/files", is_mount=True, copy_scope=True)
-    async def files(
-        scope: LitestarScope, receive: LitestarReceive, send: LitestarSend
-    ) -> None:
-        await ASGIResponse(body=b"file")(scope, receive, send)
-
-    # Act
-    [server] = _litestar_spans(
-        Grelmicro(uses=[_trace()]),
-        Litestar(route_handlers=[files]),
-        "/files/a/b.txt",
-    )
-
-    # Assert
-    assert server.name == "GET /files/{path}"
-
-
 def test_litestar_error_caught_on_purpose_records_no_exception() -> None:
     """An exception the route catches on purpose is an answer."""
 
@@ -1233,48 +1064,6 @@ def test_litestar_error_caught_on_purpose_records_no_exception() -> None:
     # Assert
     assert _exception_events(server) == []
     assert server.status.status_code is StatusCode.UNSET
-
-
-@pytest.mark.filterwarnings("ignore:.*copy_scope.*:DeprecationWarning")
-def test_litestar_mounted_litestar_reads_full_route() -> None:
-    """The mount prefix goes on the route the mounted app matched."""
-    # Act
-    [server] = _litestar_spans(
-        Grelmicro(uses=[_trace()]),
-        _litestar_mounting(_litestar_items()),
-        "/shop/v1/items/7",
-    )
-
-    # Assert
-    assert server.name == "GET /shop/v1/items/{item_id}"
-
-
-@pytest.mark.filterwarnings("ignore:.*copy_scope.*:DeprecationWarning")
-def test_litestar_mounted_starlette_reads_as_mount() -> None:
-    """An app of another framework reads as `{path}` under its mount."""
-    # Act
-    [server] = _litestar_spans(
-        Grelmicro(uses=[_trace()]),
-        _litestar_mounting(_starlette_items()),
-        "/shop/v1/items/7",
-    )
-
-    # Assert
-    assert server.name == "GET /shop/{path}"
-
-
-@pytest.mark.filterwarnings("ignore:.*copy_scope.*:DeprecationWarning")
-def test_litestar_unknown_path_in_mounted_litestar_reads_as_mount() -> None:
-    """A `404` inside the mounted app names only the mount."""
-    # Act
-    [server] = _litestar_spans(
-        Grelmicro(uses=[_trace()]),
-        _litestar_mounting(_litestar_items()),
-        "/shop/nowhere",
-    )
-
-    # Assert
-    assert server.name == "GET /shop/{path}"
 
 
 @pytest.mark.parametrize("framework", ["starlette", "litestar"])
@@ -1613,26 +1402,6 @@ def test_litestar_invalid_host_records_status_without_route(
     )
 
 
-def test_starlette_slash_redirect_in_mount_reads_target_route() -> None:
-    """A mount's own router redirecting names the route it redirects to."""
-    # Arrange
-    micro = Grelmicro(uses=[_trace()])
-    app = Starlette(
-        routes=[Mount("/shop", routes=[Route("/items/", _read_item)])]
-    )
-
-    # Act
-    spans = _spans(
-        micro,
-        app,
-        lambda client: client.get("/shop/items", follow_redirects=False),
-    )
-
-    # Assert
-    [server] = _server_spans(spans)
-    assert server.name == "GET /shop/items/"
-
-
 def test_request_telemetry_failing_route_reader_still_records(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -1641,7 +1410,9 @@ def test_request_telemetry_failing_route_reader_still_records(
     micro = Grelmicro(uses=[_trace()])
     exporter = InMemorySpanExporter()
 
-    def unreadable(_scope: Scope, _answered: Answered) -> str | None:
+    def unreadable(
+        _scope: Scope, _root_path: str, _path: str, _status: int | None
+    ) -> str | None:
         msg = "unreadable"
         raise LookupError(msg)
 

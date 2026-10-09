@@ -403,6 +403,31 @@ class TestRoute:
         [record] = events
         assert field(record, "http.route") is None
 
+    def test_a_litestar_middleware_added_by_hand_names_no_route(
+        self, events: list[logging.LogRecord]
+    ) -> None:
+        """Behind the router too, without `install` no route was read."""
+
+        @litestar_get("/orders")
+        async def orders() -> str:
+            return "orders"  # pragma: no cover
+
+        app = Litestar(
+            [orders],
+            middleware=[
+                DefineMiddleware(
+                    cast("Any", AuthenticatedRequestsMiddleware),
+                    verifier=verifier(),
+                )
+            ],
+        )
+
+        with LitestarTestClient(app) as client:
+            client.get("/orders", headers=bearer(token(FORGER)))
+
+        [record] = events
+        assert field(record, "http.route") is None
+
 
 def orders() -> APIRouter:
     """Return a router whose `/{order_id}` route needs `orders:write`."""
@@ -1575,37 +1600,6 @@ class TestMutationGaps:
         )
 
         assert template == expected
-
-    @pytest.mark.parametrize(
-        ("root_path", "expected"), [("", "/orders"), ("/api", "/api/orders")]
-    )
-    def test_a_template_the_router_recorded_is_used_as_is(
-        self,
-        events: list[logging.LogRecord],
-        root_path: str,
-        expected: str,
-    ) -> None:
-        """A middleware behind a router reads what the router matched."""
-
-        @litestar_get("/orders")
-        async def orders() -> str:
-            return "orders"  # pragma: no cover
-
-        app = Litestar(
-            [orders],
-            middleware=[
-                DefineMiddleware(
-                    cast("Any", AuthenticatedRequestsMiddleware),
-                    verifier=verifier(),
-                )
-            ],
-        )
-
-        with LitestarTestClient(app, root_path=root_path) as client:
-            client.get(f"{root_path}/orders", headers=bearer(token(FORGER)))
-
-        [record] = events
-        assert field(record, "http.route") == expected
 
 
 async def _call(
