@@ -245,7 +245,7 @@ class SQLiteProvider(Provider):
         """Shared lock serializing access to the single connection."""
         return self._lock
 
-    def ratelimiter(self, **kwargs: Any) -> SQLiteRateLimiterAdapter:  # noqa: ANN401
+    def ratelimiter_backend(self, **kwargs: Any) -> SQLiteRateLimiterAdapter:  # noqa: ANN401
         """Build a `SQLiteRateLimiterAdapter` bound to this provider."""
         from grelmicro.resilience.ratelimiter.sqlite import (  # noqa: PLC0415
             SQLiteRateLimiterAdapter,
@@ -253,7 +253,7 @@ class SQLiteProvider(Provider):
 
         return SQLiteRateLimiterAdapter(provider=self, **kwargs)
 
-    def lock(self, **kwargs: Any) -> SQLiteLockAdapter:  # noqa: ANN401
+    def lock_backend(self, **kwargs: Any) -> SQLiteLockAdapter:  # noqa: ANN401
         """Build a `SQLiteLockAdapter` bound to this provider."""
         from grelmicro.coordination.sqlite import (  # noqa: PLC0415
             SQLiteLockAdapter,
@@ -261,7 +261,7 @@ class SQLiteProvider(Provider):
 
         return SQLiteLockAdapter(provider=self, **kwargs)
 
-    def readwritelock(
+    def readwritelock_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> SQLiteReadWriteLockAdapter:
@@ -272,7 +272,7 @@ class SQLiteProvider(Provider):
 
         return SQLiteReadWriteLockAdapter(provider=self, **kwargs)
 
-    def schedule(self, **kwargs: Any) -> SQLiteScheduleAdapter:  # noqa: ANN401
+    def schedule_backend(self, **kwargs: Any) -> SQLiteScheduleAdapter:  # noqa: ANN401
         """Build a `SQLiteScheduleAdapter` bound to this provider."""
         from grelmicro.coordination.sqlite import (  # noqa: PLC0415
             SQLiteScheduleAdapter,
@@ -280,7 +280,7 @@ class SQLiteProvider(Provider):
 
         return SQLiteScheduleAdapter(provider=self, **kwargs)
 
-    def cache(self, **kwargs: Any) -> SQLiteCacheAdapter:  # noqa: ANN401
+    def cache_backend(self, **kwargs: Any) -> SQLiteCacheAdapter:  # noqa: ANN401
         """Build a `SQLiteCacheAdapter` bound to this provider."""
         from grelmicro.cache.sqlite import (  # noqa: PLC0415
             SQLiteCacheAdapter,
@@ -288,7 +288,10 @@ class SQLiteProvider(Provider):
 
         return SQLiteCacheAdapter(provider=self, **kwargs)
 
-    def circuitbreaker(self, **kwargs: Any) -> SQLiteCircuitBreakerAdapter:  # noqa: ANN401
+    def circuitbreaker_backend(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> SQLiteCircuitBreakerAdapter:
         """Build a `SQLiteCircuitBreakerAdapter` bound to this provider."""
         from grelmicro.resilience.circuitbreaker.sqlite import (  # noqa: PLC0415
             SQLiteCircuitBreakerAdapter,

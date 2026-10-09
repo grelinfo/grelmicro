@@ -115,11 +115,13 @@ def test_client_before_open_raises() -> None:
 def test_factories_return_adapters() -> None:
     """The provider builds an adapter for every supported component."""
     provider = SQLiteProvider("x.db")
-    assert isinstance(provider.ratelimiter(), SQLiteRateLimiterAdapter)
-    assert isinstance(provider.lock(), SQLiteLockAdapter)
-    assert isinstance(provider.schedule(), SQLiteScheduleAdapter)
-    assert isinstance(provider.cache(), SQLiteCacheAdapter)
-    assert isinstance(provider.circuitbreaker(), SQLiteCircuitBreakerAdapter)
+    assert isinstance(provider.ratelimiter_backend(), SQLiteRateLimiterAdapter)
+    assert isinstance(provider.lock_backend(), SQLiteLockAdapter)
+    assert isinstance(provider.schedule_backend(), SQLiteScheduleAdapter)
+    assert isinstance(provider.cache_backend(), SQLiteCacheAdapter)
+    assert isinstance(
+        provider.circuitbreaker_backend(), SQLiteCircuitBreakerAdapter
+    )
 
 
 async def test_open_and_close(tmp_path: Path) -> None:
@@ -244,10 +246,13 @@ async def test_enable_wal_raises_other_errors_at_once() -> None:
 @pytest.mark.parametrize(
     "build_adapter",
     [
-        pytest.param(lambda provider: provider.cache(), id="cache"),
-        pytest.param(lambda provider: provider.ratelimiter(), id="ratelimiter"),
+        pytest.param(lambda provider: provider.cache_backend(), id="cache"),
         pytest.param(
-            lambda provider: provider.circuitbreaker(), id="circuitbreaker"
+            lambda provider: provider.ratelimiter_backend(), id="ratelimiter"
+        ),
+        pytest.param(
+            lambda provider: provider.circuitbreaker_backend(),
+            id="circuitbreaker",
         ),
     ],
 )

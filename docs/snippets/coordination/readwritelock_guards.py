@@ -29,7 +29,9 @@ async def main() -> None:
     # Memory keeps this demo in one process.
     # The calls are the same on every backend.
     async with MemoryProvider() as provider:
-        lock = ReadWriteLock("catalog", backend=provider.readwritelock())
+        lock = ReadWriteLock(
+            "catalog", backend=provider.readwritelock_backend()
+        )
 
         async with lock.write as writing:
             assert catalog.replace_all(writing, ["apple", "pear"])

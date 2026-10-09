@@ -172,7 +172,7 @@ def test_provider_without_outbox_adapter_raises() -> None:
     from grelmicro.providers.sqlite import SQLiteProvider  # noqa: PLC0415
 
     with pytest.raises(NotImplementedError, match="no outbox adapter"):
-        SQLiteProvider(":memory:").outbox()
+        SQLiteProvider(":memory:").outbox_backend()
 
 
 def test_rebind_provider_swaps_the_pool() -> None:

@@ -94,20 +94,20 @@ async def test_redis_owned_provider_opens_and_closes() -> None:
 
 
 def test_redis_provider_factory() -> None:
-    """`RedisProvider.readwritelock()` returns a bound adapter."""
+    """`RedisProvider.readwritelock_backend()` returns a bound adapter."""
     provider = RedisProvider(REDIS_URL)
 
-    adapter = provider.readwritelock()
+    adapter = provider.readwritelock_backend()
 
     assert isinstance(adapter, RedisReadWriteLockAdapter)
     assert adapter.provider is provider
 
 
 def test_valkey_provider_factory() -> None:
-    """`ValkeyProvider.readwritelock()` reuses the Redis adapter."""
+    """`ValkeyProvider.readwritelock_backend()` reuses the Redis adapter."""
     provider = ValkeyProvider("valkey://test_host:1234/0")
 
-    adapter = provider.readwritelock()
+    adapter = provider.readwritelock_backend()
 
     assert isinstance(adapter, RedisReadWriteLockAdapter)
     assert adapter.provider is provider
@@ -210,10 +210,10 @@ async def test_postgres_owned_provider_opens_and_closes() -> None:
 
 
 def test_postgres_provider_factory() -> None:
-    """`PostgresProvider.readwritelock()` returns a bound adapter."""
+    """`PostgresProvider.readwritelock_backend()` returns a bound adapter."""
     provider = PostgresProvider(POSTGRES_URL)
 
-    adapter = provider.readwritelock()
+    adapter = provider.readwritelock_backend()
 
     assert isinstance(adapter, PostgresReadWriteLockAdapter)
     assert adapter.provider is provider
@@ -223,21 +223,21 @@ def test_postgres_provider_factory() -> None:
 
 
 def test_sqlite_provider_factory() -> None:
-    """`SQLiteProvider.readwritelock()` returns a bound adapter."""
+    """`SQLiteProvider.readwritelock_backend()` returns a bound adapter."""
     provider = SQLiteProvider(":memory:")
 
-    adapter = provider.readwritelock()
+    adapter = provider.readwritelock_backend()
 
     assert isinstance(adapter, SQLiteReadWriteLockAdapter)
     assert adapter.provider is provider
 
 
 def test_memory_provider_caches_one_adapter() -> None:
-    """`MemoryProvider.readwritelock()` hands back one shared adapter."""
+    """`MemoryProvider.readwritelock_backend()` hands back one shared adapter."""
     provider = MemoryProvider()
 
-    first = provider.readwritelock()
-    second = provider.readwritelock()
+    first = provider.readwritelock_backend()
+    second = provider.readwritelock_backend()
 
     assert isinstance(first, MemoryReadWriteLockAdapter)
     assert first is second

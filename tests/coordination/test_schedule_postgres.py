@@ -115,10 +115,10 @@ def test_custom_table_name() -> None:
 
 @pytest.mark.timeout(1)
 def test_provider_factory_returns_postgres_adapter() -> None:
-    """`PostgresProvider.schedule()` returns a bound adapter."""
+    """`PostgresProvider.schedule_backend()` returns a bound adapter."""
     provider = PostgresProvider(URL)
 
-    adapter = provider.schedule()
+    adapter = provider.schedule_backend()
 
     assert isinstance(adapter, PostgresScheduleAdapter)
     assert adapter.provider is provider

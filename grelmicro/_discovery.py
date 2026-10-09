@@ -7,7 +7,8 @@ is no special case.
 
 - `grelmicro.providers` maps a vendor short name to a `Provider` class.
 - `grelmicro.{kind}.adapters` maps a short name to an Adapter class for one
-  component kind (`coordination`, `coordination.election`, `cache`,
+  component kind (`coordination`, `coordination.readwritelock`,
+  `coordination.leaderelection`, `coordination.schedule`, `cache`,
   `ratelimiter`, `circuitbreaker`).
 
 Listing entry points does not import anything. The target module loads only

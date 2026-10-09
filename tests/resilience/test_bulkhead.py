@@ -610,7 +610,7 @@ async def test_uses_names_the_order_when_a_borrow_outruns_its_provider() -> (
     """An adapter that does read the client says what to move, not what broke."""
     provider = _BorrowedProvider()
     bulkhead = Bulkhead(
-        "eager", uses=[Cache(provider.cache(eager=True), name="scoped")]
+        "eager", uses=[Cache(provider.cache_backend(eager=True), name="scoped")]
     )
     refused: list[BaseException] = []
 
@@ -2637,7 +2637,9 @@ class _BorrowedProvider(Provider):
     async def __aexit__(self, *_: object) -> None:
         self.log.append("close")
 
-    def cache(self, *, eager: bool = False, **_: object) -> MemoryCacheAdapter:
+    def cache_backend(
+        self, *, eager: bool = False, **_: object
+    ) -> MemoryCacheAdapter:
         adapter = _EagerAdapter() if eager else MemoryCacheAdapter()
         adapter._provider = self  # ty: ignore[unresolved-attribute]
         adapter._owns_provider = False  # ty: ignore[unresolved-attribute]

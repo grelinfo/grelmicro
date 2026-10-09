@@ -69,6 +69,10 @@ that a client library used to accept.
 | `SettingsValidationError: Invalid lock name ...` from a `TaskLock`, a `LeaderElection` or a gated task | 0.42 | [Pass a valid name](#0-42-lock-names) |
 | `SettingsValidationError: Invalid task name ... The prefix 'task-' is reserved` | 0.42 | [Pass a valid name](#0-42-lock-names) |
 | A dashboard on `grelmicro.lock.name` lost a task defined in a script run directly | 0.42 | [Filter on the new lock name](#0-42-lock-names) |
+| `AttributeError: 'RedisProvider' object has no attribute 'lock'`, or `'cache'`, `'leaderelection'` and the other pattern names | 0.42 | [Call `lock_backend()`](#0-42-backend-names) |
+| `AttributeError: 'Coordination' object has no attribute 'rwlock_backend'` or `'election_backend'` | 0.42 | [Read `readwritelock_backend`](#0-42-backend-names) |
+| `TypeError: Coordination.__init__() got an unexpected keyword argument 'rwlock'` or `'election'` | 0.42 | [Pass `readwritelock=` or `leaderelection=`](#0-42-backend-names) |
+| `TypeError: Rename MyProvider.lock() to lock_backend()` | 0.42 | [Rename it `lock_backend()`](#0-42-backend-names) |
 
 ## 0.42
 
@@ -341,6 +345,45 @@ under a derived name. In a script run directly, `__main__:job` locks under
 `grelmicro.lock.name` metric label, so update dashboards that filter on the
 old one. Workers on the previous version lock it under the old key and do not
 block the new ones, so upgrade every worker running such a task at once.
+
+### Provider methods end in `_backend` {#0-42-backend-names}
+
+A provider method that builds a backend now says so. `Coordination` takes and
+exposes its backends under the same names:
+
+| Before | After |
+|---|---|
+| `provider.lock()` | `provider.lock_backend()` |
+| `provider.readwritelock()` | `provider.readwritelock_backend()` |
+| `provider.leaderelection()` | `provider.leaderelection_backend()` |
+| `provider.schedule()` | `provider.schedule_backend()` |
+| `provider.cache()` | `provider.cache_backend()` |
+| `provider.outbox()` | `provider.outbox_backend()` |
+| `provider.ratelimiter()` | `provider.ratelimiter_backend()` |
+| `provider.circuitbreaker()` | `provider.circuitbreaker_backend()` |
+| `coordination.rwlock_backend` | `coordination.readwritelock_backend` |
+| `coordination.election_backend` | `coordination.leaderelection_backend` |
+| `Coordination(rwlock=...)` | `Coordination(readwritelock=...)` |
+| `Coordination(election=...)` | `Coordination(leaderelection=...)` |
+| `grelmicro.coordination.election.adapters` | `grelmicro.coordination.leaderelection.adapters` |
+
+```python title="fragment"
+# Before
+leader = LeaderElection("worker", backend=redis.leaderelection())
+
+# After
+leader = LeaderElection("worker", backend=redis.leaderelection_backend())
+```
+
+A custom `Provider` renames the methods it overrides the same way, such as
+`def lock_backend(self, **kwargs)`. A subclass that still defines `lock()`
+without `lock_backend()` fails when the class is defined, naming the rename.
+Component methods are unchanged: `micro.coordination.lock("cart")` still
+returns a `Lock`, and `coordination.lock_backend` and
+`coordination.schedule_backend` keep their names.
+
+A plugin that ships a leader election adapter registers it under the
+`grelmicro.coordination.leaderelection.adapters` entry-point group.
 
 ## 0.40
 

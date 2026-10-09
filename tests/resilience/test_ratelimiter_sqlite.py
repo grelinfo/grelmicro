@@ -30,7 +30,7 @@ async def adapter(
     provider: SQLiteProvider,
 ) -> AsyncGenerator[SQLiteRateLimiterAdapter]:
     """Rate limiter adapter bound to the provider."""
-    async with provider.ratelimiter() as backend:
+    async with provider.ratelimiter_backend() as backend:
         yield backend
 
 

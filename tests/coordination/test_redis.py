@@ -59,10 +59,10 @@ def test_backend_env_prefix_passed_to_implicit_provider(
 
 
 def test_provider_factory_returns_redis_backend() -> None:
-    """`RedisProvider.leaderelection()` returns a bound backend."""
+    """`RedisProvider.leaderelection_backend()` returns a bound backend."""
     provider = RedisProvider(URL)
 
-    backend = provider.leaderelection()
+    backend = provider.leaderelection_backend()
 
     assert isinstance(backend, RedisLeaderElectionAdapter)
     assert backend.provider is provider

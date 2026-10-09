@@ -56,10 +56,14 @@ class CoordinationBackend(NamedTuple):
 
 
 COORDINATION_BACKENDS: Final = (
-    CoordinationBackend("lock", "lock", LockBackend),
-    CoordinationBackend("rwlock", "readwritelock", ReadWriteLockBackend),
-    CoordinationBackend("election", "leaderelection", LeaderElectionBackend),
-    CoordinationBackend("schedule", "schedule", ScheduleBackend),
+    CoordinationBackend("lock", "lock_backend", LockBackend),
+    CoordinationBackend(
+        "readwritelock", "readwritelock_backend", ReadWriteLockBackend
+    ),
+    CoordinationBackend(
+        "leaderelection", "leaderelection_backend", LeaderElectionBackend
+    ),
+    CoordinationBackend("schedule", "schedule_backend", ScheduleBackend),
 )
 """Every backend a `Coordination` holds, in wiring order.
 
@@ -96,10 +100,12 @@ class Coordination:
     not need to pass `backend=` on every primitive.
 
     A single positional `Provider` resolves every primitive: the component calls
-    `provider.lock()` for the lock backend, `provider.leaderelection()` for the
-    election backend, and `provider.schedule()` for the cron schedule backend.
-    The `lock=`, `election=`, and `schedule=` keywords set each backend
-    independently, so locks can run on one vendor and leader election on another.
+    `provider.lock_backend()` for the lock backend,
+    `provider.leaderelection_backend()` for the election backend, and
+    `provider.schedule_backend()` for the cron schedule backend.
+    The `lock=`, `readwritelock=`, `leaderelection=`, and `schedule=` keywords
+    set each backend independently, so locks can run on one vendor and leader
+    election on another.
     Each accepts a `Provider`, a backend instance, or a zero-arg class.
 
     Example:
@@ -145,13 +151,13 @@ class Coordination:
                 """
                 A `Provider` (e.g. `RedisProvider`) that resolves every
                 primitive, or one coordination backend. The component calls
-                `provider.lock()` for the lock backend,
-                `provider.leaderelection()` for the election backend, and so
+                `provider.lock_backend()` for the lock backend,
+                `provider.leaderelection_backend()` for the election backend, and so
                 on for each kind the Provider ships. A backend fills the one
                 slot its kind serves, so `Coordination(MemoryLockAdapter())`
                 is `Coordination(lock=MemoryLockAdapter())`. A zero-arg class
-                is instantiated for you. Use `lock=`/`election=` to set
-                either backend independently.
+                is instantiated for you. Use the per-backend keywords to set
+                any backend independently.
                 """,
             ),
         ] = None,
@@ -161,13 +167,13 @@ class Coordination:
             Doc(
                 """
                 The lock backend. A `Provider` resolves it via
-                `provider.lock()`, a `LockBackend` instance is used directly,
+                `provider.lock_backend()`, a `LockBackend` instance is used directly,
                 and a zero-arg class is instantiated for you. Overrides the
                 lock backend resolved from `source`.
                 """,
             ),
         ] = None,
-        election: Annotated[
+        leaderelection: Annotated[
             Provider
             | LeaderElectionBackend
             | type[Provider | LeaderElectionBackend]
@@ -175,14 +181,14 @@ class Coordination:
             Doc(
                 """
                 The leader election backend. A `Provider` resolves it via
-                `provider.leaderelection()`, a `LeaderElectionBackend`
+                `provider.leaderelection_backend()`, a `LeaderElectionBackend`
                 instance is used directly, and a zero-arg class is
                 instantiated for you. Overrides the election backend resolved
                 from `source`.
                 """,
             ),
         ] = None,
-        rwlock: Annotated[
+        readwritelock: Annotated[
             Provider
             | ReadWriteLockBackend
             | type[Provider | ReadWriteLockBackend]
@@ -190,7 +196,7 @@ class Coordination:
             Doc(
                 """
                 The read-write lock backend. A `Provider` resolves it via
-                `provider.readwritelock()`, a `ReadWriteLockBackend` instance
+                `provider.readwritelock_backend()`, a `ReadWriteLockBackend` instance
                 is used directly, and a zero-arg class is instantiated for
                 you. Overrides the read-write lock backend resolved from
                 `source`.
@@ -205,7 +211,7 @@ class Coordination:
             Doc(
                 """
                 The cron schedule backend. A `Provider` resolves it via
-                `provider.schedule()`, a `ScheduleBackend` instance is used
+                `provider.schedule_backend()`, a `ScheduleBackend` instance is used
                 directly, and a zero-arg class is instantiated for you.
                 Overrides the schedule backend resolved from `source`.
                 """,
@@ -238,8 +244,8 @@ class Coordination:
         self._name = name
         self._requires: BackendScope = requires or self.default_requires
         self._lock_backend: LockBackend | None = None
-        self._rwlock_backend: ReadWriteLockBackend | None = None
-        self._election_backend: LeaderElectionBackend | None = None
+        self._readwritelock_backend: ReadWriteLockBackend | None = None
+        self._leaderelection_backend: LeaderElectionBackend | None = None
         self._schedule_backend: ScheduleBackend | None = None
 
         if source is not None:
@@ -261,31 +267,31 @@ class Coordination:
                 instantiate_if_class(lock),
             )
             self._lock_backend = (
-                resolved_lock.lock()
+                resolved_lock.lock_backend()
                 if isinstance(resolved_lock, Provider)
                 else resolved_lock
             )
 
-        if rwlock is not None:
-            resolved_rwlock = cast(
+        if readwritelock is not None:
+            resolved_readwritelock = cast(
                 "Provider | ReadWriteLockBackend",
-                instantiate_if_class(rwlock),
+                instantiate_if_class(readwritelock),
             )
-            self._rwlock_backend = (
-                resolved_rwlock.readwritelock()
-                if isinstance(resolved_rwlock, Provider)
-                else resolved_rwlock
+            self._readwritelock_backend = (
+                resolved_readwritelock.readwritelock_backend()
+                if isinstance(resolved_readwritelock, Provider)
+                else resolved_readwritelock
             )
 
-        if election is not None:
-            resolved_election = cast(
+        if leaderelection is not None:
+            resolved_leaderelection = cast(
                 "Provider | LeaderElectionBackend",
-                instantiate_if_class(election),
+                instantiate_if_class(leaderelection),
             )
-            self._election_backend = (
-                resolved_election.leaderelection()
-                if isinstance(resolved_election, Provider)
-                else resolved_election
+            self._leaderelection_backend = (
+                resolved_leaderelection.leaderelection_backend()
+                if isinstance(resolved_leaderelection, Provider)
+                else resolved_leaderelection
             )
 
         if schedule is not None:
@@ -294,7 +300,7 @@ class Coordination:
                 instantiate_if_class(schedule),
             )
             self._schedule_backend = (
-                resolved_schedule.schedule()
+                resolved_schedule.schedule_backend()
                 if isinstance(resolved_schedule, Provider)
                 else resolved_schedule
             )
@@ -341,36 +347,36 @@ class Coordination:
         return self._lock_backend
 
     @property
-    def rwlock_backend(self) -> ReadWriteLockBackend:
+    def readwritelock_backend(self) -> ReadWriteLockBackend:
         """The underlying `ReadWriteLockBackend`.
 
         Raises:
             CoordinationBackendError: If no read-write lock backend is wired.
         """
-        if self._rwlock_backend is None:
+        if self._readwritelock_backend is None:
             msg = (
                 "Coordination has no read-write lock backend. "
                 "Pass a read-write lock provider as Coordination(provider) or "
-                "Coordination(rwlock=...)."
+                "Coordination(readwritelock=...)."
             )
             raise CoordinationBackendError(msg)
-        return self._rwlock_backend
+        return self._readwritelock_backend
 
     @property
-    def election_backend(self) -> LeaderElectionBackend:
+    def leaderelection_backend(self) -> LeaderElectionBackend:
         """The underlying `LeaderElectionBackend`.
 
         Raises:
             CoordinationBackendError: If no leader election backend is wired.
         """
-        if self._election_backend is None:
+        if self._leaderelection_backend is None:
             msg = (
                 "Coordination has no leader election backend. "
                 "Pass an election provider as Coordination(provider) or "
-                "Coordination(election=...)."
+                "Coordination(leaderelection=...)."
             )
             raise CoordinationBackendError(msg)
-        return self._election_backend
+        return self._leaderelection_backend
 
     @property
     def schedule_backend(self) -> ScheduleBackend:
@@ -411,7 +417,11 @@ class Coordination:
             CoordinationBackendError: If no read-write lock backend is wired.
         """
         return self._build(
-            ReadWriteLock, name, self.rwlock_backend, "rwlock", kwargs
+            ReadWriteLock,
+            name,
+            self.readwritelock_backend,
+            "readwritelock",
+            kwargs,
         )
 
     def leaderelection(
@@ -425,7 +435,11 @@ class Coordination:
             CoordinationBackendError: If no leader election backend is wired.
         """
         return self._build(
-            LeaderElection, name, self.election_backend, "election", kwargs
+            LeaderElection,
+            name,
+            self.leaderelection_backend,
+            "leaderelection",
+            kwargs,
         )
 
     def _build[P](
@@ -455,10 +469,10 @@ class Coordination:
         """Open whichever backends are set."""
         if self._lock_backend is not None:
             await self._lock_backend.__aenter__()
-        if self._rwlock_backend is not None:
-            await self._rwlock_backend.__aenter__()
-        if self._election_backend is not None:
-            await self._election_backend.__aenter__()
+        if self._readwritelock_backend is not None:
+            await self._readwritelock_backend.__aenter__()
+        if self._leaderelection_backend is not None:
+            await self._leaderelection_backend.__aenter__()
         if self._schedule_backend is not None:
             await self._schedule_backend.__aenter__()
         return self
@@ -475,12 +489,14 @@ class Coordination:
                 await self._lock_backend.__aexit__(exc_type, exc, tb)
         finally:
             try:
-                if self._rwlock_backend is not None:
-                    await self._rwlock_backend.__aexit__(exc_type, exc, tb)
+                if self._readwritelock_backend is not None:
+                    await self._readwritelock_backend.__aexit__(
+                        exc_type, exc, tb
+                    )
             finally:
                 try:
-                    if self._election_backend is not None:
-                        await self._election_backend.__aexit__(
+                    if self._leaderelection_backend is not None:
+                        await self._leaderelection_backend.__aexit__(
                             exc_type, exc, tb
                         )
                 finally:

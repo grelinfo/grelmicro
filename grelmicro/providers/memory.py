@@ -35,7 +35,7 @@ class MemoryProvider(Provider):
     Gives Memory the same provider-direct surface as Redis, Postgres, and
     SQLite. Each factory hands back one cached adapter per kind, so the
     provider owns a single in-process store per kind instead of handing out
-    disconnected islands. `memory.lock()` called twice returns the same
+    disconnected islands. `memory.lock_backend()` called twice returns the same
     `MemoryLockAdapter`, so a later call re-fetches the live store for a test
     or an introspection. Wire each kind into one component, the same way you
     would a Redis adapter. The provider owns no external resource: it stores
@@ -73,7 +73,7 @@ class MemoryProvider(Provider):
         """Return a representation of the provider."""
         return "MemoryProvider()"
 
-    def lock(self, **kwargs: Any) -> MemoryLockAdapter:  # noqa: ANN401
+    def lock_backend(self, **kwargs: Any) -> MemoryLockAdapter:  # noqa: ANN401
         """Return the shared `MemoryLockAdapter` for this provider."""
         if self._lock is None:
             from grelmicro.coordination.memory import (  # noqa: PLC0415
@@ -83,7 +83,7 @@ class MemoryProvider(Provider):
             self._lock = MemoryLockAdapter(**kwargs)
         return self._lock
 
-    def readwritelock(
+    def readwritelock_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> MemoryReadWriteLockAdapter:
@@ -96,7 +96,7 @@ class MemoryProvider(Provider):
             self._rwlock = MemoryReadWriteLockAdapter(**kwargs)
         return self._rwlock
 
-    def leaderelection(
+    def leaderelection_backend(
         self,
         **kwargs: Any,  # noqa: ANN401
     ) -> MemoryLeaderElectionAdapter:
@@ -109,7 +109,7 @@ class MemoryProvider(Provider):
             self._leaderelection = MemoryLeaderElectionAdapter(**kwargs)
         return self._leaderelection
 
-    def schedule(self, **kwargs: Any) -> MemoryScheduleAdapter:  # noqa: ANN401
+    def schedule_backend(self, **kwargs: Any) -> MemoryScheduleAdapter:  # noqa: ANN401
         """Return the shared `MemoryScheduleAdapter` for this provider."""
         if self._schedule is None:
             from grelmicro.coordination.memory import (  # noqa: PLC0415
@@ -119,7 +119,7 @@ class MemoryProvider(Provider):
             self._schedule = MemoryScheduleAdapter(**kwargs)
         return self._schedule
 
-    def cache(self, **kwargs: Any) -> MemoryCacheAdapter:  # noqa: ANN401
+    def cache_backend(self, **kwargs: Any) -> MemoryCacheAdapter:  # noqa: ANN401
         """Return the shared `MemoryCacheAdapter` for this provider."""
         if self._cache is None:
             from grelmicro.cache.memory import (  # noqa: PLC0415
@@ -129,7 +129,7 @@ class MemoryProvider(Provider):
             self._cache = MemoryCacheAdapter(**kwargs)
         return self._cache
 
-    def outbox(self, **kwargs: Any) -> MemoryOutboxAdapter:  # noqa: ANN401
+    def outbox_backend(self, **kwargs: Any) -> MemoryOutboxAdapter:  # noqa: ANN401
         """Return the shared `MemoryOutboxAdapter` for this provider.
 
         The staging settings a SQL outbox takes (`table`, `auto_migrate`,
@@ -144,7 +144,7 @@ class MemoryProvider(Provider):
         unexpected = sorted(set(kwargs) - _SQL_OUTBOX_SETTINGS)
         if unexpected:
             msg = (
-                f"MemoryProvider.outbox() got an unexpected keyword argument "
+                f"MemoryProvider.outbox_backend() got an unexpected keyword argument "
                 f"{unexpected[0]!r}"
             )
             raise TypeError(msg)
@@ -156,7 +156,7 @@ class MemoryProvider(Provider):
             self._outbox = MemoryOutboxAdapter()
         return self._outbox
 
-    def ratelimiter(self, **kwargs: Any) -> MemoryRateLimiterAdapter:  # noqa: ANN401
+    def ratelimiter_backend(self, **kwargs: Any) -> MemoryRateLimiterAdapter:  # noqa: ANN401
         """Return the shared `MemoryRateLimiterAdapter` for this provider."""
         if self._ratelimiter is None:
             from grelmicro.resilience.ratelimiter.memory import (  # noqa: PLC0415
@@ -166,7 +166,10 @@ class MemoryProvider(Provider):
             self._ratelimiter = MemoryRateLimiterAdapter(**kwargs)
         return self._ratelimiter
 
-    def circuitbreaker(self, **kwargs: Any) -> MemoryCircuitBreakerAdapter:  # noqa: ANN401
+    def circuitbreaker_backend(
+        self,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> MemoryCircuitBreakerAdapter:
         """Return the shared `MemoryCircuitBreakerAdapter` for this provider."""
         if self._circuitbreaker is None:
             from grelmicro.resilience.circuitbreaker.memory import (  # noqa: PLC0415

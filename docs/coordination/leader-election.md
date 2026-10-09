@@ -85,8 +85,8 @@ Pick the backend that matches your deployment.
 | `KubernetesLeaderElectionAdapter` | A Kubernetes-native deployment. | A `coordination.k8s.io` Lease, metadata in its annotations. |
 
 A `Provider` builds the matching backend for you: `Coordination(redis)` calls
-`redis.leaderelection()`. Pass a backend instance directly when it has no
-provider, like the Kubernetes Lease.
+`redis.leaderelection_backend()`. Pass a backend instance directly when it has
+no provider, like the Kubernetes Lease.
 
 ## Running without a component
 
