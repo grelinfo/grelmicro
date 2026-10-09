@@ -33,6 +33,7 @@ from starlette.routing import (
     WebSocketRoute,
 )
 
+from grelmicro._paths import read_route
 from grelmicro.http._authentication import (
     is_anonymous_declaration,
     template_under_root,
@@ -793,8 +794,13 @@ def gate_routes(app: Starlette, gate: Gate) -> None:
 
 
 def _path_under_mounts(own: str, scope: Scope) -> str:
-    """Return a route by its own path, under the mounts the request came through."""
-    return f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
+    """Return the route the request reached.
+
+    On an installed Starlette app, the route its route reader names, as
+    the request span names it. Otherwise the route's own path, under the
+    mounts the request came through.
+    """
+    return read_route(scope) or f"{scope.get(_PREFIX_KEY, '')}{own}" or "/"
 
 
 _UNDER_MOUNTS: Final = functools.partial(_path_under_mounts, "")

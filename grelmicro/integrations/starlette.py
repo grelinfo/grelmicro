@@ -18,7 +18,12 @@ from typing_extensions import Doc
 from grelmicro._app import AmbientBindingError
 from grelmicro._asgi import GrelmicroMiddleware
 from grelmicro._component import authenticates, observes
-from grelmicro._paths import starlette_route
+from grelmicro._paths import (
+    RouteReading,
+    litestar_mount,
+    litestar_route_handler,
+    starlette_route,
+)
 from grelmicro._wrapping import refuse_registered
 from grelmicro.http import ErrorResponses, RateLimitMiddleware, merge_headers
 from grelmicro.http._kinds import BODYLESS_STATUSES, HANDLED
@@ -46,8 +51,8 @@ if TYPE_CHECKING:
     from starlette.responses import Response
 
     from grelmicro import Grelmicro
+    from grelmicro._paths import RouteReader
     from grelmicro.http import Gate, RouteDeclaration
-    from grelmicro.integrations._request_telemetry import Answered
 
     Scope = MutableMapping[str, Any]
     Message = MutableMapping[str, Any]
@@ -101,7 +106,8 @@ def install(
     did not hold.
 
     With `Trace` or `Metrics` registered, records the request span and the
-    HTTP server metrics of every request.
+    HTTP server metrics of every request. The request span, the access
+    record and the security event of a request name the same route.
 
     Prefer the polymorphic `micro.install(app)`, which detects the framework
     and calls this for you.
@@ -111,7 +117,8 @@ def install(
             a registered flood limit, before anything is wired.
     """
     _wire(app, micro, ambient=ambient)
-    _wire_request_telemetry(app, micro)
+    reader = _wire_route_reading(app)
+    _wire_request_telemetry(app, micro, reader)
 
 
 def _wire(app: Starlette, micro: Grelmicro, *, ambient: bool) -> None:
@@ -147,13 +154,41 @@ def _wire(app: Starlette, micro: Grelmicro, *, ambient: bool) -> None:
         _keep_binding_outermost(app)
 
 
-def _wire_request_telemetry(app: Starlette, micro: Grelmicro) -> None:
+def _wire_route_reading(app: Starlette) -> RouteReader:
+    """Leave the route reader of `app` in the scope of every request, and return it.
+
+    The reading wraps the whole stack, and every layer reads the same one.
+    The first install wires it, and a later one returns the same reader.
+    """
+    reader = _ROUTE_READERS.get(app)
+    if reader is not None:
+        return reader
+    reader = _ROUTE_READERS[app] = _route_reader(app)
+    build = app.build_middleware_stack
+
+    def build_middleware_stack() -> ASGIApp:
+        return RouteReading(build(), reader=reader)
+
+    app.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    return reader
+
+
+_ROUTE_READERS: Final[weakref.WeakKeyDictionary[Starlette, RouteReader]] = (
+    weakref.WeakKeyDictionary()
+)
+"""The route reader each installed app leaves in the scope."""
+
+
+def _wire_request_telemetry(
+    app: Starlette, micro: Grelmicro, reader: RouteReader
+) -> None:
     """Record the request telemetry of `app` when `micro` exports it.
 
     The recorder wraps the whole stack, outside the server error handler,
     and the exception recorder sits inside it, outside every middleware
-    the app adds. A `Trace` that is off, or whose `instrument` leaves out
-    `starlette`, turns the request spans off and keeps the metrics.
+    the app adds. `reader` names the route. A `Trace` that is off, or
+    whose `instrument` leaves out `starlette`, turns the request spans off
+    and keeps the metrics.
     """
     tracing = request_spans(micro.components, "starlette")
     if tracing is None or app in _TELEMETRY_WIRED:
@@ -174,7 +209,7 @@ def _wire_request_telemetry(app: Starlette, micro: Grelmicro) -> None:
     _keep_watching_outside(app, [entry])
     build = app.build_middleware_stack
     options: dict[str, Any] = {
-        "route": _route_of(app),
+        "route": reader,
         "tracing": tracing,
         "exclude": excluding("starlette"),
         "methods": known_methods(),
@@ -191,19 +226,41 @@ _TELEMETRY_WIRED: Final[weakref.WeakSet[Starlette]] = weakref.WeakSet()
 """Apps whose request telemetry is wired. The first `Grelmicro` wires it."""
 
 
-def _route_of(app: Starlette) -> Callable[[Scope, Answered], str | None]:
-    """Return how to read the route template a request to `app` matched.
+def _route_reader(app: Starlette) -> RouteReader:
+    """Return the route reader of `app`.
 
     The template starts with the request's root path, then reads as
-    `starlette_route` reads it.
+    `starlette_route` reads it: each mount the request went through, then
+    the route the innermost router matched. A mounted Litestar app reads
+    its own route under the mount.
     """
+    router = app.router
 
-    def route(scope: Scope, answered: Answered) -> str | None:
-        root_path, path, status = answered
-        found = starlette_route(app.router, scope, root_path, path, status)
+    def route(
+        scope: Scope, root_path: str, path: str, status: int | None
+    ) -> str | None:
+        found = starlette_route(
+            router, scope, root_path, path, status, mounted=_litestar_route
+        )
         return None if found is None else root_path.rstrip("/") + found
 
     return route
+
+
+def _litestar_route(scope: Scope) -> str | None:
+    """Return the route a Litestar app mounted under this one matched.
+
+    A mount of an ASGI app inside it reads as `{path}` under that mount.
+    `None` when the request did not reach a Litestar app that routed it.
+    """
+    handler = litestar_route_handler(scope)
+    if handler is None:
+        return None
+    if getattr(handler, "is_mount", False):
+        mount = litestar_mount(scope["litestar_app"], handler)
+        return mount.rstrip("/") + "/{path}"
+    template = scope.get("path_template")
+    return template if isinstance(template, str) else None
 
 
 def install_error_responses(

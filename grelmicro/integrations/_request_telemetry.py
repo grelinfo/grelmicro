@@ -22,7 +22,6 @@ from opentelemetry import metrics, propagate, trace
 from opentelemetry.propagators.textmap import Getter
 from opentelemetry.trace import SpanKind, StatusCode
 
-from grelmicro._paths import Answered
 from grelmicro.integrations._fastapi_internals import TELEMETRY_KEY
 
 if TYPE_CHECKING:
@@ -36,11 +35,11 @@ if TYPE_CHECKING:
     Receive = Callable[[], Awaitable[Message]]
     Send = Callable[[Message], Awaitable[None]]
     ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
-    RouteOf = Callable[[Scope, "Answered"], "str | None"]
+
+    from grelmicro._paths import RouteReader
 
 __all__ = [
     "SCOPE_NAME",
-    "Answered",
     "RaisedExceptions",
     "RequestTelemetry",
     "exceptions_on_spans",
@@ -389,7 +388,7 @@ class RequestTelemetry:
         self,
         app: ASGIApp,
         *,
-        route: RouteOf,
+        route: RouteReader,
         tracing: bool,
         exclude: Callable[[Scope], bool] | None,
         methods: frozenset[str],
@@ -535,9 +534,7 @@ class RequestTelemetry:
                 return
             finished = True
             try:
-                route = self._route(
-                    scope, Answered(root_path, path, status_code)
-                )
+                route = self._route(scope, root_path, path, status_code)
             except Exception:
                 _logger.warning(
                     "Could not read the route of %s", path, exc_info=True
