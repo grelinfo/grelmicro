@@ -50,6 +50,8 @@ that a client library used to accept.
 | A `get_or_set` value computed once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-fold-scope) |
 | `TypeError: ... got an unexpected keyword argument 'wait_timeout'` | 0.42 | [Pass `max_wait=`](#0-42-max-wait) |
 | `SettingsValidationError` on `BulkheadConfig.max_wait` set to `None` | 0.42 | [Pass `0`](#0-42-max-wait) |
+| `BackendScopeError: ... is bound to InProcessLock` on `Idempotency` or `IdempotentRequests` | 0.42 | [Register a lock backend](#0-42-idempotency-lock) |
+| `CachedResponses` misses run once per replica after upgrading | 0.42 | [Pass `lock="cluster"`](#0-42-idempotency-lock) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ImportError: cannot import name 'CacheError' from 'grelmicro.cache'` | 0.42 | [Delete the `except CacheError:` block](#0-42-cache-error) |
@@ -289,6 +291,18 @@ Idempotency spells its wait the way the bulkhead and the rate limiter do:
 | `BulkheadConfig(max_wait=None)` | `BulkheadConfig(max_wait=0)`, the default |
 
 A lock keeps `timeout=` on `acquire()` and `hold()`.
+
+### Idempotency checks its lock, and `CachedResponses` names its fold {#0-42-idempotency-lock}
+
+A duplicate request waits on a lock so it runs once. Without a lock backend that lock holds in one process only, and a duplicate on another replica runs again. The backend check now says so, like it does for the cache. Register a lock backend, or say one replica is all you run:
+
+```python
+micro = Grelmicro(uses=[Cache(redis), Coordination(redis), IdempotentRequests()])
+# or
+micro = Grelmicro(uses=[Cache(redis), IdempotentRequests(requires="process")])
+```
+
+`CachedResponses` folds concurrent misses in the process by default, like `@cached`. Pass `CachedResponses(lock="cluster")` to fold them through the lock backend, as it did whenever one existed.
 
 ### Extend a lease with `extend()` {#0-42-lock-extend}
 

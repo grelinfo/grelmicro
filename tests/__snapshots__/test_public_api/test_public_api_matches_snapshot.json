@@ -277,14 +277,14 @@
       "()": "(app, *, verifier, exclude=(), bans=None, trusted=None, check=None, resource=None, authorization_servers=(), scopes=(), enduser=False, public=None) -> 'None'"
     },
     "CachedResponses": {
-      "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', name='default', env_prefix=None, env_load=None) -> 'None'",
-      ".from_config": "(config, *, name='default', namespace='http', cache=None, key=None, skip=None) -> 'CachedResponses'"
+      "()": "(*, ttl=None, include=None, exclude=None, vary_by_headers=None, vary_by_query=UNSET, key=None, skip=None, max_body_size=None, cache=None, namespace='http', lock='process', name='default', env_prefix=None, env_load=None) -> 'None'",
+      ".from_config": "(config, *, name='default', namespace='http', cache=None, key=None, skip=None, lock='process') -> 'CachedResponses'"
     },
     "CachedResponsesConfig": {
       "()": "(*, ttl=datetime.timedelta(seconds=60), include=(), exclude=(), vary_by_headers=(), vary_by_query=None, max_body_size=1048576) -> None"
     },
     "CachedResponsesMiddleware": {
-      "()": "(app, *, cache, policies=None, ttl=datetime.timedelta(seconds=60), include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', live=None) -> 'None'"
+      "()": "(app, *, cache, policies=None, ttl=datetime.timedelta(seconds=60), include=None, exclude=(), vary_by_headers=(), vary_by_query=None, key=None, skip=None, max_body_size=1048576, tag='grelmicro:http:default', lock='process', live=None) -> 'None'"
     },
     "ConditionalRequests": {
       "()": "(*, etag_responses=None, require_precondition=None, include=None, exclude=None, max_body_size=None, openapi=True, name='default', env_prefix=None, env_load=None) -> 'None'",

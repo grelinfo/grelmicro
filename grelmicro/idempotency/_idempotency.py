@@ -9,6 +9,7 @@ from typing import (
     Annotated,
     Any,
     ClassVar,
+    Final,
     Generic,
     Self,
     TypeVar,
@@ -307,6 +308,24 @@ class _Block(Generic[T]):
                 self._local_lock = None
 
 
+class InProcessLock:
+    """The lock a duplicate waits on when the app has no lock backend.
+
+    It holds in this process only, so a duplicate sent to another replica
+    runs the operation again.
+    """
+
+    scope: ClassVar[BackendScope] = "process"
+
+
+_IN_PROCESS_LOCK: Final = InProcessLock()
+"""What the scope check sees when no `Coordination` holds a lock backend."""
+
+
+class _LockRequirement:
+    """Stands for the lock an `Idempotency` needs, in the scope check."""
+
+
 class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
     """Idempotency keys for safe retries of an operation.
 
@@ -539,36 +558,49 @@ class Idempotency(Reconfigurable[IdempotencyConfig], Generic[T]):
         )
         self._cache: TTLCache[T] | None = cache
         self._requires: BackendScope = requires or self.default_requires
-        binding = self._scope_binding()
+        binding, lock = self._scope_bindings()
         if binding.backend is None or falls_short(
             binding.backend, self._requires
         ):
             record(self, binding)
+        self._lock_requirement = _LockRequirement()
+        record(self._lock_requirement, lock)
 
     @property
     def requires(self) -> BackendScope:
-        """The smallest scope the cache backend must reach."""
+        """The smallest scope the cache and lock backends must reach."""
         return self._requires
 
-    def _scope_binding(self) -> Binding:
-        """Describe the backend this stores through, for the scope check.
+    def _scope_bindings(self) -> tuple[Binding, Binding]:
+        """Describe the store and the lock this runs through, for the scope check.
 
         A `TTLCache` holding a backend of its own is checked on it. Any
         other rides the app's `Cache('default')`, or its sole `Cache` when
-        none is named `"default"`, which is where it reads.
+        none is named `"default"`, which is where it reads. The lock rides
+        the app's `Coordination`, and without one it is an `InProcessLock`,
+        which reaches the process only.
         """
         cache = self._cache
         backend = cache._backend if cache is not None else None  # noqa: SLF001
-        if backend is not None:
-            return Binding(
-                label(self), self._requires, backend=backend, kind="cache"
+        store = (
+            Binding(label(self), self._requires, backend=backend, kind="cache")
+            if backend is not None
+            else Binding(
+                label(self),
+                self._requires,
+                rides=("cache", "default"),
+                kind="cache",
             )
-        return Binding(
+        )
+        lock = Binding(
             label(self),
             self._requires,
-            rides=("cache", "default"),
-            kind="cache",
+            rides=("coordination", "default"),
+            attribute="_lock_backend",
+            absent=_IN_PROCESS_LOCK,
+            kind="coordination",
         )
+        return store, lock
 
     def _get_cache(self) -> TTLCache[T]:
         """Return the response store, composing it on first use.

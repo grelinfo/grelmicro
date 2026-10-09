@@ -594,7 +594,10 @@ async def test_idempotent_requests_on_a_memory_cache_is_refused() -> None:
         "bound to MemoryCacheAdapter and provides scope 'process', but "
         "requires scope 'cluster'"
     ) in message
-    assert message.count("IdempotentRequests") == 1
+    assert (
+        "IdempotentRequests('default') is bound to InProcessLock, which "
+        "provides scope 'process', but requires scope 'cluster'"
+    ) in message
     assert "Idempotency(" not in message
 
 
@@ -625,9 +628,13 @@ def test_idempotent_requests_follows_an_explicit_cache() -> None:
         micro.check_backends()
 
 
-def test_a_rider_with_no_cache_to_ride_is_not_reported() -> None:
-    """Nothing is bound, so there is nothing to check yet."""
-    Grelmicro(uses=[IdempotentRequests()]).check_backends()
+def test_a_rider_with_no_cache_to_ride_reports_only_its_lock() -> None:
+    """With no `Cache` the store is unchecked, but the lock is in-process."""
+    with pytest.raises(BackendScopeError) as error:
+        Grelmicro(uses=[IdempotentRequests()]).check_backends()
+
+    assert "InProcessLock" in str(error.value)
+    assert "Cache" not in str(error.value)
 
 
 def test_an_idempotency_riding_a_memory_cache_is_refused() -> None:
@@ -740,6 +747,12 @@ class _SharedCacheAdapter(MemoryCacheAdapter):
     scope = "cluster"
 
 
+class _SharedLockAdapter(MemoryLockAdapter):
+    """A lock backend that says it reaches every replica."""
+
+    scope = "cluster"
+
+
 @pytest.mark.usefixtures("_undeclared")
 async def test_patterns_built_inside_an_open_app_warn_once_per_shape() -> None:
     """A lock named per request warns once, and another mistake still warns."""
@@ -815,7 +828,11 @@ def test_the_error_for_a_cache_offers_no_kubernetes_backend() -> None:
 async def test_a_pattern_built_inside_an_open_app_that_holds_is_quiet() -> None:
     """Built where it is checked, a binding that holds raises nothing."""
     async with Grelmicro(
-        uses=[Cache(_SharedCacheAdapter())], environment="production"
+        uses=[
+            Cache(_SharedCacheAdapter()),
+            Coordination(lock=_SharedLockAdapter()),
+        ],
+        environment="production",
     ):
         idem = Idempotency("orders")
 
@@ -865,7 +882,7 @@ def test_an_idempotency_on_a_cache_that_reaches_far_enough_holds() -> None:
     """An explicit shared backend meets the requirement, and is not kept."""
     idem = Idempotency("orders", cache=TTLCache(backend=_SharedCacheAdapter()))
 
-    assert recorded_bindings() == []
+    assert [b for b in recorded_bindings() if b.kind == "cache"] == []
 
     del idem
 
@@ -897,3 +914,63 @@ def test_an_unregistered_coordination_on_its_default_reach_is_checked() -> None:
         Grelmicro().check_backends()
 
     del lock
+
+
+async def test_idempotency_with_no_lock_backend_is_refused() -> None:
+    """Without a lock backend a duplicate on another replica runs again."""
+    micro = Grelmicro(
+        uses=[Cache(_SharedCacheAdapter()), IdempotentRequests()],
+        environment="production",
+    )
+
+    with pytest.raises(BackendScopeError, match="InProcessLock"):
+        await micro.__aenter__()
+
+
+async def test_idempotency_on_a_short_lock_backend_is_refused() -> None:
+    """A lock the `Coordination` accepts as local is still short for idempotency."""
+    micro = Grelmicro(
+        uses=[
+            Cache(_SharedCacheAdapter()),
+            Coordination(lock=MemoryLockAdapter(), requires="process"),
+            IdempotentRequests(),
+        ],
+        environment="production",
+    )
+
+    with pytest.raises(
+        BackendScopeError,
+        match=r"IdempotentRequests\('default'\) rides Coordination\('default'\)",
+    ):
+        await micro.__aenter__()
+
+
+async def test_idempotency_on_a_shared_lock_backend_holds() -> None:
+    """A store and a lock that reach every replica open quietly."""
+    micro = Grelmicro(
+        uses=[
+            Cache(_SharedCacheAdapter()),
+            Coordination(lock=_SharedLockAdapter()),
+            IdempotentRequests(),
+        ],
+        environment="production",
+    )
+
+    async with micro:
+        pass
+
+
+async def test_idempotency_declaring_a_local_reach_needs_no_lock_backend() -> (
+    None
+):
+    """`requires="process"` accepts the in-process lock."""
+    micro = Grelmicro(
+        uses=[
+            Cache(MemoryCacheAdapter()),
+            IdempotentRequests(requires="process"),
+        ],
+        environment="production",
+    )
+
+    async with micro:
+        pass

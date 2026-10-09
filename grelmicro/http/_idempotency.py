@@ -1941,14 +1941,14 @@ class IdempotentRequests(Reconfigurable[IdempotentRequestsConfig]):
 
     @property
     def requires(self) -> BackendScope:
-        """The smallest scope the cache backend must reach."""
+        """The smallest scope the cache and lock backends must reach."""
         return self._idempotency.requires
 
-    def _scope_binding(self) -> Binding:
-        """Describe the backend responses are stored through, for the check."""
-        return replace(
-            self._idempotency._scope_binding(),  # noqa: SLF001
-            label=label(self),
+    def _scope_bindings(self) -> tuple[Binding, Binding]:
+        """Describe the store and the lock responses go through, for the check."""
+        store, lock = self._idempotency._scope_bindings()  # noqa: SLF001
+        return replace(store, label=label(self)), replace(
+            lock, label=label(self)
         )
 
     @property

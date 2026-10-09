@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Breaking
+* 💥 `Idempotency` and `IdempotentRequests` without a lock backend, or on one that reaches less far than `requires`, go through the backend check: `BackendScopeError` in `staging` and `production`, a warning when no environment is declared. A duplicate on another replica used to run again with no sign. Register a `Coordination` or pass `requires="process"`. ([#1034](https://github.com/grelinfo/grelmicro/issues/1034))
+* 💥 `CachedResponses` takes `lock=` like `@cached`, `"process"` by default, instead of folding across replicas whenever a lock backend exists. Pass `lock="cluster"` to keep that. ([#1034](https://github.com/grelinfo/grelmicro/issues/1034))
 * 💥 A duplicate's wait is bounded with `max_wait=`, the word `Bulkhead` and `RateLimiter` use. `wait_timeout=` on `Idempotency`, `run()`, `IdempotentRequests` and `IdempotencyMiddleware`, the config field and `GREL_IDEMPOTENT_REQUESTS_*WAIT_TIMEOUT` are renamed. ([#1035](https://github.com/grelinfo/grelmicro/issues/1035))
 * 💥 `BulkheadConfig.max_wait` defaults to `0.0` and refuses `None`, which read as no limit everywhere else. The bulkhead still fails fast by default. ([#1035](https://github.com/grelinfo/grelmicro/issues/1035))
 * 💥 `CacheError` is removed. Nothing raised it, so an `except CacheError:` never ran. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
