@@ -235,7 +235,7 @@ docs = [
     "mkdocstrings[python]>=0.27.0",
     "griffe-typingdoc>=0.2.7",
     "pygments>=2.18.0",
-    "pymdown-extensions>=10.12",
+    "pymdown-extensions>=12.1",
     "mdx-include>=1.4.2",
 ]
 mutation = [
