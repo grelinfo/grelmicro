@@ -17,7 +17,7 @@ WAITS = frozenset(
         ("DiscoveryConfig", "retry_interval"),
         ("DiscoveryConfig", "timeout"),
         ("HealthChecksConfig", "timeout"),
-        ("IdempotentRequestsConfig", "wait_timeout"),
+        ("IdempotentRequestsConfig", "max_wait"),
         ("JWKSConfig", "retry_interval"),
         ("JWKSConfig", "timeout"),
         ("LeaderElectionConfig", "backend_timeout"),

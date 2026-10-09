@@ -200,9 +200,9 @@ take.
 | `OAuthClientConfig.refresh_before`, `.default_lifetime` | `int \| timedelta` | yes |
 | `TaskRouter.every(seconds)`, renamed `interval` | `int \| timedelta` | yes |
 | cron `misfire_grace_seconds`, renamed `misfire_grace` | `int \| timedelta` | yes |
-| `max_wait` on the rate limiter and the bulkhead | `float` | stays |
+| `max_wait` on the rate limiter, the bulkhead and idempotency | `float` | stays |
 | `retry_interval`, `error_interval`, `poll_interval`, `export_interval` | `float` | stays |
-| `timeout`, `wait_timeout`, `backend_timeout`, `request_timeout` | `float` | stays |
+| `timeout`, `backend_timeout`, `request_timeout` | `float` | stays |
 | `shutdown_timeout`, `export_timeout`, `command_timeout` | `float` | stays |
 | `TimeoutConfig.seconds` | `float` | stays |
 | `Liveness.interval`, `.stall_timeout`, `.shutdown_timeout` | `float`, `stall_timeout=None` starts no watchdog | stays |

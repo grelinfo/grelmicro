@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Breaking
+* 💥 A duplicate's wait is bounded with `max_wait=`, the word `Bulkhead` and `RateLimiter` use. `wait_timeout=` on `Idempotency`, `run()`, `IdempotentRequests` and `IdempotencyMiddleware`, the config field and `GREL_IDEMPOTENT_REQUESTS_*WAIT_TIMEOUT` are renamed. ([#1035](https://github.com/grelinfo/grelmicro/issues/1035))
+* 💥 `BulkheadConfig.max_wait` defaults to `0.0` and refuses `None`, which read as no limit everywhere else. The bulkhead still fails fast by default. ([#1035](https://github.com/grelinfo/grelmicro/issues/1035))
 * 💥 `CacheError` is removed. Nothing raised it, so an `except CacheError:` never ran. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 💥 `@cached(lock=...)` takes how far concurrent misses fold: `"process"` (default), `"host"`, `"cluster"` or `None`. `"local"` becomes `"process"`, `True` becomes `"cluster"` and `False` becomes `None`. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 💥 `TTLCache.get_or_set` folds concurrent misses in the process by default, like `@cached`. Pass `lock="cluster"` to fold them through the lock backend. ([#883](https://github.com/grelinfo/grelmicro/issues/883))

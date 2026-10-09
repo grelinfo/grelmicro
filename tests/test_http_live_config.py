@@ -1324,10 +1324,10 @@ def test_a_gated_read_under_a_marked_router_is_not_reported_as_cached() -> None:
 def test_a_duplicate_may_be_answered_without_waiting() -> None:
     """Zero is how "do not wait" is written, not a value to refuse."""
     # Act
-    component = IdempotentRequests(wait_timeout=0)
+    component = IdempotentRequests(max_wait=0)
 
     # Assert
-    assert component.config.wait_timeout == 0.0
+    assert component.config.max_wait == 0.0
 
 
 def test_a_hand_wired_middleware_refuses_without_echoing_the_value() -> None:

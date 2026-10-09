@@ -27,7 +27,7 @@ class IdempotencyStateError(IdempotencyError, RuntimeError):
 
 
 class IdempotencyWaitTimeoutError(IdempotencyError, TimeoutError):
-    """Raised when a duplicate waits past `wait_timeout` for the first execution.
+    """Raised when a duplicate waits past `max_wait` for the first execution.
 
     Subclasses `TimeoutError`, so an `except TimeoutError` around the
     block catches it. Catch this instead to tell a single-flight wait

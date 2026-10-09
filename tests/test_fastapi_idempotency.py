@@ -2624,14 +2624,14 @@ async def test_middleware_duplicate_in_flight_waits_and_replays() -> None:
 
 
 async def test_middleware_duplicate_in_flight_times_out_with_conflict() -> None:
-    """A duplicate past `wait_timeout` gets 409 instead of holding the socket."""
+    """A duplicate past `max_wait` gets 409 instead of holding the socket."""
     # Arrange
     micro = Grelmicro(uses=[Cache(MemoryCacheAdapter())])
     app = FastAPI()
     app.add_middleware(
         IdempotencyMiddleware,
         idempotency=Idempotency("http", ttl=60),
-        wait_timeout=0.05,
+        max_wait=0.05,
     )
     micro.install(app)
     started = asyncio.Event()
