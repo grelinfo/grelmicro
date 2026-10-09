@@ -10,8 +10,10 @@ routing table, a rendered report, a config blob in object storage.
 ```
 
 `catalog.read` and `catalog.write` are two views of one lock. Each is a full
-primitive with `acquire(timeout=...)`, `acquire_nowait()`, `extend()`,
-`release()`, and a `from_thread` adapter, exactly like `Lock`.
+primitive with `hold(timeout=...)`, `acquire(timeout=...)`,
+`acquire_nowait()`, `extend()`, `release()`, and a `from_thread` adapter,
+exactly like `Lock`. `async with catalog.read.hold(timeout=5) as reading:`
+waits at most 5 seconds for a read lease.
 
 ## Guards
 

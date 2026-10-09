@@ -11,8 +11,8 @@ The lock supports the following features:
 - **Idempotent backend**: the backend lets the same token re-acquire the lock,
   which extends the lease. Call `extend()` if you need to extend the
   lease explicitly.
-- **Expiring**: the lock has a timeout that auto-releases the lock to prevent
-  deadlocks.
+- **Expiring**: each hold is a lease that ends on its own after
+  `lease_duration`, so a crashed holder never blocks the others for good.
 - **Non-blocking**: lock operations do not block the async event loop.
 - **Backend-agnostic**: several backends are supported, including Redis,
   PostgreSQL, SQLite, and the Kubernetes Lease API.
@@ -94,11 +94,23 @@ This is the right pattern when locking by business identity (`order_id`,
 
 ## Bounded acquire
 
-Pass `timeout=` to `acquire()` to limit how long the call waits. When the
-deadline passes without winning the lock, `LockTimeoutError` is raised:
+`async with lock:` waits as long as it takes. Use `hold(timeout=)` to wait at
+most a few seconds, then keep the lock for the body:
 
 ```python title="fragment"
 # Wait up to 5 seconds, then raise LockTimeoutError.
+async with lock.hold(timeout=5) as held:
+    await save(fencing_token=held.fencing_token)
+```
+
+`timeout` bounds the wait, never the lease: once acquired, the lock is held
+until the body ends or `lease_duration` runs out. `timeout=0` makes one
+attempt. When the wait runs out, the body does not run. From a worker thread,
+write `with lock.from_thread.hold(timeout=5) as held:`.
+
+`acquire(timeout=)` waits the same way when you release the lock yourself:
+
+```python title="fragment"
 held = await lock.acquire(timeout=5.0)
 ```
 
@@ -112,10 +124,6 @@ you may already catch:
 
 Over HTTP it becomes a `503` [problem detail](../http/errors.md), the same
 one a non-blocking acquire produces.
-
-The context manager (`async with lock`) calls `acquire()` with no timeout and
-waits indefinitely. Use `acquire(timeout=...)` directly when you need a
-bounded wait and want to handle the failure yourself.
 
 ## Extending the lease
 
