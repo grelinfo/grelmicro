@@ -32,7 +32,9 @@ _SQL_DAYS_ACROSS_NEXT_OFFSET_CHANGE = """
 @pytest.fixture(scope="module")
 async def provider() -> AsyncGenerator[PostgresProvider]:
     """Provide a provider whose sessions run in `Europe/Zurich`."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)

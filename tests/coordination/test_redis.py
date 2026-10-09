@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 from anyio import sleep
-from testcontainers.redis import RedisContainer
+from testcontainers.community.redis import RedisContainer
 
 from grelmicro.coordination.redis import RedisLeaderElectionAdapter, _as_str
 from grelmicro.providers.redis import RedisProvider

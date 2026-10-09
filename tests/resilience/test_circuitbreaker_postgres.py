@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Generator
 from datetime import timedelta
 
 import pytest
-from testcontainers.postgres import PostgresContainer
+from testcontainers.community.postgres import PostgresContainer
 
 from grelmicro._duration import microseconds, seconds_to_microseconds
 from grelmicro.errors import SettingsValidationError

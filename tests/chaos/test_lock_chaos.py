@@ -39,7 +39,7 @@ from .conftest import build_client, paused, wait_until
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from testcontainers.redis import RedisContainer
+    from testcontainers.community.redis import RedisContainer
 
 pytestmark = [
     pytest.mark.integration,

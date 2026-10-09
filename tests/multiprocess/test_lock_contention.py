@@ -35,9 +35,9 @@ pytestmark = [
     pytest.mark.timeout(180),
 ]
 
-pytest.importorskip("testcontainers.redis")
+pytest.importorskip("testcontainers.community.redis")
 
-from testcontainers.redis import RedisContainer  # noqa: E402
+from testcontainers.community.redis import RedisContainer  # noqa: E402
 
 WORKERS = 4
 LOCK_NAME = "multiprocess-contention"

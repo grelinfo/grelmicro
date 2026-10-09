@@ -28,9 +28,9 @@ pytestmark = [
     pytest.mark.timeout(120),
 ]
 
-testcontainers = pytest.importorskip("testcontainers.postgres")
+testcontainers = pytest.importorskip("testcontainers.community.postgres")
 
-from testcontainers.postgres import PostgresContainer  # noqa: E402
+from testcontainers.community.postgres import PostgresContainer  # noqa: E402
 
 MESSAGE_COUNT = 20
 DELIVERED_BEFORE_OUTAGE = 3

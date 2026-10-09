@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator, Generator
 from datetime import timedelta
 
 import pytest
-from testcontainers.redis import RedisContainer
+from testcontainers.community.redis import RedisContainer
 
 from grelmicro.coordination.redis import RedisLockAdapter
 from grelmicro.providers.valkey import ValkeyProvider

@@ -702,7 +702,9 @@ def test_documented_output_matches_on_postgres(
     where: str, rel: str, expected: str
 ) -> None:
     """A snippet that needs Postgres prints what its page shows."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)

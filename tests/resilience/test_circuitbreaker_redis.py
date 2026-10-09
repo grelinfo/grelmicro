@@ -5,7 +5,7 @@ from collections.abc import AsyncGenerator, Generator
 from datetime import timedelta
 
 import pytest
-from testcontainers.redis import RedisContainer
+from testcontainers.community.redis import RedisContainer
 
 from grelmicro._duration import microseconds, seconds_to_microseconds
 from grelmicro.providers.redis import RedisProvider

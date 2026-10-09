@@ -40,7 +40,9 @@ def create_k3s_container() -> DockerContainer:
             "server --disable-agent --disable=traefik,metrics-server"
             " --tls-san=127.0.0.1"
         )
-        .with_kwargs(privileged=True, tmpfs={"/run": "", "/var/run": ""})
+        .with_kwargs(privileged=True)
+        .with_tmpfs_mount("/run")
+        .with_tmpfs_mount("/var/run")
         .with_exposed_ports(6443)
     )
 

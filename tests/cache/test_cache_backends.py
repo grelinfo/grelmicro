@@ -5,9 +5,9 @@ from collections.abc import AsyncGenerator, Generator
 from datetime import timedelta
 
 import pytest
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 from testcontainers.core.container import DockerContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
 
 from grelmicro.cache._protocol import CacheBackend
 from grelmicro.cache.cached import cached

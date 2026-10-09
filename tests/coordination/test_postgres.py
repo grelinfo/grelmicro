@@ -218,7 +218,9 @@ _EXPIRE_WAIT = _DURATION.total_seconds() + 0.3
 @pytest.fixture(scope="module")
 async def backend() -> AsyncGenerator[PostgresLeaderElectionAdapter]:
     """Provide a Postgres-backed leader election backend in a container."""
-    from testcontainers.postgres import PostgresContainer  # noqa: PLC0415
+    from testcontainers.community.postgres import (  # noqa: PLC0415
+        PostgresContainer,
+    )
 
     with PostgresContainer() as container:
         port = container.get_exposed_port(5432)
