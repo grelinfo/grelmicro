@@ -210,10 +210,10 @@ def test_cleanup_interval_stored() -> None:
 
 
 def test_provider_cache_factory() -> None:
-    """`PostgresProvider.cache()` builds a `PostgresCacheAdapter`."""
+    """`PostgresProvider.cache_backend()` builds a `PostgresCacheAdapter`."""
     provider = PostgresProvider(URL)
 
-    backend = provider.cache()
+    backend = provider.cache_backend()
 
     assert isinstance(backend, PostgresCacheAdapter)
     assert backend.provider is provider

@@ -56,7 +56,7 @@ The outbox is technology-agnostic and delegates storage to a backend. Wire the b
 | **Multi-node relay** | Yes | No (single file) | Yes |
 | **Claim** | `FOR UPDATE SKIP LOCKED` | single-writer | `FOR UPDATE SKIP LOCKED` |
 
-The outbox is built backend-first. Adding SQLite or MySQL later is one adapter file plus a `provider.outbox()` factory, the same shape the [cache](../cache/index.md) and [coordination](../coordination/index.md) components already use for their backends. The producer and consumer API never changes when you switch backends.
+The outbox is built backend-first. Adding SQLite or MySQL later is one adapter file plus a `provider.outbox_backend()` factory, the same shape the [cache](../cache/index.md) and [coordination](../coordination/index.md) components already use for their backends. The producer and consumer API never changes when you switch backends.
 
 The Postgres adapter stores messages in a single `grelmicro_outbox` table. The relay claims a batch with `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`, so every replica claims a disjoint set with no leader and no coordination. The table is created on first connect: pass `auto_migrate=False` when your own migration tool owns the schema, and run the DDL yourself (see [Schema](schema.md)).
 

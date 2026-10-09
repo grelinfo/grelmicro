@@ -117,12 +117,12 @@ def test_custom_table_name() -> None:
 
 
 def test_provider_factory_returns_bound_adapter() -> None:
-    """`SQLiteProvider.schedule()` returns an adapter bound to the provider."""
+    """`SQLiteProvider.schedule_backend()` returns an adapter bound to the provider."""
     # Arrange
     provider = SQLiteProvider("schedules.db")
 
     # Act
-    adapter = provider.schedule()
+    adapter = provider.schedule_backend()
 
     # Assert
     assert isinstance(adapter, SQLiteScheduleAdapter)

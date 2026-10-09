@@ -125,7 +125,7 @@
   },
   "grelmicro.coordination": {
     "Coordination": {
-      "()": "(source=None, *, lock=None, election=None, rwlock=None, schedule=None, requires=None, name='default') -> 'None'"
+      "()": "(source=None, *, lock=None, leaderelection=None, readwritelock=None, schedule=None, requires=None, name='default') -> 'None'"
     },
     "CoordinationBackendError": null,
     "CoordinationError": null,

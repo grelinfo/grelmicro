@@ -88,11 +88,12 @@ Wire a `Coordination` component like this:
     inline like the examples above.
 
 A `Provider` resolves every primitive in one line: `Coordination(redis)` calls
-`redis.lock()` for the lock backend, `redis.readwritelock()` for the read-write
-lock backend, and `redis.leaderelection()` for the election backend. Set each
-backend on its own with `lock=`, `rwlock=`, and `election=`, so locks can run on
-one vendor and leader election on another. Each argument accepts a `Provider`, a
-backend instance, or a zero-arg class. See [Providers](../providers/index.md).
+`redis.lock_backend()` for the lock backend, `redis.readwritelock_backend()`
+for the read-write lock backend, and `redis.leaderelection_backend()` for the
+election backend. Set each backend on its own with `lock=`, `readwritelock=`,
+`leaderelection=`, and `schedule=`, so locks can run on one vendor and leader
+election on another. Each argument accepts a `Provider`, a backend instance,
+or a zero-arg class. See [Providers](../providers/index.md).
 
 | | Redis | PostgreSQL | Kubernetes | SQLite | Memory |
 |---|---|---|---|---|---|

@@ -12,7 +12,9 @@ async def main() -> None:
     # Memory keeps this demo in one process.
     # The calls are the same on every backend.
     async with MemoryProvider() as provider:
-        catalog = ReadWriteLock("catalog", backend=provider.readwritelock())
+        catalog = ReadWriteLock(
+            "catalog", backend=provider.readwritelock_backend()
+        )
 
         async with catalog.write as writing:
             if writing.poisoned:

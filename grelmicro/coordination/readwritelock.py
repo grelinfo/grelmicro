@@ -288,7 +288,7 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
             backend if isinstance(backend, str) else None
         )
         if self._backend is not None:
-            record_coordination(self, self._backend, "rwlock")
+            record_coordination(self, self._backend, "readwritelock")
         self.read = ReadMode(self)
         self.write = WriteMode(self)
 
@@ -319,7 +319,7 @@ class ReadWriteLock(Reconfigurable[ReadWriteLockConfig]):
             ("coordination", self._backend_name or "default"),
             _NO_BACKEND,
             self._name,
-        ).rwlock_backend
+        ).readwritelock_backend
 
     async def state(self) -> ReadWriteLockState:
         """Return a point-in-time view of the lock.

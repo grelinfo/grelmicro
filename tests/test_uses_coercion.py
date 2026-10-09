@@ -64,25 +64,25 @@ class _MemoryProvider(Provider):
 
     short_name: ClassVar[str] = "memory"
 
-    def lock(self, **kwargs: object) -> MemoryLockAdapter:  # noqa: ARG002
+    def lock_backend(self, **kwargs: object) -> MemoryLockAdapter:  # noqa: ARG002
         return MemoryLockAdapter()
 
-    def leaderelection(
+    def leaderelection_backend(
         self,
         **kwargs: object,  # noqa: ARG002
     ) -> MemoryLeaderElectionAdapter:
         return MemoryLeaderElectionAdapter()
 
-    def cache(self, **kwargs: object) -> MemoryCacheAdapter:  # noqa: ARG002
+    def cache_backend(self, **kwargs: object) -> MemoryCacheAdapter:  # noqa: ARG002
         return MemoryCacheAdapter()
 
-    def ratelimiter(
+    def ratelimiter_backend(
         self,
         **kwargs: object,  # noqa: ARG002
     ) -> MemoryRateLimiterAdapter:
         return MemoryRateLimiterAdapter()
 
-    def circuitbreaker(
+    def circuitbreaker_backend(
         self,
         **kwargs: object,  # noqa: ARG002
     ) -> MemoryCircuitBreakerAdapter:
@@ -105,7 +105,7 @@ class _CacheOnlyProvider(Provider):
 
     short_name: ClassVar[str] = "cacheonly"
 
-    def cache(self, **kwargs: object) -> MemoryCacheAdapter:  # noqa: ARG002
+    def cache_backend(self, **kwargs: object) -> MemoryCacheAdapter:  # noqa: ARG002
         return MemoryCacheAdapter()
 
     async def __aenter__(self) -> Self:
@@ -125,7 +125,7 @@ class _RateLimiterOnlyProvider(Provider):
 
     short_name: ClassVar[str] = "ratelimiteronly"
 
-    def ratelimiter(
+    def ratelimiter_backend(
         self,
         **kwargs: object,  # noqa: ARG002
     ) -> MemoryRateLimiterAdapter:
@@ -182,8 +182,8 @@ def test_bare_adapter_instance_wraps_in_component() -> None:
     ("adapter", "attribute"),
     [
         (MemoryLockAdapter, "lock_backend"),
-        (MemoryReadWriteLockAdapter, "rwlock_backend"),
-        (MemoryLeaderElectionAdapter, "election_backend"),
+        (MemoryReadWriteLockAdapter, "readwritelock_backend"),
+        (MemoryLeaderElectionAdapter, "leaderelection_backend"),
         (MemoryScheduleAdapter, "schedule_backend"),
     ],
 )

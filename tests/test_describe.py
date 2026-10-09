@@ -808,7 +808,7 @@ def test_describe_counts_a_failing_factory_as_served() -> None:
         async def __aexit__(self, *args: object) -> None:
             return None
 
-        def cache(self, **kwargs: Any) -> CacheBackend:  # noqa: ANN401, ARG002
+        def cache_backend(self, **kwargs: Any) -> CacheBackend:  # noqa: ANN401, ARG002
             msg = "no pool yet"
             raise RuntimeError(msg)
 

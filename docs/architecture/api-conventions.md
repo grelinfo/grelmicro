@@ -66,6 +66,22 @@ Two carry the `Component` suffix, `RateLimiterComponent` and
 `RateLimiter` and `CircuitBreaker` patterns. The suffix names the concept from
 [Backends and Adapters](backends.md), so it adds no vocabulary.
 
+## Providers build backends, components build patterns
+
+A provider method returns the backend for a pattern and ends in `_backend`. A
+component method returns the pattern:
+
+```python
+backend = redis.lock_backend()  # a LockBackend
+lock = micro.coordination.lock("cart")  # a Lock
+```
+
+Every provider names its factories the same way: `lock_backend()`,
+`readwritelock_backend()`, `leaderelection_backend()`, `schedule_backend()`,
+`cache_backend()`, `outbox_backend()`, `ratelimiter_backend()`, and
+`circuitbreaker_backend()`. `Coordination` exposes the backends it holds under
+the same names, such as `coordination.readwritelock_backend`.
+
 ## Algorithms use factory classmethods
 
 When a pattern has more than one algorithm, expose each as an explicit factory

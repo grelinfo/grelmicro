@@ -74,4 +74,4 @@ One table holds every message. Column names follow the common outbox convention 
 
 ## Backend extensibility
 
-The relay talks to an `OutboxBackend` protocol, so a backend is one adapter plus a `provider.outbox()` factory, the same shape [cache](../cache/index.md) and [coordination](../coordination/index.md) use. Postgres ships today. SQLite (single-writer, no NOTIFY) is planned, and MySQL (also `FOR UPDATE SKIP LOCKED`) is on the roadmap. The producer and consumer API never changes across backends.
+The relay talks to an `OutboxBackend` protocol, so a backend is one adapter plus a `provider.outbox_backend()` factory, the same shape [cache](../cache/index.md) and [coordination](../coordination/index.md) use. Postgres ships today. SQLite (single-writer, no NOTIFY) is planned, and MySQL (also `FOR UPDATE SKIP LOCKED`) is on the roadmap. The producer and consumer API never changes across backends.

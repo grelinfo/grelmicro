@@ -148,8 +148,8 @@ only what is inside the first `{...}`.
 
 ```python
 provider = RedisProvider("redis+cluster://host1:6379,host2:6379")
-cache = provider.cache(prefix="{myapp}cache")
-lock = provider.lock(prefix="{myapp}")
+cache = provider.cache_backend(prefix="{myapp}cache")
+lock = provider.lock_backend(prefix="{myapp}")
 ```
 
 Without a hash tag, the adapter raises a `ValueError` at construction

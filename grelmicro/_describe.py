@@ -20,6 +20,7 @@ from grelmicro._duration import SECOND, microseconds
 from grelmicro._environment import recorded_bindings, unmet_requirements
 from grelmicro._paths import matches, names_route, walk_routes
 from grelmicro._redact import redact_url
+from grelmicro.providers._base import PATTERNS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -41,23 +42,6 @@ __all__ = [
 
 CheckStatus = Literal["ok", "warn", "fail"]
 """How a single check came out. Only `fail` sets a non-zero exit code."""
-
-_PROVIDER_KINDS: tuple[str, ...] = (
-    "lock",
-    "readwritelock",
-    "leaderelection",
-    "schedule",
-    "cache",
-    "outbox",
-    "ratelimiter",
-    "circuitbreaker",
-)
-"""Every kind a `Provider` may serve, in the order the report lists them.
-
-A factory that raises `NotImplementedError` means the Provider does not serve
-that kind. That answer is invisible at runtime today, which is what makes
-`uses=[redis]` leaving the outbox unwired hard to diagnose.
-"""
 
 _SECRET_HINTS = frozenset({"password", "secret", "token", "key", "auth"})
 """Field-name fragments whose value is masked whatever its type."""
@@ -267,10 +251,8 @@ def describe_provider(provider: Provider) -> ProviderReport:
     """
     serves: list[str] = []
     declines: list[str] = []
-    for kind in _PROVIDER_KINDS:
-        factory = getattr(provider, kind, None)
-        if factory is None:  # pragma: no cover
-            continue
+    for kind in PATTERNS:
+        factory = getattr(provider, f"{kind}_backend")
         try:
             factory()
         except NotImplementedError:

@@ -4,7 +4,7 @@ from grelmicro.coordination import LeaderElection
 from grelmicro.providers.redis import RedisProvider
 
 redis = RedisProvider("redis://localhost:6379/0")
-leader = LeaderElection("cluster_group", backend=redis.leaderelection())
+leader = LeaderElection("cluster_group", backend=redis.leaderelection_backend())
 
 
 async def main() -> None:

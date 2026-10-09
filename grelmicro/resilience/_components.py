@@ -26,7 +26,7 @@ class RateLimiterComponent:
     on every call.
 
     Accepts a `Provider` or a `RateLimiterBackend`. When given a Provider, the
-    component calls `provider.ratelimiter()` to build the matching adapter.
+    component calls `provider.ratelimiter_backend()` to build the matching adapter.
 
     Naming this class is rarely needed. `Grelmicro(uses=[redis])` already
     registers a default one for every kind the Provider serves, and a bare
@@ -65,7 +65,7 @@ class RateLimiterComponent:
                 """
                 A `Provider` (e.g. `RedisProvider`) or a `RateLimiterBackend`
                 instance. When a Provider is given, the component calls
-                `provider.ratelimiter()` to build the matching adapter.
+                `provider.ratelimiter_backend()` to build the matching adapter.
                 """,
             ),
         ],
@@ -107,7 +107,7 @@ class RateLimiterComponent:
             ),
         )
         if isinstance(resolved, Provider):
-            self._backend = resolved.ratelimiter()
+            self._backend = resolved.ratelimiter_backend()
         else:
             self._backend = resolved
 
@@ -149,7 +149,8 @@ class CircuitBreakerComponent:
     backend on every call.
 
     Accepts a `Provider` or a `CircuitBreakerBackend`. When given a Provider,
-    the component calls `provider.circuitbreaker()` to build the matching adapter.
+    the component calls `provider.circuitbreaker_backend()` to build the
+    matching adapter.
 
     Naming this class is rarely needed. `Grelmicro(uses=[redis])` already
     registers a default one for every kind the Provider serves, and a bare
@@ -194,8 +195,9 @@ class CircuitBreakerComponent:
             Doc(
                 """
                 A `Provider` or a `CircuitBreakerBackend` instance. When a
-                Provider is given, the component calls `provider.circuitbreaker()`
-                to build the matching adapter.
+                Provider is given, the component calls
+                `provider.circuitbreaker_backend()` to build the matching
+                adapter.
                 """,
             ),
         ],
@@ -236,7 +238,7 @@ class CircuitBreakerComponent:
             ),
         )
         if isinstance(resolved, Provider):
-            self._backend = resolved.circuitbreaker()
+            self._backend = resolved.circuitbreaker_backend()
         else:
             self._backend = resolved
 

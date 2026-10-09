@@ -9,7 +9,7 @@ micro = Grelmicro(
     uses=[
         Coordination(
             lock=KubernetesLockAdapter(namespace="default"),
-            election=KubernetesLeaderElectionAdapter(namespace="default"),
+            leaderelection=KubernetesLeaderElectionAdapter(namespace="default"),
         )
     ]
 )

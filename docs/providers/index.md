@@ -28,10 +28,10 @@ async with micro:
 
 That registers `Coordination`, `Cache`, `RateLimiterComponent`, and
 `CircuitBreakerComponent`, all sharing the one pool. Each Component dispatches
-to the Provider's factory methods (`provider.lock()`, `provider.cache()`,
-`provider.ratelimiter()`). The Adapter classes (`RedisLockAdapter`,
-`RedisCacheAdapter`, `RedisRateLimiterAdapter`) stay public as escape hatches
-but rarely appear in user code.
+to the Provider's factory methods (`provider.lock_backend()`,
+`provider.cache_backend()`, `provider.ratelimiter_backend()`). The Adapter
+classes (`RedisLockAdapter`, `RedisCacheAdapter`, `RedisRateLimiterAdapter`)
+stay public as escape hatches but rarely appear in user code.
 
 !!! note "Import policy: prefer Providers over concrete adapters"
     App code should import a Provider and pass it to Components, not import
@@ -259,14 +259,16 @@ failing field without the input.
 
 Each Provider exposes factory methods that return its matching adapter:
 
-| Method                      | Returns                       | RedisProvider | ValkeyProvider | PostgresProvider | SQLiteProvider | MemoryProvider |
-|----------------------------|-------------------------------|:-------------:|:--------------:|:----------------:|:--------------:|:--------------:|
-| `.lock(**kwargs)`           | `LockBackend` implementation  |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
-| `.schedule(**kwargs)`       | `ScheduleBackend` impl        |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
-| `.leaderelection(**kwargs)` | `LeaderElectionBackend` impl  |       ✓        |       ✓        |        ✓         |      N/A       |       ✓        |
-| `.cache(**kwargs)`          | `CacheBackend` implementation |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
-| `.ratelimiter(**kwargs)`    | `RateLimiterBackend` impl     |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
-| `.circuitbreaker(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓        |       ✓        |        ✓         |       ✓        |       ✓        |
+| Method                              | Returns                       | RedisProvider | ValkeyProvider | PostgresProvider | SQLiteProvider | MemoryProvider |
+|-------------------------------------|-------------------------------|:-------------:|:--------------:|:----------------:|:--------------:|:--------------:|
+| `.lock_backend(**kwargs)`           | `LockBackend` implementation  |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.readwritelock_backend(**kwargs)`  | `ReadWriteLockBackend` impl   |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.schedule_backend(**kwargs)`       | `ScheduleBackend` impl        |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.leaderelection_backend(**kwargs)` | `LeaderElectionBackend` impl  |       ✓       |       ✓        |        ✓         |      N/A       |       ✓        |
+| `.cache_backend(**kwargs)`          | `CacheBackend` implementation |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.outbox_backend(**kwargs)`         | `OutboxBackend` impl          |      N/A      |      N/A       |        ✓         |      N/A       |       ✓        |
+| `.ratelimiter_backend(**kwargs)`    | `RateLimiterBackend` impl     |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
+| `.circuitbreaker_backend(**kwargs)` | `CircuitBreakerBackend` impl  |       ✓       |       ✓        |        ✓         |       ✓        |       ✓        |
 
 Factories that do not apply raise `NotImplementedError` with a message
 pointing to the right alternative. `Coordination(provider)`, `Cache(provider)`,
@@ -302,9 +304,10 @@ reader. If you want the list you wrote to be exactly the list that runs,
 
 ## SQLite
 
-`SQLiteProvider` ships the `.lock()`, `.ratelimiter()`, `.cache()`, `.circuitbreaker()`, and `.schedule()` factories. The
-provider owns one `aiosqlite` connection (autocommit, WAL) and a shared
-lock that adapters borrow.
+`SQLiteProvider` ships the `.lock_backend()`, `.readwritelock_backend()`,
+`.schedule_backend()`, `.cache_backend()`, `.ratelimiter_backend()`, and
+`.circuitbreaker_backend()` factories. The provider owns one `aiosqlite`
+connection (autocommit, WAL) and a shared lock that adapters borrow.
 
 ```python
 from grelmicro import Grelmicro
@@ -329,8 +332,10 @@ SQLiteProvider.from_client(connection)    # bring-your-own connection
 
 ## Memory
 
-`MemoryProvider` ships every factory: `.lock()`, `.leaderelection()`,
-`.schedule()`, `.cache()`, `.ratelimiter()`, and `.circuitbreaker()`. It owns no
+`MemoryProvider` ships every factory: `.lock_backend()`,
+`.readwritelock_backend()`, `.leaderelection_backend()`, `.schedule_backend()`,
+`.cache_backend()`, `.outbox_backend()`, `.ratelimiter_backend()`, and
+`.circuitbreaker_backend()`. It owns no
 connection. State lives in process and disappears on restart, so it is for
 tests and single-process apps. Reach for Redis, Postgres, or SQLite for
 durable, distributed coordination.
@@ -345,8 +350,8 @@ micro = Grelmicro(uses=[memory])
 ```
 
 Each factory hands back one cached adapter per kind, so the provider owns a
-single in-process store per kind. `memory.lock()` called twice returns the same
-backend, so a later call re-fetches the live store for a test or an
+single in-process store per kind. `memory.lock_backend()` called twice returns
+the same backend, so a later call re-fetches the live store for a test or an
 introspection. Reach for a factory when a test needs the live store, or when
 one kind should run on a different backend than the rest.
 

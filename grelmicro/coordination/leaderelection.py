@@ -431,7 +431,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             backend if isinstance(backend, str) else None
         )
         if self._backend is not None:
-            record_coordination(self, self._backend, "election")
+            record_coordination(self, self._backend, "leaderelection")
 
         self._service_running = False
         self._state_change_condition: asyncio.Condition = asyncio.Condition()
@@ -498,7 +498,7 @@ class LeaderElection(Reconfigurable[LeaderElectionConfig], LockPrimitive, Task):
             ("coordination", self._backend_name or "default"),
             _NO_BACKEND,
             self._name,
-        ).election_backend
+        ).leaderelection_backend
 
     def is_running(self) -> bool:
         """Check if the leader election task is running."""
