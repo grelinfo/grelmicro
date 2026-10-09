@@ -22,6 +22,7 @@ from grelmicro._async import (
     on_backend_loop,
     raise_backend_not_open,
     raise_event_loop_deadlock,
+    run_to_completion,
 )
 from grelmicro._config import (
     Reconfigurable,
@@ -495,7 +496,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         """
         config = self._config
         token = generate_task_token(config.worker, self._token_nonce)
-        await self.do_exit(token, min_hold_duration=config.min_hold_duration)
+        # The release or the shortened hold runs to its end even when
+        # the task is cancelled.
+        await run_to_completion(
+            self.do_exit(token, min_hold_duration=config.min_hold_duration)
+        )
         return None
 
     @property
@@ -603,7 +608,11 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         key = self._key
         backend = self.backend
         try:
-            return await backend.release(name=key, token=token)
+            # Past the lease the backend frees the lock on its own.
+            async with asyncio.timeout(
+                self._config.lease_duration.total_seconds()
+            ):
+                return await backend.release(name=key, token=token)
         except Exception as exc:
             raise LockReleaseError(name=self._named) from exc
 
@@ -652,14 +661,17 @@ class TaskLock(Reconfigurable[TaskLockConfig], LockPrimitive):
         backend = self.backend
         try:
             # TaskLock does not surface the fencing token. A non-None result
-            # means the lock is held.
-            held = (
-                await backend.acquire(
-                    name=key,
-                    token=token,
-                    duration=duration,
-                )
-            ) is not None
+            # means the lock is held. Past the lease the answer is moot.
+            async with asyncio.timeout(
+                self._config.lease_duration.total_seconds()
+            ):
+                held = (
+                    await backend.acquire(
+                        name=key,
+                        token=token,
+                        duration=duration,
+                    )
+                ) is not None
         except Exception as exc:
             self._metrics.extension(ERROR)
             raise error(name=self._named) from exc

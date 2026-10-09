@@ -47,6 +47,7 @@ that a client library used to accept.
 | A cron task runs on every replica after upgrading | 0.42 | [Pass `gate="claim"`](#0-42-task-gate) |
 | `ImportError: cannot import name 'metrics_router' from 'grelmicro.metrics'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
 | `ModuleNotFoundError: No module named 'grelmicro.metrics.fastapi'` | 0.42 | [Import from `grelmicro.integrations.fastapi`](#0-42-metrics-router-moved) |
+| `ImportError: cannot import name 'CacheError' from 'grelmicro.cache'` | 0.42 | [Delete the `except CacheError:` block](#0-42-cache-error) |
 | `SettingsValidationError: Could not validate settings: min_hold_duration must be greater than or equal to interval` | 0.42 | [Hold the claim for the interval](#0-42-task-gate) |
 | `SettingsValidationError` or `ValueError`: `... must be whole seconds or a timedelta` | 0.42 | [Pass whole seconds or a `timedelta`](#0-42-durations) |
 | `TypeError: TaskRouter.every() got an unexpected keyword argument 'seconds'` | 0.42 | [Pass `interval=`](#0-42-durations) |
@@ -252,6 +253,10 @@ from grelmicro.integrations.fastapi import metrics_router
 ```
 
 `metrics_asgi` stays in `grelmicro.metrics`, since it needs no framework.
+
+### `CacheError` is removed {#0-42-cache-error}
+
+Nothing raised `CacheError`, so an `except CacheError:` block never ran. Delete it. A backend failure reaches the caller as the backend's own error, such as `redis.exceptions.ConnectionError`.
 
 ### Extend a lease with `extend()` {#0-42-lock-extend}
 

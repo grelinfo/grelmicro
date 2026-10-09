@@ -35,6 +35,11 @@ async with task_lock:
     to the interval. Cron tasks never take a lock. They claim each fire
     against the schedule backend instead.
 
+Leaving `async with task_lock:` releases the lock, or shortens its hold to
+`min_hold_duration`. That step finishes on the backend even when the task is
+cancelled, by a client disconnect or a shutdown. A backend that never answers
+is given up on once `lease_duration` has passed.
+
 !!! warning
     When the lock expires before the task completes (`lease_duration`
     exceeded), another node may acquire the lock and execute concurrently. A

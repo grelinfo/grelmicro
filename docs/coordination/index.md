@@ -103,6 +103,11 @@ or a zero-arg class. See [Providers](../providers/index.md).
 | **Extra infrastructure** | Required | None if already in stack | None (uses existing K8s API) | None | None |
 | **Lock performance** | Best | Good | Moderate | Good | Best |
 
+SQLite is host-scoped: it shares state with the processes on one host only.
+`Coordination` requires `cluster`, so a SQLite backend is refused at startup
+in `staging` and `production`, and warns once when `GREL_ENVIRONMENT` is unset.
+See [The backend check](../deployment.md#the-backend-check).
+
 !!! tip
     Feel free to create your own backend and contribute it. The backend
     protocols (`LockBackend`, `ReadWriteLockBackend`, `LeaderElectionBackend`,

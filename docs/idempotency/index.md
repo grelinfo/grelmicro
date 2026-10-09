@@ -192,6 +192,8 @@ instance drops the name segment and reads `GREL_IDEMPOTENCY_TTL`). The instance
 reconfigures live from a mounted ConfigMap. See
 [Live reconfiguration](../architecture/reconfigure.md).
 
+--8<-- "env_gate.md"
+
 !!! tip "Advanced"
     For the `from_config` declarative path and `pydantic-settings` composition,
     see [Declarative configuration](../advanced/config.md).

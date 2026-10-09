@@ -135,6 +135,8 @@ configure()
 
     From the environment, set `GREL_TRACE_BASIC_AUTH_USERNAME` and `GREL_TRACE_BASIC_AUTH_PASSWORD` instead. The header is attached on the exporter directly, so it bypasses the `OTEL_EXPORTER_OTLP_HEADERS` encoding where base64 padding (`=`) can be mangled or dropped.
 
+--8<-- "env_gate.md"
+
 !!! note "The config never prints your credentials"
     An endpoint can embed credentials in its userinfo or query (`https://usr:token@collector/v1`), and header values are API keys. On `TraceConfig` the `endpoint` field is a [`SecretUrl`][grelmicro.types.SecretUrl] and each `headers` value is a `SecretStr`, so `repr()`, `model_dump()`, and `model_dump_json()` show `***` in their place. The endpoint keeps its scheme, host, and path readable, so you can still see which collector is configured. Read either back with `get_secret_value()`. What grelmicro sends to the collector is unchanged.
 

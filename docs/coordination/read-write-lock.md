@@ -43,6 +43,14 @@ forever.
 The intent carries its own lease. A writer that dies while waiting stops holding
 readers back as soon as that lease expires.
 
+## Releasing
+
+A release that has started finishes on the backend even when the task is
+cancelled, by a client disconnect or a shutdown. So does the withdrawal of a
+writer's intent when its wait is cancelled. A backend that never answers is
+given up on once `lease_duration` has passed, and a release then raises
+`LockReleaseError`. See [Releasing](lock.md#releasing) on the lock page.
+
 ## Poison
 
 A write that crashes halfway leaves the resource in whatever state it reached.
@@ -82,6 +90,11 @@ Every coordination backend implements it.
 | SQLite | Reader rows, updated in one write transaction | One host only. Lease durations round up to the millisecond. |
 | Kubernetes | Annotations on the Lease that holds the writer | Coarse-grained. Every reader extension writes to etcd, and annotation size caps readers in the hundreds. A writer lease rounds up to whole seconds. |
 | Memory | A process-local dict | Tests and single-process apps. |
+
+SQLite is host-scoped: it shares state with the processes on one host only.
+`Coordination` requires `cluster`, so a SQLite backend is refused at startup
+in `staging` and `production`, and warns once when `GREL_ENVIRONMENT` is unset.
+See [The backend check](../deployment.md#the-backend-check).
 
 Every holder has its own lease, so a reader that died is dropped by the next
 writer's acquire rather than blocking it until a shared expiry fires.

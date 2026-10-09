@@ -1197,7 +1197,29 @@ class RateLimitedRequests(Reconfigurable[RateLimitedRequestsConfig]):
         key: Callable[[Scope], str | None] | None,
         openapi: bool,
     ) -> None:
-        """Hold the configuration, the limiters, and the middleware's cell."""
+        """Hold the configuration, the limiters, and the middleware's cell.
+
+        Raises:
+            TypeError: If no limiter is given, or neither `trusted` nor
+                `key` says how to key the buckets.
+        """
+        if not limiters:
+            msg = (
+                "RateLimitedRequests takes at least one limiter, such as "
+                "`RateLimitedRequests(RateLimiter(...), trusted=...)`. With "
+                "none, every request would pass while the app reports that "
+                "it is limited."
+            )
+            raise TypeError(msg)
+        if trusted is None and key is None:
+            msg = (
+                "RateLimitedRequests needs to know who the caller is. Pass "
+                "`trusted=TrustedProxies([...])` with the proxies in front "
+                "of the app, or `key=` to build the bucket key from the "
+                "request. Without either, every caller behind a proxy "
+                "would share one bucket."
+            )
+            raise TypeError(msg)
         self._name = name
         self._openapi = openapi
         self._limiters = limiters

@@ -111,6 +111,8 @@ Build `LeaderElection` with keyword arguments. The lease timing fields
 `GREL_LEADERELECTION_{NAME_UPPER}_*` environment variables. See
 [Configuration](../config.md) for the deployment story.
 
+--8<-- "env_gate.md"
+
 !!! tip "Advanced"
     For the `from_config` declarative path and `pydantic-settings` composition,
     see [Declarative configuration](../advanced/config.md).

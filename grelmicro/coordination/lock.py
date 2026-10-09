@@ -16,6 +16,7 @@ from grelmicro._async import (
     on_backend_loop,
     raise_backend_not_open,
     raise_event_loop_deadlock,
+    run_to_completion,
 )
 from grelmicro._config import (
     Reconfigurable,
@@ -583,17 +584,38 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
 
         """
         token = generate_task_token(self._config.worker)
+        # The release runs to its end even when the task is cancelled.
+        released = await run_to_completion(
+            self._release(token, self._running_task())
+        )
+        if not released:
+            raise LockNotOwnedError(name=self._name)
+
+    async def _release(self, token: str, task: asyncio.Task[object]) -> bool:
+        """Release `token` on the backend, then forget that `task` holds it.
+
+        Raises:
+            LockReleaseError: The backend call failed.
+        """
         # Local ownership is cleared only after the backend has
         # responded. A backend error keeps the marker so the caller
         # can retry release. A "not owned" answer still clears it
-        # because the distributed truth is authoritative.
-        released = await self.do_release(token)
-        task = self._running_task()
+        # because the distributed truth is authoritative, and so does
+        # a release that ran past the lease, which the backend ended.
+        try:
+            released = await self.do_release(token)
+        except LockReleaseError as error:
+            if isinstance(error.__cause__, TimeoutError):
+                self._forget(task)
+            raise
+        self._forget(task)
+        return released
+
+    def _forget(self, task: asyncio.Task[object]) -> None:
+        """Stop counting `task` as a holder of this lock."""
         if task in self._held_by_tasks:
             self._held_by_tasks.discard(task)
             self._metrics.hold(-1)
-        if not released:
-            raise LockNotOwnedError(name=self._name)
 
     async def locked(self) -> bool:
         """Check if the lock is acquired.
@@ -702,7 +724,11 @@ class Lock(Reconfigurable[LockConfig], BaseLock):
         """
         backend = self.backend
         try:
-            return await backend.release(name=self._lock_name, token=token)
+            # Past the lease the backend frees the lock on its own.
+            async with asyncio.timeout(
+                self._config.lease_duration.total_seconds()
+            ):
+                return await backend.release(name=self._lock_name, token=token)
         except Exception as exc:
             raise LockReleaseError(name=self._name) from exc
 

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking
+* 💥 `CacheError` is removed. Nothing raised it, so an `except CacheError:` never ran. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 💥 `metrics_router` moved from `grelmicro.metrics` to `grelmicro.integrations.fastapi`, next to `health_router`. ([#979](https://github.com/grelinfo/grelmicro/pull/979))
 * 💥 `@cached` and `@limiter` take their key template as `key_template=`, like `key_template="user:{user_id}"`. A string passed to `key=` raises `TypeError`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
 * 💥 `@cached(key_maker=...)` and `@limiter(key_maker=...)` are renamed `key=`. The function still receives `(func, args, kwargs)`. ([#998](https://github.com/grelinfo/grelmicro/issues/998))
@@ -166,6 +167,10 @@
 * ⚡ One refresh fetches at a time. A caller arriving while one runs waits for it, so a burst of tokens naming a new key costs the provider one request, and a request refused with `unknown-key` can await `refresh()` and verify again. ([#850](https://github.com/grelinfo/grelmicro/issues/850))
 
 ### Fixed
+* 🐛 A `Lock`, `ReadWriteLock` or `TaskLock` release finishes on the backend when its task is cancelled, so a client disconnect or a shutdown no longer leaves the lease held until it expires. A release the backend never answers gives up after `lease_duration`, and so does a `TaskLock` extend. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
+* 🐛 A `ReadWriteLock` writer cancelled while it waits withdraws its intent, even when cancelled again, so readers no longer wait for the intent to expire. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
+* 🐛 The `grelmicro.lock.holders` gauge drops when a task is cancelled while it releases its lock. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
+* 🐛 `RateLimitedRequests` built with no limiter, or with neither `trusted=` nor `key=`, raises an error that names it and says how to fix the call. ([#883](https://github.com/grelinfo/grelmicro/issues/883))
 * 🐛 `IdempotentRequests(env_load=...)` decides whether its TTL is read from `GREL_IDEMPOTENCY_HTTP_TTL`, and `IdempotentRequests.from_config` reads no variable for it. ([#959](https://github.com/grelinfo/grelmicro/issues/959))
 * 🐛 A Postgres lock is held for every worker whatever its session time zone, so a worker in another zone no longer takes a held lock. Setup converts the lock table once. Run every worker in the same session time zone while upgrading, since a live lease written in another zone shifts by the difference. ([#992](https://github.com/grelinfo/grelmicro/pull/992))
 * 🐛 A lease is never shorter than asked. Redis rounds a lock lease up to the millisecond and keeps a leader lease to the microsecond. SQLite holds a lease to the millisecond, not up to two seconds longer. ([#959](https://github.com/grelinfo/grelmicro/issues/959))

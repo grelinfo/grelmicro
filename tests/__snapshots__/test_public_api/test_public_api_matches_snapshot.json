@@ -62,7 +62,6 @@
     "CacheBackend": {
       "()": "(*args, **kwargs)"
     },
-    "CacheError": null,
     "CacheInfo": {
       "()": "(hits, misses, maxsize, currsize, evictions) -> None"
     },

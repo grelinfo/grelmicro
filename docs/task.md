@@ -143,6 +143,8 @@ The default is `UTC`. A deployment sets it without touching code through
 `GREL_TIMEZONE`, the one variable that says what wall clock the whole service
 runs on. See [Configuration](config.md#one-timezone-for-the-whole-service).
 
+--8<-- "env_gate.md"
+
 A `TaskRouter` takes the timezone of the `Tasks` that includes it, whatever
 order the wiring happens in. Pass `TaskRouter(timezone=...)` to give one group
 of tasks a different clock. Nearest declaration wins: the task, then its
