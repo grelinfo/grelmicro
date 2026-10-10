@@ -39,6 +39,7 @@ from starlette.testclient import WebSocketDenialResponse
 
 from grelmicro import Grelmicro
 from grelmicro._caller import subject_of
+from grelmicro._paths import route_template
 from grelmicro.errors import (
     AmbiguousCredentialsError,
     AuthenticationRequiredError,
@@ -50,7 +51,7 @@ from grelmicro.http import (
     AuthenticatedRequestsMiddleware,
     ErrorResponses,
 )
-from grelmicro.http._authentication import _PublicRoutes, refusal_of
+from grelmicro.http._authentication import refusal_of
 from grelmicro.http._kinds import classify
 from grelmicro.http._requirement import recorded
 from grelmicro.integrations.fastapi import (
@@ -1590,14 +1591,17 @@ class TestMutationGaps:
     def test_the_template_before_routing(
         self, extra: dict[str, str], expected: str | None
     ) -> None:
-        """A missing root path, a stripped prefix and no route at all."""
-        app = Starlette(routes=[Route("/whoami", whoami)])
-        public = _PublicRoutes()
-        public.read(app)
+        """A missing root path, a stripped prefix and no route at all.
 
-        template = public.template(
-            {"type": "http", "method": "GET", "app": app, **extra}
-        )
+        On an app with no route reader, such as FastAPI, the routes of the
+        app serving the request are matched.
+        """
+        app = FastAPI()
+        app.add_route("/whoami", whoami)
+        scope: dict[str, Any] = {"type": "http", "method": "GET", "app": app}
+        scope.update(extra)
+
+        template = route_template(scope, extra["path"], reach=True)
 
         assert template == expected
 

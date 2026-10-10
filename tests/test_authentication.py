@@ -4587,6 +4587,27 @@ class TestConsistency:
             "featured": True
         }
 
+    def test_a_public_route_declared_after_a_mount_is_described_as_public(
+        self,
+    ) -> None:
+        """A mount the route's URL does not reach leaves the route public."""
+
+        # Arrange
+        def declare(app: FastAPI) -> None:
+            app.mount("/admin", Starlette(routes=[Route("/users", whoami)]))
+
+            @app.get("/open", dependencies=[Anonymous()])
+            async def opened() -> dict[str, bool]:
+                return {"open": True}  # pragma: no cover
+
+        app = fastapi_app(AuthenticatedRequests(verifier()), declare=declare)
+
+        # Act
+        security = app.openapi()["paths"]["/open"]["get"]["security"]
+
+        # Assert
+        assert security == [{}, {SCHEME: []}]
+
     @staticmethod
     def reported(app: FastAPI) -> FastAPI:
         """Install authentication on `app`, keeping what reports on it."""

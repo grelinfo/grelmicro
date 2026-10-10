@@ -28,14 +28,24 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocket
 
 from grelmicro import Grelmicro
-from grelmicro.http import AuthenticatedRequests, ErrorResponses
+from grelmicro.http import (
+    AuthenticatedRequests,
+    AuthenticatedRequestsMiddleware,
+    ErrorResponses,
+    RateLimitedRequests,
+)
+from grelmicro.integrations.fastapi import (
+    Authenticated as FastAPIAuthenticated,
+)
 from grelmicro.integrations.litestar import (
     Authenticated as LitestarAuthenticated,
 )
 from grelmicro.integrations.starlette import (
     Authenticated as StarletteAuthenticated,
 )
-from grelmicro.log import AccessLog
+from grelmicro.log import AccessLog, AccessLogMiddleware
+from grelmicro.resilience import RateLimiter
+from grelmicro.resilience.ratelimiter.memory import MemoryRateLimiterAdapter
 from grelmicro.trace import Trace, TraceExporterType
 from tests.test_authentication import FORGER, bearer, token, verifier
 
@@ -53,6 +63,7 @@ HTTP_401 = 401
 HTTP_403 = 403
 HTTP_404 = 404
 HTTP_405 = 405
+HTTP_429 = 429
 
 
 @pytest.fixture
@@ -409,7 +420,7 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/v1/items/{n}",
-            "/v1/items/{n}",
+            None,
         ),
         (
             "parameterised-mount",
@@ -419,7 +430,7 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/t/{tenant}/items/{n}",
-            "/t/{tenant}/items/{n}",
+            None,
         ),
         (
             "parameterised-mount",
@@ -429,7 +440,7 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/t/{tenant}/items/{n}",
-            "/t/{tenant}/items/{n}",
+            None,
         ),
         (
             "asgi-mount",
@@ -439,8 +450,39 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/files/{bucket}/{path}",
-            "/files/{bucket}/{path}",
+            None,
         ),
+        (
+            "nested-mount",
+            "GET",
+            "/t/acme/v/2/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/t/{tenant}/v/{v}/items/{n}",
+            None,
+        ),
+        (
+            "mount",
+            "GET",
+            "/proxy/v1/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/v1/items/{n}",
+            None,
+        ),
+        (
+            "mount",
+            "GET",
+            "/v1/nowhere",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/{path}",
+            None,
+        ),
+        ("route", "GET", "/nowhere", "", "forged", HTTP_401, None, None),
         (
             "slash-redirect",
             "GET",
@@ -449,7 +491,7 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/t/{tenant}/{path}",
-            "/t/{tenant}/{path}",
+            None,
         ),
         (
             "litestar-app",
@@ -459,7 +501,7 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/shop/{path}",
-            "/shop/{path}",
+            None,
         ),
         (
             "fastapi-app",
@@ -469,7 +511,17 @@ REFUSAL = ("shape", "method", "path", "root_path", "credential", "status")
             "forged",
             HTTP_401,
             "/api/items/{n}",
-            "/api/items/{n}",
+            None,
+        ),
+        (
+            "fastapi-router",
+            "GET",
+            "/api/v1/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/api/v1/items/{n}",
+            None,
         ),
         (
             "gated-route",
@@ -517,8 +569,9 @@ def test_starlette_names_one_route_for_a_refused_request(
 ) -> None:
     """A refused request names one route in its access record and its security event.
 
-    The request span names it too, except for a request refused before
-    the router ran outside any mount, which names none.
+    A request refused before routing names the route it would reach, and
+    its request span names none. One a gate refused names its route in
+    the request span too.
     """
     reading = _read(
         STARLETTE_SHAPES[shape](),
@@ -670,9 +723,10 @@ def test_litestar_names_one_route_per_request(
             "",
             "forged",
             HTTP_401,
-            None,
+            "/items/{n}",
             None,
         ),
+        ("route", "GET", "/nowhere", "", "forged", HTTP_401, None, None),
         (
             "parameterised-router",
             "GET",
@@ -691,7 +745,7 @@ def test_litestar_names_one_route_per_request(
             "forged",
             HTTP_401,
             "/files/{path}",
-            "/files/{path}",
+            None,
         ),
         (
             "litestar-app",
@@ -701,7 +755,7 @@ def test_litestar_names_one_route_per_request(
             "forged",
             HTTP_401,
             "/shop/{path}",
-            "/shop/{path}",
+            None,
         ),
         (
             "starlette-app",
@@ -711,7 +765,7 @@ def test_litestar_names_one_route_per_request(
             "forged",
             HTTP_401,
             "/shop/{path}",
-            "/shop/{path}",
+            None,
         ),
         (
             "gated-route",
@@ -759,8 +813,9 @@ def test_litestar_names_one_route_for_a_refused_request(
 ) -> None:
     """A refused request names one route in its access record and its security event.
 
-    The request span names it too, except for a request refused before
-    the router ran outside any mount, which names none.
+    A request refused before routing names the route it would reach, and
+    its request span names none. One a gate refused names its route in
+    the request span too.
     """
     reading = _read(
         LITESTAR_SHAPES[shape](),
@@ -775,6 +830,165 @@ def test_litestar_names_one_route_for_a_refused_request(
     assert reading.span == span
     assert reading.access == [route]
     assert reading.security == [route]
+
+
+def _fastapi_gated() -> FastAPI:
+    """Return a FastAPI app whose `GET /items/{n}` requires `items:write`."""
+    app = FastAPI()
+
+    @app.get(
+        "/items/{n}",
+        dependencies=[FastAPIAuthenticated(scopes=["items:write"])],
+    )
+    async def item(n: int) -> int:
+        return n  # pragma: no cover
+
+    return app
+
+
+def _fastapi_mounting() -> FastAPI:
+    """Return a FastAPI app mounting a Starlette app serving `/items/{n}` at `/s`."""
+    app = FastAPI()
+    app.mount("/s", Starlette(routes=_items()))
+    return app
+
+
+FASTAPI_SHAPES: dict[str, Callable[[], FastAPI]] = {
+    "route": _fastapi_items,
+    "router": _fastapi_router,
+    "starlette-app": _fastapi_mounting,
+    "gated-route": _fastapi_gated,
+}
+
+
+@pytest.mark.parametrize(
+    (*REFUSAL, "route", "span"),
+    [
+        (
+            "route",
+            "GET",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        (
+            "route",
+            "POST",
+            "/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/items/{n}",
+            None,
+        ),
+        ("route", "GET", "/nowhere", "", "forged", HTTP_401, None, None),
+        (
+            "route",
+            "GET",
+            "/proxy/items/3",
+            "/proxy",
+            "forged",
+            HTTP_401,
+            "/proxy/items/{n}",
+            None,
+        ),
+        (
+            "router",
+            "GET",
+            "/v1/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/v1/items/{n}",
+            None,
+        ),
+        (
+            "starlette-app",
+            "GET",
+            "/s/items/3",
+            "",
+            "forged",
+            HTTP_401,
+            "/s/items/{n}",
+            None,
+        ),
+        (
+            "gated-route",
+            "GET",
+            "/items/3",
+            "",
+            "unscoped",
+            HTTP_403,
+            "/items/{n}",
+            "/items/{n}",
+        ),
+    ],
+)
+def test_fastapi_names_one_route_for_a_refused_request(
+    records: list[logging.LogRecord],
+    *,
+    shape: str,
+    method: str,
+    path: str,
+    root_path: str,
+    credential: str,
+    status: int,
+    route: str | None,
+    span: str | None,
+) -> None:
+    """A refused request names one route in its access record and its security event.
+
+    A request refused before routing names the route it would reach, and
+    FastAPI's request span names none. One a route refused names its
+    route in the request span too.
+    """
+    # Act
+    reading = _read(
+        FASTAPI_SHAPES[shape](),
+        method,
+        path,
+        records,
+        credential=credential,
+        root_path=root_path,
+    )
+
+    # Assert
+    assert reading.status == status
+    assert reading.span == span
+    assert reading.access == [route]
+    assert reading.security == [route]
+
+
+@pytest.mark.parametrize(
+    ("build", "path"),
+    [
+        (STARLETTE_SHAPES["mount"], "/v1/items/3"),
+        (STARLETTE_SHAPES["parameterised-mount"], "/t/acme/items/3"),
+        (_fastapi_router, "/v1/items/3"),
+    ],
+    ids=["starlette-mount", "starlette-parameterised-mount", "fastapi-router"],
+)
+def test_a_middleware_added_by_hand_names_no_route_before_routing(
+    records: list[logging.LogRecord],
+    build: Callable[[], Starlette],
+    path: str,
+) -> None:
+    """Without `install`, no route reader names the route a refusal would reach."""
+    # Arrange
+    app = build()
+    app.add_middleware(AuthenticatedRequestsMiddleware, verifier=verifier())
+
+    # Act
+    with TestClient(app) as client:
+        response = client.get(path, headers=bearer(token(FORGER)))
+
+    # Assert
+    [security] = [record for record in records if record.name == SECURITY]
+    assert response.status_code == HTTP_401
+    assert security.__dict__.get("http.route") is None
 
 
 @pytest.mark.parametrize(
@@ -880,3 +1094,124 @@ def test_a_websocket_is_served_and_writes_no_access_record(
 
     assert echoed == "hello"
     assert [record for record in records if record.name == ACCESS] == []
+
+
+def _flood(at: str) -> RateLimitedRequests:
+    """Meter every request before routing, through one token a minute."""
+    return RateLimitedRequests(
+        RateLimiter.sliding_window(
+            f"{at}-route",
+            limit=100,
+            window=60,
+            backend=MemoryRateLimiterAdapter(),
+        ),
+        flood=RateLimiter.sliding_window(
+            f"{at}-flood",
+            limit=1,
+            window=60,
+            backend=MemoryRateLimiterAdapter(),
+        ),
+        key=lambda _scope: "caller",
+    )
+
+
+@pytest.mark.parametrize(
+    ("build", "path", "route"),
+    [
+        (lambda: Starlette(routes=_items()), "/items/3", "/items/{n}"),
+        (
+            lambda: Starlette(routes=[Mount("/v1", routes=_items())]),
+            "/v1/items/3",
+            "/v1/items/{n}",
+        ),
+        (_litestar_items, "/items/3", "/items/{n}"),
+        (
+            lambda: _litestar_mounting(_litestar_items()),
+            "/shop/items/3",
+            "/shop/{path}",
+        ),
+        (_fastapi_items, "/items/3", "/items/{n}"),
+    ],
+    ids=[
+        "starlette",
+        "starlette-mount",
+        "litestar",
+        "litestar-mount",
+        "fastapi",
+    ],
+)
+def test_access_log_flood_refusal_names_the_route_it_would_reach(
+    records: list[logging.LogRecord],
+    *,
+    build: Callable[[], Any],
+    path: str,
+    route: str,
+) -> None:
+    """A request the flood limit refuses before routing names its route, its span none."""
+    # Arrange
+    app = build()
+    micro = Grelmicro(
+        uses=[Trace(exporter=TraceExporterType.NONE), AccessLog(), _flood(path)]
+    )
+    micro.install(app)
+    exporter = InMemorySpanExporter()
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        micro.trace.provider.add_span_processor(SimpleSpanProcessor(exporter))
+        client.get(path)
+        refused = client.get(path)
+
+    # Assert
+    accesses = [
+        record.__dict__.get("http.route")
+        for record in records
+        if record.name == ACCESS
+    ]
+    spans = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.kind is SpanKind.SERVER
+    ]
+    assert refused.status_code == HTTP_429
+    assert accesses[-1] == route
+    assert (spans[-1].attributes or {}).get("http.route") is None
+
+
+def test_access_log_by_hand_on_fastapi_names_no_route_before_routing(
+    records: list[logging.LogRecord],
+) -> None:
+    """Without `micro.install(app)`, a request no router reached names no route."""
+    # Arrange
+    app = _fastapi_items()
+    app.add_middleware(cast("Any", AccessLogMiddleware))
+
+    # Act
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.get("/nowhere")
+
+    # Assert
+    [access] = [record for record in records if record.name == ACCESS]
+    assert access.__dict__.get("http.route") is None
+
+
+def test_fastapi_include_without_match_dispatches_nowhere(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A FastAPI that no longer matches an include this way names no route."""
+    # Arrange
+    from grelmicro.integrations._fastapi_internals import (  # noqa: PLC0415
+        dispatched,
+        is_included,
+    )
+
+    app = _fastapi_router()
+    [included] = [route for route in app.router.routes if is_included(route)]
+    monkeypatch.setattr(included, "_match", None, raising=False)
+
+    # Act
+    found, added = dispatched(included, {"type": "http", "path": "/"})
+
+    # Assert
+    assert found is None
+    assert added == {}

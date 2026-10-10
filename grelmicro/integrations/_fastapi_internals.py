@@ -32,6 +32,7 @@ __all__ = [
     "candidates",
     "context_of",
     "copy_of",
+    "dispatched",
     "gate_low_priority",
     "is_dispatched_as_itself",
     "is_included",
@@ -123,6 +124,7 @@ def require(router: object) -> None:
     frontend = _FRONTEND is not None
     attributes = (
         (_INCLUDED, "_IncludedRouter", _CANDIDATES),
+        (_INCLUDED, "_IncludedRouter", "_match"),
         (_INCLUDED if frontend else None, "_IncludedRouter", _LOW_PRIORITY),
         (router, "APIRouter", "_mark_routes_changed"),
         (router if frontend else None, "APIRouter", "_low_priority_routes"),
@@ -410,3 +412,24 @@ def path_of(context: Any) -> str:  # noqa: ANN401
     if _FRONTEND is not None and isinstance(context.original_route, _FRONTEND):
         return context.frontend_prefix
     return context.path
+
+
+def dispatched(included: Any, scope: Scope) -> tuple[Any | None, Scope]:  # noqa: ANN401
+    """Return what an include dispatches a request to, and the scope it adds.
+
+    Matched as FastAPI's router matches it, through every include it
+    holds. The route a context runs as a copy is the copy, which names
+    the path under every prefix, and an `APIRoute` is its context. `None`
+    when nothing under the include matches, or when the installed FastAPI
+    no longer matches an include this way.
+    """
+    found: Any = included
+    added: Scope = {}
+    while is_included(found):
+        match = getattr(found, "_match", None)
+        if match is None:
+            return None, added
+        _, child, route, context = match({**scope, **added})
+        added = {**added, **child}
+        found = route if context is None else context.starlette_route or context
+    return found, added
