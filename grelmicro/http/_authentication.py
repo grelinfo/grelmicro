@@ -44,6 +44,7 @@ from grelmicro._paths import (
     declared_dependencies,
     holds_control_character,
     litestar_route_handler,
+    path_format,
     route_path,
     route_template,
     selects,
@@ -90,10 +91,8 @@ from grelmicro.http._kinds import (
 )
 from grelmicro.http._openapi import add_error_schema
 from grelmicro.http._ratelimit import bucket_of
-from grelmicro.http._requirement import (
-    TOKEN_SCOPE_KEY,
-    declared_scopes,
-)
+from grelmicro.http._requirement import TOKEN_SCOPE_KEY
+from grelmicro.http._routes import route_name
 from grelmicro.security._events import SCOPE_KEY, SecurityEvents
 from grelmicro.security.bans import ClientBannedError
 from grelmicro.security.jwks import SigningKeysUnavailableError
@@ -118,6 +117,7 @@ if TYPE_CHECKING:
 
     from grelmicro.http._component import RenderedError
     from grelmicro.http._gate import Answering
+    from grelmicro.http._routes import RouteDeclaration
     from grelmicro.security.bans import ClientBans
     from grelmicro.security.clientip import TrustedProxies
     from grelmicro.security.jwt import TokenVerifier
@@ -677,45 +677,91 @@ def routes_of(app: Any) -> _Routes:  # noqa: ANN401
     return _starlette_routes(app)
 
 
-def public_routes(app: Any) -> Callable[[Any, str, str], bool]:  # noqa: ANN401
-    """Return what says whether a route of `app` is served without a credential.
+def route_authentication(
+    app: Any,  # noqa: ANN401
+) -> Callable[[Any, str, str], tuple[bool, tuple[str, ...]]]:
+    """Return what says how a route of `app` is authenticated, from its declaration.
 
     Asked with the route, a method and the path of the mounts and routers
-    above it, for a report or a schema. On an app whose integration gates
-    and lists its routes, the declarations answer, as each route's gate
-    serves it, and a route another one declared before it takes a URL of
-    its own from is described as authenticated, as the router serves it.
-    On any other, the routes read off the app answer, as the middleware
-    serves them before routing.
+    above it, for a report or a schema. It answers whether the route is
+    served without a credential, and the scopes its declaration requires,
+    sorted. A route its integration declares nothing for requires a
+    caller and no scope.
+
+    On an app whose integration gates its routes, the declarations say
+    which route is served without a credential, as each route's gate
+    serves it. A Starlette route another one declared before it takes a
+    URL of its own from is described as authenticated, as the router
+    serves it. On any other app, the routes read off the app say it, as
+    the middleware serves them before routing.
     """
     routes = routes_of(app)
     integration = load_integration(app)
     listed = getattr(integration, "route_declarations", None)
-    if (
-        listed is None
-        or not hasattr(integration, "install_route_gate")
-        or routes.litestar is not None
-    ):
-        return routes.serves_publicly
-    declared: dict[tuple[str, str | None], bool] = {}
-    for declaration in listed(app):
-        for method in declaration.methods or (None,):
-            declared.setdefault(
-                (declaration.path, method), declaration.anonymous
-            )
+    gated = listed is not None and hasattr(integration, "install_route_gate")
+    litestar = getattr(app, "asgi_router", None) is not None
+    declared = _Declared(() if listed is None else listed(app), loose=litestar)
 
-    def serves_publicly(route: Any, method: str, prefix: str) -> bool:  # noqa: ANN401
+    def read(
+        route: Any,  # noqa: ANN401
+        method: str,
+        prefix: str,
+    ) -> tuple[bool, tuple[str, ...]]:
         path = f"{prefix}{route.path}" or "/"
-        if not declared.get((path, method), declared.get((path, None), False)):
-            return False
-        sample = _sample_url(path)
-        return (
-            sample is None
-            or routes.template_of("http", method, sample)
-            == f"{prefix}{getattr(route, 'path_format', route.path)}"
-        )
+        declaration = declared.of(path, method)
+        if not gated:
+            public = routes.serves_publicly(route, method, prefix)
+        elif declaration is None or not declaration.anonymous:
+            public = False
+        else:
+            sample = None if litestar else _sample_url(path)
+            public = (
+                sample is None
+                or routes.template_of("http", method, sample)
+                == f"{prefix}{getattr(route, 'path_format', route.path)}"
+            )
+        if public or declaration is None:
+            return public, ()
+        return False, tuple(sorted(declaration.scopes))
 
-    return serves_publicly
+    return read
+
+
+class _Declared:
+    """The declarations an integration lists, found by path and method.
+
+    A path matches a declaration written the same way. With `loose`, as on
+    Litestar, whose templates carry other converters than its routes, a
+    path that matches none matches one written with other converters.
+    """
+
+    __slots__ = ("_exact", "_loose")
+
+    def __init__(
+        self, declarations: Iterable[RouteDeclaration], *, loose: bool
+    ) -> None:
+        """Index each declaration under every method it answers."""
+        self._exact: dict[tuple[str, str | None], RouteDeclaration] = {}
+        self._loose: dict[tuple[str, str | None], RouteDeclaration] | None = (
+            {} if loose else None
+        )
+        for declaration in declarations:
+            for method in declaration.methods or (None,):
+                self._exact.setdefault((declaration.path, method), declaration)
+                if self._loose is not None:
+                    self._loose.setdefault(
+                        (path_format(declaration.path), method), declaration
+                    )
+
+    def of(self, path: str, method: str) -> RouteDeclaration | None:
+        """Return the declaration of `method` on `path`, or `None`."""
+        found = self._exact.get((path, method)) or self._exact.get((path, None))
+        if found is not None or self._loose is None:
+            return found
+        unconverted = path_format(path)
+        return self._loose.get((unconverted, method)) or self._loose.get(
+            (unconverted, None)
+        )
 
 
 def serves_anonymous_routes(app: Any) -> bool:  # noqa: ANN401
@@ -1219,6 +1265,26 @@ def is_anonymous_declaration(call: object) -> bool:
     return bool(getattr(call, _ANONYMOUS_MARKER, False))
 
 
+def refuse_anonymous_caller(declaration: RouteDeclaration) -> None:
+    """Refuse an anonymous route that requires a caller, naming it.
+
+    An integration calls it on a route declaring `Anonymous()` that also
+    requires a caller through `Authenticated`, `CurrentPrincipal` or
+    `Claims`, which refuses every request `Anonymous()` is there to serve.
+
+    Raises:
+        TypeError: Naming the route.
+    """
+    msg = (
+        f"{route_name(declaration)} declares Anonymous() and requires a "
+        f"caller through Authenticated, CurrentPrincipal or Claims, so it "
+        f"refuses every request it was written to serve. Read "
+        f"OptionalPrincipal on a public route, or take away what makes the "
+        f"route public."
+    )
+    raise TypeError(msg)
+
+
 def _litestar_declares_public(
     route: Any,  # noqa: ANN401
     method: str,
@@ -1237,78 +1303,6 @@ def _litestar_declares_public(
     )
 
 
-def route_scopes(
-    route: Any,  # noqa: ANN401
-    method: str,
-    contexts: tuple[Any, ...] = (),
-) -> tuple[str, ...]:
-    """Return every scope an `Authenticated` on this route requires, in order.
-
-    A FastAPI route declares them through its dependency tree, a router's
-    included. A Litestar handler declares them as guards, a router's and
-    the app's included. A Starlette endpoint declares them with the
-    `Authenticated` decorator.
-    """
-    return tuple(
-        dict.fromkeys(
-            scope
-            for declared in _declarations(route, method, contexts)
-            for scope in declared
-        )
-    )
-
-
-def _declarations(
-    route: Any,  # noqa: ANN401
-    method: str,
-    contexts: tuple[Any, ...],
-) -> list[tuple[str, ...]]:
-    """Return the scopes of each declaration on the route requiring a caller."""
-    handlers = _litestar_handlers(route)
-    if handlers is not None:
-        return [
-            declared
-            for handler in handlers
-            if _handles(handler, method)
-            for guard in handler.resolve_guards()
-            if (declared := declared_scopes(guard)) is not None
-        ]
-    found: list[tuple[str, ...]] = []
-    endpoint = getattr(route, "endpoint", None)
-    # An endpoint class answers each method from a method of its own.
-    target = (
-        getattr(endpoint, method.lower(), None)
-        if isinstance(endpoint, type)
-        else endpoint
-    )
-    declared_here = declared_scopes(target)
-    if declared_here is not None:
-        found.append(declared_here)
-    declared = getattr(route, "dependant", None)  # codespell:ignore
-    pending = [
-        *getattr(declared, "dependencies", ()),
-        *_included_dependency_trees(route, contexts),
-    ]
-    while pending:
-        dependency = pending.pop(0)
-        if declared_scopes(dependency.call) is not None:
-            # What `SecurityScopes` hands it: the scopes of every `Security`
-            # around it as well as its own, under either spelling FastAPI
-            # has used for them.
-            found.append(
-                (
-                    *(getattr(dependency, "parent_oauth_scopes", None) or ()),
-                    *(
-                        getattr(dependency, "own_oauth_scopes", None)
-                        or getattr(dependency, "security_scopes", None)
-                        or ()
-                    ),
-                )
-            )
-        pending.extend(dependency.dependencies)
-    return found
-
-
 def _handles(handler: Any, method: str) -> bool:  # noqa: ANN401
     """Return whether a Litestar handler answers `method`.
 
@@ -1316,118 +1310,6 @@ def _handles(handler: Any, method: str) -> bool:  # noqa: ANN401
     """
     methods = getattr(handler, "http_methods", None)
     return methods is None or method in methods
-
-
-_ENDPOINT_METHODS: Final = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
-"""Methods an endpoint class may answer, which its route does not list."""
-
-
-def refuse_unreachable_routes(
-    app: Any,  # noqa: ANN401
-    exclude: tuple[str, ...],
-) -> None:
-    """Refuse a route that requires a caller where none is ever required.
-
-    A route in `exclude` never has a token read, so one requiring a caller
-    answers `401` to every request. A route declaring `Anonymous()` and
-    requiring a caller refuses the requests `Anonymous()` is there to serve.
-    A route requiring a scope that is not an OAuth scope token, such as one
-    a `Security` around `CurrentPrincipal` names, could never name it in
-    the challenge refusing a caller.
-
-    Raises:
-        TypeError: Naming the method and the path of the first such route.
-        ValueError: Naming the method, the path and the scope of the first
-            route requiring a scope that is not an OAuth scope token.
-    """
-    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
-        if _serves_metadata(route):
-            # The route grelmicro added for the metadata inherits the app's
-            # guards, and never runs them: the document is served first.
-            continue
-        template = f"{prefix}{getattr(route, 'path_format', route.path)}"
-        excluded = not selects(template, include=(), exclude=exclude)
-        # Sorted, so the method a refusal names is the same on every run.
-        for method in sorted(
-            getattr(route, "methods", None) or _ENDPOINT_METHODS
-        ):
-            declarations = _declarations(route, method, contexts)
-            for scope in (scope for found in declarations for scope in found):
-                _refuse_malformed_scope(scope, method, template)
-            if not declarations:
-                continue
-            if excluded:
-                where = "is in exclude, so a token is never read there,"
-            elif _declares_public(route, method, contexts):
-                where = "declares Anonymous()"
-            else:
-                continue
-            msg = (
-                f"{method} {template} {where} and requires a caller through "
-                f"Authenticated, CurrentPrincipal or Claims, so it refuses "
-                f"every request it was written to serve. Read "
-                f"OptionalPrincipal on a public route, or take away what "
-                f"makes the route public."
-            )
-            raise TypeError(msg)
-
-
-def _refuse_malformed_scope(scope: str, method: str, template: str) -> None:
-    """Refuse a scope a route requires that is not an OAuth scope token.
-
-    Raises:
-        ValueError: Naming the method, the path and the scope.
-    """
-    try:
-        _scope_tokens((scope,))
-    except ValueError:
-        msg = (
-            f"{method} {template} requires the scope {scope!r}, which is not "
-            f"an OAuth scope token, so the challenge refusing a caller could "
-            f"not name it."
-        )
-        raise ValueError(msg) from None
-
-
-def _declares_public(
-    route: Any,  # noqa: ANN401
-    method: str,
-    contexts: tuple[Any, ...],
-) -> bool:
-    """Return whether the route declares itself public, on either framework."""
-    if _litestar_handlers(route) is not None:
-        return _litestar_declares_public(route, method)
-    return _declares_anonymous(route, contexts)
-
-
-def _included_dependency_trees(
-    route: Any,  # noqa: ANN401
-    contexts: tuple[Any, ...],
-) -> list[Any]:
-    """Return the dependency trees a route's routers were included with.
-
-    FastAPI keeps what `include_router(dependencies=...)` names on the
-    include context rather than in the route's own tree, and resolves it
-    only when it serves the route, so the trees are built here the same way.
-    """
-    declared = [
-        dependency
-        for context in contexts
-        for dependency in getattr(context, "dependencies", ()) or ()
-        if callable(getattr(dependency, "dependency", None))
-    ]
-    if not declared:
-        return []
-    from fastapi.dependencies.utils import (  # noqa: PLC0415
-        get_parameterless_sub_dependant,  # codespell:ignore
-    )
-
-    return [
-        get_parameterless_sub_dependant(
-            depends=dependency, path=route.path
-        )  # codespell:ignore
-        for dependency in declared
-    ]
 
 
 SECURITY_SCHEME: Final = "AuthenticatedRequests"
@@ -1459,24 +1341,24 @@ def operation_authentication(
     """Return the public operations, and the scopes each covered one needs.
 
     Keyed by the path the schema publishes and the lowercased method, so
-    both read straight against the schema's paths. An operation is public
-    only when the middleware serves it without a credential, which a
-    declaration alone does not settle: another route may answer its URL.
-    With `anonymous` false no declaration counts, as for a middleware added
+    both read straight against the schema's paths. Each is read off the
+    route's declaration, as `route_authentication` reads it. With
+    `anonymous` false no declaration is public, as for a middleware added
     by hand.
     """
-    served = public_routes(app)
+    read = route_authentication(app)
     public: set[tuple[str, str]] = set()
     scopes: dict[tuple[str, str], list[str]] = {}
-    for prefix, route, contexts in walk_routes(app, unwrap_middleware=True):
+    for prefix, route, _ in walk_routes(app, unwrap_middleware=True):
         path = f"{prefix}{getattr(route, 'path_format', route.path)}"
         # `None` for an endpoint class, which answers whatever it defines.
         for method in getattr(route, "methods", None) or ():
             key = (path, method.lower())
-            if anonymous and served(route, method, prefix):
+            served, required = read(route, method, prefix)
+            if anonymous and served:
                 public.add(key)
             else:
-                scopes[key] = list(route_scopes(route, method, contexts))
+                scopes[key] = list(required)
     return public, scopes
 
 
@@ -2840,12 +2722,9 @@ class AuthenticatedRequests:
         as well.
 
         Raises:
-            TypeError: If a route requiring a caller declares `Anonymous()`
-                or sits in `exclude`, where it could never get one, or a
-                route sits where `resource=` publishes the metadata, where
-                it would never run.
+            TypeError: If a route sits where `resource=` publishes the
+                metadata, where it would never run.
         """
-        refuse_unreachable_routes(app, self._config.exclude)
         refuse_routes_at_metadata(app, resource_metadata_of(self._options()))
         self._public.read(app)
 
@@ -2956,13 +2835,13 @@ class AuthenticatedRequests:
         """Read the routes again, and open the verifier so its keys load.
 
         Raises:
-            TypeError: If a route added since install requires a caller where
-                it could never get one.
+            TypeError: If a route added since install sits where `resource=`
+                publishes the metadata, or its integration refuses what it
+                declares.
             RuntimeError: If a route the integration lists carries no gate.
         """
         metadata = resource_metadata_of(self._options())
         for app in self._public.apps:
-            refuse_unreachable_routes(app, self._config.exclude)
             refuse_routes_at_metadata(app, metadata)
         for gate in self._gates:
             gate.refuse_ungated()

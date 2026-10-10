@@ -19,6 +19,10 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import pytest
 from fastapi import FastAPI
+from litestar import Litestar
+from litestar import get as litestar_get
+from litestar.routes import HTTPRoute
+from litestar.testing import TestClient as LitestarClient
 from starlette.applications import Starlette
 from starlette.authentication import AuthenticationBackend
 from starlette.background import BackgroundTask
@@ -61,9 +65,14 @@ from grelmicro.http import (
     RouteDeclaration,
 )
 from grelmicro.http._routes import refuse_impossible
+from grelmicro.integrations import fastapi as fastapi_integration
 from grelmicro.integrations import starlette as starlette_integration
 from grelmicro.integrations._route_gate import declarations_of, lists_routes
 from grelmicro.integrations.fastapi import Anonymous, CachedResponse
+from grelmicro.integrations.litestar import Anonymous as LitestarAnonymous
+from grelmicro.integrations.litestar import (
+    Authenticated as LitestarAuthenticated,
+)
 from grelmicro.integrations.starlette import (
     Authenticated,
     install_route_gate,
@@ -1015,6 +1024,271 @@ class TestUngated:
         )
 
         assert integration.gated == []
+
+
+class TestUngatedAtStartup:
+    """A route that reached the route table past the integration stops startup."""
+
+    def test_starlette_route_added_past_the_router_fails_startup_naming_it(
+        self,
+    ) -> None:
+        """The startup check reads the route off the declarations."""
+        app = installed(Starlette(routes=[Route("/orders", served)]))
+        list.append(app.router.routes, Route("/late", served))
+
+        with (
+            pytest.raises(RuntimeError, match="GET HEAD /late carries no"),
+            TestClient(app),
+        ):
+            pass  # pragma: no cover
+
+    def test_fastapi_route_added_past_the_router_fails_startup_naming_it(
+        self,
+    ) -> None:
+        """An `APIRoute` is read the same way."""
+        app = FastAPI(openapi_url=None)
+        installed(app)
+        late = FastAPI(openapi_url=None)
+
+        @late.get("/late")
+        async def read() -> None: ...  # pragma: no cover
+
+        list.append(app.router.routes, late.router.routes[-1])
+
+        with (
+            pytest.raises(RuntimeError, match="GET /late carries no"),
+            TestClient(app),
+        ):
+            pass  # pragma: no cover
+
+    def test_litestar_route_added_past_the_router_fails_startup_naming_it(
+        self,
+    ) -> None:
+        """A handler the router never built its trie for is found."""
+
+        @litestar_get("/orders")
+        async def orders() -> None: ...  # pragma: no cover
+
+        @litestar_get("/late")
+        async def late() -> None: ...  # pragma: no cover
+
+        app = Litestar(route_handlers=[orders])
+        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+        app.routes.append(HTTPRoute(path="/late", route_handlers=[late]))
+
+        with (
+            pytest.RaisesGroup(
+                pytest.RaisesExc(RuntimeError, match="GET /late carries no")
+            ),
+            LitestarClient(app),
+        ):
+            pass  # pragma: no cover
+
+
+class TestReadFromDeclarations:
+    """`grelmicro check`, `describe` and the schema read the declarations."""
+
+    @staticmethod
+    def plug(
+        monkeypatch: pytest.MonkeyPatch,
+        integration: Any,  # noqa: ANN401
+    ) -> None:
+        """Make `integration` the one every reader of the app loads."""
+        for module in ("grelmicro._app", "grelmicro.http._authentication"):
+            monkeypatch.setattr(
+                f"{module}.load_integration",
+                lambda app: integration,  # noqa: ARG005
+            )
+
+    def test_describe_reports_the_scopes_a_route_declares(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The route's code names none, its declaration does."""
+        declared = (
+            RouteDeclaration(
+                "/orders",
+                methods=frozenset({"GET", "HEAD"}),
+                scopes=frozenset({"orders:write", "orders:read"}),
+            ),
+        )
+        self.plug(monkeypatch, plugin({"/orders": declared}))
+        app = Starlette(routes=[Route("/orders", served)])
+        micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
+        micro.install(app)
+
+        applies = {
+            (row.method, row.path): row.applies
+            for row in micro.describe(app).endpoints
+        }
+
+        assert applies[("GET", "/orders")] == (
+            "authenticated orders:read orders:write",
+        )
+
+    def test_describe_reports_a_route_its_declaration_serves_anonymously(
+        self,
+    ) -> None:
+        """A Litestar handler is read off its declaration too."""
+
+        @litestar_get("/catalog", opt=LitestarAnonymous())
+        async def catalog() -> None: ...  # pragma: no cover
+
+        @litestar_get("/orders", guards=[LitestarAuthenticated(scopes=["a"])])
+        async def orders() -> None: ...  # pragma: no cover
+
+        app = Litestar(route_handlers=[catalog, orders])
+        micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
+        micro.install(app)
+
+        applies = {
+            (row.method, row.path): row.applies
+            for row in micro.describe(app).endpoints
+        }
+
+        assert applies[("GET", "/catalog")] == ("anonymous",)
+        assert applies[("GET", "/orders")] == ("authenticated a",)
+
+    def test_describe_matches_a_starlette_route_to_its_own_declaration_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A declaration written with another converter is another route's."""
+        declared = (
+            RouteDeclaration(
+                "/items/{item_id:int}",
+                methods=frozenset({"GET", "HEAD"}),
+                scopes=frozenset({"items"}),
+            ),
+        )
+        self.plug(
+            monkeypatch,
+            SimpleNamespace(
+                install=starlette_integration.install,
+                is_bound=starlette_integration.is_bound,
+                install_middleware=starlette_integration.install_middleware,
+                install_route_gate=lambda app, gate: gate(  # noqa: ARG005
+                    Counted(), *declared
+                ),
+                route_declarations=lambda app: list(declared),  # noqa: ARG005
+            ),
+        )
+        app = Starlette(routes=[Route("/items/{item_id}", served)])
+        micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
+        micro.install(app)
+
+        applies = {
+            (row.method, row.path): row.applies
+            for row in micro.describe(app).endpoints
+        }
+
+        assert applies[("GET", "/items/{item_id}")] == ("authenticated",)
+
+    def test_describe_without_gates_reads_a_litestar_handler_as_routed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no declaration, the handler's own `opt` says it is public."""
+
+        @litestar_get("/catalog", opt=LitestarAnonymous())
+        async def catalog() -> None: ...  # pragma: no cover
+
+        self.plug(monkeypatch, SimpleNamespace())
+        app = Litestar(route_handlers=[catalog])
+        micro = Grelmicro(uses=[ErrorResponses(), authenticated()])
+
+        applies = {
+            (row.method, row.path): row.applies
+            for row in micro.describe(app).endpoints
+        }
+
+        assert applies[("GET", "/catalog")] == ("anonymous",)
+
+    def test_openapi_requires_the_scopes_a_route_declares(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The operation's security names the declared scopes, sorted."""
+        declared = (
+            RouteDeclaration(
+                "/orders",
+                methods=frozenset({"GET"}),
+                scopes=frozenset({"orders:write", "orders:read"}),
+            ),
+            RouteDeclaration(
+                "/catalog", methods=frozenset({"GET"}), anonymous=True
+            ),
+        )
+        integration = SimpleNamespace(
+            install=fastapi_integration.install,
+            is_bound=fastapi_integration.is_bound,
+            install_error_responses=fastapi_integration.install_error_responses,
+            install_middleware=fastapi_integration.install_middleware,
+            install_route_gate=lambda app, gate: [  # noqa: ARG005
+                gate(Counted(), declaration) for declaration in declared
+            ],
+            route_declarations=lambda app: list(declared),  # noqa: ARG005
+        )
+        self.plug(monkeypatch, integration)
+        app = FastAPI()
+
+        @app.get("/orders")
+        async def orders() -> None: ...  # pragma: no cover
+
+        @app.get("/catalog")
+        async def catalog() -> None: ...  # pragma: no cover
+
+        Grelmicro(uses=[ErrorResponses(), authenticated()]).install(app)
+
+        paths = app.openapi()["paths"]
+
+        assert paths["/orders"]["get"]["security"] == [
+            {"AuthenticatedRequests": ["orders:read", "orders:write"]}
+        ]
+        assert paths["/catalog"]["get"]["security"] == [
+            {},
+            {"AuthenticatedRequests": []},
+        ]
+
+
+class TestExcludedDeclarations:
+    """A path in `exclude` is never authenticated, so it cannot require scopes."""
+
+    def test_a_scoped_declaration_in_exclude_fails_install_naming_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The gate lets every request through there, so no scope is checked."""
+        probe = RouteDeclaration(
+            "/probe", methods=GET, scopes=frozenset({"ops"})
+        )
+
+        with pytest.raises(ValueError, match="GET /probe is in exclude"):
+            plugged(monkeypatch, {"/probe": (probe,)}, exclude=("/probe",))
+
+    def test_an_unscoped_declaration_in_exclude_installs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A route declaring nothing is what `exclude` opens."""
+        app = plugged(
+            monkeypatch,
+            {"/probe": (RouteDeclaration("/probe", methods=GET),)},
+            exclude=("/probe",),
+        )
+
+        assert TestClient(app).get("/probe").status_code == OK
+
+    def test_a_scoped_declaration_under_an_excluded_prefix_is_named_by_its_template(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A converter is left out of the path the refusal names."""
+        item = RouteDeclaration(
+            "/items/{item_id:int}", methods=GET, scopes=frozenset({"items"})
+        )
+
+        with pytest.raises(
+            ValueError, match=r"GET /items/\{item_id\} is in exclude"
+        ):
+            plugged(
+                monkeypatch,
+                {"/items/{item_id:int}": (item,)},
+                exclude=("/items/*",),
+            )
 
 
 def public_catalog() -> FastAPI:

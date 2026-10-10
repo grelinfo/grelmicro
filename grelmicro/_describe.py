@@ -330,6 +330,7 @@ class _Endpoint:
     regex: Any = None
     authenticated: bool = False
     public: bool = False
+    scopes: tuple[str, ...] = ()
 
 
 SOME_PATHS = " (some paths)"
@@ -524,7 +525,6 @@ def _reads_idempotent(component: Any) -> Callable[[_Endpoint], str | None]:  # n
 
 def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
     """Return what an `AuthenticatedRequests` does to one endpoint."""
-    from grelmicro.http._authentication import route_scopes  # noqa: PLC0415
 
     def read(endpoint: _Endpoint) -> str | None:
         reach = _reach(endpoint, (), tuple(component.config.exclude))
@@ -532,9 +532,7 @@ def _reads_authenticated(component: Any) -> Callable[[_Endpoint], str | None]:  
             return None
         if endpoint.public:
             return "anonymous"
-        scopes = " ".join(
-            route_scopes(endpoint.route, endpoint.method, endpoint.contexts)
-        )
+        scopes = " ".join(endpoint.scopes)
         return (
             f"authenticated {scopes}{reach}"
             if scopes
@@ -557,26 +555,35 @@ def _authenticated_by(components: Sequence[Any], endpoint: _Endpoint) -> bool:
     )
 
 
-def _served_publicly(app: object) -> Callable[[Any, str, str], bool]:
-    """Return what says whether a route is served without a credential.
+def _authentication_of(
+    app: object,
+) -> Callable[[Any, str, str], tuple[bool, tuple[str, ...]]]:
+    """Return what says how a route is authenticated, from its declaration.
 
-    Read off the app the report is about, never off the running middleware,
-    so a report on one app changes nothing another one serves. An
-    authentication the app added by hand serves no route publicly.
+    It answers whether the route is served without a credential, and the
+    scopes it requires. Read off the app the report is about, never off
+    the running middleware, so a report on one app changes nothing another
+    one serves. An authentication the app added by hand serves no route
+    publicly.
     """
     from grelmicro.http._authentication import (  # noqa: PLC0415
-        public_routes,
+        route_authentication,
         serves_anonymous_routes,
     )
 
-    if not serves_anonymous_routes(app):
-        return _served_by_no_route
-    return public_routes(app)
+    read = route_authentication(app)
+    if serves_anonymous_routes(app):
+        return read
 
+    def protected(
+        route: Any,  # noqa: ANN401
+        method: str,
+        prefix: str,
+    ) -> tuple[bool, tuple[str, ...]]:
+        _, scopes = read(route, method, prefix)
+        return False, scopes
 
-def _served_by_no_route(route: Any, method: str, prefix: str) -> bool:  # noqa: ANN401, ARG001
-    """Return that no route is served without a credential."""
-    return False
+    return protected
 
 
 def _reads_rate_limited(component: Any) -> Callable[[_Endpoint], str | None]:  # noqa: ANN401
@@ -656,7 +663,7 @@ def _describe_endpoints(
         for component in components
         if getattr(component, "kind", None) == "authenticated_requests"
     ]
-    served = _served_publicly(app) if authenticating else None
+    authentication = _authentication_of(app) if authenticating else None
     if not rules:
         return ()
     compiled = dict(_declared_paths(app))
@@ -673,10 +680,9 @@ def _describe_endpoints(
                 contexts=contexts,
                 regex=compiled.get(path),
             )
-            endpoint = replace(
-                endpoint,
-                public=served is not None and served(route, method, prefix),
-            )
+            if authentication is not None:
+                public, scopes = authentication(route, method, prefix)
+                endpoint = replace(endpoint, public=public, scopes=scopes)
             endpoint = replace(
                 endpoint,
                 authenticated=_authenticated_by(authenticating, endpoint),
