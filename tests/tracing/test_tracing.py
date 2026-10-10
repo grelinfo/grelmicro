@@ -460,7 +460,7 @@ def test_instrument_foreign_warning_is_not_read_as_the_record(
     monkeypatch: pytest.MonkeyPatch,
     reset_backend: None,  # noqa: ARG001
 ) -> None:
-    """A warning OpenTelemetry writes meanwhile is not taken for the test's record."""
+    """A record OpenTelemetry or asyncio writes meanwhile is not taken for the test's own."""
     # Arrange
     _setup_json_logging(monkeypatch, backend)
 
@@ -469,6 +469,7 @@ def test_instrument_foreign_warning_is_not_read_as_the_record(
         logging.getLogger("opentelemetry.sdk.trace").warning(
             "Processor is already shutdown, ignoring call"
         )
+        logging.getLogger("asyncio").error("Task exception was never retrieved")
         log_message(backend, "inside")
 
     # Act
