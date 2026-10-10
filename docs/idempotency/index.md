@@ -122,7 +122,7 @@ Without a type parameter, responses store as JSON. Pass `serializer=ChargeRespon
 
 ## Single-flight duplicates
 
-A duplicate that arrives while the first execution is still in flight waits and receives the stored response. It folds across replicas when a Coordination lock backend is configured, and in-process otherwise.
+A duplicate that arrives while the first execution is still in flight waits and receives the stored response. It folds across replicas through the app's Coordination lock backend.
 
 ```python
 from grelmicro import Grelmicro
@@ -134,7 +134,7 @@ redis = RedisProvider("redis://localhost:6379/0")
 micro = Grelmicro(uses=[Cache(redis), Coordination(redis)])
 ```
 
-With a lock backend, two replicas that receive the same key at the same time run the work once and both return the same response.
+With a lock backend, two replicas that receive the same key at the same time run the work once and both return the same response. Without one, the lock holds in the process only, so a duplicate on another replica runs the work again. The [backend check](../deployment.md#the-backend-check) reports it: a warning when no environment is declared, `BackendScopeError` in `staging` and `production`. Pass `requires="process"` when one replica is all you run.
 
 ### Bounding the wait
 

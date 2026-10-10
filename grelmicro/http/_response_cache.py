@@ -65,7 +65,7 @@ from grelmicro._paths import (
 )
 from grelmicro.cache._stampede import (
     Fold,
-    _has_lock_backend,
+    check_fold,
     compute_with_stampede,
 )
 from grelmicro.cache.serializers import JsonSerializer
@@ -83,6 +83,7 @@ from grelmicro.http._idempotency import (
     _authentication_paths,
 )
 from grelmicro.http._requirement import declared_scopes, declares_optional
+from grelmicro.types import BackendScope
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -1294,6 +1295,17 @@ class CachedResponsesMiddleware:
             str,
             Doc("Tag every entry carries, so `purge()` deletes them all."),
         ] = "grelmicro:http:default",
+        lock: Annotated[
+            BackendScope | None,
+            Doc(
+                "How far concurrent misses on one response share a single "
+                'call of the handler. `"process"` (default) folds them in '
+                'the process. `"host"` or `"cluster"` also fold them '
+                "through the lock backend of the app's `Coordination`, the "
+                "same as `@cached(lock=...)`. `None` turns folding off. Not "
+                "live: it is read when the middleware is built."
+            ),
+        ] = "process",
         live: Annotated[
             Live[_State] | None,
             Doc(
@@ -1357,10 +1369,8 @@ class CachedResponsesMiddleware:
         self._warned: set[str] = set()
         self._reported: dict[str, float] = {}
         self._unstorable: OrderedDict[str, None] = OrderedDict()
-        self._folds = {
-            scope: Fold("CachedResponses", scope, check=False)
-            for scope in ("process", "cluster")
-        }
+        scope = check_fold(lock)
+        self._fold = None if scope is None else Fold("CachedResponses", scope)
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -1502,9 +1512,7 @@ class CachedResponsesMiddleware:
                     storage_key,
                     compute,
                     self._cache._stampede,  # noqa: SLF001
-                    fold=self._folds[
-                        "cluster" if _has_lock_backend() else "process"
-                    ],
+                    fold=self._fold,
                 ),
             )
         except _NotStored:
@@ -2173,6 +2181,17 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
                 "of every stored key, so it is not live."
             ),
         ] = "http",
+        lock: Annotated[
+            BackendScope | None,
+            Doc(
+                "How far concurrent misses on one response share a single "
+                'call of the handler. `"process"` (default) folds them in '
+                'the process. `"host"` or `"cluster"` also fold them '
+                "through the lock backend of the app's `Coordination`, the "
+                "same as `@cached(lock=...)`. `None` turns folding off. Not "
+                "live: it is read when the middleware is built."
+            ),
+        ] = "process",
         name: Annotated[
             str,
             Doc("Registration name, for a second set of rules on one app."),
@@ -2231,6 +2250,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             cache=cache,
             key=key,
             skip=skip,
+            lock=lock,
         )
         self._track_reconfigure(resolved_env_prefix)
 
@@ -2262,6 +2282,10 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             Callable[[StoredResponse], bool] | None,
             Doc("Returns whether one response is left unstored."),
         ] = None,
+        lock: Annotated[
+            BackendScope | None,
+            Doc("How far concurrent misses on one response fold."),
+        ] = "process",
     ) -> CachedResponses:
         """Build the component from a configuration that is already whole.
 
@@ -2278,6 +2302,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             cache=cache,
             key=key,
             skip=skip,
+            lock=lock,
         )
         return instance
 
@@ -2290,8 +2315,15 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
         cache: TTLCache[Any] | None,
         key: Callable[[Scope], str | None] | None,
         skip: Callable[[StoredResponse], bool] | None,
+        lock: BackendScope | None,
     ) -> None:
-        """Hold the configuration, the store, and the middleware's cell."""
+        """Hold the configuration, the store, and the middleware's cell.
+
+        Raises:
+            SettingsValidationError: If `lock` is not a backend scope or
+                `None`.
+        """
+        self._lock = check_fold(lock)
         self._name = name
         self._key = key
         self._skip = skip
@@ -2360,6 +2392,7 @@ class CachedResponses(Reconfigurable[CachedResponsesConfig]):
             "key": self._key,
             "skip": self._skip,
             "tag": self._tag,
+            "lock": self._lock,
             "live": self._live,
         }
 

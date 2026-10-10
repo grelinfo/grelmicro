@@ -306,7 +306,7 @@ The `key=` function receives the ASGI scope and the client's key, and returns th
 
 A duplicate that arrives while the first execution is still running waits for it, then replays its response.
 
-The wait folds duplicates across replicas when a `Coordination` lock backend is configured, and in-process otherwise. See [Single-flight duplicates](../idempotency/index.md#single-flight-duplicates).
+The wait folds duplicates across replicas through the app's `Coordination` lock backend. Without one, it folds in the process only, so the [backend check](../deployment.md#the-backend-check) refuses to start in `staging` and `production` until you register one or pass `requires="process"`. See [Single-flight duplicates](../idempotency/index.md#single-flight-duplicates).
 
 The wait is bounded by `max_wait`, ten seconds by default:
 

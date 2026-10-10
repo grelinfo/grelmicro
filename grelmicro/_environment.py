@@ -121,7 +121,7 @@ class Binding:
 
     A pattern that no app registers is kept as one of these until an app
     checks it. A component whose backend lives on another component
-    describes itself as one through `_scope_binding()`.
+    describes itself through `_scope_bindings()`.
     """
 
     label: str
@@ -135,6 +135,15 @@ class Binding:
 
     rides: tuple[str, str] | None = None
     """`(kind, name)` of the component whose backend it reads otherwise."""
+
+    attribute: str = "backend"
+    """The attribute of the ridden component that holds the backend."""
+
+    absent: object | None = None
+    """What it falls back to when the ridden component holds no backend.
+
+    `None` leaves such a binding unchecked.
+    """
 
     slot: str | None = None
     """The `Coordination` keyword that takes this backend.
@@ -504,9 +513,9 @@ def _item_findings(
 ) -> Iterator[tuple[_Finding, object]]:
     """Yield what every registered item holds short of its requirement."""
     for item in items:
-        describe = getattr(item, "_scope_binding", None)
+        describe = getattr(item, "_scope_bindings", None)
         if describe is not None:
-            yield from _binding_findings([describe()], items, components)
+            yield from _binding_findings(describe(), items, components)
             continue
         requires = getattr(item, "requires", None)
         kind = getattr(item, "kind", None)
@@ -538,7 +547,10 @@ def _binding_findings(
             ridden = (
                 None if binding.rides is None else components.get(binding.rides)
             )
-            backend = getattr(ridden, "backend", None)
+            backend = getattr(ridden, binding.attribute, None)
+            if backend is None:
+                backend = binding.absent
+                ridden = None
             if backend is None:
                 continue
         elif binding.slot is not None:

@@ -57,10 +57,12 @@ plain cache answers that by running the handler once per caller, which is the
 load spike the cache was there to prevent.
 
 Here the first request runs the handler and every other one waits for it, in
-the process and across replicas when a
-[Coordination](../coordination/index.md) backend is configured. With no lock
-backend, the requests fold in the process only. A lock backend that fails does
-not fail the request.
+the process by default. `CachedResponses(lock="cluster")` also folds them
+across replicas through the lock backend of the app's
+[Coordination](../coordination/index.md), the same as
+[`@cached(lock=...)`](../cache/cached.md#stampede-protection). `lock=None`
+turns folding off. A lock backend that fails, or is missing, is reported and
+does not fail the request: the handler answers it.
 
 A request's own `Cache-Control` is not read. This answers for the resource
 rather than for one caller, so honouring `no-cache` from an unauthenticated
